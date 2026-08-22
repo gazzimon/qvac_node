@@ -17,6 +17,19 @@ step() { printf '\n\033[36m[%s] %s\033[0m\n' "$1" "$2"; }
 ok()   { printf '    \033[32mOK   %s\033[0m\n' "$1"; }
 fail() { printf '    \033[31mFALLA %s\033[0m\n' "$1"; }
 
+step 0 'Internet (no alcanza con estar conectado al wifi)'
+# Hyperswarm necesita llegar a los nodos bootstrap de la DHT. Sin internet real
+# el install solo puede dar "Network Timeout 30s", que no dice nada sobre la
+# causa: un hotspot sin datos da link wifi perfecto y cero conectividad.
+if curl -s --max-time 15 -o /dev/null https://github.com 2>/dev/null; then
+  ok 'hay salida a internet'
+else
+  fail 'NO hay internet. El wifi puede estar conectado igual.'
+  echo '    Probalo con:  curl -sS https://github.com -o /dev/null'
+  echo '    Si es un hotspot, fijate que el telefono tenga datos moviles.'
+  exit 1
+fi
+
 step 1 'Node y npm'
 if command -v node >/dev/null 2>&1; then
   ok "node $(node --version) / npm $(npm --version)"

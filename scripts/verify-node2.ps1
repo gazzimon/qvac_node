@@ -16,6 +16,19 @@ function Step($n, $msg) { Write-Host "`n[$n] $msg" -ForegroundColor Cyan }
 function Ok($msg)   { Write-Host "    OK   $msg" -ForegroundColor Green }
 function Fail($msg) { Write-Host "    FALLA $msg" -ForegroundColor Red }
 
+Step 0 'Internet (no alcanza con estar conectado al wifi)'
+# Hyperswarm necesita llegar a los nodos bootstrap de la DHT. Sin internet real
+# el install solo puede dar "Network Timeout 30s", que no dice nada sobre la
+# causa: un hotspot sin datos da link wifi perfecto y cero conectividad.
+try {
+  $null = Invoke-WebRequest -Uri 'https://github.com' -TimeoutSec 15 -UseBasicParsing
+  Ok 'hay salida a internet'
+} catch {
+  Fail 'NO hay internet. El wifi puede estar conectado igual.'
+  Write-Host '    Si es un hotspot, fijate que el telefono tenga datos moviles.'
+  exit 1
+}
+
 Step 1 'Node y npm'
 try {
   $nodeV = (& node --version) 2>&1
