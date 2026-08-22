@@ -18,14 +18,11 @@ const { spawnSync } = require('child_process')
 const root = path.resolve(__dirname, '..')
 const pkg = require(path.join(root, 'package.json'))
 
-const TARGETS = [
-  'darwin-arm64',
-  'darwin-x64',
-  'linux-arm64',
-  'linux-x64',
-  'win32-arm64',
-  'win32-x64'
-]
+// win32-arm64 se saco al meter la inferencia: @qvac/llm-llamacpp no publica
+// prebuild para esa plataforma y `bare-build` no tiene con que linkear el
+// addon. Hasta Fase 0 se publicaba; el primer `release` completo despues de
+// este cambio lo purga del hypercore. Ver NOTES.md.
+const TARGETS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64']
 
 const hostOnly = process.argv.includes('--host')
 const host = `${os.platform()}-${os.arch()}`

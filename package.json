@@ -8,6 +8,9 @@
   "pear": {
     "name": "qvac-node",
     "stage": {
+      "entrypoints": [
+        "/qvac/worker.pear.entry.mjs"
+      ],
       "ignore": [
         "/.git",
         "/.github",
@@ -36,7 +39,6 @@
     "make:darwin-x64": "bare-build --name qvac-node --standalone --host darwin-x64 --out ./out/darwin-x64 bin.mjs",
     "make:linux-arm64": "bare-build --name qvac-node --standalone --host linux-arm64 --out ./out/linux-arm64 bin.mjs",
     "make:linux-x64": "bare-build --name qvac-node --standalone --host linux-x64 --out ./out/linux-x64 bin.mjs",
-    "make:win32-arm64": "bare-build --name qvac-node --standalone --host win32-arm64 --out ./out/win32-arm64 bin.mjs",
     "make:win32-x64": "bare-build --name qvac-node --standalone --host win32-x64 --out ./out/win32-x64 bin.mjs",
     "release": "node scripts/release.js",
     "release:host": "node scripts/release.js --host",
@@ -45,6 +47,8 @@
   "dependencies": {
     "@qvac/bare-sdk": "^0.17.1",
     "@qvac/llm-llamacpp": "^0.46.0",
+    "bare-env": "^3.0.0",
+    "bare-fs": "^4.5.1",
     "bare-os": "^3.9.3",
     "bare-path": "^3.1.1",
     "bare-process": "^4.5.1",

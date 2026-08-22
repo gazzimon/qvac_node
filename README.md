@@ -21,12 +21,46 @@ qvac-node --help
 ```
 
 No hay npm install del proyecto, no hay build, no hay repo que clonar. El canal
-de distribución **es** la red P2P. Se descargan 55 MB en ~12 s y el binario
-queda en el PATH.
+de distribución **es** la red P2P: el binario queda en el PATH y trae el motor
+de inferencia adentro (105 MB en macOS ARM, 166 MB en Windows x64).
 
 A partir de ahí la copia instalada se mantiene sola: cuando se publica una
 versión nueva, la detecta y se actualiza en ~10 segundos, sin que el usuario
 haga nada.
+
+---
+
+## Inferencia 100% local
+
+```bash
+qvac-node prompt "¿Qué es una red peer-to-peer?"
+```
+
+El LLM corre **en tu máquina**. Nada del prompt ni de la respuesta sale de ahí.
+Los pesos del modelo tampoco vienen por HTTP: bajan por hypercore desde el
+registry de QVAC y quedan cacheados en `~/.qvac/models`. La primera corrida
+descarga el modelo (807 MB para el default, Llama 3.2 1B); las siguientes no.
+
+```bash
+qvac-node prompt "..." --model smol        # SmolLM2 360M, más liviano
+qvac-node prompt "..." --gpu-layers 0      # todo CPU (ver abajo)
+qvac-node prompt "..." --quiet             # sólo la respuesta
+echo "¿Qué es P2P?" | qvac-node prompt -   # el prompt por stdin
+```
+
+**Dos cosas que hay que saber antes de una demo:**
+
+1. **`--gpu-layers 0` puede ser mucho más rápido.** En una GPU integrada floja
+   (Intel UHD 620) el offload a GPU paga la copia sin ganar cómputo: TTFT pasa
+   de 4.66 s a **0.59 s** yendo todo por CPU. En una Mac con Metal conviene el
+   default. Medido, en [NOTES.md](NOTES.md).
+2. **En Windows, pasá el prompt por stdin si tiene acentos.** El binario
+   standalone de `bare-build` recibe el argv en codepage ANSI y rompe cualquier
+   carácter no-ASCII. Es un bug de bare-build, con repro mínimo en
+   [NOTES.md](NOTES.md). `qvac-node prompt -` lo esquiva.
+
+Arrancar el nodo (`qvac-node` a secas) **no** descarga ningún modelo: bajar
+pesos es siempre un efecto explícito de pedir una inferencia.
 
 ---
 
@@ -61,7 +95,7 @@ npm install
 npm start                  # corre local con bare, sin updates
 npm run make               # binario standalone de la plataforma local
 npm run release:host       # build + stage, solo plataforma local (iterar)
-npm run release            # build + stage, las 6 plataformas (antes de la demo)
+npm run release            # build + stage, las 5 plataformas (antes de la demo)
 npm run seed               # seedea el link
 ```
 
@@ -75,20 +109,28 @@ npm version patch --no-git-tag-version
 npm run release
 ```
 
-`release` encadena `bare-build` (los 6 targets cross-compilan desde cualquier
+`release` encadena `bare-build` (los 5 targets cross-compilan desde cualquier
 host), `pear build` (arma `by-arch/`, que es donde `pear install` busca el
 binario) y `pear stage --purge`.
+
+**`win32-arm64` no se publica.** `@qvac/llm-llamacpp` no tiene prebuild para esa
+plataforma, así que con la inferencia adentro el binario no compila.
 
 ---
 
 ## Estado
 
-- **Fase 0 — distribución OTA:** pipeline completo funcionando. Falta validar
-  en una segunda máquina limpia.
-- **Fase 1 — inferencia local con QVAC:** siguiente.
+- **Fase 0 — distribución OTA:** pipeline completo funcionando. Falta validar el
+  OTA en una segunda máquina limpia (el install cross-máquina ya está
+  verificado, Windows → MacBook Apple Silicon).
+- **Fase 1 — inferencia local con QVAC:** **cerrada**. El binario que publica
+  `pear install` responde un prompt con inferencia 100% local. Falta un solo
+  número: el tiempo de `pear install` a primer token, que requiere publicar y
+  reinstalar en una máquina limpia.
+- **Fase 2 — `serve` / `gateway`:** siguiente.
 
-Los números medidos (peso del install, tiempos, propagación del OTA) están en
-[NOTES.md](NOTES.md).
+Los números medidos (peso del install, tiempos, propagación del OTA, TTFT) están
+en [NOTES.md](NOTES.md).
 
 ## Stack
 

@@ -8,20 +8,14 @@ const { spawnSync } = require('child_process')
 const root = path.resolve(__dirname, '..')
 const host = `${os.platform()}-${os.arch()}`
 const script = `make:${host}`
-const supported = new Set([
-  'darwin-arm64',
-  'darwin-x64',
-  'linux-arm64',
-  'linux-x64',
-  'win32-arm64',
-  'win32-x64'
-])
+// win32-arm64 NO esta: @qvac/llm-llamacpp no publica prebuild para esa
+// plataforma, asi que con la inferencia adentro el binario no compila.
+// Ver NOTES.md, "Fase 1 / plataformas".
+const supported = new Set(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'])
 
 if (!supported.has(host)) {
   console.error(`Unsupported platform/arch: ${host}`)
-  console.error(
-    'Supported targets: darwin-arm64, darwin-x64, linux-arm64, linux-x64, win32-arm64, win32-x64'
-  )
+  console.error('Supported targets: darwin-arm64, darwin-x64, linux-arm64, linux-x64, win32-x64')
   process.exit(1)
 }
 
