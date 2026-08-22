@@ -22,15 +22,42 @@ npm run seed
 Tiene que decir `^_^ announced` y `drive length 5969`. Dejalo en una terminal
 aparte y no la cierres.
 
-**Antes de nada, medí el enlace hacia la máquina 2:**
+**Antes de nada, medí el enlace hacia la máquina 2 — pero NO mires el % de
+pérdida.**
 
 ```bash
-ping -n 20 <ip-de-la-maquina-2>
+ping -n 10 <ip-de-la-maquina-2>
 ```
 
-Por encima de ~5% de pérdida no intentes: va a fallar. Está documentado en
-[NOTES.md](../NOTES.md) — un día entero de diagnóstico terminó en que el enlace
-cliente-a-cliente de la wifi se degradaba hasta desaparecer, y no era el código.
+El `ping` de Windows **miente en el resumen**: si la IP no existe, tu propia
+máquina contesta `Host de destino inaccesible` y esas respuestas se cuentan
+como **recibidas**. Medido en esta red: 8 enviados, 8 recibidos, **0% perdidos**
+— con el host totalmente inalcanzable. Un umbral de "menos de 5% de pérdida"
+da luz verde en falso.
+
+Lo que hay que mirar es si aparece `TTL=`, que solo sale en una respuesta de
+eco real:
+
+```bash
+ping -n 10 <ip-de-la-maquina-2> | grep -c "TTL="
+```
+
+- **0** → no hay respuestas reales. Miralo con `arp -a`: si la IP no figura, no
+  hay nada ahí (IP equivocada, máquina dormida o en otra red). Si figura con MAC
+  pero igual no responde, el AP está bloqueando tráfico entre clientes.
+- **cerca de 10** → enlace sano.
+
+Y siempre pingueá el gateway como control (`ping -n 5 <gateway>`): si el
+gateway responde perfecto y la otra máquina no, el problema es el camino
+**entre clientes**, no tu wifi.
+
+**Que el ping entre clientes falle NO cancela la prueba.** Hyperswarm no
+necesita ruta directa en la LAN: puede conectar por hole-punching a través de
+la DHT mientras las dos máquinas tengan internet. Muchos APs corporativos
+bloquean ICMP entre clientes y dejan pasar UDP igual. Si el ping falla,
+intentá el `pear install` igual — el veredicto real lo da el install, no el
+ping. El caso documentado en [NOTES.md](../NOTES.md) fue distinto: ahí el
+enlace se degradaba **bajo carga** y el install moría en `0B/s`.
 
 ---
 
