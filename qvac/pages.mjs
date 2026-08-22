@@ -101,7 +101,7 @@ const STYLE = `
     font-size: .82rem; color: #9fd6ff;
   }
   .keybox button { margin-top: 0; padding: .4rem .8rem; font-size: .8rem; }
-  .card-actions { display: flex; gap: .4rem; margin-top: .7rem; }
+  .card-actions { display: flex; gap: .4rem; margin-top: .7rem; flex-wrap: wrap; }
   .card-actions button { margin-top: 0; padding: .35rem .7rem; font-size: .78rem; }
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.6);
@@ -159,39 +159,64 @@ export const CLIENTE_HTML = page(
       document.getElementById('hermes-modal').innerHTML = ''
     }
 
-    async function connect(nodeId) {
+    function showModal(html) {
+      document.getElementById('hermes-modal').innerHTML = html
+      const overlay = document.getElementById('modal-overlay')
+      const close = document.getElementById('close-modal')
+      if (close) close.addEventListener('click', closeModal)
+      if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal() })
+    }
+
+    async function fetchConnection(nodeId) {
       const r = await fetch('/v1/hermes/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodeId })
       })
       const data = await r.json()
-      if (!r.ok) { alert(data.error || 'no se pudo conectar'); return }
-      document.getElementById('hermes-modal').innerHTML = \`
+      if (!r.ok) { alert(data.error || 'no se pudo conectar'); return null }
+      return data
+    }
+
+    async function connectTerminal(nodeId) {
+      const data = await fetchConnection(nodeId)
+      if (!data) return
+      const curl = \`curl \${location.origin}/v1/chat/completions -H "Authorization: Bearer \${data.apiKey}" -H "Content-Type: application/json" -d '{"modelId":"\${data.node.modelId}","prompt":"hola"}'\`
+      showModal(\`
         <div class="modal-overlay" id="modal-overlay">
           <div class="modal">
             <h3>Conectado a \${data.node.displayName}</h3>
-            <p class="sub">Se generó una API key nueva para este nodo. Para chatear, la forma recomendada es Hermes Agent -ya trae historial, tools y memoria resueltos-: pegá esto en tu terminal.</p>
+            <p class="sub">API key nueva para este nodo. Con Hermes Agent -historial, tools y memoria ya resueltos-: pegá esto en tu terminal.</p>
             <pre>\${data.command}</pre>
             <button id="copy-hermes">Copiar comando de Hermes</button>
-            <p class="sub" style="margin-top:1rem">¿Preferís tu propia terminal? Usá la key directo:</p>
-            <pre>curl \${location.origin}/v1/chat/completions \\\\
-  -H "Authorization: Bearer \${data.apiKey}" \\\\
-  -H "Content-Type: application/json" \\\\
-  -d '{"modelId":"\${data.node.modelId}","prompt":"hola"}'</pre>
+            <p class="sub" style="margin-top:1rem">¿Preferís curl directo?</p>
+            <pre>\${curl}</pre>
             <button id="copy-curl" class="ghost">Copiar curl</button>
             <button id="close-modal" class="ghost">Cerrar</button>
           </div>
         </div>
-      \`
+      \`)
       document.getElementById('copy-hermes').addEventListener('click', () => navigator.clipboard.writeText(data.command))
-      document.getElementById('copy-curl').addEventListener('click', () =>
-        navigator.clipboard.writeText(\`curl \${location.origin}/v1/chat/completions -H "Authorization: Bearer \${data.apiKey}" -H "Content-Type: application/json" -d '{"modelId":"\${data.node.modelId}","prompt":"hola"}'\`)
-      )
-      document.getElementById('close-modal').addEventListener('click', closeModal)
-      document.getElementById('modal-overlay').addEventListener('click', (e) => {
-        if (e.target.id === 'modal-overlay') closeModal()
-      })
+      document.getElementById('copy-curl').addEventListener('click', () => navigator.clipboard.writeText(curl))
+    }
+
+    async function connectWebUI(nodeId) {
+      const data = await fetchConnection(nodeId)
+      if (!data) return
+      showModal(\`
+        <div class="modal-overlay" id="modal-overlay">
+          <div class="modal">
+            <h3>Chat web para \${data.node.displayName}</h3>
+            <p class="sub">Abre <b>Open WebUI</b> -self-hosted, con cara de ChatGPT, sí tiene UI web de verdad- ya apuntado a este nodo. Necesita Docker instalado. Primera vez: corré esto una sola vez.</p>
+            <pre>\${data.openWebuiCommand}</pre>
+            <button id="copy-webui">Copiar comando</button>
+            <button id="open-webui" class="ghost">Abrir chat web →</button>
+            <button id="close-modal" class="ghost">Cerrar</button>
+          </div>
+        </div>
+      \`)
+      document.getElementById('copy-webui').addEventListener('click', () => navigator.clipboard.writeText(data.openWebuiCommand))
+      document.getElementById('open-webui').addEventListener('click', () => window.open(data.openWebuiUrl, '_blank'))
     }
 
     function bar(pct) {
@@ -211,12 +236,16 @@ export const CLIENTE_HTML = page(
           <div class="price">\${n.pricing}</div>
           \${bar(n.loadPct)}
           <div class="card-actions">
-            <button class="connect-btn" data-id="\${n.id}">Conectar</button>
+            <button class="terminal-btn" data-id="\${n.id}">Conectar con tu terminal</button>
+            <button class="webui-btn ghost" data-id="\${n.id}">Abrir chat web</button>
           </div>
         </div>
       \`).join('')
-      document.querySelectorAll('.connect-btn').forEach(el => {
-        el.addEventListener('click', () => connect(el.dataset.id))
+      document.querySelectorAll('.terminal-btn').forEach(el => {
+        el.addEventListener('click', () => connectTerminal(el.dataset.id))
+      })
+      document.querySelectorAll('.webui-btn').forEach(el => {
+        el.addEventListener('click', () => connectWebUI(el.dataset.id))
       })
     }
 

@@ -162,7 +162,7 @@ async function handleHermesConfig(req, res) {
   const node = body.nodeId ? store.getNode(body.nodeId) : store.findByModelId(body.modelId)
   if (!node) return sendJson(res, 404, { error: 'nodo desconocido' })
 
-  const entry = apikeys.createKey(`hermes · ${node.displayName}`)
+  const entry = apikeys.createKey(`conexión · ${node.displayName}`)
   const baseUrl = `http://127.0.0.1:${currentPort}/v1`
   const yaml =
     'model:\n' +
@@ -173,9 +173,22 @@ async function handleHermesConfig(req, res) {
   const command =
     `mkdir -p ~/.hermes && cat > ~/.hermes/config.yaml <<'EOF'\n${yaml}EOF\n` + 'hermes'
 
+  // host.docker.internal, no 127.0.0.1: el contenedor de Open WebUI no ve el
+  // localhost del host por su cuenta. Puerto 3000 es el default de su imagen.
+  const dockerBaseUrl = `http://host.docker.internal:${currentPort}/v1`
+  const openWebuiCommand =
+    'docker run -d -p 3000:8080 \\\n' +
+    `  -e OPENAI_API_BASE_URL=${dockerBaseUrl} \\\n` +
+    `  -e OPENAI_API_KEY=${entry.key} \\\n` +
+    '  -v open-webui:/app/backend/data \\\n' +
+    '  --name open-webui --restart always \\\n' +
+    '  ghcr.io/open-webui/open-webui:main'
+
   sendJson(res, 200, {
     yaml,
     command,
+    openWebuiCommand,
+    openWebuiUrl: 'http://localhost:3000',
     apiKey: entry.key,
     node: { id: node.id, modelId: node.modelId, displayName: node.displayName }
   })
