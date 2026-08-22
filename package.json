@@ -1,6 +1,6 @@
 {
   "name": "qvac-node",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Nodo de inferencia QVAC distribuido por Pear. Se instala por P2P y se actualiza solo por OTA.",
   "private": true,
   "bin": "bin.mjs",
