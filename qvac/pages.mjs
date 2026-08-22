@@ -146,82 +146,48 @@ export const CLIENTE_HTML = page(
   'QVAC Marketplace · Cliente',
   `
   <h1>Marketplace de inferencias</h1>
-  <p class="sub">Elegí un proveedor y mandale un prompt. La inferencia corre en su nodo, no en un datacenter central.</p>
-
-  <div class="keybox">
-    <span class="muted">Tu API key:</span>
-    <code id="key-preview">generando…</code>
-    <button id="copy-key" class="ghost">Copiar</button>
-    <button id="new-key" class="ghost">Generar nueva</button>
-    <span class="muted" style="font-size:.78rem">Usala en tu terminal: <code>Authorization: Bearer &lt;key&gt;</code></span>
-  </div>
+  <p class="sub">Elegí un proveedor y conectate. Conectar te genera una API key para ese nodo y te deja listo para chatear desde Hermes Agent (o tu propia terminal) — el chat en sí no pasa por acá.</p>
 
   <div id="grid" class="grid"></div>
-
-  <div id="chat" class="chat" style="display:none">
-    <h3>Chat con <span id="chat-target"></span></h3>
-    <textarea id="prompt" placeholder="Escribí tu prompt..."></textarea>
-    <button id="send">Enviar</button>
-    <pre id="out" class="response"></pre>
-  </div>
 
   <div id="hermes-modal"></div>
 
   <script>
-    let selected = null
     let nodesById = {}
-    let apiKey = null
-
-    async function ensureApiKey() {
-      apiKey = localStorage.getItem('qvac_api_key')
-      if (apiKey) {
-        document.getElementById('key-preview').textContent = apiKey.slice(0, 11) + '…' + apiKey.slice(-4)
-        return
-      }
-      await regenerateKey()
-    }
-
-    async function regenerateKey() {
-      const r = await fetch('/v1/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: 'panel cliente' })
-      })
-      const entry = await r.json()
-      apiKey = entry.key
-      localStorage.setItem('qvac_api_key', apiKey)
-      document.getElementById('key-preview').textContent = apiKey.slice(0, 11) + '…' + apiKey.slice(-4)
-    }
-
-    document.getElementById('copy-key').addEventListener('click', () => {
-      if (apiKey) navigator.clipboard.writeText(apiKey)
-    })
-    document.getElementById('new-key').addEventListener('click', regenerateKey)
 
     function closeModal() {
       document.getElementById('hermes-modal').innerHTML = ''
     }
 
-    async function connectHermes(nodeId) {
+    async function connect(nodeId) {
       const r = await fetch('/v1/hermes/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodeId })
       })
       const data = await r.json()
-      if (!r.ok) { alert(data.error || 'no se pudo generar la config'); return }
+      if (!r.ok) { alert(data.error || 'no se pudo conectar'); return }
       document.getElementById('hermes-modal').innerHTML = \`
         <div class="modal-overlay" id="modal-overlay">
           <div class="modal">
-            <h3>Conectar Hermes Agent a \${data.node.displayName}</h3>
-            <p class="sub">Pegá esto en tu terminal. Crea <code>~/.hermes/config.yaml</code> con una API key nueva ya autorizada y lanza Hermes apuntando a este nodo.</p>
+            <h3>Conectado a \${data.node.displayName}</h3>
+            <p class="sub">Se generó una API key nueva para este nodo. Para chatear, la forma recomendada es Hermes Agent -ya trae historial, tools y memoria resueltos-: pegá esto en tu terminal.</p>
             <pre>\${data.command}</pre>
-            <button id="copy-hermes">Copiar comando</button>
+            <button id="copy-hermes">Copiar comando de Hermes</button>
+            <p class="sub" style="margin-top:1rem">¿Preferís tu propia terminal? Usá la key directo:</p>
+            <pre>curl \${location.origin}/v1/chat/completions \\\\
+  -H "Authorization: Bearer \${data.apiKey}" \\\\
+  -H "Content-Type: application/json" \\\\
+  -d '{"modelId":"\${data.node.modelId}","prompt":"hola"}'</pre>
+            <button id="copy-curl" class="ghost">Copiar curl</button>
             <button id="close-modal" class="ghost">Cerrar</button>
           </div>
         </div>
       \`
       document.getElementById('copy-hermes').addEventListener('click', () => navigator.clipboard.writeText(data.command))
+      document.getElementById('copy-curl').addEventListener('click', () =>
+        navigator.clipboard.writeText(\`curl \${location.origin}/v1/chat/completions -H "Authorization: Bearer \${data.apiKey}" -H "Content-Type: application/json" -d '{"modelId":"\${data.node.modelId}","prompt":"hola"}'\`)
+      )
       document.getElementById('close-modal').addEventListener('click', closeModal)
       document.getElementById('modal-overlay').addEventListener('click', (e) => {
         if (e.target.id === 'modal-overlay') closeModal()
@@ -237,7 +203,7 @@ export const CLIENTE_HTML = page(
     function render(nodes) {
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
       document.getElementById('grid').innerHTML = nodes.map(n => \`
-        <div class="card \${selected === n.id ? 'selected' : ''}" data-id="\${n.id}">
+        <div class="card" style="cursor:default">
           <span class="badge \${n.kind}">\${n.kind === 'real' ? 'nodo real' : 'simulado'}</span>
           <h3>\${n.displayName}</h3>
           <div class="op">\${n.operator}</div>
@@ -245,27 +211,13 @@ export const CLIENTE_HTML = page(
           <div class="price">\${n.pricing}</div>
           \${bar(n.loadPct)}
           <div class="card-actions">
-            <button class="ghost hermes-btn" data-id="\${n.id}">Conectar con Hermes</button>
+            <button class="connect-btn" data-id="\${n.id}">Conectar</button>
           </div>
         </div>
       \`).join('')
-      document.querySelectorAll('.card').forEach(el => {
-        el.addEventListener('click', () => selectNode(el.dataset.id))
+      document.querySelectorAll('.connect-btn').forEach(el => {
+        el.addEventListener('click', () => connect(el.dataset.id))
       })
-      document.querySelectorAll('.hermes-btn').forEach(el => {
-        el.addEventListener('click', (e) => {
-          e.stopPropagation()
-          connectHermes(el.dataset.id)
-        })
-      })
-    }
-
-    function selectNode(id) {
-      selected = id
-      const n = nodesById[id]
-      document.getElementById('chat').style.display = 'block'
-      document.getElementById('chat-target').textContent = n.displayName + ' (' + n.operator + ')'
-      render(Object.values(nodesById))
     }
 
     async function refresh() {
@@ -274,50 +226,6 @@ export const CLIENTE_HTML = page(
       render(nodes)
     }
 
-    async function send() {
-      if (!selected) return
-      const prompt = document.getElementById('prompt').value.trim()
-      if (!prompt) return
-      const out = document.getElementById('out')
-      out.textContent = ''
-      const btn = document.getElementById('send')
-      btn.disabled = true
-      try {
-        const resp = await fetch('/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-          body: JSON.stringify({ modelId: nodesById[selected].modelId, prompt })
-        })
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}))
-          out.textContent = '[error] ' + (err.error || resp.status)
-          return
-        }
-        const reader = resp.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const lines = buf.split('\\n\\n')
-          buf = lines.pop()
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            const payload = line.slice(6)
-            if (payload === '[DONE]') continue
-            const { delta, error } = JSON.parse(payload)
-            if (error) { out.textContent += '\\n[error] ' + error; continue }
-            out.textContent += delta || ''
-          }
-        }
-      } finally {
-        btn.disabled = false
-      }
-    }
-
-    document.getElementById('send').addEventListener('click', send)
-    ensureApiKey()
     refresh()
     setInterval(refresh, 3000)
   </script>
