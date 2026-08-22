@@ -1,0 +1,33 @@
+🩺 QVAC doctor
+
+  Host: win32-x64, Node 24.14.1
+
+Runtime:
+  ✅ Node.js version — v24.14.1
+  ✅ CLI host — win32-x64
+
+Hardware:
+  ✅ Total RAM — 15.86 GB
+  ⚠️  Available RAM — 0.96 GB
+      Less than 2 GB available; close other applications before loading large models.
+  ✅ GPU acceleration — Vulkan: Intel(R) UHD Graphics 620
+  ✅ Free disk space (C:\Users\User\Documents\QVAC_node) — 161.66 GB
+
+Deploy targets (SDK):
+  ✅ Desktop — darwin-arm64, darwin-x64, linux-arm64, linux-x64, win32-x64 (native)
+  ✅ Android (android-arm64) — Android Debug Bridge version 1.0.41
+  ℹ️  iOS (ios-arm64 + simulators) — requires macOS host
+      iOS apps can only be built/deployed from a macOS host with Xcode installed.
+
+Optional tools:
+  ✅ ffmpeg — ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers
+  ⚠️  Bare runtime — not found
+      Install bare-runtime only if you target the Bare runtime directly (npm i -g bare-runtime).
+  ⚠️  Bun — not found
+      Install Bun only if you build the SDK from source (https://bun.sh).
+
+Project:
+  ⚠️  @qvac/sdk resolvable from project — not found
+      Run 'npm install @qvac/sdk' in C:\Users\User\Documents\QVAC_node to install the SDK.
+
+✅ All required checks passed.

@@ -177,6 +177,53 @@ Mitigaciones, de más a menos control nuestro:
 
 ---
 
+## Fase 1 — inferencia local con QVAC
+
+### Funciona: inferencia 100% local adentro de Bare
+
+`@qvac/bare-sdk` 0.17.1 + `@qvac/llm-llamacpp` 0.46.0, plugin `llmPlugin`
+registrado explicitamente, modelo **SmolLM2-360M-Instruct-Q8_0** (360M, 386 MB).
+
+| medicion | primera vez | modelo en cache |
+|---|---|---|
+| Carga del modelo | 80.5 s | **11.1 s** |
+| **Primer token (TTFT)** | 6.04 s | **0.83 s** |
+| Respuesta completa | 8.9 s | 3.9 s |
+
+Host: Intel UHD 620 (Vulkan), 15.86 GB RAM total pero solo 0.96 GB libres.
+
+### Los pesos bajan por hypercore, no por HTTP
+
+El descriptor usa el esquema `registry://<registrySource>/<registryPath>` y el
+`QVACRegistryClient` baja el blob desde un corestore. El registry expone 154
+modelos para `llamacpp-completion`. Vale para el pitch: **los modelos tambien
+viajan por P2P**, no solo el cliente.
+
+### Peso del addon: el problema abierto de Fase 1
+
+`@qvac/llm-llamacpp` son 519 MB de prebuilds. Por plataforma:
+
+| plataforma | addon | proyeccion del install |
+|---|---|---|
+| linux-x64 | 136 MB | ~230 MB |
+| win32-x64 | 96 MB | ~150 MB |
+| darwin-arm64 | **13 MB** | **~93 MB** |
+| darwin-x64 | 14 MB | ~94 MB |
+
+macOS pesa poco porque Metal viene en el sistema; Windows y Linux empaquetan
+los backends de GPU. Es un solo `.bare` por plataforma, no es divisible.
+
+**`win32-arm64` NO tiene prebuild.** Hoy publicamos esa plataforma; con
+inferencia adentro deja de ser viable y hay que sacarla del release.
+
+### Calidad de salida: revisar antes del pitch
+
+SmolLM2-360M responde en ~1s pero produce castellano incoherente. Es lo que el
+jurado lee en pantalla. Alternativa dentro del limite de 1B del runbook:
+`llama_3.2_1b_intruct_tool_calling_v2.Q4_K` (1B, 807 MB).
+
+---
+
 ## Cosas que mordieron (para no repetirlas)
 
 - **`pear install` no sirve código fuente, sirve un binario compilado.** Busca
