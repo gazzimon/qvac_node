@@ -44,15 +44,15 @@ bash verify-node2.sh
 
 Hace 8 pasos y cada uno dice OK o FALLA:
 
-| paso | qué prueba |
-|---|---|
-| 0 | Internet real (no alcanza el link wifi) |
-| 1–2 | Node y CLI de Pear |
-| 3 | `pear install` desde el link, cronometrado |
-| 4 | versión instalada |
-| 5 | **inferencia local** + `pear install` → primer token |
-| 6 | GPU vs `--gpu-layers 0` en esa máquina |
-| 7 | si el argv rompe los acentos en esa plataforma |
+| paso | qué prueba                                           |
+| ---- | ---------------------------------------------------- |
+| 0    | Internet real (no alcanza el link wifi)              |
+| 1–2  | Node y CLI de Pear                                   |
+| 3    | `pear install` desde el link, cronometrado           |
+| 4    | versión instalada                                    |
+| 5    | **inferencia local** + `pear install` → primer token |
+| 6    | GPU vs `--gpu-layers 0` en esa máquina               |
+| 7    | si el argv rompe los acentos en esa plataforma       |
 
 En Windows la máquina 2 usa `scripts/verify-node2.ps1`.
 
@@ -126,17 +126,22 @@ exit 1 si hubo alguna falla, así que sirve en CI.
 Además avisa si el TTFT máximo es 3x la mediana: una mediana buena con
 dispersión alta es una demo que a veces se ve mal.
 
-**Corré el soak con el seeder apagado.** Con `npm run seed` en paralelo los
-números salen peores: en esta máquina hay ~1 GB de RAM libre y el modelo son
-800 MB.
+Ya corrido en la máquina 1, **7/7 OK**, con el seeder arriba: TTFT mediana
+0.58 s, dispersión 1.2x. Los números están en [NOTES.md](../NOTES.md).
+
+> **No lo conviertas a `stdio: 'pipe'`.** El soak escribe la salida del hijo a
+> un archivo a propósito: el binario **se cuelga para siempre** si stdout es un
+> pipe de libuv. Lo encontró este mismo soak (3/3 colgadas a los 600 s) y está
+> documentado en NOTES.md. Es el bug que Fase 2 se va a comer si el gateway
+> lee stdout de los nodos en vez de usar IPC.
 
 ---
 
 ## Orden sugerido
 
-1. Soak local con `--gpu-layers 0`, 10 vueltas, **seeder apagado**. Si hay
-   fallas, se arreglan antes de tocar la máquina 2.
-2. Arrancar seeder. Medir ping a la máquina 2.
+1. Soak local con `--gpu-layers 0`, 10 vueltas. Si hay fallas, se arreglan
+   antes de tocar la máquina 2. (Ya corrido con 7: 7/7 OK.)
+2. Seeder arriba (`npm run seed`). Medir ping a la máquina 2.
 3. Máquina 2: `verify-node2.sh`. Anotar los números del paso 5 y 6.
 4. Pre-calentar el modelo en la máquina 2.
 5. Esperar >60 s y hacer la prueba OTA.
