@@ -68,9 +68,25 @@ que es justamente lo que queremos cuando haya streaming de tokens.
 | build standalone, 6 plataformas | ✅ |
 | `pear build` → `by-arch/` | ✅ |
 | `pear stage` / `pear seed` | ✅ |
-| `pear install` desde el link | ✅ (misma máquina) |
+| `pear install` desde el link | ✅ |
 | OTA sobre copia instalada corriendo | ✅ (misma máquina) |
-| **Segunda máquina limpia** | ❌ **PENDIENTE** |
+| **Segunda máquina limpia: INSTALL** | ✅ |
+| **Segunda máquina limpia: OTA** | ⬜ pendiente |
+
+### Install cross-máquina verificado
+
+Windows 11 (seeder) → MacBook Air Apple Silicon, sobre hotspot de iPhone.
+
+| | |
+|---|---|
+| Binario servido | `/by-arch/darwin-arm64/app/qvac-node` |
+| Transferido | **80.9 MB** |
+| Velocidad pico | **3.4 MB/s** |
+| Versión | 0.8.0 (verlink 0.5955) |
+
+La Mac no clonó el repo para instalar: `npm i -g pear` y `pear install`. Eligió
+el binario de su arquitectura sola. Es el criterio de juzgado #1 del track,
+cumplido de verdad y no simulado.
 
 El pipeline entero está verificado, pero **de punta a punta en una sola
 máquina**. El runbook dice explícito que este paso "no es opcional ni
