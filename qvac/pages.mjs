@@ -61,6 +61,9 @@ const STYLE = `
   .badge.offline { background: #3a1414; color: #f87171; }
   .badge.real { background: #1a2740; color: #7db8ff; }
   .badge.mock { background: #2a2440; color: #c7a9ff; }
+  /* Verde como 'online': un par P2P verificado es la cosa buena que muestra
+     la demo, no puede parecerse a un mock. */
+  .badge.peer { background: #10331f; color: #4ade80; }
   .chat { margin-top: 1.5rem; border-top: 1px solid #262b36; padding-top: 1.5rem; }
   textarea, input[type=text] {
     width: 100%; background: #10131a; border: 1px solid #262b36; color: #e6e6e6;
@@ -139,6 +142,16 @@ export const CLIENTE_HTML = page(
   <script>
     let selected = null
     let nodesById = {}
+
+    // Tres clases de nodo, y la diferencia importa demasiado para taparla con
+    // un booleano: 'peer' es un nodo REMOTO de verdad, descubierto por el
+    // swarm y con su manifiesto firmado verificado. Antes caia en el mismo
+    // 'simulado' que los mocks -- justo al revés de lo que pasa.
+    const KIND_LABEL = {
+      real: 'nodo real (este equipo)',
+      peer: 'par P2P verificado',
+      mock: 'simulado'
+    }
 ${ESC}
 
     function barColor(pct) {
@@ -157,7 +170,7 @@ ${ESC}
     function buildGrid(nodes) {
       document.getElementById('grid').innerHTML = nodes.map(n => \`
         <div class="card" data-id="\${esc(n.id)}">
-          <span class="badge \${esc(n.kind)}">\${n.kind === 'real' ? 'nodo real' : 'simulado'}</span>
+          <span class="badge \${esc(n.kind)}">\${KIND_LABEL[n.kind] || esc(n.kind)}</span>
           <h3>\${esc(n.displayName)}</h3>
           <div class="op">\${esc(n.operator)}</div>
           <div class="tags">\${n.tags.map(t => \`<span class="tag">\${esc(t)}</span>\`).join('')}</div>
@@ -214,7 +227,7 @@ ${ESC}
     }
 
     async function refresh() {
-      const r = await fetch('/v1/models')
+      const r = await fetch('/v1/nodes')
       const { nodes } = await r.json()
       render(nodes)
     }
@@ -231,7 +244,14 @@ ${ESC}
         const resp = await fetch('/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ modelId: nodesById[selected].modelId, prompt })
+          // Forma OpenAI, igual que la que manda cualquier cliente de terceros.
+          // El panel no tiene un camino privilegiado: si esto anda, un curl con
+          // el mismo body tambien anda.
+          body: JSON.stringify({
+            model: nodesById[selected].modelId,
+            messages: [{ role: 'user', content: prompt }],
+            stream: true
+          })
         })
 
         // Un error del gateway NO viene en formato SSE, viene como JSON con el
@@ -242,7 +262,11 @@ ${ESC}
           let msg = 'HTTP ' + resp.status
           try {
             const body = await resp.json()
-            if (body && body.error) msg = body.error
+            // Forma OpenAI: { error: { message, type, code } }. Antes esto leia
+            // error como string y mostraba "[object Object]".
+            // (Ojo: nada de backticks en estos comentarios, viven adentro de
+            // un template literal y lo cierran en el medio.)
+            if (body && body.error && body.error.message) msg = body.error.message
           } catch { /* el cuerpo no era JSON: queda el status */ }
           out.textContent = '[error] ' + msg
           return
@@ -265,9 +289,17 @@ ${ESC}
             if (!line.startsWith('data: ')) continue
             const payload = line.slice(6)
             if (payload === '[DONE]') continue
-            const { delta, error } = JSON.parse(payload)
-            if (error) { out.textContent += '\\n[error] ' + error; continue }
-            out.textContent += delta || ''
+            const ev = JSON.parse(payload)
+            // Un error a mitad de stream viaja por el mismo canal SSE: ya se
+            // mandaron los headers 200, no hay status HTTP que corregir.
+            if (ev.error) {
+              out.textContent += '\\n[error] ' + (ev.error.message || ev.error)
+              continue
+            }
+            // chat.completion.chunk: el primer chunk trae solo {role} y el
+            // ultimo solo {finish_reason}. Ninguno de los dos tiene content.
+            const delta = ev.choices && ev.choices[0] && ev.choices[0].delta
+            out.textContent += (delta && delta.content) || ''
           }
         }
       } catch (err) {
@@ -362,7 +394,7 @@ ${ESC}
     let optionsKey = null
 
     async function refresh() {
-      const r = await fetch('/v1/models')
+      const r = await fetch('/v1/nodes')
       const { nodes } = await r.json()
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
       if (!current) current = nodes[0]?.id
@@ -435,7 +467,7 @@ export const ADMIN_HTML = page(
 ${ESC}
 
     async function refreshNodes() {
-      const r = await fetch('/v1/models')
+      const r = await fetch('/v1/nodes')
       const { nodes } = await r.json()
       document.getElementById('rows').innerHTML = nodes.map(n => \`
         <tr>

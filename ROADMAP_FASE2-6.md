@@ -8,6 +8,50 @@ Regla del documento: cada decisión tiene contexto, opciones consideradas, y **l
 
 ---
 
+## 0-bis · Hard gate y narrativa de fallback (escrito 2026-08-22 20:00, entrega ~10:00 del 23)
+
+**La hora está definida acá para no tener que decidirla adentro del problema.**
+
+**Hard gate: 05:00 del domingo 23** (quedan ~6 h de reloj). En ese momento, una
+sola pregunta, respondida con el comando y no con una opinión:
+
+```bash
+# en las DOS máquinas, al mismo tiempo
+qvac-node peers --operator "<nombre>" --timeout 90 --expect 1
+```
+
+- **Exit 0 en ambas** → sigue el track P2P: `chat:request`/`chat:chunk` sobre el
+  `FramedStream` que ya está abierto (Fase 3).
+- **Exit 1 en cualquiera** → **se corta el track P2P** y la demo va con
+  `serve --demo` + el gateway compatible con OpenAI. No se sigue peleando con la
+  red después de esa hora.
+
+### La narrativa del fallback, escrita ahora
+
+Si el gate corta, esto es lo que se cuenta — y es coherente y defendible, no una
+excusa:
+
+> "El protocolo real funciona: el gateway habla OpenAI de verdad, cualquier
+> cliente de terceros le apunta sin modificar una línea, y el manifiesto está
+> firmado con Ed25519 sobre JCS y se verifica —con los casos negativos en el
+> test suite. El descubrimiento P2P está implementado y anda entre dos procesos;
+> lo que no cerramos en el reloj es el transporte de inferencia sobre ese canal.
+> Es el siguiente track, y el gateway ya devuelve un 501 explícito en ese camino
+> en vez de fingir una respuesta."
+
+Lo que hace que esa historia se sostenga es que **nada en el repo miente**:
+`serve` arranca vacío, los mocks solo aparecen con `--demo` y dicen "simulado",
+un par P2P dice "par P2P verificado", el `economic`/`directory` del manifiesto
+dicen `_mock`, y pedirle inferencia a un par remoto devuelve 501 con el motivo.
+Si el jurado abre cualquiera de esas puertas, encuentra lo que la slide dijo.
+
+**Lo que NO se hace si el gate corta:** tapar el 501 con el generador de mocks
+para que la demo "se vea completa". Es exactamente la falla que se ve idéntica a
+que funcione, y es la única forma de perder por deshonestidad en vez de por
+alcance.
+
+---
+
 ## 0 · Decisiones bloqueantes — cerrar antes de escribir código de Fase 2
 
 ### D1. Transporte gateway↔nodo (la más urgente — bloquea el DoD de Fase 3)

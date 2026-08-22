@@ -164,6 +164,98 @@ export function kick(id) {
   return setStatus(id, 'offline')
 }
 
+// ---------------------------------------------------------------------------
+// Pares del swarm (Fase 2-b): el registro se puebla desde manifiestos
+// VERIFICADOS, no desde seed(). Un par anuncia N modelos y cada uno entra como
+// una fila del marketplace, porque es la unidad que el cliente elige.
+// ---------------------------------------------------------------------------
+
+// El panel muestra el precio como texto. El manifiesto lo trae estructurado
+// (unit/amount/currency); esto lo aplana para mostrar, sin perder que el dato
+// firmado es el del manifiesto.
+function formatPricing(pricing) {
+  if (!Array.isArray(pricing) || pricing.length === 0) return 'sin precio declarado'
+  return pricing
+    .map((p) => {
+      const unidad = String(p.unit || '').replace(/_/g, ' ')
+      return `${p.amount} ${p.currency} / ${unidad}`
+    })
+    .join(' · ')
+}
+
+function peerNodeId(peerKey, modelId) {
+  return `${peerKey.slice(0, 12)}:${modelId}`
+}
+
+export function upsertFromManifest(peerKey, manifest) {
+  const operator = (manifest.metadata && manifest.metadata.operator) || 'Nodo remoto'
+  const tags = (manifest.metadata && manifest.metadata.tags) || []
+
+  // Se borran las filas viejas de ESTE par antes de insertar: si reanuncia con
+  // menos modelos, los que ya no sirve tienen que desaparecer del marketplace.
+  removeByPeer(peerKey)
+
+  for (const m of manifest.models) {
+    const id = peerNodeId(peerKey, m.modelId)
+    nodes.set(id, {
+      id,
+      kind: 'peer',
+      peerKey,
+      modelId: m.modelId,
+      displayName: m.displayName || m.modelId,
+      tags,
+      pricing: formatPricing(m.pricing),
+      operator,
+      maxConcurrentRequests: (m.qos && m.qos.maxConcurrentRequests) || 1,
+      activeRequests: 0,
+      status: 'online'
+    })
+  }
+}
+
+export function updateStatus(peerKey, status) {
+  for (const node of nodes.values()) {
+    if (node.peerKey !== peerKey) continue
+    // La capacidad tambien puede cambiar: el par puede haber cargado otro
+    // modelo y tener menos slots libres que cuando firmo el manifiesto.
+    if (Number.isFinite(status.maxConcurrentRequests)) {
+      node.maxConcurrentRequests = status.maxConcurrentRequests
+    }
+    if (Number.isFinite(status.activeRequests)) {
+      node.activeRequests = Math.min(status.activeRequests, node.maxConcurrentRequests)
+    }
+  }
+}
+
+// D3: se cae la conexion, se cae el candidato. Sin mirar `expiresAt`.
+export function removeByPeer(peerKey) {
+  for (const [id, node] of nodes) {
+    if (node.peerKey === peerKey) nodes.delete(id)
+  }
+}
+
+// Lo que este nodo publica en `node:status`. Es la carga REAL de lo que corre
+// en esta maquina: los nodos mock del modo --demo no cuentan, seria anunciarle
+// a la red una capacidad que no existe.
+export function localLoad() {
+  let activeRequests = 0
+  let maxConcurrentRequests = 0
+  for (const node of nodes.values()) {
+    if (node.kind !== 'real') continue
+    activeRequests += node.activeRequests
+    maxConcurrentRequests += node.maxConcurrentRequests
+  }
+  return { activeRequests, maxConcurrentRequests }
+}
+
+// Todos los candidatos para un modelo, no solo el primero. El gateway lo usa
+// para poder LOGUEAR cuantos habia: con pares reales puede haber dos nodos
+// sirviendo el mismo modelId, y el log no puede seguir diciendo "unico
+// candidato" cuando habia tres.
+export function findAllByModelId(modelId) {
+  return [...nodes.values()].filter((n) => n.modelId === modelId && n.status === 'online')
+}
+
 export function pushLog(entry) {
   routingLog.unshift({ ts: Date.now(), ...entry })
   if (routingLog.length > MAX_LOG) routingLog.length = MAX_LOG

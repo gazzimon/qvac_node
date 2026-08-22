@@ -428,6 +428,69 @@ secas no baja un solo byte de modelo. `--no-download` fuerza el modo estricto.
 
 ---
 
+## Fase 2 — swarm y manifiesto firmado
+
+### D7: tiempo de join al topic → primer manifiesto verificado
+
+Medido con `qvac-node peers` en las **dos direcciones**, con dos procesos en la
+**misma máquina** (Windows, DESKTOP-7GTOUA7), storages separados:
+
+| corrida       | join → primer par | join → primer manifiesto verificado |
+| ------------- | ----------------- | ----------------------------------- |
+| A ve a B      | 5583 ms           | 5590 ms                             |
+| B ve a A      | 3648 ms           | 3664 ms                             |
+| A ve a B (2ª) | 8649 ms           | 8654 ms                             |
+| B ve a A (2ª) | 6639 ms           | 6654 ms                             |
+
+**Estos números NO son el número de D7.** Son loopback: los dos procesos están
+en la misma máquina y se encuentran igual por la DHT, así que miden el
+bootstrap al topic pero no el hole-punching entre dos redes. **Falta la
+medición cross-máquina** (Windows ↔ MacBook), que es la que cuenta para el
+objetivo de <60s de Fase 4 y la única que dice si el venue bloquea UDP.
+
+Lo que sí se puede leer de acá:
+
+- El bootstrap a la DHT domina: 3,6–8,6 s, con **1,5x de varianza entre
+  corridas consecutivas** en condiciones idénticas. Cualquier gate de la demo
+  tiene que tolerar ~10 s de descubrimiento, no 3.
+- Verificar el manifiesto es **gratis** frente a encontrar el par: 5–15 ms
+  entre "conectado" y "manifiesto verificado", siempre. La firma Ed25519 no
+  está en el camino crítico de nada.
+
+### El gate de `peers --expect` medía el estado, no el evento
+
+Primera versión: al salir contaba los pares conectados **en ese instante**. Con
+timeouts desparejos (A 45 s, B 40 s), A verificaba el manifiesto de B a los
+5,6 s, B se iba a los 40 s, y a los 45 s A reportaba **0 pares y exit 1** —
+después de haber cumplido el DoD.
+
+El DoD de Fase 2 es un **evento** ("se descubrieron e intercambiaron
+manifiestos verificados"), no un estado. Ahora `NodeSwarm` guarda una marca de
+agua alta (`everVerified`) y el resumen imprime las dos cosas: `pares
+conectados AHORA` y `verificados EN TOTAL`. El gate usa la segunda.
+
+Es el mismo error que el falso positivo del verificador de la MacBook, con el
+signo dado vuelta: un gate que mide lo que es fácil de medir en vez de lo que
+la condición realmente dice.
+
+### Un par del swarm no puede caer en el generador de mocks
+
+`serve --swarm` puebla el registro con pares reales (`kind: 'peer'`). El
+`handleChat` del gateway ramificaba en `kind === 'real' ? engine : mock`, así
+que un par remoto verificado caía en el **else** y el gateway le devolvía texto
+enlatado al cliente haciéndolo pasar por inferencia remota.
+
+Es la peor falla posible de esta pieza porque **se ve idéntica a que
+funcione**. Ahora un `kind: 'peer'` responde **HTTP 501** diciendo que el par
+está descubierto y su manifiesto verificado pero que el transporte de
+inferencia P2P es Fase 3. El panel lo muestra tal cual.
+
+Y el badge del panel decía `simulado` para esos pares (la lógica era
+`kind === 'real' ? 'nodo real' : 'simulado'`): justo al revés de lo que pasa.
+Ahora hay tres etiquetas, una por `kind`.
+
+---
+
 ## Cosas que mordieron en Fase 1
 
 ### BUG DE bare-build: el argv no-ASCII se rompe en el binario standalone

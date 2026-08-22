@@ -44,20 +44,49 @@ const promptCmd = command(
 
 const serveCmd = command(
   'serve',
-  summary('Levantar el gateway del marketplace (demo, ver ROADMAP_FASE2-6.md)'),
+  summary('Levantar el gateway compatible con OpenAI y los paneles'),
   description(
-    'Sirve los 3 paneles (cliente/proveedor/admin) y una API que imita la\n' +
-      'forma del gateway real de Fase 3. El ruteo es contra un registro en\n' +
-      'memoria: un nodo responde con inferencia real (engine.mjs), el resto\n' +
-      'son mocks. No hay P2P todavia -eso es Fase 2/3 completas.'
+    'Sirve los 3 paneles (cliente/proveedor/admin) y POST /v1/chat/completions\n' +
+      'en formato OpenAI: { model, messages[], stream }.\n\n' +
+      'Arranca con el registro VACIO: sin nodos anunciados devuelve un error\n' +
+      'claro de "no hay nodos sirviendo ese modelo", que es el estado real\n' +
+      'mientras el descubrimiento por swarm no este conectado (Fase 2-b).\n' +
+      'Con --demo se puebla con nodos SIMULADOS para el video.'
   ),
   flag('--port <n>', 'puerto HTTP del gateway (default 8787)'),
+  flag(
+    '--demo',
+    'poblar el registro con nodos simulados (1 real + 3 mocks) para la demo.' +
+      ' Sin este flag el gateway arranca sin ningun nodo.'
+  ),
+  flag('--swarm', 'unirse al topic P2P y poblar el registro con pares verificados (Fase 2-b)'),
+  flag('--operator <nombre>', 'nombre del operador que se anuncia en el manifiesto'),
   flag(
     '--gpu-layers <n>',
     'capas a mandar a la GPU del nodo real. 0 = todo CPU (8x mas rapido en la iGPU de la demo, ver NOTES.md)'
   ),
   () => {
     pending = runServe()
+  }
+)
+
+// El comando que verifica el DoD de Fase 2 sin levantar el gateway: se une al
+// topic, anuncia su manifiesto firmado y reporta que pares aparecieron y si su
+// manifiesto verifico. Es lo que se corre en las DOS maquinas del runbook.
+const peersCmd = command(
+  'peers',
+  summary('Unirse al topic P2P y listar los pares con manifiesto verificado'),
+  description(
+    'Anuncia el manifiesto firmado de este nodo en el topic fijo y muestra los\n' +
+      'pares que se descubren, con el tiempo de join -> primer par y\n' +
+      'join -> primer manifiesto verificado (D7 del ROADMAP).\n\n' +
+      'Sale solo con --timeout, o con Ctrl+C.'
+  ),
+  flag('--operator <nombre>', 'nombre del operador que se anuncia en el manifiesto'),
+  flag('--timeout <s>', 'salir despues de N segundos (default: no sale, Ctrl+C)'),
+  flag('--expect <n>', 'exit code 1 si al salir no hay al menos N pares verificados'),
+  () => {
+    pending = runPeers()
   }
 )
 
@@ -70,6 +99,7 @@ const cmd = command(
   flag('--update-delay <ms>', 'ventana de jitter del OTA en ms (default 10000)'),
   promptCmd,
   serveCmd,
+  peersCmd,
   () => {
     pending = runNode()
   }
@@ -204,8 +234,20 @@ async function runServe() {
     ? +serveCmd.flags.gpuLayers
     : undefined
 
+  const demo = serveCmd.flags.demo === true
+  const useSwarm = serveCmd.flags.swarm === true
+
   const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
-  const server = createGateway({ port, gpuLayers })
+  const server = createGateway({ port, gpuLayers, demo })
+
+  let nodeSwarm = null
+  if (useSwarm) {
+    // El swarm escribe en el MISMO registro que lee el gateway: un manifiesto
+    // verificado se vuelve una fila del marketplace, y los paneles la dibujan
+    // sin saber que vino de un par. Esa es la costura de Fase 2-c.
+    const store = await import('./qvac/store.mjs')
+    nodeSwarm = await joinSwarm({ operator: serveCmd.flags.operator, store })
+  }
 
   let closing = false
   const shutdown = async (code) => {
@@ -223,6 +265,7 @@ async function runServe() {
     }, 3000)
     forced.unref?.()
 
+    if (nodeSwarm) await nodeSwarm.destroy()
     await shutdownGateway()
     server.close(() => {
       clearTimeout(forced)
@@ -236,6 +279,128 @@ async function runServe() {
   process.on('SIGTERM', () => shutdown(143))
 
   console.log('Ctrl+C para salir.\n')
+}
+
+// ---------------------------------------------------------------------------
+// Swarm (Fase 2-b): identidad + join al topic, compartido por `serve --swarm`
+// y por `peers`.
+// ---------------------------------------------------------------------------
+
+function swarmStorageDir() {
+  return cmd.flags.storage || path.join(isDev ? os.tmpdir() : persistent(), appName)
+}
+
+async function joinSwarm({ operator, store = null }) {
+  const { loadOrCreateIdentity } = await import('./qvac/identity.mjs')
+  const { NodeSwarm, TOPIC_NAME } = await import('./qvac/swarm.mjs')
+
+  const dir = swarmStorageDir()
+  const identity = loadOrCreateIdentity(dir)
+
+  // Lo que este nodo declara servir. Es su modelo real, no el catalogo del
+  // modo --demo: anunciar un mock seria mentirle a la red.
+  const models = [
+    {
+      modelId: DEFAULT_MODEL,
+      // El nombre exacto del registry, no una etiqueta linda: es el archivo de
+      // pesos que este nodo realmente corre, y en un marketplace lo que se
+      // anuncia tiene que ser lo que se sirve.
+      displayName: MODELS[DEFAULT_MODEL] || DEFAULT_MODEL,
+      maxConcurrentRequests: 3,
+      pricing: [{ unit: 'per_1m_completion_tokens', amount: '1000000', currency: 'QVAC' }]
+    }
+  ]
+
+  const nodeSwarm = new NodeSwarm({
+    identity,
+    models,
+    operator: operator || `Nodo de ${os.hostname()}`,
+    tags: ['general', 'chat'],
+    store
+  })
+
+  console.log('')
+  console.log(`  [swarm] topic    : ${TOPIC_NAME}`)
+  console.log(`  [swarm] identidad: ${identity.publicKey.toString('hex').slice(0, 16)}…`)
+  console.log(`  [swarm] ${identity.created ? 'clave NUEVA generada' : 'clave existente reusada'}`)
+  console.log(`  [swarm] anuncia  : ${models.map((m) => m.modelId).join(', ')}`)
+  console.log('')
+
+  await nodeSwarm.join()
+  nodeSwarm.startStatusBroadcast()
+  console.log('  [swarm] anunciado en la DHT, esperando pares...')
+  console.log('')
+
+  return nodeSwarm
+}
+
+// ---------------------------------------------------------------------------
+// qvac-node peers
+// ---------------------------------------------------------------------------
+
+async function runPeers() {
+  const timeoutS = Number.isFinite(+peersCmd.flags.timeout) ? +peersCmd.flags.timeout : null
+  const expect = Number.isFinite(+peersCmd.flags.expect) ? +peersCmd.flags.expect : null
+
+  const nodeSwarm = await joinSwarm({ operator: peersCmd.flags.operator })
+
+  // El resumen se imprime UNA vez al salir, por cualquiera de las dos vias
+  // (timeout o Ctrl+C), para que el runbook tenga siempre la misma salida que
+  // leer -- y para que el exit code no dependa de como se corto.
+  let done = false
+  const finish = async (code) => {
+    if (done) return
+    done = true
+
+    const t = nodeSwarm.timings()
+    const verificados = nodeSwarm.verifiedPeers()
+
+    console.log('')
+    console.log('  --- resumen ---')
+    console.log(`  pares conectados AHORA: ${t.peers}`)
+    console.log(`  con manifiesto OK     : ${t.verified}`)
+    // El numero del DoD. Un par que se conecto, verifico y se fue cumplio el
+    // DoD igual: si el otro nodo corta antes, "conectados ahora" da cero.
+    console.log(`  verificados EN TOTAL  : ${t.verifiedEver}`)
+    console.log(`  join -> primer par    : ${t.joinToFirstPeerMs ?? 'n/d'} ms`)
+    console.log(`  join -> primer OK     : ${t.joinToFirstManifestMs ?? 'n/d'} ms`)
+    for (const p of verificados) {
+      const op = (p.manifest.metadata && p.manifest.metadata.operator) || '?'
+      const modelos = p.manifest.models.map((m) => m.modelId).join(', ')
+      const carga = p.status
+        ? `${p.status.activeRequests}/${p.status.maxConcurrentRequests}`
+        : 'n/d'
+      console.log(`    · ${op} [${p.key.slice(0, 8)}…] modelos: ${modelos} carga: ${carga}`)
+    }
+    console.log('')
+
+    // El gate del runbook. Sin esto un verificador puede dar OK sobre cero
+    // pares -- exactamente el falso positivo que ya se cazo una vez en la
+    // MacBook (ver NOTES.md).
+    if (expect !== null && t.verifiedEver < expect) {
+      console.error(
+        `[peers] FALLO: se esperaban al menos ${expect} par(es) con manifiesto verificado, hubo ${t.verifiedEver}.`
+      )
+      code = 1
+    } else if (expect !== null) {
+      console.log(`  [peers] OK: ${t.verifiedEver} par(es) verificado(s), se esperaban ${expect}.`)
+    }
+
+    await nodeSwarm.destroy()
+    Bare.exit(code)
+  }
+
+  if (timeoutS !== null) {
+    console.log(`  [peers] saliendo en ${timeoutS}s...`)
+    setTimeout(() => finish(0), timeoutS * 1000)
+  } else {
+    console.log('  Ctrl+C para salir.')
+  }
+
+  process.on('SIGHUP', () => finish(129))
+  process.on('SIGINT', () => finish(0))
+  process.on('SIGQUIT', () => finish(131))
+  process.on('SIGTERM', () => finish(143))
 }
 
 // ---------------------------------------------------------------------------

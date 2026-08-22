@@ -65,3 +65,6 @@ $RECYCLE.BIN/
 tmp/
 temp/
 *.log
+
+# Capturas y snapshots que deja el browser de prueba (MCP)
+.playwright-mcp/

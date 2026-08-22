@@ -127,7 +127,42 @@ plataforma, así que con la inferencia adentro el binario no compila.
   `pear install` responde un prompt con inferencia 100% local. Falta un solo
   número: el tiempo de `pear install` a primer token, que requiere publicar y
   reinstalar en una máquina limpia.
-- **Fase 2 — `serve` / `gateway`:** siguiente.
+- **Fase 2-a — gateway compatible con OpenAI:** **cerrada**.
+  `POST /v1/chat/completions` acepta `{ model, messages[], stream }` y responde
+  `chat.completion.chunk` por SSE (o un `chat.completion` único sin `stream`).
+  `GET /v1/models` devuelve `{ object: "list", data: [...] }`. Sirve para
+  apuntarle cualquier cliente de OpenAI sin modificarlo.
+  No emite `usage`: el SDK no expone el conteo de tokens y un número inventado
+  sería peor que un campo ausente.
+- **Fase 2-a — manifiesto firmado:** **cerrada**. Ed25519 sobre JCS (RFC 8785)
+  en [qvac/manifest.mjs](qvac/manifest.mjs), con casos negativos en
+  [test/index.js](test/index.js).
+- **Fase 2-b — swarm y descubrimiento P2P:** siguiente. **Todavía no existe**:
+  hoy el gateway rutea contra un registro en memoria, no contra pares
+  descubiertos por Hyperswarm.
+
+### Qué es simulado (leer antes de mirar los paneles)
+
+Nada de esto está escondido, y conviene decirlo antes de que alguien lo
+descubra solo:
+
+- **`serve` arranca con el registro vacío.** Sin nodos anunciados, un request
+  devuelve un error claro (`no hay nodos sirviendo <modelo>`). Ese es el estado
+  real mientras el descubrimiento P2P no esté conectado.
+- **`serve --demo` puebla el registro con nodos simulados**: uno hace
+  inferencia de verdad (`engine.mjs`, en este equipo) y tres responden texto
+  enlatado, marcados como `simulado` en los paneles. El `%` de carga de los
+  mocks lo mueve un timer, no tráfico real.
+- **`economic` y `directory` del manifiesto son mock** (wallet en ceros,
+  `discoveryKey` en ceros), con un campo `_mock` que lo dice dentro del propio
+  manifiesto. WDK, recibos y liquidación están fuera de alcance de este track;
+  ni el nodo ni el gateway leen esos campos.
+- **Elegir nodo por carga no está implementado.** Cada nodo anuncia un
+  `modelId` distinto, así que nunca hay dos candidatos para el mismo modelo y
+  el log de routing dice `único candidato`, que es lo que realmente pasa.
+- **El nodo que ejecuta la inferencia ve el prompt en texto plano.** El claim
+  correcto es "ninguna corporación centralizada agrega tus datos a escala", no
+  "nadie más ve tu prompt": el cifrado E2E está fuera de alcance.
 
 Los números medidos (peso del install, tiempos, propagación del OTA, TTFT) están
 en [NOTES.md](NOTES.md).
