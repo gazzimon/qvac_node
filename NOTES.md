@@ -187,19 +187,19 @@ El binario standalone compilado corre inferencia real, sin red, con el comando
 `qvac-node prompt "..."`. Verificado sobre `out/win32-x64/qvac-node.exe`, que es
 exactamente el archivo que `pear build` publica en `/by-arch/win32-x64/app/`.
 
-| paso                                                    | estado                            |
-| ------------------------------------------------------- | --------------------------------- |
-| SDK de QVAC adentro del binario que se distribuye       | ✅                                |
-| comando `qvac-node prompt "..."`                        | ✅                                |
-| `qvac/worker.pear.entry.mjs` + `pear.stage.entrypoints` | ✅                                |
-| addon de llamacpp adentro del standalone (bare-pack)    | ✅                                |
-| `win32-arm64` fuera del release                         | ✅                                |
-| peso real del install con el addon adentro              | ✅ medido                         |
-| tiempo de `pear install` → primer token                 | ⬜ requiere publicar y reinstalar |
+| paso                                                    | estado                      |
+| ------------------------------------------------------- | --------------------------- |
+| SDK de QVAC adentro del binario que se distribuye       | ✅                          |
+| comando `qvac-node prompt "..."`                        | ✅                          |
+| `qvac/worker.pear.entry.mjs` + `pear.stage.entrypoints` | ✅                          |
+| addon de llamacpp adentro del standalone (bare-pack)    | ✅                          |
+| `win32-arm64` fuera del release                         | ✅                          |
+| peso real del install con el addon adentro              | ✅ medido                   |
+| tiempo de `pear install` → primer token                 | ✅ máquina 1 / ⬜ máquina 2 |
 
-Falta un solo número, y no se puede medir sin publicar: hay que correr
-`npm run release` + `npm run seed` y reinstalar desde el link en una máquina
-limpia. Todo lo demás está medido abajo.
+**v0.10.0 publicada** (verlink 5969) y medida en la máquina 1: **~24 s** de
+`pear install` a primer token. Falta repetirlo en la máquina 2, que es el
+único lugar donde el install mide la red de verdad y no el store local.
 
 ### Arquitectura: dónde vive la inferencia
 
@@ -281,6 +281,76 @@ qvac-node prompt "..." --gpu-layers 0
 
 Pendiente: medir lo mismo en la MacBook Apple Silicon antes de decidir si el
 default se toca.
+
+### v0.10.0 publicada: `pear install` → primer token
+
+Publicada el 22/8/2026. Verlink `5962` → **`5969`**, `win32-arm64` purgado
+(−53.5 MB). Medido en la máquina 1 con `npm run soak --install`, seeder
+corriendo, modelo ya cacheado:
+
+|                              |                               |
+| ---------------------------- | ----------------------------- |
+| `pear install` desde el link | **15.4 – 17.2 s**, 165.7 MB   |
+| carga del modelo             | 8.0 s                         |
+| **primer token**             | **0.58 s** (`--gpu-layers 0`) |
+| **install → primer token**   | **~24 s**                     |
+
+**Con la reserva de siempre:** la máquina 1 instala contra su propio store de
+Pear en disco, así que estos 15 s no miden la red. El número que vale es el de
+la máquina 2, y sigue pendiente.
+
+### Soak de robustez: 7/7 corridas OK
+
+`node scripts/soak.js --gpu-layers 0`, binario publicado, modelo en caché:
+
+|                    | min        | mediana    | max        |
+| ------------------ | ---------- | ---------- | ---------- |
+| carga del modelo   | 7.4 s      | 8.0 s      | 8.3 s      |
+| **TTFT**           | **0.54 s** | **0.58 s** | **0.66 s** |
+| respuesta completa | 2.3 s      | 3.2 s      | 3.9 s      |
+
+Dispersión baja: el TTFT máximo es 1.2x la mediana. Con el default (GPU) la
+dispersión era mucho peor. Un argumento más para `--gpu-layers 0` en esta
+máquina.
+
+### BUG: el binario se cuelga para siempre si stdout es un pipe de libuv
+
+El hallazgo más grave de esta ronda, y lo encontró el soak en su primera
+corrida: 3 de 3 colgadas a los 600 s.
+
+El CLI carga el modelo, imprime el banner y el prompt, y después **no emite un
+solo token. Nunca.** Depende exclusivamente de qué le toca a stdout:
+
+| stdout del hijo                            | resultado             |
+| ------------------------------------------ | --------------------- |
+| consola (`inherit`)                        | OK, ~12 s             |
+| archivo (fd)                               | OK, ~16 s             |
+| **pipe de libuv** (`spawn` de Node)        | **COLGADO, infinito** |
+| pipe de shell (bash `\|`, PowerShell `\|`) | OK                    |
+
+Aislado con un script de 20 líneas que sólo cambia el `stdio` del `spawn`: con
+`['ignore','inherit','pipe']` anda, con `['ignore','pipe','pipe']` se cuelga.
+stderr da igual; el que manda es stdout. Tampoco es stdin: da lo mismo `pipe`
+que `ignore`.
+
+libuv usa **named pipes** para el stdio de los hijos en Windows; los pipes
+anónimos de un shell son otra cosa, y por eso `qvac-node prompt ... | grep`
+desde bash funciona y confunde.
+
+**Qué implica:**
+
+- El soak escribe la salida del hijo a un **archivo**, no a un pipe. Está
+  comentado en `scripts/soak.js`: si alguien lo "limpia" a `'pipe'`, vuelve el
+  100% de cuelgues.
+- Cualquier harness en Node o CI que capture la salida se cuelga.
+- **Fase 2 va a chocar con esto de frente.** Si el gateway spawnea nodos y les
+  lee stdout, se cuelga. Hay que resolverlo ahí con IPC de verdad (como el
+  worker del OTA, que usa `FramedStream` sobre `Bare.IPC`) y no leyendo stdout.
+
+Sin explicar todavía: por qué la generación se detiene en vez de sólo
+bufferearse. Encaja con el otro síntoma sin explicar de más arriba —el TTFT 3x
+peor del CLI compilado contra el mismo código bajo `bare`— y sospecho que es la
+misma causa raíz en el manejo de stdout de Bare, pero no lo probé.
 
 ### Elección de modelo: Llama 3.2 1B (medido, no estimado)
 

@@ -1,12 +1,21 @@
 // Gateway del marketplace simulado (demo corta, ver ROADMAP_FASE2-6.md).
 //
-// Sirve los 3 paneles (cliente/proveedor/admin) y una API minima que imita la
-// forma que va a tener el gateway real de Fase 3 (POST /v1/chat/completions
-// con SSE, GET /v1/models) para que el pitch pueda decir "esto ya habla el
-// protocolo real" -pero el ruteo aca es contra un registro EN MEMORIA
-// (store.mjs), no contra peers descubiertos por Hyperswarm. Un solo nodo
-// (kind: 'real') hace inferencia de verdad con engine.mjs; el resto son
-// mocks con respuesta enlatada.
+// Sirve los 3 paneles (cliente/proveedor/admin) y una API propia sobre SSE.
+//
+// OJO CON EL CLAIM: esto NO es compatible con OpenAI, aunque las rutas se
+// llamen igual. `POST /v1/chat/completions` espera `{ modelId, prompt }` y
+// emite `data: {"delta":"..."}`; OpenAI manda `{ model, messages[], stream }`
+// y emite `data: {"choices":[{"delta":{"content":"..."}}]}`. Un request con
+// la forma de OpenAI responde HTTP 400 -probado-. `GET /v1/models` devuelve
+// `{nodes:[...]}`, no `{object:"list",data:[...]}`.
+//
+// Se deja escrito acá porque el pitch NO puede decir "ya habla el protocolo
+// real", y porque Fase 4.5 del ROADMAP (Hermes Agent apuntando su `base_url`
+// acá) no funciona hasta que esto se implemente de verdad.
+//
+// El ruteo tampoco es P2P: va contra un registro EN MEMORIA (store.mjs), no
+// contra peers descubiertos por Hyperswarm. Un solo nodo (kind: 'real') hace
+// inferencia de verdad con engine.mjs; el resto son mocks enlatados.
 
 import http from 'bare-http1'
 import * as store from './store.mjs'
@@ -39,16 +48,24 @@ function truncate(s, n = 60) {
 let engineMod = null
 let realModelId = null
 let realModelLoading = null
+let gpuLayers // undefined = deja decidir al SDK
 
-async function ensureRealModel() {
-  if (realModelId) return realModelId
+function ensureRealModel() {
+  if (realModelId) return Promise.resolve(realModelId)
   if (!realModelLoading) {
     realModelLoading = (async () => {
       engineMod = engineMod || (await import('./engine.mjs'))
       const { modelSrc } = await engineMod.resolveModel('llama1b')
-      realModelId = await engineMod.loadModel({ modelSrc })
+      realModelId = await engineMod.loadModel({ modelSrc, gpuLayers })
       return realModelId
     })()
+    // Si la carga falla, hay que SOLTAR la promesa rechazada. Si queda
+    // cacheada, todo request posterior recibe el mismo rechazo al instante y
+    // el gateway no se recupera nunca sin reiniciarlo -un timeout del registry
+    // por wifi mala dejaba el nodo real muerto para toda la sesion-.
+    realModelLoading.catch(() => {
+      realModelLoading = null
+    })
   }
   return realModelLoading
 }
@@ -143,11 +160,16 @@ async function handleChat(req, res) {
   } finally {
     store.endRequest(node.id)
     res.end()
+    // El motivo dice lo que REALMENTE pasó. Antes decía "menor carga relativa
+    // (simulado)", que era falso: cada nodo tiene un modelId único, así que
+    // `findByModelId` nunca elige entre dos candidatos. Elegir por carga es
+    // D6 del ROADMAP y todavía no está implementado; el log no puede afirmar
+    // una decisión que no ocurrió.
     store.pushLog({
       modelId,
       nodeId: node.id,
       operator: node.operator,
-      reason: node.kind === 'real' ? 'único nodo real disponible' : 'menor carga relativa (simulado)',
+      reason: `único candidato para "${modelId}"`,
       ms: Date.now() - startedAt
     })
   }
@@ -245,17 +267,46 @@ async function onRequest(req, res) {
 
     const kickMatch = pathname.match(/^\/v1\/nodes\/([^/]+)\/kick$/)
     if (req.method === 'POST' && kickMatch) {
-      const node = store.kick(kickMatch[1])
+      const node = store.kick(decodeURIComponent(kickMatch[1]))
       return node ? sendJson(res, 200, node) : sendJson(res, 404, { error: 'nodo desconocido' })
     }
 
     const nodeMatch = pathname.match(/^\/v1\/nodes\/([^/]+)$/)
     if (req.method === 'POST' && nodeMatch) {
-      const patch = await readJsonBody(req)
+      const id = decodeURIComponent(nodeMatch[1])
+      if (!store.getNode(id)) return sendJson(res, 404, { error: 'nodo desconocido' })
+
+      let patch
+      try {
+        patch = await readJsonBody(req)
+      } catch {
+        return sendJson(res, 400, { error: 'body invalido, se esperaba JSON' })
+      }
+
+      // Antes se pisaba `updated` con el resultado de cada set: un status
+      // invalido devolvia null y el endpoint respondia 404 "nodo desconocido"
+      // -aunque el nodo existiera Y el pricing ya se hubiera aplicado-.
+      //
+      // Se valida TODO antes de tocar nada: un request con un campo invalido
+      // no puede dejar el otro aplicado a medias. La existencia del nodo se
+      // chequea una sola vez arriba.
+      const hasPricing = patch.pricing !== undefined
+      const hasStatus = patch.status !== undefined
+
+      if (!hasPricing && !hasStatus) {
+        return sendJson(res, 400, { error: 'nada para actualizar: mandá "pricing" o "status"' })
+      }
+      if (hasPricing && typeof patch.pricing !== 'string') {
+        return sendJson(res, 400, { error: '"pricing" tiene que ser un string' })
+      }
+      if (hasStatus && patch.status !== 'online' && patch.status !== 'offline') {
+        return sendJson(res, 400, { error: '"status" tiene que ser "online" u "offline"' })
+      }
+
       let updated = null
-      if (typeof patch.pricing === 'string') updated = store.setPricing(nodeMatch[1], patch.pricing)
-      if (typeof patch.status === 'string') updated = store.setStatus(nodeMatch[1], patch.status)
-      return updated ? sendJson(res, 200, updated) : sendJson(res, 404, { error: 'nodo desconocido' })
+      if (hasPricing) updated = store.setPricing(id, patch.pricing)
+      if (hasStatus) updated = store.setStatus(id, patch.status)
+      return sendJson(res, 200, updated)
     }
 
     sendJson(res, 404, { error: 'not found' })
@@ -265,18 +316,36 @@ async function onRequest(req, res) {
   }
 }
 
-export function createGateway({ port = 8787 } = {}) {
+export function createGateway({ port = 8787, gpuLayers: gpu } = {}) {
   currentPort = port
+  gpuLayers = Number.isFinite(gpu) ? gpu : undefined
+
   store.seed()
   store.startFluctuation()
 
   const server = http.createServer(onRequest)
+
+  // Sin este handler, arrancar con el puerto ocupado tira un
+  // `Uncaught Error: address already in use` con stack de bare-tcp y nada mas.
+  // Es el error mas probable de la demo -quedo un gateway viejo corriendo- y
+  // el mensaje tiene que decir que hacer.
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`\n[gateway] el puerto ${port} ya esta en uso.`)
+      console.error('[gateway] cerra el otro gateway, o arranca con --port <otro>.\n')
+    } else {
+      console.error('\n[gateway] no se pudo abrir el servidor:', (err && err.message) || err)
+    }
+    Bare.exit(1)
+  })
+
   server.listen(port, () => {
     console.log('')
     console.log(`  [gateway] escuchando en http://localhost:${port}`)
     console.log(`  [gateway] cliente:   http://localhost:${port}/`)
     console.log(`  [gateway] proveedor: http://localhost:${port}/proveedor`)
     console.log(`  [gateway] admin:     http://localhost:${port}/admin`)
+    if (gpuLayers !== undefined) console.log(`  [gateway] gpu_layers: ${gpuLayers}`)
     console.log('')
   })
   return server

@@ -2,7 +2,7 @@
 
 Asume Fase 0 y Fase 1 cerradas (túnel de distribución validado en segunda máquina, inferencia local respondiendo un prompt dentro del worker de Bare). Este documento no repite esas fases: arranca donde el runbook original se queda corto — las decisiones de arquitectura que Fase 2 y Fase 3 necesitan y todavía no están tomadas por escrito.
 
-Regla del documento: cada decisión tiene contexto, opciones consideradas, y **la que recomiendo** — no quedan preguntas abiertas para resolver bajo presión de reloj. Si el equipo prefiere la otra opción, lo importante es que quede escrita *una* antes de tocar código, no cuál.
+Regla del documento: cada decisión tiene contexto, opciones consideradas, y **la que recomiendo** — no quedan preguntas abiertas para resolver bajo presión de reloj. Si el equipo prefiere la otra opción, lo importante es que quede escrita _una_ antes de tocar código, no cuál.
 
 **Encuadre de producto (agregado):** el pitch se para sobre la idea de **marketplace de inferencias locales** — cada nodo es un proveedor que anuncia modelo, precio y disponibilidad en vivo; el gateway/panel es donde un comprador elige entre proveedores reales, no un directorio estático. Esto sube de prioridad el estado de carga por nodo (antes D6, ignorado) y no toca la firma del manifiesto (D2 mock aparte), que se mantiene tal como estaba planeada.
 
@@ -12,9 +12,10 @@ Regla del documento: cada decisión tiene contexto, opciones consideradas, y **l
 
 ### D1. Transporte gateway↔nodo (la más urgente — bloquea el DoD de Fase 3)
 
-**Problema:** `manifest-v0.example.json` declara `node.endpoint.baseUrl: "http://localhost:11434/v1"` — el puerto local de `qvac serve openai`. Eso es *localhost del nodo*, inalcanzable para el gateway de otra máquina. Hyperswarm da un socket P2P (un stream de bytes), no un router HTTP hacia el localhost de otra PC. Ni Fase 2 ni Fase 3 del runbook original dicen cómo viaja el request real.
+**Problema:** `manifest-v0.example.json` declara `node.endpoint.baseUrl: "http://localhost:11434/v1"` — el puerto local de `qvac serve openai`. Eso es _localhost del nodo_, inalcanzable para el gateway de otra máquina. Hyperswarm da un socket P2P (un stream de bytes), no un router HTTP hacia el localhost de otra PC. Ni Fase 2 ni Fase 3 del runbook original dicen cómo viaja el request real.
 
 **Opciones:**
+
 - (a) Túnel HTTP crudo sobre el stream de Hyperswarm: el gateway manda bytes HTTP, el nodo los reenvía a su propio `localhost:11434`.
 - (b) Framing propio directo: el nodo llama a `completion()`/`loadModel()` del SDK en el mismo proceso que sostiene la conexión Hyperswarm, sin pasar por HTTP local.
 
@@ -22,14 +23,14 @@ Regla del documento: cada decisión tiene contexto, opciones consideradas, y **l
 
 **Protocolo mínimo (JSON por mensaje, vía `FramedStream` sobre la conexión Hyperswarm):**
 
-| tipo | dirección | payload |
-|---|---|---|
-| `manifest:announce` | nodo → gateway | el manifiesto firmado (ya contemplado en Fase 2) |
-| `chat:request` | gateway → nodo | `{ requestId, model, messages, stream }` |
-| `chat:chunk` | nodo → gateway | `{ requestId, delta }` |
-| `chat:done` | nodo → gateway | `{ requestId }` |
-| `chat:error` | nodo → gateway | `{ requestId, message }` |
-| `node:status` | nodo → gateway | `{ activeRequests, maxConcurrentRequests }` — ver D6 |
+| tipo                | dirección      | payload                                              |
+| ------------------- | -------------- | ---------------------------------------------------- |
+| `manifest:announce` | nodo → gateway | el manifiesto firmado (ya contemplado en Fase 2)     |
+| `chat:request`      | gateway → nodo | `{ requestId, model, messages, stream }`             |
+| `chat:chunk`        | nodo → gateway | `{ requestId, delta }`                               |
+| `chat:done`         | nodo → gateway | `{ requestId }`                                      |
+| `chat:error`        | nodo → gateway | `{ requestId, message }`                             |
+| `node:status`       | nodo → gateway | `{ activeRequests, maxConcurrentRequests }` — ver D6 |
 
 El gateway mantiene un mapa `requestId → response SSE del cliente HTTP` y traduce cada `chat:chunk` a una línea `data:` sin tocar el contenido.
 
@@ -100,11 +101,13 @@ El gateway mantiene un mapa `requestId → response SSE del cliente HTTP` y trad
 **Objetivo (sin cambios):** el nodo se anuncia en un topic fijo con un manifiesto firmado que otros pueden verificar.
 
 **Manifiesto**
+
 - Aplicar D2: schema sin tocar, `economic`/`directory` con valores mock marcados como tales en código y README. Portar a zod 4.
 - `signManifest` / `verifyManifest`: Ed25519 sobre JCS (RFC 8785), con test de caso negativo.
 - Sin generación de JSON Schema ni test de comparación (ya recortado en el runbook original).
 
 **Swarm**
+
 - Topic fijo, hardcodeado, vía `hyperswarm` (ya viene con el SDK).
 - Cada conexión entrante/saliente se envuelve en `FramedStream` (D1) — es el mismo canal que después Fase 3 usa para `chat:request`/`chat:chunk`, no una conexión aparte.
 - El nodo publica su manifiesto firmado al conectarse con un par. Un manifiesto que no verifica se descarta antes de leer nada más.
@@ -122,6 +125,7 @@ El gateway mantiene un mapa `requestId → response SSE del cliente HTTP` y trad
 **Objetivo (sin cambios):** endpoint compatible con OpenAI, streaming de punta a punta, decisión de routing loggeada.
 
 **Gateway**
+
 - `POST /v1/chat/completions` sobre `bare-http1`. SSE a mano (chunked writes manuales).
 - Filtra candidatos del topic por `modelId` y `capabilities.streaming` (sin cambios), y entre los que califican, prefiere el de menor carga relativa según `node:status` (D6) en vez de puro round-robin.
 - Traduce el request HTTP a un mensaje `chat:request` (D1) sobre el `FramedStream` del nodo elegido; traduce cada `chat:chunk` a una línea `data:` SSE.
@@ -129,6 +133,7 @@ El gateway mantiene un mapa `requestId → response SSE del cliente HTTP` y trad
 - Log de routing en JSON-Lines append-only: candidatos, elegido, motivo, y ahora también si hubo reintento y por qué.
 
 **Cero modelo**
+
 - El gateway arranca sin ningún modelo descargado (sin cambios).
 - Si no hay pares — o hay pares sin el modelo pedido (D5) — mensaje claro, nunca un cuelgue silencioso.
 
@@ -145,13 +150,15 @@ El gateway mantiene un mapa `requestId → response SSE del cliente HTTP` y trad
 **Por qué es casi gratis de construir:** el manifiesto (Fase 2) ya trae `models[].displayName`, `capabilities`, `pricing` y `metadata.tags`/`metadata.operator` por nodo. El gateway (Fase 3) ya arma una tabla en memoria de esos manifiestos para poder rutear. El panel no necesita ninguna pieza de datos nueva — solo exponer esa tabla y dibujarla.
 
 **Backend**
+
 - `GET /v1/models` en el mismo `bare-http1` del gateway: devuelve la tabla en memoria ya agregada (modelId, displayName, tags, pricing, operador) de los nodos conectados en ese momento. Es de solo lectura, no toca el camino de inferencia.
 
 **Frontend**
+
 - Un único archivo HTML estático (sin build, sin framework) servido por el propio gateway en `GET /`. Fetchea `/v1/models` y pinta una grilla de tarjetas: nombre del modelo, categoría (por `tags`: arquitectura/facturas/etc.), precio, quién lo provee, y un badge de **disponible / ocupado** según `node:status` (D6) — es lo que hace que se lea como marketplace y no como catálogo estático.
 - Se actualiza sola (poll cada pocos segundos o reconexión simple) para que en la demo se vea un nodo nuevo aparecer en vivo cuando se conecta, y el badge de disponibilidad cambiar cuando un nodo está sirviendo un request.
 
-**Precisión de la narrativa de privacidad — para no sobrevender en el pitch:** el claim correcto es *"ninguna corporación centralizada agrega tus datos a escala"* (cierto: no pasa por OpenAI/Google/Anthropic). No es *"nadie más ve tu prompt"* — el nodo que ejecuta la inferencia sí lo ve en texto plano, porque el cifrado E2E ("gateway ciego") está explícitamente fuera de alcance en este track. Vale la pena decirlo así de preciso si el jurado pregunta, en vez de que lo encuentren ellos.
+**Precisión de la narrativa de privacidad — para no sobrevender en el pitch:** el claim correcto es _"ninguna corporación centralizada agrega tus datos a escala"_ (cierto: no pasa por OpenAI/Google/Anthropic). No es _"nadie más ve tu prompt"_ — el nodo que ejecuta la inferencia sí lo ve en texto plano, porque el cifrado E2E ("gateway ciego") está explícitamente fuera de alcance en este track. Vale la pena decirlo así de preciso si el jurado pregunta, en vez de que lo encuentren ellos.
 
 **Definition of done:** abrir `http://localhost:<puerto>/` en un browser durante la demo muestra las tarjetas de los modelos realmente conectados en ese momento, con precio y proveedor.
 
@@ -209,13 +216,13 @@ Agregar a **Entregables**:
 
 ## Tabla resumen — decisiones a cerrar antes de arrancar Fase 2
 
-| # | Decisión | Bloquea |
-|---|---|---|
-| D0 | Panel de modelos (Fase 3.5): se corta primero que cualquier otra cosa si aprieta el reloj — no es criterio de juzgado | — (puro upside de pitch) |
-| D1 | Transporte gateway↔nodo: `FramedStream` sobre Hyperswarm, no HTTP a localhost | Fase 3 completa |
-| D2 | No tocar el schema; `economic`/`directory` con mock marcado explícitamente (no silencioso) | Fase 2 |
-| D3 | Candidatos en memoria por estado de socket, no por `expiresAt` | Fase 3 / Fase 5 |
-| D4 | Reintento solo pre-primer-chunk; corte limpio si ya se empezó a streamear | Fase 5 |
-| D5 | Mensaje claro si hay pares sin el modelo pedido | Fase 3 |
-| D6 | Nodo emite `node:status` (carga/capacidad); gateway lo usa para elegir y para el badge disponible/ocupado del panel | Fase 2 / Fase 3 / Fase 3.5 |
-| D7 | Medir tiempo de swarm-join; plan B si el venue bloquea UDP | Fase 4 |
+| #   | Decisión                                                                                                              | Bloquea                    |
+| --- | --------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| D0  | Panel de modelos (Fase 3.5): se corta primero que cualquier otra cosa si aprieta el reloj — no es criterio de juzgado | — (puro upside de pitch)   |
+| D1  | Transporte gateway↔nodo: `FramedStream` sobre Hyperswarm, no HTTP a localhost                                         | Fase 3 completa            |
+| D2  | No tocar el schema; `economic`/`directory` con mock marcado explícitamente (no silencioso)                            | Fase 2                     |
+| D3  | Candidatos en memoria por estado de socket, no por `expiresAt`                                                        | Fase 3 / Fase 5            |
+| D4  | Reintento solo pre-primer-chunk; corte limpio si ya se empezó a streamear                                             | Fase 5                     |
+| D5  | Mensaje claro si hay pares sin el modelo pedido                                                                       | Fase 3                     |
+| D6  | Nodo emite `node:status` (carga/capacidad); gateway lo usa para elegir y para el badge disponible/ocupado del panel   | Fase 2 / Fase 3 / Fase 3.5 |
+| D7  | Medir tiempo de swarm-join; plan B si el venue bloquea UDP                                                            | Fase 4                     |

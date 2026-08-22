@@ -119,12 +119,19 @@ const STYLE = `
   .tool-cat { font-size: .7rem; padding: .1rem .5rem; border-radius: 999px; background: #2a2440; color: #c7a9ff; }
 </style>`
 
-function barColor(pct) {
-  if (pct === null) return '#3a3f4d'
-  if (pct < 50) return '#4ade80'
-  if (pct < 80) return '#fbbf24'
-  return '#f87171'
-}
+// Escapado de HTML, inyectado en el script de los 3 paneles.
+//
+// No es paranoia de manual: el precio lo escribe el proveedor desde su panel y
+// se muestra crudo en los tres. Un precio como `<img src=x onerror=alert(1)>`
+// se ejecutaba al abrir la pagina —probado—. Se escapa TODO lo que venga del
+// servidor, no solo el precio, porque el dia que un nombre de operador o un
+// tag se vuelvan editables el agujero vuelve solo.
+const ESC = `
+    function esc(v) {
+      return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+    }`
 
 function page(title, body) {
   return `<!doctype html>
@@ -154,6 +161,7 @@ export const CLIENTE_HTML = page(
 
   <script>
     let nodesById = {}
+${ESC}
 
     function closeModal() {
       clearInterval(webuiPoll)
@@ -255,25 +263,32 @@ export const CLIENTE_HTML = page(
       webuiPoll = setInterval(async () => setWebUIStatus(await isWebUIUp()), 3000)
     }
 
-    function bar(pct) {
-      if (pct === null) return '<span class="badge offline">fuera de línea</span>'
-      const color = pct < 50 ? '#4ade80' : pct < 80 ? '#fbbf24' : '#f87171'
-      return \`<div class="bar-row"><div class="bar"><div style="width:\${pct}%;background:\${color}"></div></div><span class="pct">\${pct}%</span></div>\`
+    function barColor(pct) {
+      return pct < 50 ? '#4ade80' : pct < 80 ? '#fbbf24' : '#f87171'
     }
 
-    function render(nodes) {
-      nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
+    // El grid se ARMA una vez y despues solo se actualizan los numeros.
+    //
+    // Antes se hacia innerHTML del grid entero en cada poll (cada 3s): las
+    // tarjetas se destruian y se volvian a crear sin parar, asi que un click
+    // que cayera justo en ese momento se perdia -Playwright no pudo ni
+    // clickear una tarjeta: "element was detached from the DOM"-. Ademas
+    // reiniciaba la transicion CSS de las barras en cada vuelta.
+    let gridKey = null
+
+    function buildGrid(nodes) {
       document.getElementById('grid').innerHTML = nodes.map(n => \`
-        <div class="card" style="cursor:default">
-          <span class="badge \${n.kind}">\${n.kind === 'real' ? 'nodo real' : 'simulado'}</span>
-          <h3>\${n.displayName}</h3>
-          <div class="op">\${n.operator}</div>
-          <div class="tags">\${n.tags.map(t => \`<span class="tag">\${t}</span>\`).join('')}</div>
-          <div class="price">\${n.pricing}</div>
-          \${bar(n.loadPct)}
+        <div class="card" style="cursor:default" data-id="\${esc(n.id)}">
+          <span class="badge \${esc(n.kind)}">\${n.kind === 'real' ? 'nodo real' : 'simulado'}</span>
+          <h3>\${esc(n.displayName)}</h3>
+          <div class="op">\${esc(n.operator)}</div>
+          <div class="tags">\${n.tags.map(t => \`<span class="tag">\${esc(t)}</span>\`).join('')}</div>
+          <div class="price" data-price></div>
+          <span class="badge offline" data-offline style="display:none">fuera de línea</span>
+          <div class="bar-row" data-load><div class="bar"><div data-fill></div></div><span class="pct"></span></div>
           <div class="card-actions">
-            <button class="terminal-btn" data-id="\${n.id}">Conectar con tu terminal</button>
-            <button class="webui-btn ghost" data-id="\${n.id}">Abrir chat web</button>
+            <button class="terminal-btn" data-id="\${esc(n.id)}">Conectar con tu terminal</button>
+            <button class="webui-btn ghost" data-id="\${esc(n.id)}">Abrir chat web</button>
           </div>
         </div>
       \`).join('')
@@ -285,14 +300,48 @@ export const CLIENTE_HTML = page(
       })
     }
 
+    function render(nodes) {
+      nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
+
+      // Solo la identidad de los nodos justifica rearmar el DOM; el precio y
+      // la carga cambian seguido y se actualizan en el lugar.
+      const key = nodes.map(n => n.id + '|' + n.displayName + '|' + n.operator + '|' + n.tags.join('/')).join(',')
+      if (key !== gridKey) {
+        gridKey = key
+        buildGrid(nodes)
+      }
+
+      for (const n of nodes) {
+        const card = document.querySelector('.card[data-id="' + CSS.escape(n.id) + '"]')
+        if (!card) continue
+        card.querySelector('[data-price]').textContent = n.pricing
+
+        // Se muestra uno u otro, sin recrear nodos: asi la transicion CSS de
+        // la barra anima de verdad en vez de reiniciarse en cada poll.
+        const load = card.querySelector('[data-load]')
+        const offline = card.querySelector('[data-offline]')
+        const caido = n.loadPct === null
+        load.style.display = caido ? 'none' : ''
+        offline.style.display = caido ? '' : 'none'
+        if (!caido) {
+          const fill = load.querySelector('[data-fill]')
+          fill.style.width = n.loadPct + '%'
+          fill.style.background = barColor(n.loadPct)
+          load.querySelector('.pct').textContent = n.loadPct + '%'
+        }
+      }
+    }
+
     async function refresh() {
       const r = await fetch('/v1/models')
       const { nodes } = await r.json()
       render(nodes)
     }
 
-    refresh()
-    setInterval(refresh, 3000)
+    // El poll pisa solo los numeros (ver render/buildGrid), asi que si falla
+    // no puede tumbar el panel.
+    refresh().catch(() => {})
+    setInterval(() => refresh().catch(() => {}), 3000)
   </script>
   `
 )
@@ -313,58 +362,105 @@ export const PROVEEDOR_HTML = page(
   <script>
     let nodesById = {}
     let current = null
+    let shellFor = null // para que nodo esta armado el DOM de #detail
+${ESC}
+
+    // El detalle se arma UNA vez por nodo y despues solo se actualizan los
+    // textos que cambian.
+    //
+    // Antes se hacia innerHTML entero en cada refresh (cada 2.5s), lo que
+    // borraba el precio que el proveedor estaba tipeando y le sacaba el foco:
+    // medido, escribir "0.007 QVAC / 1K tok" y a los 3.2s el input habia
+    // vuelto solo al valor viejo. Con el poll corriendo era imposible cargar
+    // un precio a velocidad humana.
+    function buildShell(n) {
+      document.getElementById('detail').innerHTML = \`
+        <div class="card" style="cursor:default">
+          <span class="badge \${esc(n.status)}" id="d-badge"></span>
+          <h3 id="d-name"></h3>
+          <div class="op" id="d-op"></div>
+          <div class="tags" id="d-tags"></div>
+          <p>Carga actual: <b id="d-pct"></b> <span id="d-req"></span></p>
+        </div>
+        <div class="field">
+          <label>Precio publicado</label>
+          <input type="text" id="pricing">
+        </div>
+        <button id="save-pricing">Guardar precio</button>
+        <button id="toggle" class="ghost"></button>
+      \`
+      document.getElementById('save-pricing').addEventListener('click', savePricing)
+      document.getElementById('toggle').addEventListener('click', toggleStatus)
+      shellFor = n.id
+    }
 
     function renderDetail() {
       const n = nodesById[current]
       if (!n) return
-      const pct = n.loadPct === null ? '—' : n.loadPct + '%'
-      document.getElementById('detail').innerHTML = \`
-        <div class="card" style="cursor:default">
-          <span class="badge \${n.status}">\${n.status === 'online' ? 'en línea' : 'fuera de línea'}</span>
-          <h3>\${n.displayName}</h3>
-          <div class="op">\${n.operator}</div>
-          <div class="tags">\${n.tags.map(t => \`<span class="tag">\${t}</span>\`).join('')}</div>
-          <p>Carga actual: <b>\${pct}</b> (\${n.activeRequests}/\${n.maxConcurrentRequests} requests activos)</p>
-        </div>
-        <div class="field">
-          <label>Precio publicado</label>
-          <input type="text" id="pricing" value="\${n.pricing}">
-        </div>
-        <button id="save-pricing">Guardar precio</button>
-        <button id="toggle" class="ghost">\${n.status === 'online' ? 'Ponerme fuera de línea' : 'Volver a estar en línea'}</button>
-      \`
-      document.getElementById('save-pricing').addEventListener('click', savePricing)
-      document.getElementById('toggle').addEventListener('click', toggleStatus)
+      if (shellFor !== n.id) buildShell(n)
+
+      const badge = document.getElementById('d-badge')
+      badge.className = 'badge ' + n.status
+      badge.textContent = n.status === 'online' ? 'en línea' : 'fuera de línea'
+      document.getElementById('d-name').textContent = n.displayName
+      document.getElementById('d-op').textContent = n.operator
+      document.getElementById('d-tags').innerHTML =
+        n.tags.map(t => \`<span class="tag">\${esc(t)}</span>\`).join('')
+      document.getElementById('d-pct').textContent =
+        n.loadPct === null ? '—' : n.loadPct + '%'
+      document.getElementById('d-req').textContent =
+        '(' + n.activeRequests + '/' + n.maxConcurrentRequests + ' requests activos)'
+      document.getElementById('toggle').textContent =
+        n.status === 'online' ? 'Ponerme fuera de línea' : 'Volver a estar en línea'
+
+      // Lo unico que el usuario edita: solo se pisa si NO lo esta tocando.
+      const input = document.getElementById('pricing')
+      if (document.activeElement !== input) input.value = n.pricing
     }
+
+    let optionsKey = null
 
     async function refresh() {
       const r = await fetch('/v1/models')
       const { nodes } = await r.json()
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
       if (!current) current = nodes[0]?.id
-      const sel = document.getElementById('node-select')
-      sel.innerHTML = nodes.map(n => \`<option value="\${n.id}" \${n.id === current ? 'selected' : ''}>\${n.displayName} — \${n.operator}</option>\`).join('')
+
+      // El <select> se repinta solo si cambio la lista de nodos. Repintarlo en
+      // cada poll cerraba el desplegable si lo tenias abierto.
+      const key = nodes.map(n => n.id + '|' + n.displayName + '|' + n.operator).join(',')
+      if (key !== optionsKey) {
+        optionsKey = key
+        document.getElementById('node-select').innerHTML = nodes.map(n =>
+          \`<option value="\${esc(n.id)}" \${n.id === current ? 'selected' : ''}>\${esc(n.displayName)} — \${esc(n.operator)}</option>\`
+        ).join('')
+      }
       renderDetail()
     }
 
     async function savePricing() {
-      const pricing = document.getElementById('pricing').value
-      await fetch('/v1/nodes/' + current, {
+      const input = document.getElementById('pricing')
+      const pricing = input.value
+      // Sin el blur, el input sigue teniendo el foco y el refresh de abajo no
+      // lo actualiza: quedaria mostrando lo tipeado aunque el server lo haya
+      // recortado a 60 chars, y no se veria que quedo guardado de verdad.
+      input.blur()
+      await fetch('/v1/nodes/' + encodeURIComponent(current), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pricing })
       })
-      refresh()
+      await refresh()
     }
 
     async function toggleStatus() {
       const status = nodesById[current].status === 'online' ? 'offline' : 'online'
-      await fetch('/v1/nodes/' + current, {
+      await fetch('/v1/nodes/' + encodeURIComponent(current), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
       })
-      refresh()
+      await refresh()
     }
 
     document.getElementById('node-select').addEventListener('change', (e) => {
@@ -372,8 +468,8 @@ export const PROVEEDOR_HTML = page(
       renderDetail()
     })
 
-    refresh()
-    setInterval(refresh, 2500)
+    refresh().catch(() => {})
+    setInterval(() => refresh().catch(() => {}), 2500)
   </script>
   `
 )
@@ -395,24 +491,27 @@ export const ADMIN_HTML = page(
   <div id="log" class="log"></div>
 
   <script>
+${ESC}
+
     async function refreshNodes() {
       const r = await fetch('/v1/models')
       const { nodes } = await r.json()
       document.getElementById('rows').innerHTML = nodes.map(n => \`
         <tr>
-          <td>\${n.displayName}</td>
-          <td class="muted">\${n.operator}</td>
-          <td><span class="badge \${n.kind}">\${n.kind}</span></td>
-          <td><span class="badge \${n.status}">\${n.status === 'online' ? 'en línea' : 'fuera de línea'}</span></td>
+          <td>\${esc(n.displayName)}</td>
+          <td class="muted">\${esc(n.operator)}</td>
+          <td><span class="badge \${esc(n.kind)}">\${esc(n.kind)}</span></td>
+          <td><span class="badge \${esc(n.status)}">\${n.status === 'online' ? 'en línea' : 'fuera de línea'}</span></td>
           <td>\${n.loadPct === null ? '—' : n.loadPct + '% (' + n.activeRequests + '/' + n.maxConcurrentRequests + ')'}</td>
-          <td>\${n.pricing}</td>
-          <td><button class="\${n.status === 'online' ? 'danger' : 'ghost'}" data-id="\${n.id}" data-action="\${n.status === 'online' ? 'kick' : 'restore'}">\${n.status === 'online' ? 'Tirar' : 'Reactivar'}</button></td>
+          <td>\${esc(n.pricing)}</td>
+          <td><button class="\${n.status === 'online' ? 'danger' : 'ghost'}" data-id="\${esc(n.id)}" data-action="\${n.status === 'online' ? 'kick' : 'restore'}">\${n.status === 'online' ? 'Tirar' : 'Reactivar'}</button></td>
         </tr>
       \`).join('')
       document.querySelectorAll('button[data-id]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          const id = btn.dataset.id
+          const id = encodeURIComponent(btn.dataset.id)
           const action = btn.dataset.action
+          btn.disabled = true // el poll repinta la tabla: evita doble click
           if (action === 'kick') {
             await fetch('/v1/nodes/' + id + '/kick', { method: 'POST' })
           } else {
@@ -422,7 +521,7 @@ export const ADMIN_HTML = page(
               body: JSON.stringify({ status: 'online' })
             })
           }
-          refreshNodes()
+          await refreshNodes()
         })
       })
     }
@@ -431,14 +530,14 @@ export const ADMIN_HTML = page(
       const r = await fetch('/v1/routing-log')
       const { log } = await r.json()
       document.getElementById('log').innerHTML = log.length
-        ? log.map(e => \`<div>\${new Date(e.ts).toLocaleTimeString()} — \${e.modelId} → \${e.operator} (\${e.ms}ms) <span class="muted">\${e.reason}</span></div>\`).join('')
+        ? log.map(e => \`<div>\${esc(new Date(e.ts).toLocaleTimeString())} — \${esc(e.modelId)} → \${esc(e.operator)} (\${esc(e.ms)}ms) <span class="muted">\${esc(e.reason)}</span></div>\`).join('')
         : '<div class="muted">todavía no hay requests ruteados</div>'
     }
 
-    refreshNodes()
-    refreshLog()
-    setInterval(refreshNodes, 2500)
-    setInterval(refreshLog, 2500)
+    refreshNodes().catch(() => {})
+    refreshLog().catch(() => {})
+    setInterval(() => refreshNodes().catch(() => {}), 2500)
+    setInterval(() => refreshLog().catch(() => {}), 2500)
   </script>
   `
 )

@@ -68,17 +68,47 @@ const C = {
 
 // --- una corrida del CLI -----------------------------------------------------
 
-function runPrompt() {
+// La salida del hijo va a un ARCHIVO, no a un pipe, y no es un detalle de
+// estilo: con `stdio: 'pipe'` el binario se cuelga para siempre.
+//
+// Medido: el CLI carga el modelo, imprime el banner y el prompt, y despues no
+// emite un solo token. Nunca. Depende de que le toca a stdout:
+//
+//   consola (inherit)        -> OK, ~12s
+//   archivo (fd)             -> OK, ~16s
+//   pipe de libuv (spawn)    -> COLGADO, infinito
+//   pipe de shell (bash, PS) -> OK
+//
+// libuv usa named pipes para el stdio de los hijos en Windows, y ahi es donde
+// se traba; los pipes anonimos de un shell andan bien. Detalle en NOTES.md.
+// Si alguien "limpia" esto volviendolo a 'pipe', el soak da 100% de cuelgues.
+function runPrompt(n) {
   return new Promise((resolve) => {
     const args = ['prompt', prompt]
     if (gpuLayers !== null) args.push('--gpu-layers', gpuLayers)
 
-    const t0 = Date.now()
-    const child = spawn(bin, args, { cwd: root })
+    const outPath = path.join(os.tmpdir(), `qvac-soak-out-${process.pid}-${n}.txt`)
+    const fd = fs.openSync(outPath, 'w')
 
-    let out = ''
-    let err = ''
+    const t0 = Date.now()
+    const child = spawn(bin, args, { cwd: root, stdio: ['ignore', fd, fd] })
+
     let killed = false
+    const readOut = () => {
+      try {
+        return fs.readFileSync(outPath, 'utf8')
+      } catch {
+        return ''
+      }
+    }
+    const cleanup = () => {
+      try {
+        fs.closeSync(fd)
+      } catch {
+        /* ya cerrado */
+      }
+      fs.rmSync(outPath, { force: true })
+    }
 
     // El timeout es el corazon del soak: sin esto un cuelgue queda como una
     // corrida "lenta" y el modo de falla numero 1 pasa desapercibido.
@@ -87,21 +117,17 @@ function runPrompt() {
       child.kill('SIGKILL')
     }, timeoutMs)
 
-    child.stdout.on('data', (d) => {
-      out += d
-    })
-    child.stderr.on('data', (d) => {
-      err += d
-    })
-
     child.on('error', (e) => {
       clearTimeout(timer)
+      cleanup()
       resolve({ ok: false, why: `no se pudo lanzar: ${e.message}`, wallMs: Date.now() - t0 })
     })
 
     child.on('close', (code) => {
       clearTimeout(timer)
       const wallMs = Date.now() - t0
+      const out = readOut()
+      cleanup()
 
       if (killed) {
         return resolve({
@@ -111,7 +137,7 @@ function runPrompt() {
         })
       }
       if (code !== 0) {
-        const last = (err.trim() || out.trim()).split('\n').slice(-1)[0] || ''
+        const last = out.trim().split('\n').slice(-1)[0] || ''
         return resolve({ ok: false, why: `exit ${code}: ${last}`, wallMs })
       }
 
@@ -166,12 +192,20 @@ function runInstall(n) {
   fs.mkdirSync(target, { recursive: true }) // `pear install --to` da ENOENT si no existe
 
   const t0 = Date.now()
-  const res = spawnSync(isWindows ? 'pear.cmd' : 'pear', ['install', '--to', target, pkg.upgrade], {
-    cwd: root,
-    encoding: 'utf8',
-    shell: isWindows,
-    timeout: timeoutMs
-  })
+  // Con `shell: true` hay que pasar UN comando armado, no comando + args:
+  // Node >=22 avisa con DEP0190 porque con shell los args no se escapan.
+  const res = isWindows
+    ? spawnSync(`pear install --to "${target}" ${pkg.upgrade}`, {
+        cwd: root,
+        encoding: 'utf8',
+        shell: true,
+        timeout: timeoutMs
+      })
+    : spawnSync('pear', ['install', '--to', target, pkg.upgrade], {
+        cwd: root,
+        encoding: 'utf8',
+        timeout: timeoutMs
+      })
   const wallMs = Date.now() - t0
   const installed = path.join(target, isWindows ? 'qvac-node.exe' : 'qvac-node')
 
@@ -231,7 +265,7 @@ async function main() {
     }
 
     process.stdout.write(C.dim(`  [${i}/${runs}] prompt ......... `))
-    const r = await runPrompt()
+    const r = await runPrompt(i)
     promptResults.push(r)
     console.log(
       r.ok
