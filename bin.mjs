@@ -241,12 +241,44 @@ async function runServe() {
   const server = createGateway({ port, gpuLayers, demo })
 
   let nodeSwarm = null
+  let provider = null
   if (useSwarm) {
     // El swarm escribe en el MISMO registro que lee el gateway: un manifiesto
     // verificado se vuelve una fila del marketplace, y los paneles la dibujan
     // sin saber que vino de un par. Esa es la costura de Fase 2-c.
     const store = await import('./qvac/store.mjs')
-    nodeSwarm = await joinSwarm({ operator: serveCmd.flags.operator, store })
+    const operator = serveCmd.flags.operator || `Nodo de ${os.hostname()}`
+
+    nodeSwarm = await joinSwarm({ operator, store })
+
+    // Este nodo tambien SIRVE: `serve --swarm` es el nodo completo (gateway +
+    // proveedor). Se registra la fila local en el registro con o sin --demo,
+    // porque no es un mock: es esta maquina, y sin ella `node:status`
+    // anunciaria capacidad CERO mientras esta sirviendo.
+    const { Provider } = await import('./qvac/provider.mjs')
+    const models = swarmModels()
+    for (const m of models) {
+      store.registerLocal({
+        modelId: m.modelId,
+        displayName: m.displayName,
+        operator,
+        tags: ['general', 'chat'],
+        pricing: '1000000 QVAC / per 1m completion tokens',
+        maxConcurrentRequests: m.maxConcurrentRequests
+      })
+    }
+
+    provider = new Provider({
+      engineLoader: () => import('./qvac/engine.mjs'),
+      store,
+      models,
+      maxConcurrent: 3
+    })
+    nodeSwarm.setProvider(provider)
+
+    // El gateway necesita el swarm para poder mandar chat:request a un par.
+    const gw = await import('./qvac/gateway.mjs')
+    gw.setSwarm(nodeSwarm)
   }
 
   let closing = false
@@ -265,6 +297,9 @@ async function runServe() {
     }, 3000)
     forced.unref?.()
 
+    // El provider primero: corta los streams en vuelo antes de que el swarm
+    // les cierre el socket abajo.
+    if (provider) await provider.shutdown()
     if (nodeSwarm) await nodeSwarm.destroy()
     await shutdownGateway()
     server.close(() => {
@@ -286,6 +321,30 @@ async function runServe() {
 // y por `peers`.
 // ---------------------------------------------------------------------------
 
+// Lo que este nodo declara servir. Es su modelo real, no el catalogo del modo
+// --demo: anunciar un mock seria mentirle a la red.
+//
+// UNA sola fuente: la usa el manifiesto que se firma Y el Provider que atiende
+// los chat:request. Si divergieran, el nodo anunciaria un modelo que despues
+// rechaza -- y el error se veria del lado del que confio en el manifiesto.
+//
+// maxConcurrentRequests 3: medido, no elegido. Tres completions concurrentes
+// sobre el mismo modelo cargado corren en paralelo real y sin mezclarse entre
+// si (probado con prompts distinguibles, ver NOTES.md).
+function swarmModels() {
+  return [
+    {
+      modelId: DEFAULT_MODEL,
+      // El nombre exacto del registry, no una etiqueta linda: es el archivo de
+      // pesos que este nodo realmente corre, y en un marketplace lo que se
+      // anuncia tiene que ser lo que se sirve.
+      displayName: MODELS[DEFAULT_MODEL] || DEFAULT_MODEL,
+      maxConcurrentRequests: 3,
+      pricing: [{ unit: 'per_1m_completion_tokens', amount: '1000000', currency: 'QVAC' }]
+    }
+  ]
+}
+
 function swarmStorageDir() {
   return cmd.flags.storage || path.join(isDev ? os.tmpdir() : persistent(), appName)
 }
@@ -297,19 +356,7 @@ async function joinSwarm({ operator, store = null }) {
   const dir = swarmStorageDir()
   const identity = loadOrCreateIdentity(dir)
 
-  // Lo que este nodo declara servir. Es su modelo real, no el catalogo del
-  // modo --demo: anunciar un mock seria mentirle a la red.
-  const models = [
-    {
-      modelId: DEFAULT_MODEL,
-      // El nombre exacto del registry, no una etiqueta linda: es el archivo de
-      // pesos que este nodo realmente corre, y en un marketplace lo que se
-      // anuncia tiene que ser lo que se sirve.
-      displayName: MODELS[DEFAULT_MODEL] || DEFAULT_MODEL,
-      maxConcurrentRequests: 3,
-      pricing: [{ unit: 'per_1m_completion_tokens', amount: '1000000', currency: 'QVAC' }]
-    }
-  ]
+  const models = swarmModels()
 
   const nodeSwarm = new NodeSwarm({
     identity,

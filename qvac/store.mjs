@@ -213,6 +213,43 @@ export function upsertFromManifest(peerKey, manifest) {
   }
 }
 
+// El nodo local como proveedor. Se registra cuando este proceso puede servir
+// inferencia de verdad (`serve --swarm`), con --demo o sin él: no es un mock,
+// es esta máquina. Sin esta fila, `localLoad()` devolvía 0/0 y el nodo
+// anunciaba capacidad CERO por `node:status` mientras estaba sirviendo.
+export function registerLocal({
+  modelId,
+  displayName,
+  operator,
+  pricing = 'sin precio declarado',
+  tags = [],
+  maxConcurrentRequests = 3
+}) {
+  const id = `local:${modelId}`
+  nodes.set(id, {
+    id,
+    kind: 'real',
+    modelId,
+    displayName: displayName || modelId,
+    tags,
+    pricing,
+    operator: operator || 'Nodo local (este equipo)',
+    maxConcurrentRequests,
+    activeRequests: 0,
+    status: 'online'
+  })
+  return id
+}
+
+// Con qué fila del registro se contabiliza la carga de un request que este
+// nodo sirve para un par remoto.
+export function localNodeIdFor(modelId) {
+  for (const node of nodes.values()) {
+    if (node.kind === 'real' && node.modelId === modelId) return node.id
+  }
+  return null
+}
+
 export function updateStatus(peerKey, status) {
   for (const node of nodes.values()) {
     if (node.peerKey !== peerKey) continue
@@ -253,7 +290,21 @@ export function localLoad() {
 // sirviendo el mismo modelId, y el log no puede seguir diciendo "unico
 // candidato" cuando habia tres.
 export function findAllByModelId(modelId) {
-  return [...nodes.values()].filter((n) => n.modelId === modelId && n.status === 'online')
+  const candidatos = [...nodes.values()].filter(
+    (n) => n.modelId === modelId && n.status === 'online'
+  )
+
+  // Orden DELIBERADO, no por carga (elegir por carga es D6 y sigue sin
+  // implementar): primero los pares P2P, después el nodo local, después los
+  // mocks.
+  //
+  // Los pares van primero por una razón de demo, no de performance: con
+  // `--demo --swarm` hay un llama1b local Y uno remoto, y si gana el local el
+  // prompt del escenario lo contesta la misma máquina — el camino P2P queda
+  // sin ejercitar justo cuando se lo está mostrando. El log dice cuántos
+  // candidatos hubo, así que la preferencia queda visible y no escondida.
+  const rank = { peer: 0, real: 1, mock: 2 }
+  return candidatos.sort((a, b) => (rank[a.kind] ?? 3) - (rank[b.kind] ?? 3))
 }
 
 export function pushLog(entry) {

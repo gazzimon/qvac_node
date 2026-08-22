@@ -63,6 +63,18 @@ export class NodeSwarm {
 
     this._statusTimer = null
     this._manifest = null
+
+    // El lado que SIRVE (provider.mjs). Solo lo setea `serve --swarm`; con
+    // esto en null el nodo anuncia y consume pero no atiende chat:request.
+    this.provider = null
+
+    // El lado que CONSUME: requestId -> handlers del request en vuelo.
+    this._chats = new Map()
+    this._chatSeq = 0
+  }
+
+  setProvider(provider) {
+    this.provider = provider
   }
 
   // El manifiesto se arma y se firma UNA vez por sesion: `publishedAt` no tiene
@@ -140,6 +152,22 @@ export class NodeSwarm {
       this.peers.delete(key)
       // D3: el candidato muere con el socket, sin esperar ningun expiresAt.
       if (this.store && peer.manifest) this.store.removeByPeer(key)
+
+      // Los chats en vuelo contra este par NO se pueden quedar esperando un
+      // chunk que no va a llegar nunca: el cliente HTTP del otro lado queda
+      // colgado para siempre. Se les avisa aca, y del lado del gateway D4
+      // decide si reintenta (solo si todavia no le mando nada al cliente).
+      for (const [requestId, chat] of this._chats) {
+        if (chat.peerKey !== key) continue
+        this._chats.delete(requestId)
+        chat.onError('el par se desconecto a mitad del request', 'peer_gone')
+      }
+
+      // Y lo que este nodo estaba generando PARA ese par se corta: seguir
+      // gastando CPU en tokens que no tienen a donde ir es exactamente lo que
+      // chat:cancel evita en el caso normal.
+      if (this.provider) this.provider.cancelByPeer(key)
+
       console.log(`[swarm] desconectado ${key.slice(0, 8)}… (${this.peers.size} par/es)`)
       this.onPeerChange(this.peers)
     })
@@ -228,8 +256,57 @@ export class NodeSwarm {
       return
     }
 
-    // chat:* se engancha en Fase 2-c/3 sobre este mismo canal.
-    if (this.onMessage) this.onMessage(peer, msg)
+    // --- lado proveedor ---
+    if (this.provider && this.provider.handles(msg.type)) {
+      // Un par que no completo el handshake no puede pedir inferencia: seria
+      // regalarle CPU a un desconocido que no dijo quien es.
+      if (!peer.manifest) return
+      this.provider.onMessage(peer, msg, (out) => this._send(peer, out))
+      return
+    }
+
+    // --- lado consumidor ---
+    if (msg.type.startsWith('chat:')) {
+      const chat = this._chats.get(msg.requestId)
+      // Respuesta a un request que ya no existe (cancelado, o de otro par que
+      // se hace el vivo). Se ignora: no hay a quien entregarsela.
+      if (!chat || chat.peerKey !== peer.key) return
+
+      if (msg.type === 'chat:accepted') chat.onAccepted()
+      else if (msg.type === 'chat:chunk') chat.onChunk(msg.delta)
+      else if (msg.type === 'chat:done') {
+        this._chats.delete(msg.requestId)
+        chat.onDone()
+      } else if (msg.type === 'chat:error') {
+        this._chats.delete(msg.requestId)
+        chat.onError(msg.message || 'error sin motivo', msg.code || null)
+      }
+    }
+  }
+
+  // Abre un chat contra un par. Devuelve el requestId para poder cancelarlo.
+  // Los handlers son callbacks y no una promesa porque esto es un stream: lo
+  // que importa es cada chunk a medida que llega, no el resultado final.
+  chatRequest(peerKey, { model, messages }, handlers) {
+    const peer = this.peers.get(peerKey)
+    if (!peer || !peer.manifest) {
+      handlers.onError('el par ya no esta conectado', 'peer_gone')
+      return null
+    }
+
+    const requestId = `r${Date.now().toString(36)}${(this._chatSeq++).toString(36)}`
+    this._chats.set(requestId, { peerKey, ...handlers })
+    this._send(peer, { type: 'chat:request', requestId, model, messages, stream: true })
+    return requestId
+  }
+
+  cancelChat(requestId) {
+    const chat = this._chats.get(requestId)
+    if (!chat) return
+    this._chats.delete(requestId)
+    const peer = this.peers.get(chat.peerKey)
+    // Si el par ya se fue no hay a quien avisarle, y su proceso ya corto solo.
+    if (peer) this._send(peer, { type: 'chat:cancel', requestId })
   }
 
   startStatusBroadcast(intervalMs = STATUS_INTERVAL_MS) {
