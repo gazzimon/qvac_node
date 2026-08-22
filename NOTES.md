@@ -68,9 +68,25 @@ que es justamente lo que queremos cuando haya streaming de tokens.
 | build standalone, 6 plataformas | ✅ |
 | `pear build` → `by-arch/` | ✅ |
 | `pear stage` / `pear seed` | ✅ |
-| `pear install` desde el link | ✅ (misma máquina) |
+| `pear install` desde el link | ✅ |
 | OTA sobre copia instalada corriendo | ✅ (misma máquina) |
-| **Segunda máquina limpia** | ❌ **PENDIENTE** |
+| **Segunda máquina limpia: INSTALL** | ✅ |
+| **Segunda máquina limpia: OTA** | ⬜ pendiente |
+
+### Install cross-máquina verificado
+
+Windows 11 (seeder) → MacBook Air Apple Silicon, sobre hotspot de iPhone.
+
+| | |
+|---|---|
+| Binario servido | `/by-arch/darwin-arm64/app/qvac-node` |
+| Transferido | **80.9 MB** |
+| Velocidad pico | **3.4 MB/s** |
+| Versión | 0.8.0 (verlink 0.5955) |
+
+La Mac no clonó el repo para instalar: `npm i -g pear` y `pear install`. Eligió
+el binario de su arquitectura sola. Es el criterio de juzgado #1 del track,
+cumplido de verdad y no simulado.
 
 El pipeline entero está verificado, pero **de punta a punta en una sola
 máquina**. El runbook dice explícito que este paso "no es opcional ni
@@ -107,6 +123,122 @@ Verificado con el período de gracia ya vencido (nodo corriendo hace 95s):
 
 Dato para el pitch: el OTA es **delta**. Al pasar de 0.7.0 a 0.8.0 se
 transfirió **1.1 MB**, no los 55 MB del binario entero.
+
+---
+
+## La wifi de la sala: enlace cliente-a-cliente inestable
+
+Un día entero de diagnóstico terminó acá, y **no era el código**.
+
+Medido desde la máquina 1 (192.168.112.209) hacia la Mac (192.168.112.252),
+las dos en la misma LAN:
+
+| destino | pérdida |
+|---|---|
+| Gateway (192.168.112.1) | **0%** — 3 ms |
+| Mac, primera medición | 0% — 6-29 ms |
+| Mac, una hora después | **95%** (19/20) |
+| Mac, minutos después | **100%** (15/15) |
+
+El enlace de la máquina 1 al AP es perfecto y estable. El camino **entre los dos
+clientes** se degradó hasta desaparecer.
+
+Con esa pérdida no hay `pear install` posible: 78 MB son decenas de miles de
+paquetes. Explica la firma exacta que perseguimos todo el día — `peer join`
+seguido de 3 kB de metadata y después `0B/s`: los paquetes chicos pasan de a
+ratos, el flujo bulk muere.
+
+### Lo que quedó DESCARTADO por medición, no por intuición
+
+| hipótesis | cómo se descartó |
+|---|---|
+| MTU / fragmentación | `ping -f -l 1472` al gateway: OK (MTU 1500) |
+| UDP bloqueado entre clientes | 7/7 paquetes UDP de 32 a 1472 bytes llegaron |
+| Aislamiento de clientes | los 5 vecinos de la LAN responden al ping |
+| Firewall de Windows | regla Allow para `pear.exe`, perfil **Public**, habilitada |
+| Firewall de macOS | apagado |
+| Versión de Pear distinta | 3.2.0 en las dos máquinas |
+| Sin internet | fue real una vez (hotspot sin datos), después 200 |
+
+### Implicancia para el domingo
+
+**El jurado instala desde esa misma wifi.** Si el enlace cliente-a-cliente es
+inestable bajo carga, el install puede fallar delante de ellos.
+
+Mitigaciones, de más a menos control nuestro:
+
+1. **`server: true` ya está implementado**: cada nodo instalado reseedea, así que
+   cuantos más nodos haya, más caminos alternativos existen. Antes había un solo
+   origen posible.
+2. Tener el seeder **físicamente cerca del AP**.
+3. Tener un hotspot de celular **con datos** como plan B, y las dos máquinas ahí.
+4. Antes de cualquier demo, medir: `ping -c 20 <ip-de-la-otra-maquina>`.
+   Por encima de ~5% de pérdida, no intentar — va a fallar.
+
+---
+
+## Fase 1 — inferencia local con QVAC
+
+### Funciona: inferencia 100% local adentro de Bare
+
+`@qvac/bare-sdk` 0.17.1 + `@qvac/llm-llamacpp` 0.46.0, plugin `llmPlugin`
+registrado explicitamente, modelo **SmolLM2-360M-Instruct-Q8_0** (360M, 386 MB).
+
+| medicion | primera vez | modelo en cache |
+|---|---|---|
+| Carga del modelo | 80.5 s | **11.1 s** |
+| **Primer token (TTFT)** | 6.04 s | **0.83 s** |
+| Respuesta completa | 8.9 s | 3.9 s |
+
+Host: Intel UHD 620 (Vulkan), 15.86 GB RAM total pero solo 0.96 GB libres.
+
+### Los pesos bajan por hypercore, no por HTTP
+
+El descriptor usa el esquema `registry://<registrySource>/<registryPath>` y el
+`QVACRegistryClient` baja el blob desde un corestore. El registry expone 154
+modelos para `llamacpp-completion`. Vale para el pitch: **los modelos tambien
+viajan por P2P**, no solo el cliente.
+
+### Peso del addon: el problema abierto de Fase 1
+
+`@qvac/llm-llamacpp` son 519 MB de prebuilds. Por plataforma:
+
+| plataforma | addon | proyeccion del install |
+|---|---|---|
+| linux-x64 | 136 MB | ~230 MB |
+| win32-x64 | 96 MB | ~150 MB |
+| darwin-arm64 | **13 MB** | **~93 MB** |
+| darwin-x64 | 14 MB | ~94 MB |
+
+macOS pesa poco porque Metal viene en el sistema; Windows y Linux empaquetan
+los backends de GPU. Es un solo `.bare` por plataforma, no es divisible.
+
+**`win32-arm64` NO tiene prebuild.** Hoy publicamos esa plataforma; con
+inferencia adentro deja de ser viable y hay que sacarla del release.
+
+### Eleccion de modelo: Llama 3.2 1B (medido, no estimado)
+
+Ambos dentro del limite de 1B del runbook, medidos con el modelo en cache:
+
+| | SmolLM2 360M Q8 | **Llama 3.2 1B Q4_K** |
+|---|---|---|
+| Peso | 386 MB | 807 MB |
+| Carga | 11.5 s | 19.9 s |
+| **TTFT** | 0.74 s | **1.46 s** |
+| Respuesta completa | 4.7 s | 5.2 s |
+
+Misma pregunta, "¿que es una red peer-to-peer?":
+
+- **360M:** *"Un red peer-to-peer es una red en que todos los usuarios que se
+  buscan pueden leer y manejar sus información, no deja de trabajar con otros
+  usuarios..."* — incoherente.
+- **1B:** *"Una red peer-to-peer (P2P) es una red de redes de Internet donde los
+  nodos (computadoras) conectados entre ellos se comunican directamente entre si
+  sin la intervencion de una red central."* — correcta.
+
+**Default: 1B.** 0.72s mas de TTFT es imperceptible en una demo; la diferencia
+de calidad es entre algo que el jurado lee y asiente, y algo que da verguenza
+proyectar. El 360M queda disponible con `--model smol`.
 
 ---
 
