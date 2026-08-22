@@ -52,6 +52,10 @@ const serveCmd = command(
       'son mocks. No hay P2P todavia -eso es Fase 2/3 completas.'
   ),
   flag('--port <n>', 'puerto HTTP del gateway (default 8787)'),
+  flag(
+    '--gpu-layers <n>',
+    'capas a mandar a la GPU del nodo real. 0 = todo CPU (8x mas rapido en la iGPU de la demo, ver NOTES.md)'
+  ),
   () => {
     pending = runServe()
   }
@@ -196,17 +200,34 @@ async function readStdin() {
 
 async function runServe() {
   const port = Number.isFinite(+serveCmd.flags.port) ? +serveCmd.flags.port : 8787
+  const gpuLayers = Number.isFinite(+serveCmd.flags.gpuLayers)
+    ? +serveCmd.flags.gpuLayers
+    : undefined
 
   const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
-  const server = createGateway({ port })
+  const server = createGateway({ port, gpuLayers })
 
   let closing = false
   const shutdown = async (code) => {
     if (closing) return
     closing = true
     console.log('\n[gateway] cerrando...')
+
+    // `server.close()` destruye las conexiones ociosas pero ESPERA a las que
+    // estan en vuelo, y su callback nunca corre mientras haya un SSE abierto.
+    // Con una inferencia real de 30s en curso, Ctrl+C no salia. El timeout
+    // corta por lo sano: 3s para cerrar prolijo, despues se sale igual.
+    const forced = setTimeout(() => {
+      console.log('[gateway] habia requests en vuelo, saliendo igual.')
+      Bare.exit(code)
+    }, 3000)
+    forced.unref?.()
+
     await shutdownGateway()
-    server.close(() => Bare.exit(code))
+    server.close(() => {
+      clearTimeout(forced)
+      Bare.exit(code)
+    })
   }
 
   process.on('SIGHUP', () => shutdown(129))
