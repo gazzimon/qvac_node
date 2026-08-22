@@ -58,19 +58,48 @@ ok "$(command -v pear)"
 step 3 "Instalando en $TARGET"
 mkdir -p "$TARGET"   # pear install --to falla con ENOENT si el dir no existe
 T0=$(date +%s)
-pear install --to "$TARGET" "$LINK" || { fail 'el install fallo'; exit 1; }
+INSTALL_OUT=$(pear install --to "$TARGET" "$LINK" 2>&1)
+INSTALL_RC=$?
 SECS=$(( $(date +%s) - T0 ))
+echo "$INSTALL_OUT" | sed 's/^/    | /'
 
 BIN="$TARGET/qvac-node"
-if [ -x "$BIN" ]; then
-  ok "instalado en ${SECS}s, $(du -h "$BIN" | cut -f1)"
-else
-  fail 'el binario no quedo en disco'
+
+# NO se confia ni en el exit code ni en que el archivo exista.
+#
+# Medido en la MacBook: `pear install` imprimio "Network Timeout 30s" y
+# "Failed", SALIO CON CODIGO 0, y dejo en disco un binario truncado de 77 MB
+# (de los 105 MB que pesa darwin-arm64) con permiso de ejecucion. Con los
+# chequeos viejos (`|| fail` y `test -x`) eso se reportaba como
+# "OK instalado en 34s" — un falso positivo que daba Fase 0 por cerrada
+# cuando el install habia fallado.
+if [ $INSTALL_RC -ne 0 ] || printf '%s' "$INSTALL_OUT" | grep -qiE 'network timeout|failed|error'; then
+  fail "el install NO termino bien (${SECS}s). Mira las lineas de arriba."
+  [ -e "$BIN" ] && echo "    Quedo un binario PARCIAL de $(du -h "$BIN" | cut -f1): no sirve, borralo con  rm -rf $TARGET"
+  echo '    Reintenta: Hyperdrive es incremental y retoma lo ya bajado.'
+  echo '    Si vuelve a cortar, plan B: hotspot del celular CON DATOS, las dos maquinas ahi.'
   exit 1
 fi
 
-step 4 'Version instalada'
-ok "$("$BIN" --version 2>&1 | head -1)"
+if [ ! -e "$BIN" ]; then
+  fail 'el binario no quedo en disco'
+  exit 1
+fi
+ok "descargado en ${SECS}s, $(du -h "$BIN" | cut -f1)"
+
+step 4 'El binario CORRE (esta es la prueba real de que el install sirve)'
+# Un binario truncado existe, es ejecutable, y no arranca. Que `--version`
+# devuelva una version es lo unico que distingue un install completo de uno
+# a medias.
+VER=$("$BIN" --version 2>&1 | head -1)
+if printf '%s' "$VER" | grep -qE 'v[0-9]+\.[0-9]+\.[0-9]+'; then
+  ok "$VER"
+else
+  fail "el binario esta en disco pero NO corre: el install quedo incompleto."
+  echo "    salida de --version: ${VER:-(vacia)}"
+  echo "    Borra y reintenta:  rm -rf $TARGET && bash $0"
+  exit 1
+fi
 
 step 5 'Inferencia 100% local (Fase 1)'
 cat <<'TXT'

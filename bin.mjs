@@ -61,6 +61,23 @@ const serveCmd = command(
   }
 )
 
+const connectCmd = command(
+  'connect',
+  summary('Chat P2P minimo entre dos maquinas (prueba de Fase 2/3, ver ROADMAP)'),
+  description(
+    'Transporte real -Hyperswarm + FramedStream, decision D1 del roadmap-,\n' +
+      'sin manifiesto firmado ni reintentos todavia. Una maquina corre\n' +
+      '--serve (responde con su LLM local), la otra manda --ask "..." y lo\n' +
+      'recibe en streaming desde la primera.'
+  ),
+  flag('--serve', 'esperar conexiones y responder con inferencia local'),
+  flag('--ask <prompt>', 'conectarse al primer proveedor del topic y mandarle este prompt'),
+  flag('--gpu-layers <n>', 'capas a mandar a la GPU en --serve. 0 = todo CPU.'),
+  () => {
+    pending = runConnect()
+  }
+)
+
 const cmd = command(
   appName,
   summary(pkg.description),
@@ -70,6 +87,7 @@ const cmd = command(
   flag('--update-delay <ms>', 'ventana de jitter del OTA en ms (default 10000)'),
   promptCmd,
   serveCmd,
+  connectCmd,
   () => {
     pending = runNode()
   }
@@ -236,6 +254,64 @@ async function runServe() {
   process.on('SIGTERM', () => shutdown(143))
 
   console.log('Ctrl+C para salir.\n')
+}
+
+// ---------------------------------------------------------------------------
+// qvac-node connect --serve | --ask "..."
+// ---------------------------------------------------------------------------
+
+async function runConnect() {
+  const serving = connectCmd.flags.serve === true
+  const ask = connectCmd.flags.ask
+  const gpuLayers = Number.isFinite(+connectCmd.flags.gpuLayers)
+    ? +connectCmd.flags.gpuLayers
+    : undefined
+
+  if (serving && ask) {
+    console.error('[connect] usa --serve o --ask, no los dos juntos.')
+    Bare.exitCode = 1
+    return
+  }
+
+  if (!serving && !ask) {
+    console.error('[connect] falta --serve (esperar conexiones) o --ask "prompt" (preguntar)')
+    Bare.exitCode = 1
+    return
+  }
+
+  const { startProvider, askFirstPeer } = await import('./qvac/p2p.mjs')
+
+  if (serving) {
+    console.log('[connect] uniendome al topic P2P como proveedor...')
+    const node = await startProvider({
+      gpuLayers,
+      onLog: (line) => console.log('[connect] ' + line)
+    })
+    console.log('[connect] escuchando en el topic. La primera pregunta tarda mas: carga el')
+    console.log('[connect] modelo (807 MB si no esta cacheado en ~/.qvac/models).')
+    console.log('Ctrl+C para salir.\n')
+
+    const shutdown = async (code) => {
+      console.log('\n[connect] cerrando...')
+      await node.close()
+      Bare.exit(code)
+    }
+    process.on('SIGHUP', () => shutdown(129))
+    process.on('SIGINT', () => shutdown(130))
+    process.on('SIGQUIT', () => shutdown(131))
+    process.on('SIGTERM', () => shutdown(143))
+    return
+  }
+
+  console.log('[connect] buscando un proveedor en el topic...')
+  try {
+    const t0 = Date.now()
+    await askFirstPeer(ask, { onChunk: (delta) => process.stdout.write(delta) })
+    console.log('\n\n[connect] listo en ' + secs(Date.now() - t0))
+  } catch (err) {
+    console.error('\n[connect] fallo:', (err && err.message) || err)
+    Bare.exitCode = 1
+  }
 }
 
 // ---------------------------------------------------------------------------
