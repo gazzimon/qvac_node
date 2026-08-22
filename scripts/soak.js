@@ -209,19 +209,41 @@ function runInstall(n) {
   const wallMs = Date.now() - t0
   const installed = path.join(target, isWindows ? 'qvac-node.exe' : 'qvac-node')
 
+  // Ni el exit code ni que el archivo exista alcanzan: medido en macOS,
+  // `pear install` imprime "Network Timeout 30s" y "Failed", sale con codigo
+  // 0, y deja un binario TRUNCADO pero ejecutable en disco. La unica prueba
+  // de que el install sirve es que el binario arranque.
+  const out = `${res.stdout || ''}${res.stderr || ''}`
   let result
   if (res.error && res.error.code === 'ETIMEDOUT') {
     result = { ok: false, why: `COLGADO: el install no termino en ${timeoutMs / 1000}s`, wallMs }
   } else if (res.status !== 0) {
     result = { ok: false, why: `pear install exit ${res.status}`, wallMs }
+  } else if (/network timeout|failed/i.test(out)) {
+    result = { ok: false, why: `el install reporto fallo: ${firstBadLine(out)}`, wallMs }
   } else if (!fs.existsSync(installed)) {
     result = { ok: false, why: 'el install dijo OK pero el binario no quedo en disco', wallMs }
   } else {
-    result = { ok: true, wallMs, mb: fs.statSync(installed).size / 1e6 }
+    const mb = fs.statSync(installed).size / 1e6
+    const ver = spawnSync(installed, ['--version'], { encoding: 'utf8', timeout: 60000 })
+    if (!/v\d+\.\d+\.\d+/.test(`${ver.stdout || ''}`)) {
+      result = {
+        ok: false,
+        why: `el binario quedo en disco (${mb.toFixed(1)} MB) pero NO corre: install incompleto`,
+        wallMs
+      }
+    } else {
+      result = { ok: true, wallMs, mb }
+    }
   }
 
   fs.rmSync(target, { recursive: true, force: true })
   return result
+}
+
+function firstBadLine(out) {
+  const line = out.split(/\r?\n/).find((l) => /network timeout|failed/i.test(l))
+  return (line || '').trim().slice(0, 80)
 }
 
 // --- reporte -----------------------------------------------------------------
