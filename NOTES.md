@@ -87,6 +87,29 @@ con el seeder (`npm run seed`) corriendo en esta.
 
 ---
 
+## TRAMPA DEL OTA — leer antes de ensayar el pitch
+
+`pear-runtime-updater` agenda cada update en un punto **aleatorio** de una
+ventana que por default es de **una hora**, y solo lo aplica al instante si la
+versión nueva aparece dentro de los **primeros 60 segundos** de vida del
+proceso (`_bootGracePeriod`).
+
+Es un default correcto para una flota grande —evita que miles de nodos se
+actualicen todos juntos— y es letal para una demo en vivo. Todos los OTA que
+medimos en ~10s cayeron dentro de ese minuto de gracia por casualidad. La
+primera vez que publicamos con el nodo corriendo hace más de un minuto, el
+update simplemente no ocurrió.
+
+Está cableado a **10 segundos** por default, configurable con `--update-delay`.
+
+Verificado con el período de gracia ya vencido (nodo corriendo hace 95s):
+**el OTA disparó a los 7 segundos del stage.**
+
+Dato para el pitch: el OTA es **delta**. Al pasar de 0.7.0 a 0.8.0 se
+transfirió **1.1 MB**, no los 55 MB del binario entero.
+
+---
+
 ## Cosas que mordieron (para no repetirlas)
 
 - **`pear install` no sirve código fuente, sirve un binario compilado.** Busca
