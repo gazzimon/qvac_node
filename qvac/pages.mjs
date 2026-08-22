@@ -10,6 +10,7 @@ const NAV = `
 <nav class="nav">
   <span class="brand">QVAC · marketplace</span>
   <a href="/">Cliente</a>
+  <a href="/skills">Skills</a>
   <a href="/proveedor">Proveedor</a>
   <a href="/admin">Admin</a>
 </nav>`
@@ -90,6 +91,32 @@ const STYLE = `
   .log { font-family: ui-monospace, monospace; font-size: .78rem; color: #a9b4cc; }
   .log div { padding: .25rem 0; border-bottom: 1px solid #1a1e28; }
   .muted { color: #6b7386; }
+  .keybox {
+    display: flex; align-items: center; gap: .6rem; background: #171a21;
+    border: 1px solid #262b36; border-radius: 10px; padding: .7rem 1rem;
+    margin-bottom: 1.5rem; flex-wrap: wrap;
+  }
+  .keybox code {
+    background: #10131a; padding: .3rem .6rem; border-radius: 6px;
+    font-size: .82rem; color: #9fd6ff;
+  }
+  .keybox button { margin-top: 0; padding: .4rem .8rem; font-size: .8rem; }
+  .card-actions { display: flex; gap: .4rem; margin-top: .7rem; }
+  .card-actions button { margin-top: 0; padding: .35rem .7rem; font-size: .78rem; }
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 10;
+  }
+  .modal {
+    background: #171a21; border: 1px solid #262b36; border-radius: 12px;
+    padding: 1.3rem; max-width: 560px; width: 100%;
+  }
+  .modal h3 { margin-top: 0; }
+  .modal pre {
+    white-space: pre-wrap; background: #10131a; border: 1px solid #262b36;
+    border-radius: 8px; padding: .8rem; font-size: .8rem; overflow-x: auto;
+  }
+  .tool-cat { font-size: .7rem; padding: .1rem .5rem; border-radius: 999px; background: #2a2440; color: #c7a9ff; }
 </style>`
 
 function barColor(pct) {
@@ -120,6 +147,15 @@ export const CLIENTE_HTML = page(
   `
   <h1>Marketplace de inferencias</h1>
   <p class="sub">Elegí un proveedor y mandale un prompt. La inferencia corre en su nodo, no en un datacenter central.</p>
+
+  <div class="keybox">
+    <span class="muted">Tu API key:</span>
+    <code id="key-preview">generando…</code>
+    <button id="copy-key" class="ghost">Copiar</button>
+    <button id="new-key" class="ghost">Generar nueva</button>
+    <span class="muted" style="font-size:.78rem">Usala en tu terminal: <code>Authorization: Bearer &lt;key&gt;</code></span>
+  </div>
+
   <div id="grid" class="grid"></div>
 
   <div id="chat" class="chat" style="display:none">
@@ -129,9 +165,68 @@ export const CLIENTE_HTML = page(
     <pre id="out" class="response"></pre>
   </div>
 
+  <div id="hermes-modal"></div>
+
   <script>
     let selected = null
     let nodesById = {}
+    let apiKey = null
+
+    async function ensureApiKey() {
+      apiKey = localStorage.getItem('qvac_api_key')
+      if (apiKey) {
+        document.getElementById('key-preview').textContent = apiKey.slice(0, 11) + '…' + apiKey.slice(-4)
+        return
+      }
+      await regenerateKey()
+    }
+
+    async function regenerateKey() {
+      const r = await fetch('/v1/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: 'panel cliente' })
+      })
+      const entry = await r.json()
+      apiKey = entry.key
+      localStorage.setItem('qvac_api_key', apiKey)
+      document.getElementById('key-preview').textContent = apiKey.slice(0, 11) + '…' + apiKey.slice(-4)
+    }
+
+    document.getElementById('copy-key').addEventListener('click', () => {
+      if (apiKey) navigator.clipboard.writeText(apiKey)
+    })
+    document.getElementById('new-key').addEventListener('click', regenerateKey)
+
+    function closeModal() {
+      document.getElementById('hermes-modal').innerHTML = ''
+    }
+
+    async function connectHermes(nodeId) {
+      const r = await fetch('/v1/hermes/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodeId })
+      })
+      const data = await r.json()
+      if (!r.ok) { alert(data.error || 'no se pudo generar la config'); return }
+      document.getElementById('hermes-modal').innerHTML = \`
+        <div class="modal-overlay" id="modal-overlay">
+          <div class="modal">
+            <h3>Conectar Hermes Agent a \${data.node.displayName}</h3>
+            <p class="sub">Pegá esto en tu terminal. Crea <code>~/.hermes/config.yaml</code> con una API key nueva ya autorizada y lanza Hermes apuntando a este nodo.</p>
+            <pre>\${data.command}</pre>
+            <button id="copy-hermes">Copiar comando</button>
+            <button id="close-modal" class="ghost">Cerrar</button>
+          </div>
+        </div>
+      \`
+      document.getElementById('copy-hermes').addEventListener('click', () => navigator.clipboard.writeText(data.command))
+      document.getElementById('close-modal').addEventListener('click', closeModal)
+      document.getElementById('modal-overlay').addEventListener('click', (e) => {
+        if (e.target.id === 'modal-overlay') closeModal()
+      })
+    }
 
     function bar(pct) {
       if (pct === null) return '<span class="badge offline">fuera de línea</span>'
@@ -149,10 +244,19 @@ export const CLIENTE_HTML = page(
           <div class="tags">\${n.tags.map(t => \`<span class="tag">\${t}</span>\`).join('')}</div>
           <div class="price">\${n.pricing}</div>
           \${bar(n.loadPct)}
+          <div class="card-actions">
+            <button class="ghost hermes-btn" data-id="\${n.id}">Conectar con Hermes</button>
+          </div>
         </div>
       \`).join('')
       document.querySelectorAll('.card').forEach(el => {
         el.addEventListener('click', () => selectNode(el.dataset.id))
+      })
+      document.querySelectorAll('.hermes-btn').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation()
+          connectHermes(el.dataset.id)
+        })
       })
     }
 
@@ -181,9 +285,14 @@ export const CLIENTE_HTML = page(
       try {
         const resp = await fetch('/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
           body: JSON.stringify({ modelId: nodesById[selected].modelId, prompt })
         })
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}))
+          out.textContent = '[error] ' + (err.error || resp.status)
+          return
+        }
         const reader = resp.body.getReader()
         const decoder = new TextDecoder()
         let buf = ''
@@ -208,6 +317,7 @@ export const CLIENTE_HTML = page(
     }
 
     document.getElementById('send').addEventListener('click', send)
+    ensureApiKey()
     refresh()
     setInterval(refresh, 3000)
   </script>
@@ -356,6 +466,40 @@ export const ADMIN_HTML = page(
     refreshLog()
     setInterval(refreshNodes, 2500)
     setInterval(refreshLog, 2500)
+  </script>
+  `
+)
+
+export const SKILLS_HTML = page(
+  'QVAC Marketplace · Skills',
+  `
+  <h1>Skills &amp; Tools</h1>
+  <p class="sub">Catálogo de tools que declaran los proveedores conectados. <b>Todavía es solo catálogo</b> — ningún tool se ejecuta de verdad en este track, ver <code>security.toolCallPolicy</code> del manifiesto.</p>
+
+  <table>
+    <thead>
+      <tr><th>Tool</th><th>Descripción</th><th>Proveedor</th><th></th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script>
+    async function refresh() {
+      const r = await fetch('/v1/tools')
+      const { tools } = await r.json()
+      document.getElementById('rows').innerHTML = tools.length
+        ? tools.map(t => \`
+          <tr>
+            <td>\${t.name}</td>
+            <td class="muted">\${t.description}</td>
+            <td>\${t.displayName} <span class="muted">— \${t.operator}</span></td>
+            <td><span class="tool-cat">catálogo, no ejecuta</span></td>
+          </tr>
+        \`).join('')
+        : '<tr><td class="muted" colspan="4">sin tools declaradas</td></tr>'
+    }
+    refresh()
+    setInterval(refresh, 4000)
   </script>
   `
 )

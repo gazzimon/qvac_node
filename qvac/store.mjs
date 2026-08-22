@@ -21,7 +21,8 @@ function makeNode({
   tags,
   pricing,
   operator,
-  maxConcurrentRequests
+  maxConcurrentRequests,
+  tools = []
 }) {
   return {
     id,
@@ -33,7 +34,8 @@ function makeNode({
     operator,
     maxConcurrentRequests,
     activeRequests: 0,
-    status: 'online' // 'online' | 'offline' (admin lo tira)
+    status: 'online', // 'online' | 'offline' (admin lo tira)
+    tools // catalogo, NO se ejecuta todavia -ver D2, mismo criterio de mock marcado
   }
 }
 
@@ -50,7 +52,11 @@ export function seed() {
       tags: ['general', 'chat'],
       pricing: '0.002 QVAC / 1K tok',
       operator: 'Nodo local (este equipo)',
-      maxConcurrentRequests: 3
+      maxConcurrentRequests: 3,
+      tools: [
+        { name: 'web_search', description: 'Buscar en la web' },
+        { name: 'calculator', description: 'Resolver operaciones matemáticas' }
+      ]
     })
   )
   add(
@@ -62,7 +68,11 @@ export function seed() {
       tags: ['facturas', 'contable', 'ar'],
       pricing: '0.001 QVAC / doc',
       operator: 'FiscalNode SRL',
-      maxConcurrentRequests: 6
+      maxConcurrentRequests: 6,
+      tools: [
+        { name: 'validar_cae', description: 'Validar CAE contra AFIP' },
+        { name: 'extraer_campos', description: 'Extraer campos de una factura' }
+      ]
     })
   )
   add(
@@ -74,7 +84,8 @@ export function seed() {
       tags: ['arquitectura', 'planos'],
       pricing: '0.004 QVAC / plano',
       operator: 'ArqNode Rosario',
-      maxConcurrentRequests: 4
+      maxConcurrentRequests: 4,
+      tools: [{ name: 'medir_superficie', description: 'Calcular superficie cubierta desde un plano' }]
     })
   )
   add(
@@ -86,7 +97,8 @@ export function seed() {
       tags: ['traduccion', 'nmt'],
       pricing: '0.0005 QVAC / 1K tok',
       operator: 'LinguaNode',
-      maxConcurrentRequests: 8
+      maxConcurrentRequests: 8,
+      tools: [{ name: 'detectar_idioma', description: 'Detectar idioma de origen' }]
     })
   )
 }
@@ -124,8 +136,21 @@ function toPublic(node) {
     status: node.status,
     activeRequests: node.activeRequests,
     maxConcurrentRequests: node.maxConcurrentRequests,
-    loadPct: loadPct(node)
+    loadPct: loadPct(node),
+    tools: node.tools
   }
+}
+
+// Catalogo de tools agregado de todos los nodos, para la tab de Skills.
+// SOLO catalogo: ningun tool se ejecuta de verdad todavia (D2, mock marcado).
+export function listTools() {
+  const out = []
+  for (const node of nodes.values()) {
+    for (const tool of node.tools) {
+      out.push({ ...tool, nodeId: node.id, operator: node.operator, displayName: node.displayName })
+    }
+  }
+  return out
 }
 
 // El % de carga sube al arrancar un request y baja al terminar. Para el nodo

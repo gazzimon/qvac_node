@@ -10,6 +10,9 @@
 
 import http from 'bare-http1'
 import * as store from './store.mjs'
+import * as apikeys from './apikeys.mjs'
+
+let currentPort = 8787
 
 const MOCK_REPLIES = {
   'facturas-ar': (prompt) =>
@@ -81,7 +84,21 @@ async function* mockTokens(node, prompt) {
   }
 }
 
+function getBearerKey(req) {
+  const header = req.headers['authorization'] ?? req.headers['Authorization']
+  if (!header || typeof header !== 'string' || !header.startsWith('Bearer ')) return null
+  return header.slice(7).trim()
+}
+
 async function handleChat(req, res) {
+  const keyEntry = apikeys.verifyKey(getBearerKey(req))
+  if (!keyEntry) {
+    // D5-like: mensaje claro, nunca un cuelgue silencioso -esta vez por auth.
+    return sendJson(res, 401, {
+      error: 'falta o es invalida la API key. Generá una en el panel o con POST /v1/keys.'
+    })
+  }
+
   let body
   try {
     body = await readJsonBody(req)
@@ -136,6 +153,34 @@ async function handleChat(req, res) {
   }
 }
 
+// Fase 4.5: Hermes Agent apunta su base_url a cualquier endpoint OpenAI-
+// compatible. Aca no integramos su codigo -es configuracion, no integracion,
+// ver ROADMAP_FASE2-6.md- pero le ahorramos al usuario escribir el YAML a
+// mano: se le arma listo, con una key nueva ya autorizada para ese nodo.
+async function handleHermesConfig(req, res) {
+  const body = await readJsonBody(req).catch(() => ({}))
+  const node = body.nodeId ? store.getNode(body.nodeId) : store.findByModelId(body.modelId)
+  if (!node) return sendJson(res, 404, { error: 'nodo desconocido' })
+
+  const entry = apikeys.createKey(`hermes · ${node.displayName}`)
+  const baseUrl = `http://127.0.0.1:${currentPort}/v1`
+  const yaml =
+    'model:\n' +
+    '  provider: custom\n' +
+    `  base_url: ${baseUrl}\n` +
+    `  api_key: ${entry.key}\n` +
+    `  default: ${node.modelId}\n`
+  const command =
+    `mkdir -p ~/.hermes && cat > ~/.hermes/config.yaml <<'EOF'\n${yaml}EOF\n` + 'hermes'
+
+  sendJson(res, 200, {
+    yaml,
+    command,
+    apiKey: entry.key,
+    node: { id: node.id, modelId: node.modelId, displayName: node.displayName }
+  })
+}
+
 async function onRequest(req, res) {
   const pathname = req.url.split('?')[0]
 
@@ -158,8 +203,31 @@ async function onRequest(req, res) {
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
       return sendJson(res, 200, { log: store.getLog() })
     }
+    if (req.method === 'GET' && pathname === '/skills') {
+      const { SKILLS_HTML } = await import('./pages.mjs')
+      return sendHtml(res, SKILLS_HTML)
+    }
+    if (req.method === 'GET' && pathname === '/v1/tools') {
+      return sendJson(res, 200, { tools: store.listTools() })
+    }
     if (req.method === 'POST' && pathname === '/v1/chat/completions') {
       return await handleChat(req, res)
+    }
+    if (req.method === 'POST' && pathname === '/v1/keys') {
+      const body = await readJsonBody(req).catch(() => ({}))
+      const entry = apikeys.createKey(body.label || 'sin nombre')
+      return sendJson(res, 200, entry) // unica vez que se devuelve la key en texto plano
+    }
+    if (req.method === 'GET' && pathname === '/v1/keys') {
+      return sendJson(res, 200, { keys: apikeys.listKeys() })
+    }
+    const keyMatch = pathname.match(/^\/v1\/keys\/([^/]+)$/)
+    if (req.method === 'DELETE' && keyMatch) {
+      const ok = apikeys.revokeKey(keyMatch[1])
+      return ok ? sendJson(res, 200, { revoked: true }) : sendJson(res, 404, { error: 'key desconocida' })
+    }
+    if (req.method === 'POST' && pathname === '/v1/hermes/config') {
+      return await handleHermesConfig(req, res)
     }
 
     const kickMatch = pathname.match(/^\/v1\/nodes\/([^/]+)\/kick$/)
@@ -185,6 +253,7 @@ async function onRequest(req, res) {
 }
 
 export function createGateway({ port = 8787 } = {}) {
+  currentPort = port
   store.seed()
   store.startFluctuation()
 
