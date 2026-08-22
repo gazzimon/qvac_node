@@ -50,21 +50,7 @@ fi
 command -v pear >/dev/null 2>&1 || { fail 'pear no quedo en el PATH; abri una terminal nueva y volve a correr esto'; exit 1; }
 ok "$(command -v pear)"
 
-step 3 'Sonda: resuelve el link? (informativo, NO bloquea)'
-# OJO: no esta verificado que `pear info` haga lookup por red para un link que
-# esta maquina nunca vio. Si no lo hace, falla siempre aunque el install ande.
-# Por eso es informativo: el veredicto lo da el paso 4.
-INFO="$(pear info "$LINK" 2>&1 || true)"
-if echo "$INFO" | grep -q 'qvac-node'; then
-  ok 'el link resuelve'
-else
-  printf '    [33mSIN DATO  pear info no devolvio nada. Seguimos igual:[0m
-'
-  printf '    [33m          el que decide es el install del paso 4.[0m
-'
-fi
-
-step 4 "Instalando en $TARGET"
+step 3 "Instalando en $TARGET"
 mkdir -p "$TARGET"   # pear install --to falla con ENOENT si el dir no existe
 T0=$(date +%s)
 pear install --to "$TARGET" "$LINK" || { fail 'el install fallo'; exit 1; }
@@ -78,7 +64,7 @@ else
   exit 1
 fi
 
-step 5 'Version instalada'
+step 4 'Version instalada'
 ok "$("$BIN" --version 2>&1 | head -1)"
 
 printf '\n\033[32m=== INSTALL OK ===\033[0m\n'

@@ -49,20 +49,7 @@ if (-not (Test-Path $pearExe)) {
 }
 if (Test-Path $pearExe) { Ok $pearExe } else { Fail 'no se encontro pear.exe'; exit 1 }
 
-Step 3 'Sonda: resuelve el link? (informativo, NO bloquea)'
-# OJO: no esta verificado que `pear info` haga lookup por red para un link que
-# esta maquina nunca vio. Si no lo hace, falla siempre aunque el install ande.
-# Por eso es informativo: el veredicto lo da el paso 4.
-$info = & $pearExe info $Link 2>&1 | Out-String
-if ($info -match 'qvac-node') {
-  $ver = if ($info -match 'version\s+(\S+)') { $Matches[1] } else { '?' }
-  Ok "el link resuelve. version=$ver"
-} else {
-  Write-Host '    SIN DATO  pear info no devolvio nada. Seguimos igual:' -ForegroundColor Yellow
-  Write-Host '              el que decide es el install del paso 4.' -ForegroundColor Yellow
-}
-
-Step 4 "Instalando en $Target"
+Step 3 "Instalando en $Target"
 if (-not (Test-Path $Target)) { New-Item -ItemType Directory -Path $Target | Out-Null }
 $t0 = Get-Date
 & $pearExe install --to $Target $Link
@@ -77,7 +64,7 @@ if (Test-Path $bin) {
   exit 1
 }
 
-Step 5 'Version instalada'
+Step 4 'Version instalada'
 $v = (& $bin --version) 2>&1
 Ok $v
 
