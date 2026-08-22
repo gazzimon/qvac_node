@@ -148,6 +148,45 @@ paquetes. Explica la firma exacta que perseguimos todo el día — `peer join`
 seguido de 3 kB de metadata y después `0B/s`: los paquetes chicos pasan de a
 ratos, el flujo bulk muere.
 
+### El `ping` de Windows cuenta "Host inalcanzable" como paquete RECIBIDO
+
+Trampa de diagnóstico que casi nos hace perder otro rato, medida el 22/8/2026
+en la red del venue (192.168.140.0/22, gateway Fortinet):
+
+```
+> ping -n 20 192.168.140.98
+Respuesta desde 192.168.140.97: Host de destino inaccesible.   (x8)
+    Paquetes: enviados = 8, recibidos = 8, perdidos = 0
+    (0% perdidos)
+```
+
+**0% de pérdida con el host completamente inalcanzable.** Las respuestas vienen
+de la IP _propia_: es un ICMP Destination Unreachable que genera el stack
+local cuando el ARP no resuelve, y `ping` lo suma a "recibidos".
+
+Por eso el umbral de "no intentes con más de 5% de pérdida" que estaba en el
+runbook **daba luz verde en falso**. El chequeo correcto es contar respuestas
+de eco reales, que son las únicas que traen `TTL=`:
+
+```
+ping -n 10 <ip> | grep -c "TTL="
+```
+
+Estado de esa red al momento de medir:
+
+| destino                                | resultado                                          |
+| -------------------------------------- | -------------------------------------------------- |
+| Gateway 192.168.140.1                  | **0% pérdida, 2–3 ms** — el enlace al AP está sano |
+| 192.168.140.98                         | sin entrada ARP: no hay nada en esa IP             |
+| 192.168.140.141 (MAC aleatoria, Apple) | tiene MAC pero **100% pérdida**                    |
+
+Un host con MAC resuelta que no contesta un solo ping es la firma de
+**aislamiento de clientes en el AP**, no de wifi malo.
+
+**Pero eso no cancela el `pear install`:** Hyperswarm no necesita ruta directa
+en la LAN, puede conectar por hole-punching a través de la DHT mientras las dos
+máquinas tengan internet. El veredicto lo da el install, no el ping.
+
 ### Lo que quedó DESCARTADO por medición, no por intuición
 
 | hipótesis                    | cómo se descartó                                           |

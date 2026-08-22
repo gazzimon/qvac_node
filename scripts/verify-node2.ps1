@@ -79,21 +79,50 @@ if (Test-Path $pearExe) { Ok $pearExe } else { Fail 'no se encontro pear.exe'; e
 Step 3 "Instalando en $Target"
 if (-not (Test-Path $Target)) { New-Item -ItemType Directory -Path $Target | Out-Null }
 $t0 = Get-Date
-& $pearExe install --to $Target $Link
+$installOut = RunBin $pearExe @('install', '--to', $Target, $Link)
 $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+$installOut -split "`n" | ForEach-Object { if ($_.Trim()) { Write-Host "    | $_" } }
 
 $bin = Join-Path $Target 'qvac-node.exe'
-if (Test-Path $bin) {
-  $mb = [math]::Round((Get-Item $bin).Length / 1MB, 1)
-  Ok "instalado en ${secs}s, $mb MB"
-} else {
-  Fail 'el binario no quedo en disco'
+
+# NO se confia en que el archivo exista ni en el exit code.
+#
+# Medido en la MacBook: `pear install` imprimio "Network Timeout 30s" y
+# "Failed", salio con codigo 0, y dejo un binario truncado de 77 MB (de 105 MB)
+# con permiso de ejecucion. El chequeo viejo lo reportaba como
+# "OK instalado en 34s": un falso positivo que daba Fase 0 por cerrada.
+if ($installOut -match 'Network Timeout|Failed|Error') {
+  Fail "el install NO termino bien (${secs}s). Mira las lineas de arriba."
+  if (Test-Path $bin) {
+    $mb = [math]::Round((Get-Item $bin).Length / 1MB, 1)
+    Write-Host "    Quedo un binario PARCIAL de $mb MB: no sirve."
+    Write-Host "    Borralo:  Remove-Item -Recurse -Force $Target"
+  }
+  Write-Host '    Reintenta: Hyperdrive es incremental y retoma lo ya bajado.'
+  Write-Host '    Si vuelve a cortar, plan B: hotspot del celular CON DATOS.'
   exit 1
 }
 
-Step 4 'Version instalada'
+if (-not (Test-Path $bin)) {
+  Fail 'el binario no quedo en disco'
+  exit 1
+}
+$mb = [math]::Round((Get-Item $bin).Length / 1MB, 1)
+Ok "descargado en ${secs}s, $mb MB"
+
+Step 4 'El binario CORRE (esta es la prueba real de que el install sirve)'
+# Un binario truncado existe, es ejecutable, y no arranca. Que --version
+# devuelva una version es lo unico que distingue un install completo de uno
+# a medias.
 $v = (RunBin $bin @('--version')).Trim()
-Ok $v
+if ($v -match 'v\d+\.\d+\.\d+') {
+  Ok $v
+} else {
+  Fail 'el binario esta en disco pero NO corre: el install quedo incompleto.'
+  Write-Host "    salida de --version: $(if ($v) { $v } else { '(vacia)' })"
+  Write-Host "    Borra y reintenta:  Remove-Item -Recurse -Force $Target"
+  exit 1
+}
 
 Step 5 'Inferencia 100% local (Fase 1)'
 Write-Host @'
