@@ -110,6 +110,57 @@ transfirió **1.1 MB**, no los 55 MB del binario entero.
 
 ---
 
+## La wifi de la sala: enlace cliente-a-cliente inestable
+
+Un día entero de diagnóstico terminó acá, y **no era el código**.
+
+Medido desde la máquina 1 (192.168.112.209) hacia la Mac (192.168.112.252),
+las dos en la misma LAN:
+
+| destino | pérdida |
+|---|---|
+| Gateway (192.168.112.1) | **0%** — 3 ms |
+| Mac, primera medición | 0% — 6-29 ms |
+| Mac, una hora después | **95%** (19/20) |
+| Mac, minutos después | **100%** (15/15) |
+
+El enlace de la máquina 1 al AP es perfecto y estable. El camino **entre los dos
+clientes** se degradó hasta desaparecer.
+
+Con esa pérdida no hay `pear install` posible: 78 MB son decenas de miles de
+paquetes. Explica la firma exacta que perseguimos todo el día — `peer join`
+seguido de 3 kB de metadata y después `0B/s`: los paquetes chicos pasan de a
+ratos, el flujo bulk muere.
+
+### Lo que quedó DESCARTADO por medición, no por intuición
+
+| hipótesis | cómo se descartó |
+|---|---|
+| MTU / fragmentación | `ping -f -l 1472` al gateway: OK (MTU 1500) |
+| UDP bloqueado entre clientes | 7/7 paquetes UDP de 32 a 1472 bytes llegaron |
+| Aislamiento de clientes | los 5 vecinos de la LAN responden al ping |
+| Firewall de Windows | regla Allow para `pear.exe`, perfil **Public**, habilitada |
+| Firewall de macOS | apagado |
+| Versión de Pear distinta | 3.2.0 en las dos máquinas |
+| Sin internet | fue real una vez (hotspot sin datos), después 200 |
+
+### Implicancia para el domingo
+
+**El jurado instala desde esa misma wifi.** Si el enlace cliente-a-cliente es
+inestable bajo carga, el install puede fallar delante de ellos.
+
+Mitigaciones, de más a menos control nuestro:
+
+1. **`server: true` ya está implementado**: cada nodo instalado reseedea, así que
+   cuantos más nodos haya, más caminos alternativos existen. Antes había un solo
+   origen posible.
+2. Tener el seeder **físicamente cerca del AP**.
+3. Tener un hotspot de celular **con datos** como plan B, y las dos máquinas ahí.
+4. Antes de cualquier demo, medir: `ping -c 20 <ip-de-la-otra-maquina>`.
+   Por encima de ~5% de pérdida, no intentar — va a fallar.
+
+---
+
 ## Cosas que mordieron (para no repetirlas)
 
 - **`pear install` no sirve código fuente, sirve un binario compilado.** Busca
