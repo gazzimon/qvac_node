@@ -37,17 +37,18 @@ fi
 command -v pear >/dev/null 2>&1 || { fail 'pear no quedo en el PATH; abri una terminal nueva y volve a correr esto'; exit 1; }
 ok "$(command -v pear)"
 
-step 3 'Alcanza el DHT? (unos pocos KB, aisla red de resto)'
+step 3 'Sonda: resuelve el link? (informativo, NO bloquea)'
+# OJO: no esta verificado que `pear info` haga lookup por red para un link que
+# esta maquina nunca vio. Si no lo hace, falla siempre aunque el install ande.
+# Por eso es informativo: el veredicto lo da el paso 4.
 INFO="$(pear info "$LINK" 2>&1 || true)"
 if echo "$INFO" | grep -q 'qvac-node'; then
-  ok "resuelve. $(echo "$INFO" | grep -E '^\s*(version|length)' | tr -s ' ' | tr '\n' ' ')"
+  ok 'el link resuelve'
 else
-  fail 'no resolvio el link.'
-  echo '    Causas tipicas: el seeder de la maquina 1 no esta corriendo,'
-  echo '    o esta red bloquea UDP (Hyperswarm holepunchea por UDP).'
-  echo '    Proba con el hotspot del celular para descartar el firewall.'
-  echo "$INFO"
-  exit 1
+  printf '    [33mSIN DATO  pear info no devolvio nada. Seguimos igual:[0m
+'
+  printf '    [33m          el que decide es el install del paso 4.[0m
+'
 fi
 
 step 4 "Instalando en $TARGET"

@@ -36,19 +36,17 @@ if (-not (Test-Path $pearExe)) {
 }
 if (Test-Path $pearExe) { Ok $pearExe } else { Fail 'no se encontro pear.exe'; exit 1 }
 
-Step 3 'Alcanza el DHT? (unos pocos KB, aisla red de resto)'
+Step 3 'Sonda: resuelve el link? (informativo, NO bloquea)'
+# OJO: no esta verificado que `pear info` haga lookup por red para un link que
+# esta maquina nunca vio. Si no lo hace, falla siempre aunque el install ande.
+# Por eso es informativo: el veredicto lo da el paso 4.
 $info = & $pearExe info $Link 2>&1 | Out-String
-if ($info -match 'name\s+qvac-node') {
+if ($info -match 'qvac-node') {
   $ver = if ($info -match 'version\s+(\S+)') { $Matches[1] } else { '?' }
-  $len = if ($info -match 'length\s+(\d+)') { $Matches[1] } else { '?' }
-  Ok "resuelve. version=$ver drive-length=$len"
+  Ok "el link resuelve. version=$ver"
 } else {
-  Fail 'no resolvio el link.'
-  Write-Host '    Causas tipicas: el seeder de la maquina 1 no esta corriendo,'
-  Write-Host '    o esta red bloquea UDP (Hyperswarm holepunchea por UDP).'
-  Write-Host '    Proba con el hotspot del celular para descartar el firewall.'
-  Write-Host $info
-  exit 1
+  Write-Host '    SIN DATO  pear info no devolvio nada. Seguimos igual:' -ForegroundColor Yellow
+  Write-Host '              el que decide es el install del paso 4.' -ForegroundColor Yellow
 }
 
 Step 4 "Instalando en $Target"
