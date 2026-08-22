@@ -42,6 +42,21 @@ const promptCmd = command(
   }
 )
 
+const serveCmd = command(
+  'serve',
+  summary('Levantar el gateway del marketplace (demo, ver ROADMAP_FASE2-6.md)'),
+  description(
+    'Sirve los 3 paneles (cliente/proveedor/admin) y una API que imita la\n' +
+      'forma del gateway real de Fase 3. El ruteo es contra un registro en\n' +
+      'memoria: un nodo responde con inferencia real (engine.mjs), el resto\n' +
+      'son mocks. No hay P2P todavia -eso es Fase 2/3 completas.'
+  ),
+  flag('--port <n>', 'puerto HTTP del gateway (default 8787)'),
+  () => {
+    pending = runServe()
+  }
+)
+
 const cmd = command(
   appName,
   summary(pkg.description),
@@ -50,6 +65,7 @@ const cmd = command(
   flag('--no-updates', 'disable OTA updates for this run'),
   flag('--update-delay <ms>', 'ventana de jitter del OTA en ms (default 10000)'),
   promptCmd,
+  serveCmd,
   () => {
     pending = runNode()
   }
@@ -172,6 +188,33 @@ async function readStdin() {
   const chunks = []
   for await (const chunk of process.stdin) chunks.push(chunk)
   return Buffer.concat(chunks).toString('utf8').trim()
+}
+
+// ---------------------------------------------------------------------------
+// qvac-node serve
+// ---------------------------------------------------------------------------
+
+async function runServe() {
+  const port = Number.isFinite(+serveCmd.flags.port) ? +serveCmd.flags.port : 8787
+
+  const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
+  const server = createGateway({ port })
+
+  let closing = false
+  const shutdown = async (code) => {
+    if (closing) return
+    closing = true
+    console.log('\n[gateway] cerrando...')
+    await shutdownGateway()
+    server.close(() => Bare.exit(code))
+  }
+
+  process.on('SIGHUP', () => shutdown(129))
+  process.on('SIGINT', () => shutdown(130))
+  process.on('SIGQUIT', () => shutdown(131))
+  process.on('SIGTERM', () => shutdown(143))
+
+  console.log('Ctrl+C para salir.\n')
 }
 
 // ---------------------------------------------------------------------------
