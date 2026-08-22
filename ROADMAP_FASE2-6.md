@@ -71,10 +71,30 @@ alcance.
 | ------------------- | -------------- | ---------------------------------------------------- |
 | `manifest:announce` | nodo → gateway | el manifiesto firmado (ya contemplado en Fase 2)     |
 | `chat:request`      | gateway → nodo | `{ requestId, model, messages, stream }`             |
+| `chat:accepted`     | nodo → gateway | `{ requestId }` — **agregado**, ver abajo            |
 | `chat:chunk`        | nodo → gateway | `{ requestId, delta }`                               |
 | `chat:done`         | nodo → gateway | `{ requestId }`                                      |
-| `chat:error`        | nodo → gateway | `{ requestId, message }`                             |
+| `chat:error`        | nodo → gateway | `{ requestId, message, code }`                       |
+| `chat:cancel`       | gateway → nodo | `{ requestId }` — **agregado**, ver abajo            |
 | `node:status`       | nodo → gateway | `{ activeRequests, maxConcurrentRequests }` — ver D6 |
+
+**Dos mensajes agregados al implementar Fase 3** (no estaban en la tabla original):
+
+- **`chat:accepted`** — el modelo se carga perezoso, recién con el primer
+  `chat:request`, para no romper la invariante de que arrancar el nodo no baja
+  pesos. Eso puede tardar decenas de segundos. Sin un acuse, el consumidor no
+  puede distinguir "está cargando 807 MB" de "se colgó", y tiene que elegir
+  entre un timeout corto que mata cargas legítimas y uno largo que hace esperar
+  de gordo contra un par muerto. Con el acuse son dos timeouts distintos: 8 s
+  hasta el `accepted`, 120 s desde ahí hasta el primer token.
+- **`chat:cancel`** — si el cliente HTTP cierra la pestaña, el par remoto
+  seguiría generando tokens para nadie: CPU de otra persona, que en un
+  marketplace es su plata. El gateway avisa y el proveedor corta el generador y
+  libera el slot, así `node:status` vuelve a decir la verdad enseguida.
+
+`chat:error` lleva además un `code` (`at_capacity`, `model_not_found`,
+`invalid_request`, `inference_failed`) porque el consumidor necesita distinguir
+"este par está lleno, probá otro" de "este request está mal, no lo reintentes".
 
 El gateway mantiene un mapa `requestId → response SSE del cliente HTTP` y traduce cada `chat:chunk` a una línea `data:` sin tocar el contenido.
 

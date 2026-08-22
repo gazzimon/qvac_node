@@ -220,7 +220,7 @@ export function setSwarm(swarm) {
 // Un intento contra UN par. Resuelve siempre (nunca rechaza) con el resultado,
 // incluyendo si alcanzo a emitir algun chunk -- que es el dato con el que D4
 // decide si se puede reintentar en otro candidato.
-function streamFromPeer({ node, model, messages, onChunk }) {
+function streamFromPeer({ node, model, messages, onChunk, onStart }) {
   return new Promise((resolve) => {
     let started = false
     let finished = false
@@ -267,6 +267,13 @@ function streamFromPeer({ node, model, messages, onChunk }) {
 
     if (!requestId)
       return finish({ ok: false, message: 'el par ya no esta conectado', code: 'peer_gone' })
+
+    // El llamador necesita el requestId para poder cancelar si el cliente HTTP
+    // se va. Antes esto no existia y `requestIdEnVuelo` quedaba en null: el
+    // chat:cancel no tenia nunca un id que mandar, asi que el par seguia
+    // generando para un cliente que ya no estaba.
+    if (onStart) onStart(requestId)
+
     arm(ACCEPT_TIMEOUT_MS, 'el par no acuso recibo del request', 'peer_no_ack')
   })
 }
@@ -285,7 +292,21 @@ async function handleRemoteChat({ req, res, node, candidatos, model, messages, s
 
   const emit = (delta) => {
     contenido += delta
-    if (!stream) return
+    if (!stream || cancelado) return
+    // Escribir en una respuesta que el cliente ya cerro puede tirar. Esta
+    // funcion la llama el handler del FramedStream del swarm, asi que una
+    // excepcion que se escape de aca sube hasta el 'data' del pipe y se lleva
+    // puesto el canal con ese par -- para TODOS los requests, no solo este.
+    try {
+      emitUnsafe(delta)
+    } catch (err) {
+      cancelado = true
+      if (requestIdEnVuelo) swarmRef.cancelChat(requestIdEnVuelo)
+      console.log(`[gateway] no se pudo escribir al cliente: ${(err && err.message) || err}`)
+    }
+  }
+
+  const emitUnsafe = (delta) => {
     if (!headersSent) {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -325,11 +346,15 @@ async function handleRemoteChat({ req, res, node, candidatos, model, messages, s
         node: cand,
         model,
         messages,
-        onChunk: (d) => {
-          requestIdEnVuelo = null // ya arranco: no hay nada que cancelar preventivamente
-          emit(d)
-        }
+        onStart: (rid) => {
+          requestIdEnVuelo = rid
+          // El cliente se fue MIENTRAS se armaba el request: se cancela ya
+          // mismo, sin esperar a que el par empiece a generar.
+          if (cancelado) swarmRef.cancelChat(rid)
+        },
+        onChunk: emit
       })
+      requestIdEnVuelo = null
       ultimo = r
       intentos.push({ nodeId: cand.id, operator: cand.operator, ok: r.ok, code: r.code || null })
 

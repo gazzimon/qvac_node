@@ -137,9 +137,28 @@ plataforma, así que con la inferencia adentro el binario no compila.
 - **Fase 2-a — manifiesto firmado:** **cerrada**. Ed25519 sobre JCS (RFC 8785)
   en [qvac/manifest.mjs](qvac/manifest.mjs), con casos negativos en
   [test/index.js](test/index.js).
-- **Fase 2-b — swarm y descubrimiento P2P:** siguiente. **Todavía no existe**:
-  hoy el gateway rutea contra un registro en memoria, no contra pares
-  descubiertos por Hyperswarm.
+- **Fase 2-b — swarm y descubrimiento P2P:** **cerrada**. Topic fijo,
+  `FramedStream` por conexión, `manifest:announce` + `node:status`. Los
+  candidatos mueren con el socket (D3), no por `expiresAt`.
+- **Fase 3 — inferencia sobre el canal P2P:** **cerrada**. `serve --swarm` es
+  el nodo completo: gateway y proveedor. Un `POST /v1/chat/completions` contra
+  una máquina devuelve tokens generados en **otra**, por
+  `chat:request`/`chat:chunk` sobre el mismo `FramedStream` del swarm — sin
+  conexión aparte y sin hop HTTP a localhost (D1). Incluye reintento sólo antes
+  del primer token (D4), acuse `chat:accepted` para distinguir "cargando" de
+  "colgado", y `chat:cancel` cuando el cliente se va.
+
+```bash
+# en las dos máquinas
+qvac-node serve --swarm --operator "Mi Nodo"
+
+# el prompt entra por una y lo contesta la otra
+curl -N http://localhost:8787/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"llama1b","messages":[{"role":"user","content":"hola"}],"stream":true}'
+```
+
+- **Fase 4 — el install es la demo:** siguiente.
 
 ### Qué es simulado (leer antes de mirar los paneles)
 
@@ -157,9 +176,12 @@ descubra solo:
   `discoveryKey` en ceros), con un campo `_mock` que lo dice dentro del propio
   manifiesto. WDK, recibos y liquidación están fuera de alcance de este track;
   ni el nodo ni el gateway leen esos campos.
-- **Elegir nodo por carga no está implementado.** Cada nodo anuncia un
-  `modelId` distinto, así que nunca hay dos candidatos para el mismo modelo y
-  el log de routing dice `único candidato`, que es lo que realmente pasa.
+- **Elegir nodo por carga (D6) no está implementado.** Con pares P2P sí puede
+  haber dos nodos sirviendo el mismo `modelId`. Entre ellos se prefiere el par
+  remoto sobre el local —decisión de demo, para que el camino P2P se ejercite
+  en vez de que conteste la misma máquina— y entre varios pares se toma el
+  primero. El log de routing dice cuántos candidatos hubo y que la elección por
+  carga sigue sin implementarse; no afirma una decisión que no ocurrió.
 - **El nodo que ejecuta la inferencia ve el prompt en texto plano.** El claim
   correcto es "ninguna corporación centralizada agrega tus datos a escala", no
   "nadie más ve tu prompt": el cifrado E2E está fuera de alcance.

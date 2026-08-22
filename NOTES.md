@@ -473,6 +473,97 @@ Es el mismo error que el falso positivo del verificador de la MacBook, con el
 signo dado vuelta: un gate que mide lo que es fácil de medir en vez de lo que
 la condición realmente dice.
 
+### El descubrimiento tardó 38 s en una corrida: la varianza es el riesgo, no la media
+
+Corridas de `serve --swarm` en dos procesos, misma máquina, mismo código:
+
+| corrida | join → primer manifiesto verificado |
+| ------- | ----------------------------------- |
+| 1       | 3 664 ms                            |
+| 2       | 5 590 ms                            |
+| 3       | 6 654 ms                            |
+| 4       | 8 654 ms                            |
+| 5       | **38 334 ms**                       |
+
+La quinta es la que importa: **10x la mediana**, sin cambiar una línea ni tocar
+la red. Un test que esperaba 18 s dio "no hay pares" y mandó el prompt al nodo
+local — un falso negativo que parecía un bug del ruteo y no lo era.
+
+Consecuencias, ya aplicadas:
+
+- El gate del runbook usa `--timeout 90`, no 30. Con 38 s de piso observado,
+  cualquier ventana menor a un minuto va a fallar en falso alguna vez.
+- **En la demo, el swarm se levanta ANTES de empezar a hablar**, no en vivo
+  frente al jurado. El objetivo de <60 s de Fase 4 cuenta `pear install` →
+  primer token; si además hay que esperar el descubrimiento, no entra.
+
+### Concurrencia del SDK: 3 completions a la vez, sin mezclarse (medido)
+
+`maxConcurrentRequests: 3` en el manifiesto es un número medido, no elegido.
+
+Primer probe: comparó **tiempos** y concluyó "corre en paralelo". Casi lo doy
+por bueno, pero las salidas concurrentes venían mucho más cortas que la
+secuencial (5 y 10 deltas contra 36) — que es exactamente lo que se vería si
+dos completions se pisaran y devolvieran basura rápido.
+
+Segundo probe, mirando el **texto**: el baseline secuencial con el _mismo_
+prompt daba 14 y 21 deltas con respuestas distintas. O sea que la varianza era
+el sampling, no corrupción. El primer probe medía lo fácil de medir.
+
+Tercer probe, decisivo: tres prompts pidiendo palabras distinguibles
+(`BANANA`/`ELEFANTE`/`VIOLETA`), los tres a la vez. Cada respuesta trajo su
+propia palabra y **ninguna trajo la de otro**. No hay cross-talk.
+
+Igual el `Provider` impone el límite declarado y rechaza con `at_capacity` en
+vez de encolar: así el consumidor se entera **antes** del primer chunk y D4
+puede reintentar en otro candidato. Una cola haría esperar al cliente sin que
+nadie sepa cuánto.
+
+### Un cliente que se desconecta envenenaba el canal con ese par
+
+El peor bug de esta fase, y el más difícil de leer desde afuera.
+
+`res.write()` sobre una respuesta que el cliente ya cerró tira. Esa escritura
+pasaba dentro del callback que atiende los `chat:chunk`, o sea **dentro del
+handler `data` del `FramedStream`**. La excepción subía al pipe y se llevaba
+puesto el canal con ese par.
+
+Lo que se veía: el primer request andaba, el cliente cortaba a mitad, y desde
+ahí **todos** los requests siguientes a ese par devolvían vacío. El par seguía
+figurando conectado y verificado en la grilla, `node:status` seguía llegando —
+sólo los `chat:request` no llegaban nunca más. Parecía un problema de ruteo.
+
+Dos arreglos, porque uno solo no alcanza:
+
+1. `emit()` envuelve la escritura y, si falla, cancela el request contra el par.
+2. `_onMessage` del swarm envuelve **todo** el dispatch: un consumidor que tire
+   una excepción no puede volver a romper el canal para los demás.
+
+El segundo es el que importa. El primero arregla este bug; el segundo arregla la
+clase entera.
+
+### `chat:cancel` no cancelaba nada: el requestId nunca se asignaba
+
+`requestIdEnVuelo` se inicializaba en `null` y lo único que hacía el código era
+volver a ponerlo en `null` al llegar el primer chunk. Nunca recibía el id real,
+así que cuando el cliente se iba, el `chat:cancel` no tenía qué mandar.
+
+Se veía como que la cancelación "andaba" (no explotaba nada) mientras el par
+seguía generando hasta el final. Ahora `streamFromPeer` devuelve el id por
+`onStart` y el corte se verifica del lado del proveedor:
+`cancelado por el consumidor` → `cortado tras 2 deltas`.
+
+### `--demo --swarm` registraba el nodo local dos veces
+
+`seed()` (de `--demo`) y `registerLocal()` (de `--swarm`) creaban cada uno una
+fila `kind: 'real'` para `llama1b`. La grilla mostraba el mismo nodo local dos
+veces, y peor: `localLoad()` sumaba las dos capacidades y el nodo **anunciaba 6
+slots teniendo 3**. Anunciarle a la red el doble de capacidad de la que existe
+es justo la clase de mentira que el manifiesto firmado está para evitar.
+
+`registerLocal()` ahora borra cualquier fila `real` del mismo modelo antes de
+insertar.
+
 ### Un par del swarm no puede caer en el generador de mocks
 
 `serve --swarm` puebla el registro con pares reales (`kind: 'peer'`). El

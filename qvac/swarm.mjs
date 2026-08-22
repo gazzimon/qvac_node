@@ -205,7 +205,23 @@ export class NodeSwarm {
     this._send(peer, { type: 'node:status', ...status })
   }
 
+  // El pipe llama a esto por cada mensaje. TODO lo de adentro va envuelto: una
+  // excepcion que se escape sube al 'data' del FramedStream y se lleva puesto
+  // el canal con ese par -- no este request, el canal entero, para todos los
+  // requests que vengan despues. El par sigue "conectado" en la tabla y sus
+  // chat:request no llegan nunca mas: un modo de falla muy dificil de leer
+  // desde afuera.
   _onMessage(peer, data) {
+    try {
+      this._dispatch(peer, data)
+    } catch (err) {
+      console.error(
+        `[swarm] handler de ${peer.key.slice(0, 8)}… tiro una excepcion: ${(err && err.message) || err}`
+      )
+    }
+  }
+
+  _dispatch(peer, data) {
     let msg
     try {
       msg = JSON.parse(data.toString())

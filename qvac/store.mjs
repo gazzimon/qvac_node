@@ -225,6 +225,15 @@ export function registerLocal({
   tags = [],
   maxConcurrentRequests = 3
 }) {
+  // Con --demo, seed() ya dejo una fila 'real' para este mismo modelo. Sin
+  // esto quedaban DOS: la grilla mostraba el mismo nodo local dos veces, y
+  // -peor- `localLoad()` sumaba las dos capacidades y el nodo anunciaba 6
+  // slots cuando tenia 3. Anunciarle a la red el doble de capacidad de la que
+  // existe es la clase de mentira que el manifiesto firmado esta para evitar.
+  for (const [existingId, node] of nodes) {
+    if (node.kind === 'real' && node.modelId === modelId) nodes.delete(existingId)
+  }
+
   const id = `local:${modelId}`
   nodes.set(id, {
     id,
