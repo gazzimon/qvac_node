@@ -1,0 +1,67 @@
+# ---- Descartes / material de trabajo previo ----
+old/
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+package-lock.json.bak
+
+# ---- Build / artefactos ----
+dist/
+build/
+out/
+*.tsbuildinfo
+coverage/
+.nyc_output/
+
+# ---- Pear / Hypercore / Hyperswarm (estado local del nodo) ----
+.pear/
+pear-dev/
+corestore/
+.corestore/
+storage/
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- Claves y secretos: NUNCA versionar ----
+# La clave privada Ed25519 del nodo firma el manifiesto: si se filtra,
+# cualquiera puede publicar manifiestos con la identidad de este nodo.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+keys/
+wallet.json
+seed.txt
+mnemonic.txt
+
+# ---- Modelos (pesos: demasiado grandes para git) ----
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# ---- Sistema operativo ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+$RECYCLE.BIN/
+
+# ---- Editores / IDE ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+
+# ---- Temporales ----
+tmp/
+temp/
+*.log

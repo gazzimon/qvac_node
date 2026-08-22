@@ -1,0 +1,375 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://qvac.network/schemas/manifest-v0.json",
+  "title": "QVAC Node Service Manifest V0",
+  "description": "Contrato mínimo para interoperabilidad entre nodo QVAC y gateway.\n\nESTADO: CONGELADO (revisión v0.1, 2026-08-22). Es la revisión de cierre de Fase 0. A partir de acá, cualquier cambio incompatible requiere incrementar `schemaVersion` — no reeditar este archivo.\n\nFILOSOFÍA: estricto y versionado. `additionalProperties: false` en toda la jerarquía y una lista amplia de `required`. Es deliberado: el gateway valida manifiestos de nodos DESCONOCIDOS, y en ese contexto un manifiesto con `pricng` en vez de `pricing` tiene que fallar ruidosamente, no colarse con el precio en undefined. La evolución se hace subiendo `schemaVersion`, no aflojando la validación.\n\nFUENTE DE VERDAD: este archivo se GENERA desde `packages/shared/src/manifest.ts` (zod) vía `z.toJSONSchema(manifestV0Schema, { target: 'draft-07' })`. No lo edites a mano: editá el zod y regenerá. Se versiona en el repo para que un consumidor externo (o el jurado) pueda validar sin instalar nada.\n\nREVISIÓN v0.1 sobre v0.0 — cuatro cambios, todos por bloqueos concretos del runbook:\n(1) Se agregó el bloque `economic` (walletAddress/chains/settlement). v0.0 declaraba `pricing` con `currency: QVAC` pero no decía A QUIÉN pagarle: la Fase 4 (recibos + liquidación) no tenía dónde agarrarse.\n(2) Se agregó `models[].qos.declaredFirstResultLatencyMs`. El DoD de Fase 2 exige ordenar candidatos por precio Y latencia declarada; v0.0 solo tenía throughput.\n(3) `mcpServer` pasó de required a opcional. Obligaba a todo nodo a serializar un bloque muerto (`available: false`) hasta Fase 5+.\n(4) `signature` pasó de `minLength: 1` a un pattern hex de 128, y se nombró el algoritmo de canonicalización exacto (JCS, RFC 8785). Antes el ejemplo del repo pasaba la validación con el string literal 'firma_aquí', y 'canonicalizado' sin nombrar algoritmo es una bomba de interoperabilidad: dos implementaciones que ordenen las claves distinto firman documentos distintos y no verifica ninguna.\nAdemás se relajó el pattern de `modelId` para admitir identificadores reales del ecosistema (HuggingFace, con barra y punto), que el cliente manda tal cual en el campo `model` de /v1/chat/completions.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "protocolVersion",
+    "publishedAt",
+    "expiresAt",
+    "node",
+    "economic",
+    "models",
+    "security",
+    "directory",
+    "metadata",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 0,
+      "description": "Versión del schema. Cambiar este valor invalida manifiestos previos. INVARIANTE del proyecto: el manifiesto se versiona desde la línea uno; toda evolución incompatible sube este número en vez de aflojar la validación."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Versión semver del CONTENIDO del manifiesto, independiente de schemaVersion. Puede subir libremente sin romper consumidores."
+    },
+    "publishedAt": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Timestamp Unix en milisegundos cuando se publicó el manifiesto."
+    },
+    "expiresAt": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Timestamp Unix en milisegundos cuando el manifiesto expira. DEBE ser mayor que publishedAt (regla cross-field: draft-07 no puede expresarla, la aplica el .refine() del zod en packages/shared). Es la defensa anti-stale del directorio: en un log append-only, un nodo que se apaga queda listado para siempre; expiresAt le permite al gateway descartarlo sin coordinación."
+    },
+    "node": {
+      "type": "object",
+      "required": ["hyperswarmPublicKey", "endpoint", "region"],
+      "properties": {
+        "hyperswarmPublicKey": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Clave pública Hyperswarm del nodo (ed25519, 32 bytes = 64 caracteres hex). LOWERCASE OBLIGATORIO: si se aceptaran mayúsculas, la misma clave tendría dos representaciones y por lo tanto dos identidades para cualquier índice o comparación de strings. Es la identidad contra la que se verifica `signature`."
+        },
+        "endpoint": {
+          "type": "object",
+          "required": ["baseUrl", "openaiCompatible"],
+          "properties": {
+            "baseUrl": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://",
+              "description": "URL base del servidor OpenAI-compatible del nodo. En Fase 0/1 es el `qvac serve openai` del CLI oficial atado a loopback (default http://localhost:11434/v1). NO se expone al exterior: el gateway es el único punto de entrada público."
+            },
+            "openaiCompatible": {
+              "type": "boolean",
+              "description": "true si el endpoint habla el formato de la API de OpenAI."
+            }
+          },
+          "additionalProperties": false
+        },
+        "region": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 32,
+          "description": "Región geográfica declarada del nodo (ej: sa-east, us-west). No verificable; es una pista de routing."
+        }
+      },
+      "additionalProperties": false
+    },
+    "economic": {
+      "type": "object",
+      "required": ["walletAddress", "chains", "settlement"],
+      "description": "A quién y cómo se le paga a este nodo. Sin este bloque el manifiesto declara un precio sin destinatario, y la Fase 4 (recibos firmados + liquidación) no tiene a dónde liquidar.",
+      "properties": {
+        "walletAddress": {
+          "type": "string",
+          "pattern": "^(0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})$",
+          "description": "Dirección de cobro del nodo, generada por WDK. El pattern admite las dos familias que soporta el stack elegido: EVM (0x + 40 hex, wdk-wallet-evm) y Tron (T + 33 base58, wdk-wallet-tron). Agregar otra familia de chain requiere subir schemaVersion — es a propósito.\n\nOJO, SON DOS CLAVES DISTINTAS: `node.hyperswarmPublicKey` es la identidad de RED (ed25519) y firma este manifiesto; `economic.walletAddress` es la identidad de COBRO y firma los recibos de uso de Fase 4. Un consumidor verifica el manifiesto contra la primera y los recibos contra la segunda. El manifiesto firmado es justamente lo que ata una a la otra."
+        },
+        "chains": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$",
+            "minLength": 3,
+            "maxLength": 40
+          },
+          "description": "Redes en las que este nodo acepta liquidación, en orden de preferencia. Formato estricto (kebab-case) pero vocabulario abierto, porque los identificadores de chain proliferan más rápido que las versiones de este schema. Recomendado '<familia>-<red>'. Ejemplos: ethereum-sepolia, tron-nile, arbitrum-sepolia."
+        },
+        "settlement": {
+          "type": "string",
+          "enum": ["prepaid-balance", "batch-receipts", "onchain-per-job"],
+          "description": "Modo de liquidación que ofrece el nodo. 'batch-receipts' es el modo del proyecto en Fase 4: el nodo emite un recibo firmado por respuesta, el cliente los acumula y un script liquida en lote contra testnet. 'prepaid-balance' descuenta de un saldo cargado por adelantado. 'onchain-per-job' liquida una transacción por request (correcto pero caro; no es el camino del hackathon)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["modelId", "displayName", "capabilities", "qos", "pricing"],
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._/-]+$",
+            "description": "Identificador del modelo servido. Es EXACTAMENTE el string que el cliente manda en el campo `model` de POST /v1/chat/completions y el que el gateway matchea contra este manifiesto para elegir candidatos — por eso el pattern admite tanto el estilo de QVAC (LLAMA_3_2_1B_INST_Q4_0) como identificadores con barra y punto del ecosistema (hf/llama-3.2-1b-instruct-q4_0.gguf). Comparación exacta y case-sensitive: el gateway no normaliza."
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Nombre legible del modelo, solo para logs y UI."
+          },
+          "capabilities": {
+            "type": "object",
+            "required": ["streaming", "tools", "structuredOutput"],
+            "properties": {
+              "streaming": {
+                "type": "boolean",
+                "description": "true si el modelo soporta streaming de tokens. El gateway NO debe elegir un nodo con streaming:false para un request con stream:true."
+              },
+              "tools": {
+                "type": "boolean",
+                "description": "true si el modelo soporta tool calling."
+              },
+              "structuredOutput": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": ["text", "json_object", "json_schema"]
+                },
+                "description": "Formatos de salida estructurada soportados."
+              }
+            },
+            "additionalProperties": false
+          },
+          "qos": {
+            "type": "object",
+            "required": ["declaredThroughput", "declaredFirstResultLatencyMs", "maxConcurrentRequests"],
+            "description": "Calidad de servicio DECLARADA por el nodo. Nada de esto es verificable desde el manifiesto: es lo que el nodo dice de sí mismo, y el gateway lo usa para ordenar candidatos. Contrastarlo contra métricas observadas es trabajo de reputación (post-hackathon).",
+            "properties": {
+              "declaredThroughput": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000000,
+                "description": "Throughput declarado en tokens por segundo."
+              },
+              "declaredFirstResultLatencyMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 600000,
+                "description": "Latencia declarada hasta el primer token (TTFT) en milisegundos. Junto con `pricing` es el segundo criterio de ordenamiento del gateway: el DoD de Fase 2 pide elegir por precio Y latencia declarada, y sin este campo esa regla no se puede expresar."
+              },
+              "maxConcurrentRequests": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "description": "Máximo de requests concurrentes que el nodo acepta."
+              }
+            },
+            "additionalProperties": false
+          },
+          "pricing": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "required": ["unit", "amount", "currency"],
+              "properties": {
+                "unit": {
+                  "type": "string",
+                  "enum": ["per_1m_prompt_tokens", "per_1m_completion_tokens", "per_request"],
+                  "description": "Unidad de facturación."
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+$",
+                  "minLength": 1,
+                  "maxLength": 32,
+                  "description": "Monto entero, en la unidad mínima indivisible de `currency`, codificado como STRING. Es string a propósito: los montos exceden Number.MAX_SAFE_INTEGER y JSON no distingue entero de float — pasarlo como number introduce error de redondeo silencioso justo en el campo con el que se decide cuánto pagar. Parsealo a BigInt, nunca a Number."
+                },
+                "currency": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 16,
+                  "pattern": "^[A-Z0-9]+$",
+                  "description": "Código de moneda en mayúsculas (ej: QVAC, USDT). Debe ser liquidable en al menos una de las `economic.chains` declaradas."
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "security": {
+      "type": "object",
+      "required": ["toolCallPolicy", "maxToolCallsPerRequest", "inputValidation"],
+      "description": "Límites que el nodo se autoimpone y publica. Sirven para que el cliente sepa de antemano qué le van a rechazar; el enforcement real es local al nodo.",
+      "properties": {
+        "toolCallPolicy": {
+          "type": "string",
+          "enum": ["none", "allowlist"],
+          "description": "Política de tool calling: 'none' (sin tools) o 'allowlist' (solo las de allowedTools). No existe un modo 'todo permitido', a propósito."
+        },
+        "allowedTools": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "description": "Herramientas permitidas cuando toolCallPolicy es 'allowlist'. NO publiques acá capacidades de ejecución arbitraria (shell, lectura de filesystem): este documento es de descubrimiento PÚBLICO, y anunciarlas equivale a ofrecer ejecución remota a cualquiera que lea el directorio."
+        },
+        "maxToolCallsPerRequest": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Máximo de tool calls por request."
+        },
+        "inputValidation": {
+          "type": "object",
+          "required": ["maxPromptTokens", "maxCompletionTokens", "allowedContentTypes"],
+          "properties": {
+            "maxPromptTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1048576,
+              "description": "Máximo de tokens de prompt aceptados."
+            },
+            "maxCompletionTokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 131072,
+              "description": "Máximo de tokens de completion aceptados."
+            },
+            "allowedContentTypes": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "description": "Content-Types aceptados (ej: text/plain, application/json)."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "mcpServer": {
+      "type": "object",
+      "required": ["available"],
+      "description": "OPCIONAL. Servidor MCP del nodo. Fuera de alcance hasta Fase 5+: si no lo servís, omití el bloque entero en vez de emitirlo con available:false.",
+      "properties": {
+        "available": {
+          "type": "boolean",
+          "description": "true si el servidor MCP está habilitado."
+        },
+        "mcpProtocolVersion": {
+          "type": "string",
+          "description": "Versión del protocolo MCP soportado (ej: 2025-06-18)."
+        },
+        "endpoint": {
+          "type": "object",
+          "required": ["transport", "baseUrl", "authRequired"],
+          "properties": {
+            "transport": {
+              "type": "string",
+              "enum": ["streamable-http", "sse", "stdio"],
+              "description": "Transporte MCP."
+            },
+            "baseUrl": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://",
+              "description": "URL base del endpoint MCP."
+            },
+            "authRequired": {
+              "type": "boolean",
+              "description": "true si el endpoint MCP requiere autenticación."
+            }
+          },
+          "additionalProperties": false
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "Herramientas MCP anunciadas. Aplica la misma advertencia que security.allowedTools: no anuncies ejecución arbitraria en un documento público."
+        },
+        "resources": {
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "Recursos MCP anunciados."
+        }
+      },
+      "additionalProperties": false
+    },
+    "directory": {
+      "type": "object",
+      "required": ["writerPublicKey", "discoveryKey", "sequence"],
+      "description": "Ubicación de este manifiesto dentro del directorio Hypercore. En Fase 1 se completa con valores locales aunque el directorio real todavía no exista (Fase 2).",
+      "properties": {
+        "writerPublicKey": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Clave pública del escritor del Hypercore del directorio (64 hex, lowercase). Puede o no coincidir con node.hyperswarmPublicKey."
+        },
+        "discoveryKey": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Discovery key del Hypercore (hash de la public key). Es la primitiva que permite anunciarse en la DHT sin exponer la clave del feed."
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Número de secuencia del manifiesto en el log append-only. Ante dos manifiestos válidos del mismo nodo, gana el de sequence más alto."
+        }
+      },
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["operator", "tags"],
+      "properties": {
+        "operator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Nombre del operador del nodo. Autodeclarado, no verificado."
+        },
+        "website": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "description": "Website del operador (opcional)."
+        },
+        "contact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Email o contacto del operador (opcional)."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "description": "Tags descriptivos del nodo (ej: gpu, low_latency, sa-east)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{128}$",
+      "description": "Firma Ed25519 del manifiesto: 64 bytes = 128 caracteres hex lowercase.\n\nPROCEDIMIENTO EXACTO (no lo improvises: es el único campo del que depende toda la confianza del sistema).\n1. Tomá el objeto manifiesto COMPLETO y borrá la propiedad `signature`.\n2. Serializalo con JCS — JSON Canonicalization Scheme, RFC 8785: claves ordenadas por code unit UTF-16, sin espacios, escapes y números en forma canónica. NO uses JSON.stringify a secas: el orden de claves depende del orden de inserción, y dos implementaciones firmarían bytes distintos sobre el mismo documento sin que ninguna verifique.\n3. Firmá esos bytes UTF-8 con la clave privada Ed25519 correspondiente a `node.hyperswarmPublicKey`.\n4. Escribí el resultado en hex lowercase acá.\n\nEl verificador repite los pasos 1–2 y valida contra `node.hyperswarmPublicKey`. Un manifiesto que no verifica se descarta ANTES de leer cualquier otro campo, y sobre todo antes de leer `pricing` o `economic`."
+    }
+  },
+  "additionalProperties": false
+}

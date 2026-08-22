@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 0,
+  "protocolVersion": "0.1.0",
+  "publishedAt": 1755792000000,
+  "expiresAt": 1755878400000,
+  "node": {
+    "hyperswarmPublicKey": "a3f2c9d4e8b17654a3f2c9d4e8b17654a3f2c9d4e8b17654a3f2c9d4e8b17654",
+    "endpoint": {
+      "baseUrl": "http://localhost:11434/v1",
+      "openaiCompatible": true
+    },
+    "region": "sa-east"
+  },
+  "economic": {
+    "walletAddress": "0x7a3f9c2e5d1b8406af2c9e5d1b3f7a0c4e8d2b6f",
+    "chains": ["ethereum-sepolia"],
+    "settlement": "batch-receipts"
+  },
+  "models": [
+    {
+      "modelId": "LLAMA_3_2_1B_INST_Q4_0",
+      "displayName": "Llama 3.2 1B Instruct",
+      "capabilities": {
+        "streaming": true,
+        "tools": true,
+        "structuredOutput": ["text", "json_object", "json_schema"]
+      },
+      "qos": {
+        "declaredThroughput": 85.3,
+        "declaredFirstResultLatencyMs": 450,
+        "maxConcurrentRequests": 4
+      },
+      "pricing": [
+        {
+          "unit": "per_1m_prompt_tokens",
+          "amount": "500000",
+          "currency": "QVAC"
+        },
+        {
+          "unit": "per_1m_completion_tokens",
+          "amount": "1000000",
+          "currency": "QVAC"
+        }
+      ]
+    },
+    {
+      "modelId": "NMT_EN_ES_BASE",
+      "displayName": "NMT English-Spanish Base",
+      "capabilities": {
+        "streaming": false,
+        "tools": false,
+        "structuredOutput": ["text"]
+      },
+      "qos": {
+        "declaredThroughput": 120.0,
+        "declaredFirstResultLatencyMs": 180,
+        "maxConcurrentRequests": 8
+      },
+      "pricing": [
+        {
+          "unit": "per_request",
+          "amount": "1000",
+          "currency": "QVAC"
+        }
+      ]
+    }
+  ],
+  "security": {
+    "toolCallPolicy": "allowlist",
+    "allowedTools": [],
+    "maxToolCallsPerRequest": 5,
+    "inputValidation": {
+      "maxPromptTokens": 32768,
+      "maxCompletionTokens": 8192,
+      "allowedContentTypes": ["text/plain", "application/json"]
+    }
+  },
+  "directory": {
+    "writerPublicKey": "b0de7d0f1e2c3a4bb0de7d0f1e2c3a4bb0de7d0f1e2c3a4bb0de7d0f1e2c3a4b",
+    "discoveryKey": "53b4963abdf5590761625a60b3f5abfefd75c66bfdd696cb1062d64c58926608",
+    "sequence": 1
+  },
+  "metadata": {
+    "operator": "Mi Nodo QVAC",
+    "website": "https://mi-nodo.example.com",
+    "contact": "admin@example.com",
+    "tags": ["gpu", "low_latency", "sa-east"]
+  },
+  "signature": "7c1e9a4f2d8b06e35a9c1f7b3e5d0a8c4f2b6d9e1a3c5f7b9d0e2a4c6f8b1d3eb5d3f107a9c2e4608d1b3f5a7c9e0d2b4f6a8c1e3d5b7f9a0c2e4d6b8f1a3c5d"
+}

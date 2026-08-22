@@ -1,0 +1,945 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QVAC-Node Runbook &mdash; Pears Track</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg: #EEF2F5;
+    --surface: #FFFFFF;
+    --surface-2: #E4E9EE;
+    --ink: #10192C;
+    --ink-2: #4C5A72;
+    --ink-3: #7C8AA0;
+    --hairline: rgba(16,25,44,0.14);
+    --hairline-strong: rgba(16,25,44,0.28);
+    --accent: #0B7285;
+    --accent-ink: #FFFFFF;
+    --warn: #A85A0B;
+    --warn-bg: #F4E4CE;
+    --danger: #A5352C;
+    --danger-bg: #F5DCD9;
+    --good: #2E6E4E;
+    --good-bg: #DCEBE2;
+    --shadow: 0 1px 0 rgba(16,25,44,0.05);
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg: #0A1220;
+      --surface: #111B2E;
+      --surface-2: #16233A;
+      --ink: #E7ECF3;
+      --ink-2: #9DACC4;
+      --ink-3: #6C7B96;
+      --hairline: rgba(231,236,243,0.14);
+      --hairline-strong: rgba(231,236,243,0.28);
+      --accent: #3FC4D6;
+      --accent-ink: #06181D;
+      --warn: #E7A94D;
+      --warn-bg: #3A2C13;
+      --danger: #E27F76;
+      --danger-bg: #3A1D1A;
+      --good: #59C08B;
+      --good-bg: #123023;
+      --shadow: 0 1px 0 rgba(0,0,0,0.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg: #0A1220;
+    --surface: #111B2E;
+    --surface-2: #16233A;
+    --ink: #E7ECF3;
+    --ink-2: #9DACC4;
+    --ink-3: #6C7B96;
+    --hairline: rgba(231,236,243,0.14);
+    --hairline-strong: rgba(231,236,243,0.28);
+    --accent: #3FC4D6;
+    --accent-ink: #06181D;
+    --warn: #E7A94D;
+    --warn-bg: #3A2C13;
+    --danger: #E27F76;
+    --danger-bg: #3A1D1A;
+    --good: #59C08B;
+    --good-bg: #123023;
+    --shadow: 0 1px 0 rgba(0,0,0,0.4);
+  }
+
+  *{ box-sizing: border-box; }
+  html{ background: var(--bg); }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono{ font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace; }
+
+  a{ color: var(--accent); }
+
+  h1,h2,h3{
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-weight: 600;
+    color: var(--ink);
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+
+  .eyebrow{
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  /* ---- top bar ---- */
+  .topbar{
+    position: sticky; top:0; z-index: 20;
+    background: var(--bg);
+    border-bottom: 1px solid var(--hairline-strong);
+  }
+  .topbar-inner{
+    max-width: 1040px; margin: 0 auto;
+    display:flex; align-items:center; gap: 1.5rem;
+    padding: 0.7rem 1.5rem;
+    overflow-x: auto;
+  }
+  .topbar .brand{
+    font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:0.85rem;
+    white-space: nowrap; color: var(--ink); flex-shrink:0;
+  }
+  .topbar .brand span{ color: var(--accent); }
+  .topbar nav{ display:flex; gap:1.1rem; flex-shrink:0; }
+  .topbar nav a{
+    font-family:'IBM Plex Mono',monospace; font-size:0.72rem; font-weight:500;
+    text-decoration:none; color: var(--ink-2); white-space:nowrap;
+    letter-spacing:0.02em;
+  }
+  .topbar nav a:hover{ color: var(--accent); }
+
+  /* ---- shell ---- */
+  .wrap{ max-width: 1040px; margin: 0 auto; padding: 0 1.5rem 6rem; }
+  .prose{ max-width: 68ch; }
+
+  header.hero{ padding: 3.2rem 0 2rem; }
+  header.hero h1{ font-size: clamp(1.7rem, 3.4vw, 2.35rem); margin: 0.4rem 0 0.6rem; }
+  header.hero .sub{ color: var(--ink-2); font-size: 1rem; max-width: 62ch; }
+  header.hero .meta{
+    margin-top:1.2rem; display:flex; gap:1.6rem; flex-wrap:wrap;
+    font-family:'IBM Plex Mono',monospace; font-size:0.76rem; color: var(--ink-3);
+  }
+  header.hero .meta b{ color: var(--ink); font-weight:600; }
+
+  section{ padding: 2.6rem 0; border-top: 1px solid var(--hairline); scroll-margin-top: 3.6rem; }
+  section:first-of-type{ border-top: none; }
+  section > .eyebrow{ margin-bottom:0.5rem; }
+  section > h2{ font-size: 1.25rem; margin: 0 0 0.9rem; }
+
+  /* ---- invariants callout ---- */
+  .invariants{
+    border: 1px solid var(--hairline-strong);
+    background: var(--surface);
+    padding: 1.3rem 1.5rem;
+    position: relative;
+  }
+  .invariants::before{
+    content:"INVARIANTES — NO SE TOCAN";
+    font-family:'IBM Plex Mono',monospace; font-size:0.65rem; font-weight:700;
+    letter-spacing:0.1em; color: var(--accent);
+    position:absolute; top:-0.55rem; left:1.2rem; background:var(--bg);
+    padding: 0 0.5rem;
+  }
+  .invariants ol{ margin:0.4rem 0 0; padding-left:1.2rem; }
+  .invariants li{ margin-bottom:0.6rem; }
+  .invariants li:last-child{ margin-bottom:0; }
+  .invariants b{ color: var(--ink); }
+
+  /* ---- diagram ---- */
+  figure.diagram{ margin: 1.2rem 0 0.4rem; }
+  figure.diagram svg{ width:100%; height:auto; display:block; overflow: visible; }
+  figure.diagram figcaption{
+    margin-top:0.9rem; font-size:0.85rem; color: var(--ink-2); max-width: 66ch;
+  }
+  .diag-box text{ font-family:'IBM Plex Mono',monospace; }
+  .diag-label{ font-size: 10.5px; fill: var(--ink-2); }
+
+  /* ---- tracks legend ---- */
+  .tracks-grid{
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr));
+    gap: 1px; background: var(--hairline); border:1px solid var(--hairline); margin-top: 0.4rem;
+  }
+  .track-card{ background: var(--surface); padding: 1.1rem 1.2rem; }
+  .track-card .tag{ margin-bottom:0.5rem; }
+  .track-card p{ margin:0; font-size:0.9rem; color: var(--ink-2); }
+
+  .tag{
+    display:inline-flex; align-items:center; gap:0.35rem;
+    font-family:'IBM Plex Mono',monospace; font-size:0.68rem; font-weight:600;
+    letter-spacing:0.04em; text-transform:uppercase;
+    padding: 0.18rem 0.5rem; border:1px solid currentColor;
+  }
+  .tag.node{ color: var(--accent); }
+  .tag.gateway{ color: #6A4FC4; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .tag.gateway{ color:#B79CFF; } }
+  :root[data-theme="dark"] .tag.gateway{ color:#B79CFF; }
+  .tag.payments{ color: var(--warn); }
+  .tag.ops{ color: var(--ink-2); }
+
+  /* ---- phases ---- */
+  .phase-spine{ position:relative; }
+  .phase{
+    position: relative;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    margin-bottom: 1.1rem;
+  }
+  .phase-head{
+    display:flex; align-items:baseline; justify-content:space-between; gap:1rem; flex-wrap:wrap;
+    padding: 1.1rem 1.4rem 0.9rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .phase-head .num{
+    font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:1rem; color: var(--accent);
+  }
+  .phase-head h3{ font-size:1.02rem; margin:0.15rem 0 0; }
+  .phase-head .hours{
+    font-family:'IBM Plex Mono',monospace; font-size:0.78rem; color: var(--ink-2);
+    background: var(--surface-2); padding:0.25rem 0.6rem; white-space:nowrap;
+  }
+  .phase-body{ padding: 1.1rem 1.4rem 1.3rem; }
+  .phase-obj{ color: var(--ink-2); font-size:0.94rem; margin: 0 0 1rem; max-width: 68ch; }
+
+  .track-tasks{
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr));
+    gap: 1.4rem; margin-bottom: 1.1rem;
+  }
+  .track-tasks h4{
+    font-family:'IBM Plex Mono',monospace; font-size:0.7rem; letter-spacing:0.06em;
+    text-transform:uppercase; margin:0 0 0.5rem; font-weight:600;
+  }
+  .track-tasks ul{ margin:0; padding-left: 1.1rem; font-size: 0.89rem; }
+  .track-tasks li{ margin-bottom:0.4rem; color: var(--ink); }
+  .track-tasks li:last-child{ margin-bottom:0; }
+
+  .phase-foot{
+    display:grid; grid-template-columns: 1fr 1fr; gap:1px;
+    background: var(--hairline); border:1px solid var(--hairline); margin-top: 0.3rem;
+  }
+  @media (max-width: 640px){ .phase-foot{ grid-template-columns: 1fr; } }
+  .phase-foot > div{ background: var(--surface); padding: 0.8rem 1rem; }
+  .phase-foot .lbl{
+    font-family:'IBM Plex Mono',monospace; font-size:0.65rem; letter-spacing:0.08em;
+    text-transform:uppercase; margin-bottom:0.3rem; display:block;
+  }
+  .phase-foot .dod .lbl{ color: var(--good); }
+  .phase-foot .risk .lbl{ color: var(--warn); }
+  .phase-foot p{ margin:0; font-size:0.86rem; color: var(--ink-2); }
+
+  /* ---- cut table ---- */
+  table.cutlist{ width:100%; border-collapse: collapse; margin-top:0.6rem; font-size:0.9rem; }
+  table.cutlist th{
+    text-align:left; font-family:'IBM Plex Mono',monospace; font-size:0.68rem;
+    letter-spacing:0.08em; text-transform:uppercase; color: var(--ink-3);
+    padding: 0 0.8rem 0.6rem; border-bottom:1px solid var(--hairline-strong);
+    font-weight:600;
+  }
+  table.cutlist td{
+    padding: 0.85rem 0.8rem; border-bottom:1px solid var(--hairline); vertical-align: top;
+  }
+  table.cutlist td:first-child, table.cutlist th:first-child{ padding-left:0; }
+  table.cutlist tr:last-child td{ border-bottom:none; }
+  .cut-num{ font-family:'IBM Plex Mono',monospace; font-weight:700; color: var(--ink-3); font-size:0.95rem; }
+  .impact{
+    display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:0.68rem;
+    font-weight:700; letter-spacing:0.04em; text-transform:uppercase;
+    padding:0.2rem 0.55rem; white-space:nowrap;
+  }
+  .impact.low{ color: var(--good); background: var(--good-bg); }
+  .impact.mid{ color: var(--warn); background: var(--warn-bg); }
+  .impact.high{ color: var(--danger); background: var(--danger-bg); }
+  td.cut-desc{ color: var(--ink-2); }
+  td.cut-desc b{ color: var(--ink); }
+
+  /* ---- checklist ---- */
+  .checklist{ list-style:none; margin:0.6rem 0 0; padding:0; border:1px solid var(--hairline); }
+  .checklist li{
+    display:flex; align-items:flex-start; gap:0.75rem;
+    padding: 0.85rem 1.1rem; border-bottom:1px solid var(--hairline);
+    font-size: 0.92rem;
+  }
+  .checklist li:last-child{ border-bottom:none; }
+  .checklist input[type="checkbox"]{
+    appearance:none; -webkit-appearance:none; flex-shrink:0;
+    width:18px; height:18px; margin-top:0.15rem;
+    border:1.5px solid var(--ink-3); background: var(--surface);
+    cursor:pointer; position:relative;
+  }
+  .checklist input[type="checkbox"]:checked{ background: var(--good); border-color: var(--good); }
+  .checklist input[type="checkbox"]:checked::after{
+    content:""; position:absolute; left:4px; top:0px; width:5px; height:9px;
+    border:solid var(--surface); border-width:0 2px 2px 0; transform:rotate(40deg);
+  }
+  .checklist label{ cursor:pointer; }
+  .checklist li.done label{ color: var(--ink-3); text-decoration: line-through; }
+  .checklist-reset{
+    margin-top:0.7rem; font-family:'IBM Plex Mono',monospace; font-size:0.72rem;
+    background:none; border:1px solid var(--hairline-strong); color: var(--ink-2);
+    padding:0.4rem 0.7rem; cursor:pointer;
+  }
+  .checklist-reset:hover{ color: var(--ink); border-color: var(--ink-3); }
+
+  /* ---- stack recap ---- */
+  .stack-grid{
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr));
+    gap:1.2rem; margin-top:0.6rem;
+  }
+  .stack-grid h4{
+    font-family:'IBM Plex Mono',monospace; font-size:0.72rem; letter-spacing:0.06em;
+    text-transform:uppercase; color: var(--ink-2); margin:0 0 0.5rem;
+  }
+  .stack-grid code{
+    font-family:'IBM Plex Mono',monospace; font-size:0.82rem; background: var(--surface-2);
+    padding:0.1rem 0.35rem; display:inline-block; margin: 0 0.25rem 0.3rem 0;
+  }
+
+  footer.page-foot{
+    border-top:1px solid var(--hairline); padding-top:1.4rem; margin-top:1rem;
+    font-size:0.8rem; color: var(--ink-3);
+  }
+
+  @media (prefers-reduced-motion: no-preference){
+    .phase, .invariants, figure.diagram{ animation: rise 0.4s ease-out both; }
+  }
+  @keyframes rise{ from{ opacity:0; transform: translateY(6px);} to{opacity:1; transform:none;} }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">QVAC<span>&middot;</span>NODE &mdash; RUNBOOK / PEARS</div>
+    <nav>
+      <a href="#invariantes">Invariantes</a>
+      <a href="#cambios">Qu&eacute; se retira</a>
+      <a href="#critico">Camino cr&iacute;tico</a>
+      <a href="#fases">Fases</a>
+      <a href="#recorte">Recorte</a>
+      <a href="#checklist">Checklist</a>
+      <a href="#stack">Stack</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">&#127824; Pears Track &middot; Tether &middot; 24h</div>
+    <h1>Runbook de implementaci&oacute;n <span class="mono">bajo reloj</span></h1>
+    <p class="sub">
+      QVAC-Node reorientado al <b>Pears Track</b>: un CLI instalable con
+      <span class="mono">pear install pear://&lt;key&gt;</span>, con actualizaciones OTA P2P, que al instalarse
+      <b>entra a una red de inferencia viva</b>. Bare + <span class="mono">@qvac/bare-sdk</span> +
+      Hyperswarm + <span class="mono">bare-http1</span>.
+    </p>
+    <div class="meta">
+      <span>Horizonte: <b>24h</b></span>
+      <span>Track: <b>&#127824; Pears (Tether)</b></span>
+      <span>Pool: <b>$1.500 USDt</b></span>
+      <span>Juzgado: <b>domingo 13:00 ARG</b></span>
+    </div>
+  </header>
+
+  <section id="invariantes">
+    <div class="eyebrow">Principio rector</div>
+    <h2>Lo que se decide una vez y no se vuelve a discutir</h2>
+    <div class="invariants">
+      <ol>
+        <li>
+          <b><span class="mono">pear install pear://&lt;key&gt;</span> desde una m&aacute;quina limpia es el criterio de juzgado #1,
+          y se prueba en la Fase 0 &mdash; no al final.</b> El jurado instala tu app como lo har&iacute;a un usuario. Es una compuerta
+          binaria: anda o no anda. Si el t&uacute;nel de distribuci&oacute;n no est&aacute; probado a <span class="mono">H+3</span>, no hay submission
+          y hay que decirlo en voz alta, no seguir programando features.
+        </li>
+        <li>
+          <b>El jurado nunca descarga un modelo.</b> El gateway funciona con cero modelo y enruta a los nodos seedeados.
+          <span class="mono">serve</span> usa un modelo &le;1B con descarga <i>opt-in expl&iacute;cita</i>. Wifi de venue m&aacute;s 2,5&nbsp;GB
+          en el momento del juicio es la forma m&aacute;s tonta de perder el track.
+        </li>
+        <li>
+          <b>El install <i>es</i> la demo.</b> Instalar no es el pre&aacute;mbulo de la demo: es la demo. La m&aacute;quina del jurado
+          entra al topic Hyperswarm en vivo y ve tokens en streaming desde nodos reales en menos de 60 segundos.
+        </li>
+        <li>
+          <b>El process shape se elige con criterio y se justifica por escrito en el README.</b>
+          Es criterio de juzgado expl&iacute;cito, no una nota de implementaci&oacute;n. Variante <span class="mono">main</span>
+          (updater en worker thread): el OTA no puede bloquear el streaming de tokens.
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="cambios">
+    <div class="eyebrow">Diferencias con el runbook anterior</div>
+    <h2>Qu&eacute; se retira, y por qu&eacute;</h2>
+    <p class="prose" style="color:var(--ink-2);font-size:0.94rem;">
+      El plan anterior optimizaba para un pitch de arquitectura P2P a 48h. El Pears Track punt&uacute;a otra cosa:
+      install limpio, OTA funcionando, process shape adecuado y utilidad pr&aacute;ctica. Varias piezas que eran
+      &ldquo;intocables&rdquo; dejan de pagar, y varias que eran &ldquo;detalle de packaging&rdquo; pasan a ser el centro.
+    </p>
+    <table class="cutlist">
+      <thead>
+        <tr><th>Pieza</th><th>Antes</th><th>Ahora</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="cut-desc"><b>Gateway ciego / cifrado E2E</b></td>
+          <td class="cut-desc">Invariante #1, &ldquo;desde el primer commit&rdquo;</td>
+          <td class="cut-desc">Sale del plan. Pears no lo punt&uacute;a. <b>Se conserva la disciplina de interfaz</b>
+            (el gateway relaya el cuerpo, no lo inspecciona) porque es gratis, pero no se implementa criptograf&iacute;a.</td>
+        </tr>
+        <tr>
+          <td class="cut-desc"><b>WDK / recibos / liquidaci&oacute;n</b></td>
+          <td class="cut-desc">Fase 4 completa</td>
+          <td class="cut-desc">Sale entero. Cero puntos en este track, y su compatibilidad con Bare no est&aacute; verificada.</td>
+        </tr>
+        <tr>
+          <td class="cut-desc"><b>Distribuci&oacute;n por npm</b></td>
+          <td class="cut-desc">&ldquo;Parte del producto&rdquo;</td>
+          <td class="cut-desc">Se invierte: el canal es <span class="mono">pear install</span>. La red distribuye su propio cliente por la red.</td>
+        </tr>
+        <tr>
+          <td class="cut-desc"><b>Runtime Node.js</b></td>
+          <td class="cut-desc">&ldquo;En Fase 0/1 NO usamos Bare&rdquo;</td>
+          <td class="cut-desc">Revertido. QVAC soporta Bare &ge;1.24 <b>oficialmente</b>, con <span class="mono">@qvac/bare-sdk</span>
+            dedicado. La premisa que justificaba evitarlo era falsa.</td>
+        </tr>
+        <tr>
+          <td class="cut-desc"><b>Fastify</b></td>
+          <td class="cut-desc">Gateway HTTP</td>
+          <td class="cut-desc">No corre bajo Bare. Va <span class="mono">bare-http1</span> con SSE por chunked writes manuales.
+            Es el &uacute;nico bloque no trivial de la migraci&oacute;n.</td>
+        </tr>
+        <tr>
+          <td class="cut-desc"><b>Generaci&oacute;n de JSON Schema</b></td>
+          <td class="cut-desc"><span class="mono">schema:gen</span> + test de comparaci&oacute;n</td>
+          <td class="cut-desc">Se recorta. Era un lujo de presupuesto de 48h. Queda el zod y firma/verificaci&oacute;n.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="critico">
+    <div class="eyebrow">Dependencias</div>
+    <h2>Camino cr&iacute;tico</h2>
+    <p class="prose" style="color:var(--ink-2);font-size:0.94rem;">
+      Tres tareas bloquean todo lo dem&aacute;s, y <b>la primera no es de producto</b>. El orden invierte el instinto
+      natural: se prueba primero c&oacute;mo se entrega, despu&eacute;s qu&eacute; se entrega. Un binario trivial que instala y
+      se actualiza vale m&aacute;s, a esta altura del reloj, que un nodo perfecto que nadie puede instalar.
+    </p>
+    <div class="tracks-grid">
+      <div class="track-card">
+        <div class="tag payments">1 &middot; T&uacute;nel de distribuci&oacute;n</div>
+        <p><span class="mono">pear touch</span> &rarr; <span class="mono">stage</span> &rarr; <span class="mono">seed</span> &rarr;
+        <span class="mono">install</span> desde una segunda m&aacute;quina. Bloquea absolutamente todo.</p>
+      </div>
+      <div class="track-card">
+        <div class="tag node">2 &middot; QVAC bajo Bare</div>
+        <p><span class="mono">@qvac/bare-sdk</span> + addon <span class="mono">@qvac/llm-llamacpp</span> registrado
+        expl&iacute;citamente. En Bare nada se auto-registra.</p>
+      </div>
+      <div class="track-card">
+        <div class="tag gateway">3 &middot; Gateway sin fastify</div>
+        <p><span class="mono">bare-http1</span> con SSE manual. Es la reescritura, no un port.</p>
+      </div>
+      <div class="track-card">
+        <div class="tag ops">Demo / submission</div>
+        <p>Seeder 24/7, ensayo de OTA en vivo, video de respaldo, README con la justificaci&oacute;n del process shape.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="fases">
+    <div class="eyebrow">Ejecuci&oacute;n</div>
+    <h2>Fases con bloques horarios</h2>
+
+    <div class="phase-spine">
+
+      <div class="phase">
+        <div class="phase-head">
+          <div>
+            <div class="num">FASE 0</div>
+            <h3>El t&uacute;nel de distribuci&oacute;n, primero</h3>
+          </div>
+          <div class="hours">H+0 &rarr; H+3</div>
+        </div>
+        <div class="phase-body">
+          <p class="phase-obj">
+            Probar el pipeline completo de entrega con una app trivial, <b>antes</b> de escribir una l&iacute;nea de l&oacute;gica de negocio.
+            Todo lo dem&aacute;s del hackathon se apoya en que esto funcione.
+          </p>
+          <div class="track-tasks">
+            <div>
+              <h4>Distribuci&oacute;n</h4>
+              <ul>
+                <li>Clonar <span class="mono">hello-pear-bare</span>, <b>variante main</b> (pear-runtime en worker thread).</li>
+                <li><span class="mono">pear touch</span> y pegar el link en el campo <span class="mono">upgrade</span> del
+                  <span class="mono">package.json</span>. Si queda el placeholder, arranca con <span class="mono">INVALID_URL</span>.</li>
+                <li><span class="mono">pear stage &lt;link&gt;</span> y <span class="mono">pear seed &lt;link&gt;</span>.</li>
+                <li><b><span class="mono">pear install pear://&lt;key&gt;</span> desde una segunda m&aacute;quina limpia.</b></li>
+              </ul>
+            </div>
+            <div>
+              <h4>Prueba de OTA</h4>
+              <ul>
+                <li>Un bin <span class="mono">qvac-node</span> que solo imprime <span class="mono">--help</span> y una versi&oacute;n.</li>
+                <li>Cambiar el string de versi&oacute;n, re-stagear, y ver la copia <i>ya instalada</i> actualizarse sola.</li>
+                <li>Anotar el flag <span class="mono">--no-updates</span> para desarrollo.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase-foot">
+            <div class="dod">
+              <span class="lbl">Definition of done</span>
+              <p>Una segunda m&aacute;quina instala desde el link y recibe una actualizaci&oacute;n OTA sin intervenci&oacute;n manual.</p>
+            </div>
+            <div class="risk">
+              <span class="lbl">Riesgo principal</span>
+              <p>Es la compuerta binaria del track. <b>Si a H+3 no anda, se escala y se replantea el track</b> &mdash; no se sigue
+                de largo esperando que se acomode.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-head">
+          <div>
+            <div class="num">FASE 1</div>
+            <h3>QVAC corriendo adentro de Bare</h3>
+          </div>
+          <div class="hours">H+3 &rarr; H+7</div>
+        </div>
+        <div class="phase-body">
+          <p class="phase-obj">
+            Inferencia local real desde adentro de la app Pear. Sigue sin haber red ni gateway: solo un prompt que responde.
+          </p>
+          <div class="track-tasks">
+            <div>
+              <h4>Nodo</h4>
+              <ul>
+                <li><span class="mono">qvac doctor</span> como preflight.</li>
+                <li>Instalar <span class="mono">@qvac/bare-sdk</span> y el addon <span class="mono">@qvac/llm-llamacpp</span>
+                  &mdash; el SDK no trae addons por defecto.</li>
+                <li>Proveer el global <span class="mono">process</span> y <b>registrar los plugins expl&iacute;citamente</b>.</li>
+                <li>Modelo &le;1B respondiendo un prompt dentro del worker.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Tama&ntilde;o del bundle</h4>
+              <ul>
+                <li><span class="mono">qvac bundle sdk</span> para un worker bundle tree-shakeado si el peso molesta al instalar.</li>
+                <li>Medir cu&aacute;nto pesa el install real: es lo que el jurado va a esperar descargando.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase-foot">
+            <div class="dod">
+              <span class="lbl">Definition of done</span>
+              <p>La app instalada por <span class="mono">pear install</span> responde un prompt con inferencia 100% local.</p>
+            </div>
+            <div class="risk">
+              <span class="lbl">Riesgo principal</span>
+              <p>El registro de addons. En Bare nada se auto-registra y los errores son poco descriptivos.
+                Presupuestar tiempo de pelea ac&aacute;, no darlo por trivial.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-head">
+          <div>
+            <div class="num">FASE 2</div>
+            <h3>Nodo, manifiesto firmado y swarm</h3>
+          </div>
+          <div class="hours">H+7 &rarr; H+11</div>
+        </div>
+        <div class="phase-body">
+          <p class="phase-obj">
+            El nodo se anuncia en un topic fijo con un manifiesto firmado que otros pueden verificar.
+            Ac&aacute; es donde la app deja de ser un CLI y pasa a ser una red.
+          </p>
+          <div class="track-tasks">
+            <div>
+              <h4>Manifiesto</h4>
+              <ul>
+                <li>Portar <span class="mono">manifest-v0.json</span> a zod 4 (<b>ya es dependencia de
+                  <span class="mono">@qvac/bare-sdk</span></b>, no hay conflicto de versi&oacute;n).</li>
+                <li><span class="mono">signManifest</span> / <span class="mono">verifyManifest</span>: Ed25519 sobre JCS (RFC 8785),
+                  con test de caso negativo.</li>
+                <li><b>Sin</b> generaci&oacute;n de JSON Schema ni test de comparaci&oacute;n &mdash; recortado.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Swarm</h4>
+              <ul>
+                <li><span class="mono">hyperswarm</span> ya viene con el SDK. Topic fijo, hardcodeado.</li>
+                <li>El nodo publica su manifiesto firmado al conectarse con un par.</li>
+                <li>Un manifiesto que no verifica se descarta antes de leer <span class="mono">pricing</span>.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase-foot">
+            <div class="dod">
+              <span class="lbl">Definition of done</span>
+              <p>Dos nodos en m&aacute;quinas distintas se descubren en el topic e intercambian manifiestos verificados.</p>
+            </div>
+            <div class="risk">
+              <span class="lbl">Riesgo principal</span>
+              <p>Irse por la madriguera del protocolo. El manifiesto ac&aacute; es medio, no fin: Pears no punt&uacute;a
+                elegancia de esquema. Timeboxear duro.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-head">
+          <div>
+            <div class="num">FASE 3</div>
+            <h3>Gateway sobre bare-http1</h3>
+          </div>
+          <div class="hours">H+11 &rarr; H+15</div>
+        </div>
+        <div class="phase-body">
+          <p class="phase-obj">
+            La reescritura que reemplaza a fastify. Endpoint compatible con OpenAI, streaming de punta a punta,
+            y decisi&oacute;n de routing loggeada.
+          </p>
+          <div class="track-tasks">
+            <div>
+              <h4>Gateway</h4>
+              <ul>
+                <li><span class="mono">POST /v1/chat/completions</span> sobre <span class="mono">bare-http1</span>.</li>
+                <li><b>SSE a mano</b>: chunked writes manuales, sin helpers de fastify.</li>
+                <li>Elige entre los pares del topic filtrando por <span class="mono">modelId</span> y por
+                  <span class="mono">capabilities.streaming</span>.</li>
+                <li>Log de routing en JSON-Lines append-only: qu&eacute; candidatos hab&iacute;a, cu&aacute;l eligi&oacute;, por qu&eacute;.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Cero modelo</h4>
+              <ul>
+                <li><b>El gateway arranca sin ning&uacute;n modelo descargado.</b> Es la pieza que hace viable el demo del jurado.</li>
+                <li>Si no hay pares, mensaje claro &mdash; nunca un cuelgue silencioso.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase-foot">
+            <div class="dod">
+              <span class="lbl">Definition of done</span>
+              <p>Un <span class="mono">curl</span> con <span class="mono">"stream": true</span> devuelve tokens desde otro
+                nodo, y el log muestra por qu&eacute; se eligi&oacute; ese.</p>
+            </div>
+            <div class="risk">
+              <span class="lbl">Riesgo principal</span>
+              <p>Subestimar el SSE manual. El framing de <span class="mono">data:</span> y el flush por chunk son
+                exactamente donde se pierden dos horas.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-head">
+          <div>
+            <div class="num">FASE 4</div>
+            <h3>El install <i>es</i> la demo</h3>
+          </div>
+          <div class="hours">H+15 &rarr; H+18</div>
+        </div>
+        <div class="phase-body">
+          <p class="phase-obj">
+            Convertir el criterio de juzgado #1 en el momento m&aacute;s fuerte del pitch: una m&aacute;quina virgen entra a la red
+            en menos de un minuto.
+          </p>
+          <div class="track-tasks">
+            <div>
+              <h4>Recorrido del jurado</h4>
+              <ul>
+                <li><span class="mono">pear install pear://&lt;key&gt;</span> en una m&aacute;quina que nunca vio el proyecto.</li>
+                <li><span class="mono">qvac-node gateway</span> &rarr; tokens en streaming desde tus nodos seedeados.</li>
+                <li>Cronometrarlo. <b>Objetivo: bajo 60 segundos</b>, sin descarga de modelo.</li>
+                <li><span class="mono">qvac-node serve</span> como el camino opcional para aportar c&oacute;mputo.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Infraestructura</h4>
+              <ul>
+                <li><b>Seeder dedicado 24/7</b>, no la laptop de la demo.</li>
+                <li>2 nodos de demo encendidos y anunci&aacute;ndose en el topic.</li>
+                <li>Probar el recorrido completo desde una red distinta a la del venue.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase-foot">
+            <div class="dod">
+              <span class="lbl">Definition of done</span>
+              <p>Instalaci&oacute;n cronometrada desde m&aacute;quina limpia hasta primer token en menos de 60 segundos, tres veces seguidas.</p>
+            </div>
+            <div class="risk">
+              <span class="lbl">Riesgo principal</span>
+              <p>Que el seeder viva en una laptop que alguien cierra para ir a dormir. Va en una m&aacute;quina que no se toca.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-head">
+          <div>
+            <div class="num">FASE 5</div>
+            <h3>OTA en vivo y endurecimiento</h3>
+          </div>
+          <div class="hours">H+18 &rarr; H+21</div>
+        </div>
+        <div class="phase-body">
+          <p class="phase-obj">
+            El criterio de juzgado #2, ensayado hasta que sea aburrido.
+          </p>
+          <div class="track-tasks">
+            <div>
+              <h4>Demo de OTA</h4>
+              <ul>
+                <li>Bumpear versi&oacute;n y <span class="mono">pear stage</span> en vivo; el nodo corriendo toma el update en escena.</li>
+                <li>Que el cambio sea <b>visible</b>: un banner, un color, un comando nuevo. Nada de diffs invisibles.</li>
+                <li>Ensayarlo al menos tres veces. Es 60 segundos de demo y pega justo en el rubric.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Endurecimiento</h4>
+              <ul>
+                <li>Matar un nodo a mitad de stream y ver qu&eacute; hace el gateway. Arreglarlo o documentarlo honestamente.</li>
+                <li>Flujo completo tres veces consecutivas sin tocar c&oacute;digo.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase-foot">
+            <div class="dod">
+              <span class="lbl">Definition of done</span>
+              <p>El update OTA se propaga a una instancia corriendo, en vivo, con un cambio visible a simple vista.</p>
+            </div>
+            <div class="risk">
+              <span class="lbl">Riesgo principal</span>
+              <p>Ensayar el OTA por primera vez sobre el escenario. La propagaci&oacute;n tiene latencia variable: hay que
+                saber cu&aacute;nto tarda <i>antes</i> de contarlo.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-head">
+          <div>
+            <div class="num">FASE 6</div>
+            <h3>Submission y pitch</h3>
+          </div>
+          <div class="hours">H+21 &rarr; H+24</div>
+        </div>
+        <div class="phase-body">
+          <p class="phase-obj">
+            Los requisitos de entrega son entregables duros, no buenas intenciones. Se cierran ac&aacute; con tiempo, no a las corridas.
+          </p>
+          <div class="track-tasks">
+            <div>
+              <h4>Entregables</h4>
+              <ul>
+                <li>Repo p&uacute;blico con README y el <span class="mono">pear://</span> key bien visible arriba de todo.</li>
+                <li><b>Justificaci&oacute;n escrita del process shape elegido</b> &mdash; criterio de juzgado expl&iacute;cito.</li>
+                <li>Links directos al c&oacute;digo de integraci&oacute;n con Pear y con QVAC.</li>
+                <li>Instrucciones de setup verificadas desde install limpio.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Cierre</h4>
+              <ul>
+                <li>Video de respaldo del recorrido completo, reproducido una vez en la laptop de la demo.</li>
+                <li>2&ndash;3 slides: el install como demo, el diagrama de la red, el OTA.</li>
+                <li>Ensayo cronometrado.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase-foot">
+            <div class="dod">
+              <span class="lbl">Definition of done</span>
+              <p>El video existe y se prob&oacute;; el README permite a un desconocido instalar y usar la red sin preguntarte nada.</p>
+            </div>
+            <div class="risk">
+              <span class="lbl">Riesgo principal</span>
+              <p>Ninguno t&eacute;cnico. Ac&aacute; el riesgo es llegar sin dormir y con el pitch sin cronometrar.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="recorte">
+    <div class="eyebrow">Si el reloj aprieta</div>
+    <h2>Tabla de recorte de emergencia</h2>
+    <p class="prose" style="color:var(--ink-2);font-size:0.94rem;">
+      El orden est&aacute; invertido respecto del runbook anterior. Lo que antes era el coraz&oacute;n del pitch (directorio P2P,
+      gateway ciego) ahora es recortable; lo que antes parec&iacute;a packaging ahora es intocable.
+    </p>
+    <table class="cutlist">
+      <thead>
+        <tr><th>Orden</th><th>Se corta</th><th>Impacto</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="cut-num">1</td>
+          <td class="cut-desc"><b>Manifiesto firmado con JCS</b> &rarr; lista de pares hardcodeada con verificaci&oacute;n m&iacute;nima.
+            Pears no punt&uacute;a el protocolo.</td>
+          <td><span class="impact low">Bajo</span></td>
+        </tr>
+        <tr>
+          <td class="cut-num">2</td>
+          <td class="cut-desc"><b>Routing por precio y latencia</b> &rarr; round-robin entre pares vivos. El log de decisi&oacute;n
+            se conserva igual: es barato y se ve bien.</td>
+          <td><span class="impact low">Bajo</span></td>
+        </tr>
+        <tr>
+          <td class="cut-num">3</td>
+          <td class="cut-desc"><b>Tres nodos</b> &rarr; dos. Sigue mostrando selecci&oacute;n entre candidatos.</td>
+          <td><span class="impact low">Bajo</span></td>
+        </tr>
+        <tr>
+          <td class="cut-num">4</td>
+          <td class="cut-desc"><b>Inferencia local en la m&aacute;quina instalada</b> &rarr; el install trae solo el gateway y enruta
+            a los nodos seedeados. Achica el install y sigue siendo una demo completa.</td>
+          <td><span class="impact mid">Medio</span></td>
+        </tr>
+        <tr>
+          <td class="cut-num">5</td>
+          <td class="cut-desc"><b>OTA en vivo</b> &rarr; <b>no se corta.</b> Es el criterio de juzgado #2. Si no llega a estar
+            ensayado, se muestra grabado, pero tiene que existir.</td>
+          <td><span class="impact high">Muy alto</span></td>
+        </tr>
+        <tr>
+          <td class="cut-num">6</td>
+          <td class="cut-desc"><b><span class="mono">pear install</span> limpio</b> &rarr; <b>no se corta nunca.</b>
+            Sin esto no hay submission: el track dice expl&iacute;citamente que un repo local no califica.</td>
+          <td><span class="impact high">Terminal</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="checklist">
+    <div class="eyebrow">Antes de subir al escenario</div>
+    <h2>Checklist final de demo</h2>
+    <ul class="checklist" id="demo-checklist">
+      <li><input type="checkbox" id="ck1"><label for="ck1">El seeder dedicado est&aacute; encendido y seedeando (no una laptop del equipo)</label></li>
+      <li><input type="checkbox" id="ck2"><label for="ck2">Los 2 nodos de demo est&aacute;n anunci&aacute;ndose en el topic</label></li>
+      <li><input type="checkbox" id="ck3"><label for="ck3"><span class="mono">pear install pear://&lt;key&gt;</span> probado hoy desde una m&aacute;quina limpia y una red que no es la del venue</label></li>
+      <li><input type="checkbox" id="ck4"><label for="ck4">Del install al primer token: cronometrado bajo 60 segundos</label></li>
+      <li><input type="checkbox" id="ck5"><label for="ck5">El update OTA se propag&oacute; a una instancia corriendo, con un cambio visible, al menos 3 veces</label></li>
+      <li><input type="checkbox" id="ck6"><label for="ck6">El gateway arranca sin ning&uacute;n modelo descargado</label></li>
+      <li><input type="checkbox" id="ck7"><label for="ck7">El <span class="mono">pear://</span> key est&aacute; arriba de todo en el README y en las slides</label></li>
+      <li><input type="checkbox" id="ck8"><label for="ck8">La justificaci&oacute;n del process shape est&aacute; escrita en el README</label></li>
+      <li><input type="checkbox" id="ck9"><label for="ck9">El video de respaldo existe y se reprodujo una vez en la laptop de la demo</label></li>
+      <li><input type="checkbox" id="ck10"><label for="ck10">Alguien del equipo puede explicar sin notas por qu&eacute; se eligi&oacute; la variante <span class="mono">main</span> y no <span class="mono">daemon</span></label></li>
+    </ul>
+    <button class="checklist-reset" id="reset-btn">Reiniciar checklist</button>
+  </section>
+
+  <section id="stack">
+    <div class="eyebrow">Referencia</div>
+    <h2>Stack decidido, por capa</h2>
+    <p class="prose" style="color:var(--ink-2);font-size:0.94rem;">
+      Versiones verificadas contra el registry de npm el 22 de agosto de 2026. Si algo no existe como se lista ac&aacute;,
+      es se&ntilde;al de parar y avisar, no de improvisar un reemplazo.
+    </p>
+    <div class="stack-grid">
+      <div>
+        <h4>Runtime y distribuci&oacute;n</h4>
+        <p class="mono">bare &ge;1.24<br>pear-runtime 1.3.1<br>hello-pear-bare (variante main)</p>
+      </div>
+      <div>
+        <h4>Inferencia</h4>
+        <p class="mono">@qvac/bare-sdk 0.17.1<br>@qvac/llm-llamacpp 0.46.0<br>@qvac/cli 0.11.0</p>
+      </div>
+      <div>
+        <h4>Red P2P</h4>
+        <p class="mono">hyperswarm 4.17.0<br>hypercore 11.35.2<br>(ambos ya vienen con el SDK)</p>
+      </div>
+      <div>
+        <h4>Gateway HTTP</h4>
+        <p class="mono">bare-http1 4.5.8</p>
+        <p style="font-size:0.85rem;color:var(--ink-2);margin-top:0.3rem;">fastify no corre bajo Bare</p>
+      </div>
+      <div>
+        <h4>Validaci&oacute;n</h4>
+        <p class="mono">zod 4</p>
+        <p style="font-size:0.85rem;color:var(--ink-2);margin-top:0.3rem;">ya es dependencia de @qvac/bare-sdk</p>
+      </div>
+      <div>
+        <h4>Fuera de alcance</h4>
+        <p style="font-size:0.85rem;color:var(--ink-2);">WDK, recibos, liquidaci&oacute;n, cifrado E2E, autobase, hyperdb, blind-pairing, capa ag&eacute;ntica</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="page-foot">
+    <p style="color:var(--ink-3);font-size:0.82rem;">
+      Runbook de ejecuci&oacute;n &mdash; QVAC-Node para el <b>Pears Track</b> (Bare + Pear + QVAC + Hyperswarm).
+      Horas relativas al inicio del hackathon, sobre un horizonte de 24h con juzgado el domingo 13:00 ARG.
+      Reemplaza al runbook de 48h orientado a arquitectura P2P, archivado en <span class="mono">old/</span>.
+    </p>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var KEY = 'qvac-runbook-checklist';
+  var boxes = document.querySelectorAll('#demo-checklist input[type="checkbox"]');
+  var state = {};
+  try{ state = JSON.parse(localStorage.getItem(KEY) || '{}'); }catch(e){ state = {}; }
+
+  function paint(cb){
+    var li = cb.closest('li');
+    if(cb.checked){ li.classList.add('done'); } else { li.classList.remove('done'); }
+  }
+
+  boxes.forEach(function(cb){
+    if(state[cb.id]){ cb.checked = true; }
+    paint(cb);
+    cb.addEventListener('change', function(){
+      state[cb.id] = cb.checked;
+      paint(cb);
+      try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+    });
+  });
+
+  var resetBtn = document.getElementById('reset-btn');
+  if(resetBtn){
+    resetBtn.addEventListener('click', function(){
+      state = {};
+      boxes.forEach(function(cb){ cb.checked = false; paint(cb); });
+      try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+    });
+  }
+})();
+</script>
+</body>
+</html>
