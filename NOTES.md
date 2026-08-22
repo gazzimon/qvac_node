@@ -216,11 +216,29 @@ los backends de GPU. Es un solo `.bare` por plataforma, no es divisible.
 **`win32-arm64` NO tiene prebuild.** Hoy publicamos esa plataforma; con
 inferencia adentro deja de ser viable y hay que sacarla del release.
 
-### Calidad de salida: revisar antes del pitch
+### Eleccion de modelo: Llama 3.2 1B (medido, no estimado)
 
-SmolLM2-360M responde en ~1s pero produce castellano incoherente. Es lo que el
-jurado lee en pantalla. Alternativa dentro del limite de 1B del runbook:
-`llama_3.2_1b_intruct_tool_calling_v2.Q4_K` (1B, 807 MB).
+Ambos dentro del limite de 1B del runbook, medidos con el modelo en cache:
+
+| | SmolLM2 360M Q8 | **Llama 3.2 1B Q4_K** |
+|---|---|---|
+| Peso | 386 MB | 807 MB |
+| Carga | 11.5 s | 19.9 s |
+| **TTFT** | 0.74 s | **1.46 s** |
+| Respuesta completa | 4.7 s | 5.2 s |
+
+Misma pregunta, "¿que es una red peer-to-peer?":
+
+- **360M:** *"Un red peer-to-peer es una red en que todos los usuarios que se
+  buscan pueden leer y manejar sus información, no deja de trabajar con otros
+  usuarios..."* — incoherente.
+- **1B:** *"Una red peer-to-peer (P2P) es una red de redes de Internet donde los
+  nodos (computadoras) conectados entre ellos se comunican directamente entre si
+  sin la intervencion de una red central."* — correcta.
+
+**Default: 1B.** 0.72s mas de TTFT es imperceptible en una demo; la diferencia
+de calidad es entre algo que el jurado lee y asiente, y algo que da verguenza
+proyectar. El 360M queda disponible con `--model smol`.
 
 ---
 

@@ -15,11 +15,23 @@ import bareProcess from 'bare-process'
 // y falla con errores poco descriptivos.
 if (!global.process) global.process = bareProcess
 
-const MODEL = 'smollm2-360m-instruct-q8_0' // 360M, 386MB
+// Modelos <=1B del registry de QVAC, para comparar calidad vs latencia.
+const MODELS = {
+  smol: 'smollm2-360m-instruct-q8_0', // 360M, 386MB
+  llama1b: 'llama_3.2_1b_intruct_tool_calling_v2.Q4_K' // 1B, 807MB
+}
 const PROMPT = 'Respondé en una sola frase: ¿qué es una red peer-to-peer?'
 
 const argv = Bare.argv.slice(2)
 const allowDownload = argv.includes('--download')
+
+// --model <alias|nombre-exacto>
+const mi = argv.indexOf('--model')
+// Default: llama1b. El 360M responde 0.72s mas rapido pero produce castellano
+// incoherente, y la salida es lo que el jurado lee en pantalla. Esos 0.72s no
+// se notan en una demo; la diferencia de calidad si.
+const pick = mi !== -1 ? argv[mi + 1] : 'llama1b'
+const MODEL = MODELS[pick] || pick
 
 const sdk = await import('@qvac/bare-sdk')
 const { llmPlugin } = await import('@qvac/bare-sdk/llamacpp-completion/plugin')
