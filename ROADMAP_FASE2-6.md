@@ -130,6 +130,27 @@ El gateway mantiene un mapa `requestId → response SSE del cliente HTTP` y trad
 
 ---
 
+## Fase 3.5 — Panel de modelos (pieza nueva, no estaba en el runbook original)
+
+**Origen:** la idea es un panel tipo [build.nvidia.com/models](https://build.nvidia.com/models) — una grilla de modelos especializados (uno de arquitectura, uno de facturas, etc.), cada uno con un precio que define quien provee ese modelo, y el argumento de privacidad de que ninguna corporación grande maneja los datos.
+
+**Por qué es casi gratis de construir:** el manifiesto (Fase 2) ya trae `models[].displayName`, `capabilities`, `pricing` y `metadata.tags`/`metadata.operator` por nodo. El gateway (Fase 3) ya arma una tabla en memoria de esos manifiestos para poder rutear. El panel no necesita ninguna pieza de datos nueva — solo exponer esa tabla y dibujarla.
+
+**Backend**
+- `GET /v1/models` en el mismo `bare-http1` del gateway: devuelve la tabla en memoria ya agregada (modelId, displayName, tags, pricing, operador) de los nodos conectados en ese momento. Es de solo lectura, no toca el camino de inferencia.
+
+**Frontend**
+- Un único archivo HTML estático (sin build, sin framework) servido por el propio gateway en `GET /`. Fetchea `/v1/models` y pinta una grilla de tarjetas: nombre del modelo, categoría (por `tags`: arquitectura/facturas/etc.), precio, y quién lo provee.
+- Se actualiza sola (poll cada pocos segundos o reconexión simple) para que en la demo se vea un nodo nuevo aparecer en vivo cuando se conecta.
+
+**Precisión de la narrativa de privacidad — para no sobrevender en el pitch:** el claim correcto es *"ninguna corporación centralizada agrega tus datos a escala"* (cierto: no pasa por OpenAI/Google/Anthropic). No es *"nadie más ve tu prompt"* — el nodo que ejecuta la inferencia sí lo ve en texto plano, porque el cifrado E2E ("gateway ciego") está explícitamente fuera de alcance en este track. Vale la pena decirlo así de preciso si el jurado pregunta, en vez de que lo encuentren ellos.
+
+**Definition of done:** abrir `http://localhost:<puerto>/` en un browser durante la demo muestra las tarjetas de los modelos realmente conectados en ese momento, con precio y proveedor.
+
+**Riesgo principal:** que se coma tiempo de Fase 4/5, que sí son criterio de juzgado. Por eso es la **pieza más recortable de todo el roadmap** — más incluso que el manifiesto firmado (ver Tabla de recorte): si a H+16 el panel no está, se cuenta en las slides con una captura y no se sigue puliendo.
+
+---
+
 ## Fase 4 — El install es la demo (revisada)
 
 Sin cambios de objetivo. Agregar a **Infraestructura**:
@@ -157,6 +178,7 @@ Agregar a **Entregables**:
 
 | # | Decisión | Bloquea |
 |---|---|---|
+| D0 | Panel de modelos (Fase 3.5): se corta primero que cualquier otra cosa si aprieta el reloj — no es criterio de juzgado | — (puro upside de pitch) |
 | D1 | Transporte gateway↔nodo: `FramedStream` sobre Hyperswarm, no HTTP a localhost | Fase 3 completa |
 | D2 | Recortar manifiesto a campos vigentes (sin `economic`/`directory` obligatorios) | Fase 2 |
 | D3 | Candidatos en memoria por estado de socket, no por `expiresAt` | Fase 3 / Fase 5 |
