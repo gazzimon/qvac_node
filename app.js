@@ -3,12 +3,13 @@ const PearRuntime = require('pear-runtime')
 const ReadyResource = require('ready-resource')
 
 module.exports = class App extends ReadyResource {
-  constructor({ dir, app, updates, version, upgrade, name }) {
+  constructor({ dir, app, updates, updateDelay, version, upgrade, name }) {
     super()
 
     this.dir = dir
     this.app = app
     this.updates = updates
+    this.updateDelay = updateDelay
     this.version = version
     this.upgrade = upgrade
     this.name = name
@@ -24,7 +25,8 @@ module.exports = class App extends ReadyResource {
       this.upgrade,
       this.name,
       this.dir,
-      this.app || ''
+      this.app || '',
+      String(this.updateDelay)
     ])
     this.pipe = new FramedStream(this.IPC)
 
@@ -64,6 +66,26 @@ module.exports = class App extends ReadyResource {
 
     if (message === 'pear:updateApplied') {
       this.emit('update-applied')
+      return
+    }
+
+    // El pipe es de strings planos, asi que los mensajes con payload van con
+    // prefijo. Se parsean antes de caer en el 'message' generico.
+    if (message.startsWith('progress:')) {
+      let stats = null
+      try {
+        stats = JSON.parse(message.slice('progress:'.length))
+      } catch {
+        return // un progreso ilegible no justifica tirar abajo el updater
+      }
+      this.emit('updating-progress', stats)
+      return
+    }
+
+    if (message.startsWith('updater-error:')) {
+      // Se emite como evento propio y NO como 'error': un fallo del updater
+      // no debe matar un nodo que esta sirviendo tokens. Se reporta y se sigue.
+      this.emit('updater-error', new Error(message.slice('updater-error:'.length)))
       return
     }
 
