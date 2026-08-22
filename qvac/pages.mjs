@@ -156,6 +156,8 @@ export const CLIENTE_HTML = page(
     let nodesById = {}
 
     function closeModal() {
+      clearInterval(webuiPoll)
+      webuiPoll = null
       document.getElementById('hermes-modal').innerHTML = ''
     }
 
@@ -200,6 +202,32 @@ export const CLIENTE_HTML = page(
       document.getElementById('copy-curl').addEventListener('click', () => navigator.clipboard.writeText(curl))
     }
 
+    let webuiPoll = null
+
+    async function isWebUIUp() {
+      try {
+        // no-cors: no podemos leer la respuesta, pero si el fetch no tira
+        // excepcion es porque HAY algo escuchando en el puerto.
+        await fetch('http://localhost:3000/', { mode: 'no-cors', cache: 'no-store' })
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    function setWebUIStatus(up) {
+      const el = document.getElementById('webui-status')
+      const openBtn = document.getElementById('open-webui')
+      if (!el) return
+      if (up) {
+        el.innerHTML = '<span class="badge online">● corriendo en localhost:3000</span>'
+        openBtn.disabled = false
+      } else {
+        el.innerHTML = '<span class="badge offline">○ todavía no responde en localhost:3000</span>'
+        openBtn.disabled = false // se deja clickeable igual, por si el check da falso negativo
+      }
+    }
+
     async function connectWebUI(nodeId) {
       const data = await fetchConnection(nodeId)
       if (!data) return
@@ -207,16 +235,24 @@ export const CLIENTE_HTML = page(
         <div class="modal-overlay" id="modal-overlay">
           <div class="modal">
             <h3>Chat web para \${data.node.displayName}</h3>
-            <p class="sub">Abre <b>Open WebUI</b> -self-hosted, con cara de ChatGPT, sí tiene UI web de verdad- ya apuntado a este nodo. Necesita Docker instalado. Primera vez: corré esto una sola vez.</p>
+            <p class="sub">Abre <b>Open WebUI</b> -self-hosted, con cara de ChatGPT, sí tiene UI web de verdad- ya apuntado a este nodo. Necesita Docker Desktop <b>corriendo</b>.</p>
+            <p class="sub"><b>Paso 1</b> — corré esto en tu terminal (una sola vez; la primera vez tarda ~1 min en bajar la imagen):</p>
             <pre>\${data.openWebuiCommand}</pre>
             <button id="copy-webui">Copiar comando</button>
+            <p class="sub" style="margin-top:1rem"><b>Paso 2</b> — cuando esté listo, abrilo: <span id="webui-status">verificando…</span></p>
             <button id="open-webui" class="ghost">Abrir chat web →</button>
+            <button id="recheck-webui" class="ghost">Volver a chequear</button>
             <button id="close-modal" class="ghost">Cerrar</button>
           </div>
         </div>
       \`)
       document.getElementById('copy-webui').addEventListener('click', () => navigator.clipboard.writeText(data.openWebuiCommand))
       document.getElementById('open-webui').addEventListener('click', () => window.open(data.openWebuiUrl, '_blank'))
+      document.getElementById('recheck-webui').addEventListener('click', async () => setWebUIStatus(await isWebUIUp()))
+
+      clearInterval(webuiPoll)
+      isWebUIUp().then(setWebUIStatus)
+      webuiPoll = setInterval(async () => setWebUIStatus(await isWebUIUp()), 3000)
     }
 
     function bar(pct) {
