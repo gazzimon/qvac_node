@@ -839,27 +839,53 @@ export const PROVEEDOR_HTML = page(
   <h1>Panel de proveedor</h1>
   <p class="sub">Así ve su propio nodo quien ofrece la inferencia: estado, carga y precio.</p>
 
+  <div id="onboarding"></div>
+
   <div class="field">
     <label>Tu nodo</label>
     <select id="node-select"></select>
   </div>
 
   <div id="detail"></div>
+  <div id="model-modal"></div>
 
   <script>
     let nodesById = {}
     let current = null
     let shellFor = null // para que nodo esta armado el DOM de #detail
+    let isMine = false  // el nodo elegido, es ESTE gateway? (solo ahi se puede re-firmar)
+    let swarmActive = false
+    let catalogById = {} // alias -> {displayName, sizeGB, fits}, de /v1/swarm/manifest
 ${ESC}
 
-    // El detalle se arma UNA vez por nodo y despues solo se actualizan los
-    // textos que cambian.
-    //
-    // Antes se hacia innerHTML entero en cada refresh (cada 2.5s), lo que
-    // borraba el precio que el proveedor estaba tipeando y le sacaba el foco:
-    // medido, escribir "0.007 QVAC / 1K tok" y a los 3.2s el input habia
-    // vuelto solo al valor viejo. Con el poll corriendo era imposible cargar
-    // un precio a velocidad humana.
+    // -------------------------------------------------------------------
+    // Onboarding: aparece solo si este gateway no se unio al swarm todavia.
+    // -------------------------------------------------------------------
+    function renderOnboarding(swarm) {
+      swarmActive = !!swarm
+      const box = document.getElementById('onboarding')
+      if (swarm) {
+        box.innerHTML = ''
+        return
+      }
+      const cmd = 'qvac-node serve --swarm --operator "tu nombre"'
+      box.innerHTML = \`
+        <div class="card" style="margin-bottom:1.5rem; cursor:default">
+          <h3>Este panel todavía no está anunciado en la red P2P</h3>
+          <p class="sub">Para que tu máquina entre a la red de inferencia, reiniciá con:</p>
+          <pre>\${esc(cmd)}</pre>
+          <button id="copy-swarm-cmd" class="ghost">Copiar comando</button>
+        </div>
+      \`
+      document.getElementById('copy-swarm-cmd')
+        .addEventListener('click', (e) => { navigator.clipboard.writeText(cmd); e.target.textContent = 'Copiado ✓' })
+    }
+
+    // -------------------------------------------------------------------
+    // Detalle del nodo elegido. Se arma UNA vez por nodo y despues solo se
+    // actualizan los textos que cambian -- ver la nota vieja mas abajo sobre
+    // por que (el input de precio perdia lo que el usuario tipeaba).
+    // -------------------------------------------------------------------
     function buildShell(n) {
       document.getElementById('detail').innerHTML = \`
         <div class="card" style="cursor:default">
@@ -873,18 +899,58 @@ ${ESC}
           <label>Precio publicado</label>
           <input type="text" id="pricing">
         </div>
-        <button id="save-pricing">Guardar precio</button>
+        <div id="mine-fields"></div>
+        <button id="save-pricing">Guardar cambios</button>
         <button id="toggle" class="ghost"></button>
       \`
-      document.getElementById('save-pricing').addEventListener('click', savePricing)
+      document.getElementById('save-pricing').addEventListener('click', saveFields)
       document.getElementById('toggle').addEventListener('click', toggleStatus)
       shellFor = n.id
+      mineFieldsBuiltFor = null // fuerza reconstruir el bloque "mine-fields" tambien
+    }
+
+    // Los campos que solo tienen sentido sobre TU PROPIO nodo P2P -- editarlos
+    // implica re-firmar el manifiesto con tu identidad, algo que no se puede
+    // hacer sobre el nodo de otro. Se arman aparte de buildShell() porque
+    // "es mio" puede cambiar sin que cambie el nodo elegido (ej. arrancaste
+    // --swarm recien).
+    let mineFieldsBuiltFor = null
+
+    function buildMineFields() {
+      const box = document.getElementById('mine-fields')
+      if (!isMine) {
+        box.innerHTML = ''
+        mineFieldsBuiltFor = false
+        return
+      }
+      box.innerHTML = \`
+        <div class="field">
+          <label>Nombre publicado</label>
+          <input type="text" id="displayName">
+        </div>
+        <div class="field">
+          <label>Tags (separados por coma)</label>
+          <input type="text" id="tagsInput">
+        </div>
+        <div class="field">
+          <label>Capacidad (requests simultáneos)</label>
+          <input type="text" id="maxConc">
+        </div>
+        <div class="field">
+          <label>Modelo</label>
+          <select id="modelSelect"></select>
+          <div class="muted" id="modelLoadStatus" style="margin-top:.3rem"></div>
+        </div>
+      \`
+      document.getElementById('modelSelect').addEventListener('change', onModelSelectChange)
+      mineFieldsBuiltFor = true
     }
 
     function renderDetail() {
       const n = nodesById[current]
       if (!n) return
       if (shellFor !== n.id) buildShell(n)
+      if (mineFieldsBuiltFor !== isMine) buildMineFields()
 
       const badge = document.getElementById('d-badge')
       badge.className = 'badge ' + n.status
@@ -901,17 +967,111 @@ ${ESC}
         n.status === 'online' ? 'Ponerme fuera de línea' : 'Volver a estar en línea'
 
       // Lo unico que el usuario edita: solo se pisa si NO lo esta tocando.
-      const input = document.getElementById('pricing')
-      if (document.activeElement !== input) input.value = n.pricing
+      const pricing = document.getElementById('pricing')
+      if (document.activeElement !== pricing) pricing.value = n.pricing
+
+      if (isMine) {
+        const dn = document.getElementById('displayName')
+        if (dn && document.activeElement !== dn) dn.value = n.displayName
+        const tg = document.getElementById('tagsInput')
+        if (tg && document.activeElement !== tg) tg.value = n.tags.join(', ')
+        const mc = document.getElementById('maxConc')
+        if (mc && document.activeElement !== mc) mc.value = n.maxConcurrentRequests
+
+        renderModelSelect(n.modelId)
+      }
+    }
+
+    // -------------------------------------------------------------------
+    // Selector de modelo: solo ofrece lo que entra en la RAM de ESTA
+    // maquina (ver /v1/swarm/manifest -> models[].fits). Cambiar de modelo
+    // pasa por un modal de confirmacion porque dispara una carga real.
+    // -------------------------------------------------------------------
+    let modelSelectBuiltWith = null
+    let modelLoadPoll = null
+
+    function renderModelSelect(currentModelId) {
+      const select = document.getElementById('modelSelect')
+      if (!select) return
+      const key = Object.keys(catalogById).sort().join(',')
+      if (key !== modelSelectBuiltWith) {
+        modelSelectBuiltWith = key
+        select.innerHTML = Object.entries(catalogById).map(([alias, m]) => \`
+          <option value="\${esc(alias)}" \${!m.fits ? 'disabled' : ''}>
+            \${esc(m.displayName)} (\${m.sizeGB} GB)\${m.fits ? '' : ' — no entra en esta RAM'}
+          </option>\`).join('')
+      }
+      if (document.activeElement !== select) select.value = currentModelId
+    }
+
+    async function onModelSelectChange(e) {
+      const nextAlias = e.target.value
+      const n = nodesById[current]
+      if (!n || nextAlias === n.modelId) return
+
+      const info = catalogById[nextAlias]
+      const proceed = confirm(
+        'Cambiar el modelo de este nodo a "' + (info ? info.displayName : nextAlias) + '".\\n\\n' +
+        'Puede tardar varios segundos -o fallar por falta de memoria- mientras el ' +
+        'nodo sigue respondiendo con el modelo actual. Si falla, se mantiene el modelo de ahora.'
+      )
+      if (!proceed) { e.target.value = n.modelId; return }
+
+      const r = await fetch('/v1/swarm/manifest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: nextAlias })
+      })
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        alert((data.error && data.error.message) || 'no se pudo cambiar el modelo')
+        e.target.value = n.modelId
+        return
+      }
+      pollModelLoad()
+    }
+
+    function pollModelLoad() {
+      clearInterval(modelLoadPoll)
+      modelLoadPoll = setInterval(async () => {
+        const r = await fetch('/v1/swarm/manifest')
+        if (!r.ok) return
+        const data = await r.json()
+        const status = document.getElementById('modelLoadStatus')
+        if (!data.modelLoad || data.modelLoad.status === 'ready') {
+          if (status) status.textContent = ''
+          clearInterval(modelLoadPoll)
+          await refresh()
+          return
+        }
+        if (status) {
+          status.textContent = data.modelLoad.status === 'loading'
+            ? 'Cargando modelo nuevo… (puede tardar)'
+            : 'Fallo la carga: ' + (data.modelLoad.message || 'error desconocido')
+        }
+        if (data.modelLoad.status === 'error') clearInterval(modelLoadPoll)
+      }, 2000)
     }
 
     let optionsKey = null
 
     async function refresh() {
       const r = await fetch('/v1/nodes')
-      const { nodes } = await r.json()
+      const { nodes, swarm } = await r.json()
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
       if (!current) current = nodes[0]?.id
+
+      renderOnboarding(swarm)
+      isMine = !!swarm && !!nodesById[current] &&
+        nodesById[current].kind === 'real' && nodesById[current].id.startsWith('local:')
+
+      if (isMine && !Object.keys(catalogById).length) {
+        const rr = await fetch('/v1/swarm/manifest')
+        if (rr.ok) {
+          const data = await rr.json()
+          catalogById = Object.fromEntries((data.models || []).map(m => [m.alias, m]))
+        }
+      }
 
       // El <select> se repinta solo si cambio la lista de nodos. Repintarlo en
       // cada poll cerraba el desplegable si lo tenias abierto.
@@ -925,18 +1085,42 @@ ${ESC}
       renderDetail()
     }
 
-    async function savePricing() {
-      const input = document.getElementById('pricing')
-      const pricing = input.value
+    async function saveFields() {
+      const pricing = document.getElementById('pricing')
+      const patch = { pricing: pricing.value }
+
+      if (isMine) {
+        const dn = document.getElementById('displayName')
+        const tg = document.getElementById('tagsInput')
+        const mc = document.getElementById('maxConc')
+        if (dn) patch.displayName = dn.value
+        if (tg) patch.tags = tg.value.split(',').map(t => t.trim()).filter(Boolean)
+        if (mc && Number.isFinite(+mc.value) && +mc.value > 0) patch.maxConcurrentRequests = +mc.value
+      }
+
       // Sin el blur, el input sigue teniendo el foco y el refresh de abajo no
       // lo actualiza: quedaria mostrando lo tipeado aunque el server lo haya
-      // recortado a 60 chars, y no se veria que quedo guardado de verdad.
-      input.blur()
+      // recortado, y no se veria que quedo guardado de verdad.
+      document.activeElement && document.activeElement.blur && document.activeElement.blur()
+
       await fetch('/v1/nodes/' + encodeURIComponent(current), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pricing })
+        body: JSON.stringify({ pricing: patch.pricing })
       })
+
+      if (isMine && (patch.displayName !== undefined || patch.tags !== undefined || patch.maxConcurrentRequests !== undefined)) {
+        await fetch('/v1/swarm/manifest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            displayName: patch.displayName,
+            tags: patch.tags,
+            maxConcurrentRequests: patch.maxConcurrentRequests
+          })
+        })
+      }
+
       await refresh()
     }
 

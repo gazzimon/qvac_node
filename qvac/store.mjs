@@ -317,8 +317,15 @@ export function registerLocal({
   // -peor- `localLoad()` sumaba las dos capacidades y el nodo anunciaba 6
   // slots cuando tenia 3. Anunciarle a la red el doble de capacidad de la que
   // existe es la clase de mentira que el manifiesto firmado esta para evitar.
+  //
+  // Se borra CUALQUIER fila local anterior, no solo la del mismo modelId:
+  // solo hay UN nodo local por proceso, y cambiar de modelo desde el panel
+  // Proveedor (POST /v1/swarm/manifest) vuelve a llamar esto con un modelId
+  // distinto. Filtrar por modelId dejaba la fila vieja huerfana -el store
+  // mostraba dos nodos locales con dos modelos, cuando el proceso solo puede
+  // servir el nuevo.
   for (const [existingId, node] of nodes) {
-    if (node.kind === 'real' && node.modelId === modelId) nodes.delete(existingId)
+    if (node.kind === 'real' && existingId.startsWith('local:')) nodes.delete(existingId)
   }
 
   const id = `local:${modelId}`

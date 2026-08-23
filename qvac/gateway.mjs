@@ -320,6 +320,15 @@ export function setSwarm(swarm) {
   swarmRef = swarm
 }
 
+// Estado del ultimo cambio de modelo pedido desde el panel Proveedor.
+// `null` = nunca se pidio uno en esta sesion (el modelo con el que arranco
+// `serve --swarm` esta simplemente listo, no "cargando").
+let modelLoadState = null
+
+function currentModelEntry() {
+  return swarmRef && swarmRef.models && swarmRef.models[0] ? swarmRef.models[0] : null
+}
+
 // Un intento contra UN par. Resuelve siempre (nunca rechaza) con el resultado,
 // incluyendo si alcanzo a emitir algun chunk -- que es el dato con el que D4
 // decide si se puede reintentar en otro candidato.
@@ -736,13 +745,139 @@ async function onRequest(req, res) {
     // Vista rica del marketplace: precio, operador, carga. La consumen los
     // paneles; no es parte del protocolo de OpenAI y por eso vive aparte.
     if (req.method === 'GET' && pathname === '/v1/nodes') {
-      return sendJson(res, 200, { nodes: store.listNodes() })
+      // `swarm: null` es la señal que usa el panel Proveedor para mostrar el
+      // bloque de onboarding: este gateway corre (`serve`/`serve --demo`)
+      // pero no se unio a la red P2P todavia.
+      const swarm = swarmRef
+        ? {
+            operator: swarmRef.operator,
+            publicKey: swarmRef.identity.publicKey.toString('hex'),
+            verifiedPeers: swarmRef.verifiedPeers().length
+          }
+        : null
+      return sendJson(res, 200, { nodes: store.listNodes(), swarm })
     }
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
       return sendJson(res, 200, { log: store.getLog() })
     }
     if (req.method === 'POST' && pathname === '/v1/chat/completions') {
       return await handleChat(req, res)
+    }
+
+    // -----------------------------------------------------------------------
+    // Manifiesto propio: editar displayName/tags/capacidad/modelo desde el
+    // panel Proveedor. Ver docs/superpowers/specs/2026-08-22-panel-
+    // proveedor-onboarding-schema-design.md.
+    //
+    if (pathname === '/v1/swarm/manifest') {
+      if (!swarmRef) {
+        return sendError(res, 503, 'no hay swarm activo (correr con "serve --swarm")', {
+          type: 'service_unavailable'
+        })
+      }
+
+      if (req.method === 'GET') {
+        const { availableModels, systemInfo } = await import('./hardware.mjs')
+        return sendJson(res, 200, {
+          manifest: swarmRef.manifest(),
+          hardware: systemInfo(),
+          models: availableModels(),
+          modelLoad: modelLoadState
+        })
+      }
+
+      if (req.method === 'POST') {
+        let body
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          return sendError(res, 400, 'body invalido, se esperaba JSON')
+        }
+
+        const current = currentModelEntry()
+        if (!current) return sendError(res, 500, 'este nodo no tiene ningun modelo anunciado')
+
+        // El cambio de modelo es el unico que dispara una carga pesada -- se
+        // responde de inmediato con "loading" y el panel hace poll del GET de
+        // arriba, en vez de dejar el request colgado mientras cargan 5+ GB.
+        if (typeof body.modelId === 'string' && body.modelId !== current.modelId) {
+          const { MODEL_INFO } = await import('./models.mjs')
+          const { fitsInMemory, systemInfo } = await import('./hardware.mjs')
+          const info = MODEL_INFO[body.modelId]
+          if (!info) {
+            return sendError(res, 400, `modelo desconocido: "${body.modelId}"`)
+          }
+          if (!fitsInMemory(info.sizeGB, systemInfo().totalMemGB)) {
+            return sendError(
+              res,
+              400,
+              `"${info.displayName}" necesita ~${info.sizeGB.toFixed(1)} GB y esta maquina no los tiene`
+            )
+          }
+
+          modelLoadState = { status: 'loading', modelId: body.modelId }
+          sendJson(res, 200, { status: 'loading', modelId: body.modelId })
+
+          // Sin await: el request YA respondio. Todo lo que sigue corre en
+          // background y el panel lo ve por el GET de arriba.
+          ;(async () => {
+            try {
+              await swarmRef.provider.preloadModel(body.modelId)
+              const updated = [{ ...current, modelId: body.modelId, displayName: info.displayName }]
+              swarmRef.provider.models = updated
+              swarmRef.updateAnnouncement({ models: updated })
+
+              // Sin esto, /v1/nodes -lo que leen los paneles- seguia
+              // mostrando el modelId VIEJO aunque el manifiesto firmado y el
+              // Provider ya hubieran cambiado: la fila del store es un
+              // tercer lugar donde el modelo anunciado vive, y quedaba
+              // desincronizada. `registerLocal` borra la fila anterior de
+              // este mismo nodo antes de crear la nueva (ver store.mjs).
+              const oldStoreId = store.localNodeIdFor(current.modelId)
+              const oldStoreNode = oldStoreId ? store.getNode(oldStoreId) : null
+              store.registerLocal({
+                modelId: body.modelId,
+                displayName: info.displayName,
+                operator: swarmRef.operator,
+                tags: swarmRef.tags,
+                pricing: oldStoreNode ? oldStoreNode.pricing : undefined,
+                maxConcurrentRequests: updated[0].maxConcurrentRequests
+              })
+
+              modelLoadState = { status: 'ready', modelId: body.modelId }
+            } catch (err) {
+              // El modelo viejo sigue siendo el anunciado: no se toco
+              // ni provider.models ni swarmRef.models, asi que el nodo
+              // sigue respondiendo exactamente lo que ya prometia.
+              modelLoadState = {
+                status: 'error',
+                modelId: body.modelId,
+                message: (err && err.message) || String(err)
+              }
+            }
+          })()
+          return
+        }
+
+        // Cambios sin carga: displayName/maxConcurrentRequests (por modelo) y
+        // tags (a nivel nodo).
+        const patched = { ...current }
+        if (typeof body.displayName === 'string') {
+          patched.displayName = body.displayName.slice(0, 80)
+        }
+        if (Number.isFinite(body.maxConcurrentRequests) && body.maxConcurrentRequests > 0) {
+          patched.maxConcurrentRequests = Math.floor(body.maxConcurrentRequests)
+        }
+        const updated = [patched]
+        swarmRef.provider.models = updated
+
+        const tags = Array.isArray(body.tags)
+          ? body.tags.map((t) => String(t).slice(0, 24)).slice(0, 10)
+          : undefined
+
+        const fresh = swarmRef.updateAnnouncement({ models: updated, tags })
+        return sendJson(res, 200, { manifest: fresh })
+      }
     }
 
     // -----------------------------------------------------------------------

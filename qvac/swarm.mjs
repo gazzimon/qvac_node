@@ -112,6 +112,32 @@ export class NodeSwarm {
     this.provider = provider
   }
 
+  // Cambia metadata del nodo (tags a nivel nodo, o el array `models` entero
+  // -- displayName/maxConcurrentRequests/modelId son campos POR MODELO en ese
+  // array, ver manifest.mjs buildManifest) y re-anuncia a los pares YA
+  // conectados, no solo a los que se conecten despues.
+  //
+  // La identidad NO cambia -- es la misma clave de siempre, solo se re-firma
+  // contenido nuevo con `this.identity.secretKey`. Quien llama (gateway.mjs)
+  // es quien arma el array `models` con el campo que cambio ya mergeado, y
+  // quien decide si un cambio de modelo tiene que esperar a que
+  // `Provider._ensureModel` termine de cargar antes de llegar aca: este
+  // metodo asume que `models` ya es lo que hay que anunciar, no dispara
+  // ninguna carga por su cuenta.
+  updateAnnouncement({ tags, models } = {}) {
+    if (tags !== undefined) this.tags = tags
+    if (models !== undefined) this.models = models
+
+    this._manifest = null // fuerza re-firma en el proximo manifest()
+    const fresh = this.manifest()
+
+    for (const peer of this.peers.values()) {
+      this._send(peer, { type: 'manifest:announce', manifest: fresh })
+    }
+
+    return fresh
+  }
+
   // El manifiesto se arma y se firma UNA vez por sesion: `publishedAt` no tiene
   // que cambiar en cada anuncio, y firmar es lo mas caro de este camino.
   manifest() {

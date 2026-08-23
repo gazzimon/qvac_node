@@ -58,6 +58,14 @@ export class Provider {
     return this.models.some((m) => m.modelId === model)
   }
 
+  // Envoltorio publico de _ensureModel: lo usa el gateway para precargar un
+  // modelo ANTES de anunciarlo (POST /v1/swarm/manifest) -- si la carga
+  // falla, el llamador nunca llega a re-firmar el manifiesto con un modelo
+  // que este nodo en realidad no puede servir.
+  async preloadModel(model) {
+    return this._ensureModel(model)
+  }
+
   _ensureModel(model) {
     if (this._modelIds.has(model)) return Promise.resolve(this._modelIds.get(model))
     if (!this._loading.has(model)) {

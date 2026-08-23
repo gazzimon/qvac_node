@@ -6,7 +6,7 @@ import { isWindows } from 'which-runtime'
 import path from 'bare-path'
 import pkg from './package.json'
 import App from './app.js'
-import { MODELS, DEFAULT_MODEL, DEFAULT_CTX_SIZE } from './qvac/models.mjs'
+import { MODELS, MODEL_INFO, DEFAULT_MODEL, DEFAULT_CTX_SIZE } from './qvac/models.mjs'
 
 const appName = pkg.productName || pkg.name
 const isDev = path.basename(Bare.argv[0]) === (isWindows ? 'bare.exe' : 'bare')
@@ -424,10 +424,7 @@ function swarmModels() {
   return [
     {
       modelId: DEFAULT_MODEL,
-      // El nombre exacto del registry, no una etiqueta linda: es el archivo de
-      // pesos que este nodo realmente corre, y en un marketplace lo que se
-      // anuncia tiene que ser lo que se sirve.
-      displayName: MODELS[DEFAULT_MODEL] || DEFAULT_MODEL,
+      displayName: (MODEL_INFO[DEFAULT_MODEL] && MODEL_INFO[DEFAULT_MODEL].displayName) || DEFAULT_MODEL,
       maxConcurrentRequests: 3,
       pricing: [{ unit: 'per_1m_completion_tokens', amount: '1000000', currency: 'QVAC' }]
     }

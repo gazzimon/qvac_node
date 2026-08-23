@@ -2,11 +2,57 @@
 // de forma estatica para armar el texto del `--help` sin arrastrar el addon de
 // llamacpp (que se abre con dlopen apenas se importa el plugin).
 
-// Modelos <=1B del registry de QVAC. El limite de 1B sale del runbook.
-export const MODELS = {
-  smol: 'smollm2-360m-instruct-q8_0', // 360M, 386 MB
-  llama1b: 'llama_3.2_1b_intruct_tool_calling_v2.Q4_K' // 1B, 807 MB
+// Catalogo verificado contra el registry real de QVAC (`sdk.modelRegistrySearch`
+// con filtro vacio, corrido en esta sesion — no son nombres inventados: el
+// track de QVAC descarta sin revision cualquier nombre de modelo alucinado).
+// `sizeGB` es el `expectedSize` real que devuelve el registry, no una
+// estimacion — es lo que la deteccion de hardware (qvac/hardware.mjs) usa
+// para decidir que modelos entran en la RAM de una maquina dada.
+export const MODEL_INFO = {
+  smol: {
+    name: 'smollm2-360m-instruct-q8_0',
+    displayName: 'SmolLM2 360M Instruct',
+    params: '360M',
+    sizeGB: 386404992 / 1024 ** 3
+  },
+  llama1b: {
+    name: 'llama_3.2_1b_intruct_tool_calling_v2.Q4_K',
+    displayName: 'Llama 3.2 1B Instruct',
+    params: '1B',
+    sizeGB: 807691648 / 1024 ** 3
+  },
+  qwen1_7b: {
+    name: 'Qwen3-1.7B-Q4_0',
+    displayName: 'Qwen3 1.7B',
+    params: '1.7B',
+    sizeGB: 1056782912 / 1024 ** 3
+  },
+  qwen4b: {
+    name: 'Qwen3-4B-Q4_K_M',
+    displayName: 'Qwen3 4B',
+    params: '4B',
+    sizeGB: 2497281312 / 1024 ** 3
+  },
+  qwen8b: {
+    name: 'Qwen3-8B-Q4_K_M',
+    displayName: 'Qwen3 8B',
+    params: '8B',
+    sizeGB: 5027783488 / 1024 ** 3
+  },
+  gemma4b: {
+    name: 'google_gemma-4-E4B-it-Q4_K_M',
+    displayName: 'Gemma 4 E4B Instruct',
+    params: '4B',
+    sizeGB: 5405168384 / 1024 ** 3
+  }
 }
+
+// Compatibilidad hacia atras: alias -> nombre exacto del registry. `bin.mjs`
+// y `engine.mjs` (resolveName) siguen usando esta forma; no se toca su shape
+// para no tener que tocar los dos.
+export const MODELS = Object.fromEntries(
+  Object.entries(MODEL_INFO).map(([alias, info]) => [alias, info.name])
+)
 
 // Default medido, no elegido por gusto: el 360M responde 0.72s antes pero
 // produce castellano incoherente, y la salida es lo que se lee en pantalla.
