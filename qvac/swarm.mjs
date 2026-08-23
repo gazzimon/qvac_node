@@ -235,6 +235,9 @@ export class NodeSwarm {
       this.peers.delete(key)
       // D3: el candidato muere con el socket, sin esperar ningun expiresAt.
       if (this.store && peer.manifest) this.store.removeByPeer(key)
+      // Sin esto, `sessions` en el directorio queda pegado en 1 para siempre
+      // (ver la nota larga en directory.mjs, recordDisconnect).
+      if (this.directory && peer.manifest) this.directory.recordDisconnect(key)
 
       // Los chats en vuelo contra este par NO se pueden quedar esperando un
       // chunk que no va a llegar nunca: el cliente HTTP del otro lado queda

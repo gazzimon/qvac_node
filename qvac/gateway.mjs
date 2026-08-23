@@ -165,14 +165,33 @@ async function recibirArchivo(req, nombre) {
 
   let total = 0
   const out = fs.default.createWriteStream(destino)
+
+  // Enganchado ANTES de escribir nada. Un 'error' de stream sin listener es
+  // una excepcion no capturada que tumba TODO el proceso -el que tambien
+  // esta sirviendo inferencia-, no solo este upload. Se guarda en vez de
+  // reaccionar en el acto: el for-await de abajo es quien decide cuando
+  // cortar, para no pisar el catch de "demasiado grande" a mitad de un write.
+  let streamErr = null
+  out.on('error', (err) => {
+    streamErr = streamErr || err
+  })
+
   try {
     for await (const chunk of req) {
       total += chunk.length
       if (total > MAX_UPLOAD_BYTES) {
         throw new Error(`archivo demasiado grande (limite ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB)`)
       }
+      if (streamErr) throw streamErr
       if (!out.write(chunk)) {
-        await new Promise((resolve) => out.once('drain', resolve))
+        // Sin el 'error' aca, un stream que muere ESPERANDO drenar nunca
+        // dispara ni resolve ni reject: el request queda colgado para
+        // siempre en vez de fallar.
+        await new Promise((resolve) => {
+          out.once('drain', resolve)
+          out.once('error', resolve)
+        })
+        if (streamErr) throw streamErr
       }
     }
   } catch (err) {
@@ -184,6 +203,7 @@ async function recibirArchivo(req, nombre) {
   }
 
   await new Promise((resolve, reject) => {
+    if (streamErr) return reject(streamErr)
     out.end(() => resolve())
     out.once('error', reject)
   })
@@ -748,7 +768,24 @@ async function onRequest(req, res) {
       const q = new URLSearchParams(req.url.split('?')[1] || '')
       const link = q.get('link')
       const key = q.get('key')
+      const peerKey = q.get('peerKey')
       try {
+        if (peerKey) {
+          // El panel solo conoce el peerKey del nodo (viene de toPublic()), no
+          // la clave del drive -- esa la anuncia el par por su cuenta via
+          // files:announce (swarm.mjs) y solo el swarm sabe atarla al peer.
+          if (!swarmRef) {
+            return sendError(res, 503, 'los archivos de un par necesitan "serve --swarm"', {
+              type: 'service_unavailable'
+            })
+          }
+          const par = swarmRef.peersWithFiles().find((p) => p.peerKey === peerKey)
+          if (!par) {
+            return sendError(res, 404, 'ese par no anuncio ningun archivo (todavia no conecto, o no publico nada)')
+          }
+          const files = await filesApi.listRemote(par.driveKey, '/', { timeoutMs: 20000 })
+          return sendJson(res, 200, { keyHex: par.driveKey, remote: true, files })
+        }
         if (link || key) {
           const { parseLink } = await import('./files.mjs')
           const keyHex = key || parseLink(link).keyHex
@@ -773,6 +810,12 @@ async function onRequest(req, res) {
     // mandar un File como body de fetch() tal cual. Se escribe a disco por
     // stream y no a memoria -- un PDF de 200 MB bufferizado tumba el proceso.
     if (req.method === 'POST' && pathname === '/v1/files/upload') {
+      // Mismo gate opcional que /v1/chat/completions (ver rechazoPorKey):
+      // sin este chequeo, cualquiera en la wifi del venue escribe hasta 512 MB
+      // en este disco y los publica en la DHT a nombre de este nodo.
+      const motivoUpload = rechazoPorKey(req)
+      if (motivoUpload) return sendError(res, 401, motivoUpload)
+
       const q = new URLSearchParams(req.url.split('?')[1] || '')
       const nombre = sanitizeFilename(q.get('name') || '')
       if (!nombre) return sendError(res, 400, 'falta "name" en la query')
@@ -790,6 +833,9 @@ async function onRequest(req, res) {
 
     // Bajar un archivo de otro drive al disco de esta maquina.
     if (req.method === 'POST' && pathname === '/v1/files/fetch') {
+      const motivoFetch = rechazoPorKey(req)
+      if (motivoFetch) return sendError(res, 401, motivoFetch)
+
       let body
       try {
         body = await readJsonBody(req)
@@ -847,12 +893,20 @@ async function onRequest(req, res) {
 
     const kickMatch = pathname.match(/^\/v1\/nodes\/([^/]+)\/kick$/)
     if (req.method === 'POST' && kickMatch) {
+      // Sin esto, cualquiera en la misma red vacia el panel en vivo pateando
+      // nodos ajenos -- el mismo gate opcional que ya protege el chat.
+      const motivoKick = rechazoPorKey(req)
+      if (motivoKick) return sendError(res, 401, motivoKick)
+
       const node = store.kick(decodeURIComponent(kickMatch[1]))
       return node ? sendJson(res, 200, node) : sendError(res, 404, 'nodo desconocido')
     }
 
     const nodeMatch = pathname.match(/^\/v1\/nodes\/([^/]+)$/)
     if (req.method === 'POST' && nodeMatch) {
+      const motivoPatch = rechazoPorKey(req)
+      if (motivoPatch) return sendError(res, 401, motivoPatch)
+
       const id = decodeURIComponent(nodeMatch[1])
       if (!store.getNode(id)) return sendError(res, 404, 'nodo desconocido')
 
@@ -925,7 +979,10 @@ export function createGateway({ port = 8787, gpuLayers: gpu, demo = false } = {}
     Bare.exit(1)
   })
 
-  server.listen(port, () => {
+  // '127.0.0.1', no sin host: sin esto bare-http1 bindea 0.0.0.0 aunque el
+  // log diga "localhost", y cualquiera en la wifi del hackathon llega al
+  // gateway -incluidas las rutas de archivos y admin, sin credencial-.
+  server.listen(port, '127.0.0.1', () => {
     console.log('')
     console.log(`  [gateway] escuchando en http://localhost:${port}`)
     console.log(`  [gateway] cliente:   http://localhost:${port}/`)

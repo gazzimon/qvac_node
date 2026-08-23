@@ -37,8 +37,15 @@ export class Provider {
     this.models = models
 
     this.engine = null
-    this.modelId = null
-    this._loading = null
+    // modelId ANUNCIADO -> modelId cargado por el engine. Antes era un solo
+    // escalar hardcodeado a 'llama1b': con un unico modelo en swarmModels()
+    // no se notaba, pero el dia que se agregue un segundo, este nodo
+    // aceptaria el request (serves() lo valida contra this.models) y le
+    // serviria los pesos del primer modelo igual -- exactamente lo que el
+    // manifiesto firmado existe para impedir: anunciar lo que de verdad se
+    // sirve.
+    this._modelIds = new Map()
+    this._loading = new Map()
 
     // requestId -> { cancelled, peerKey }
     this.active = new Map()
@@ -51,23 +58,25 @@ export class Provider {
     return this.models.some((m) => m.modelId === model)
   }
 
-  _ensureModel() {
-    if (this.modelId) return Promise.resolve(this.modelId)
-    if (!this._loading) {
-      this._loading = (async () => {
+  _ensureModel(model) {
+    if (this._modelIds.has(model)) return Promise.resolve(this._modelIds.get(model))
+    if (!this._loading.has(model)) {
+      const loading = (async () => {
         this.engine = this.engine || (await this.engineLoader())
-        const { modelSrc } = await this.engine.resolveModel('llama1b')
-        this.modelId = await this.engine.loadModel({ modelSrc })
-        return this.modelId
+        const { modelSrc } = await this.engine.resolveModel(model)
+        const loadedId = await this.engine.loadModel({ modelSrc })
+        this._modelIds.set(model, loadedId)
+        return loadedId
       })()
-      // Una promesa rechazada que queda cacheada deja al nodo muerto para toda
-      // la sesion: todo request posterior recibe el mismo rechazo al instante.
-      // Mismo bug que ya se arreglo en el gateway.
-      this._loading.catch(() => {
-        this._loading = null
+      // Una promesa rechazada que queda cacheada deja ESE modelo muerto para
+      // toda la sesion: todo request posterior recibe el mismo rechazo al
+      // instante. Mismo bug que ya se arreglo en el gateway.
+      loading.catch(() => {
+        this._loading.delete(model)
       })
+      this._loading.set(model, loading)
     }
-    return this._loading
+    return this._loading.get(model)
   }
 
   // Un peer manda lo que quiere. Nada de lo que llega por el socket se pasa al
@@ -170,7 +179,7 @@ export class Provider {
     let deltas = 0
 
     try {
-      const modelId = await this._ensureModel()
+      const modelId = await this._ensureModel(msg.model)
 
       // Cancelado mientras cargaba el modelo: no se empieza a generar.
       if (entry.cancelled) return
@@ -223,6 +232,10 @@ export class Provider {
     // proxima iteracion en vez de seguir generando contra un socket que ya no
     // esta.
     for (const entry of this.active.values()) entry.cancelled = true
-    if (this.engine && this.modelId) await this.engine.shutdown(this.modelId)
+    if (this.engine) {
+      for (const loadedId of this._modelIds.values()) {
+        await this.engine.shutdown(loadedId).catch(() => {})
+      }
+    }
   }
 }

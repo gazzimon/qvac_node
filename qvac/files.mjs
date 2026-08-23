@@ -73,12 +73,13 @@ export function drivePath(p) {
 }
 
 export class Files {
-  constructor(corestore, { swarm = null } = {}) {
+  constructor(corestore, { swarm = null, dir = null } = {}) {
     // Namespace propio: el drive tiene que ser un par de cores distinto del
     // directorio, si no comparten clave y anunciar uno anunciaria el otro.
     this.drive = new Hyperdrive(corestore.namespace('files'))
     this.corestore = corestore
     this.swarm = swarm
+    this.dir = dir
     this.opened = false
 
     // Drives remotos ya abiertos, por clave hex. Se cachean porque abrir el

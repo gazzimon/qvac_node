@@ -458,7 +458,7 @@ async function openData(dir, { files = true } = {}) {
   let filesApi = null
   if (files) {
     const { Files } = await import('./qvac/files.mjs')
-    filesApi = new Files(corestore)
+    filesApi = new Files(corestore, { dir })
     await filesApi.ready()
   }
 

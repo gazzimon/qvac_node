@@ -592,9 +592,23 @@ ${ESC}
       }
     }
 
+    function formatBytes(n) {
+      if (!n) return '0 B'
+      if (n < 1024) return n + ' B'
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+      return (n / 1024 / 1024).toFixed(1) + ' MB'
+    }
+
     async function abrirArchivos(id) {
       try {
-        const r = await fetch('/v1/files')
+        // El nodo local (kind 'real'/'mock') no tiene peerKey: ese es SU
+        // propio drive. Un nodo 'peer' si lo tiene, y sin pasarlo el gateway
+        // siempre devolvia el drive local, sin importar que tarjeta se
+        // hubiera clickeado.
+        const nodo = nodesById[id]
+        const peerKey = nodo && nodo.peerKey
+        const url = peerKey ? '/v1/files?peerKey=' + encodeURIComponent(peerKey) : '/v1/files'
+        const r = await fetch(url)
         if (!r.ok) throw new Error('HTTP ' + r.status)
         const data = await r.json()
 
@@ -605,15 +619,15 @@ ${ESC}
         modal.innerHTML = \`
           <div class="modal-overlay" id="modal-overlay">
             <div class="modal">
-              <h3>Archivos en \${esc(nodesById[id] ? nodesById[id].operator : 'este nodo')}</h3>
+              <h3>Archivos en \${esc(nodo ? nodo.operator : 'este nodo')}</h3>
               <p class="sub">Los links \`qvac://\` se pueden copiar y pegar en otra máquina para bajar sin pairing previo.</p>
               \${archivos.length === 0
                 ? '<p class="muted">Sin archivos publicados.</p>'
                 : '<table><thead><tr><th>Nombre</th><th>Tamaño</th><th>Link</th></tr></thead><tbody>' +
                   archivos.map(f => \`
                     <tr>
-                      <td>\${esc(f.name)}</td>
-                      <td>\${(f.bytes / 1024 / 1024).toFixed(1)} MB</td>
+                      <td>\${esc(f.path)}</td>
+                      <td>\${formatBytes(f.bytes)}</td>
                       <td><button class="ghost" data-copy-file="\${esc(f.link)}" style="font-size:.75rem">Copiar</button></td>
                     </tr>\`).join('') +
                   '</tbody></table>'

@@ -190,6 +190,22 @@ export class Directory {
     })
   }
 
+  // Se llama cuando el socket de un par se cae (swarm.mjs, evento 'close').
+  //
+  // Sin esto, `sessions` nunca pasa de 1: `recordManifest` solo cuenta una
+  // sesion nueva cuando `lastOrigin` no era ya 'socket', pero nada volvia a
+  // ponerlo en otra cosa al desconectarse -- una reconexion real llegaba con
+  // origin='socket' otra vez sobre un `lastOrigin` que ya era 'socket', y el
+  // contador se leia como "presencia" cuando en realidad media "se anuncio
+  // una vez, en toda la sesion del proceso".
+  recordDisconnect(peerKey, { now = Date.now() } = {}) {
+    return this._write(async () => {
+      const found = await this.bee.get('peer/' + peerKey)
+      if (!found) return
+      await this.bee.put('peer/' + peerKey, { ...found.value, lastOrigin: 'disconnected', lastSeen: now })
+    })
+  }
+
   // La clave del Hyperdrive de un par. No va en el manifiesto porque el schema
   // congelado tiene `additionalProperties: false` en `node` y no hay campo
   // donde meterla sin romperlo. Llega por `files:announce`, que viaja por el

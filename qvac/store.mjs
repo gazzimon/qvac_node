@@ -161,7 +161,11 @@ function toPublic(node) {
     status: node.status,
     activeRequests: node.activeRequests,
     maxConcurrentRequests: node.maxConcurrentRequests,
-    loadPct: loadPct(node)
+    loadPct: loadPct(node),
+    // Sin esto el panel no tiene con que pedirle el drive AL PAR CORRECTO: sin
+    // peerKey, /v1/files siempre cae al drive local, sin importar que tarjeta
+    // se haya clickeado.
+    peerKey: node.peerKey || null
   }
 }
 
