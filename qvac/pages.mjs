@@ -620,7 +620,7 @@ ${ESC}
           <div class="modal-overlay" id="modal-overlay">
             <div class="modal">
               <h3>Archivos en \${esc(nodo ? nodo.operator : 'este nodo')}</h3>
-              <p class="sub">Los links \`qvac://\` se pueden copiar y pegar en otra máquina para bajar sin pairing previo.</p>
+              <p class="sub">Los links <code>qvac://</code> se pueden copiar y pegar en otra máquina para bajar sin pairing previo.</p>
               \${archivos.length === 0
                 ? '<p class="muted">Sin archivos publicados.</p>'
                 : '<table><thead><tr><th>Nombre</th><th>Tamaño</th><th>Link</th></tr></thead><tbody>' +
