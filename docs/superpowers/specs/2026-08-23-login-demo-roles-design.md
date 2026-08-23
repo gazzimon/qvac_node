@@ -189,3 +189,98 @@ que crece ese sistema.
   que pega a `/admin` sin cookie y espera `302` a `/login`, loguea por
   `POST /login` con las credenciales de admin, reusa la cookie devuelta
   y confirma `200` en `/admin`.
+
+## 7. Estado: listo para integrar
+
+`qvac/auth.mjs` y `qvac/auth-pages.mjs` ya están escritos, probados
+aislados (sin `gateway.mjs`) y funcionan. Lo único que falta es
+enchufarlos al router — y `gateway.mjs` está fuera de mi alcance ahora
+mismo (ver [[qvac-node-protected-files]]). Esto es exactamente lo que
+hay que pegar ahí, en 4 puntos:
+
+**1. Import**, junto a los otros `import * as ...`:
+
+```js
+import * as auth from './auth.mjs'
+```
+
+**2. Helpers**, cerca de `sendHtml` (mismo archivo, misma zona de la
+sección "Forma OpenAI" donde ya viven `sendJson`/`sendError`):
+
+```js
+function sendRedirect(res, location, extraHeaders = {}) {
+  res.writeHead(302, { Location: location, ...extraHeaders })
+  res.end()
+}
+
+// Un solo par nombre=valor alcanza: los atributos (Path, HttpOnly...)
+// los pone el SERVIDOR via Set-Cookie, no vuelven en el header Cookie.
+function parseCookie(req, nombre) {
+  const header = req.headers['cookie'] || req.headers['Cookie']
+  if (!header) return null
+  for (const par of header.split(';')) {
+    const i = par.indexOf('=')
+    if (i === -1) continue
+    if (par.slice(0, i).trim() === nombre) return par.slice(i + 1).trim()
+  }
+  return null
+}
+
+const SESSION_COOKIE = 'qvac_session'
+function sessionCookieHeader(token) {
+  return `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Max-Age=86400; Path=/`
+}
+const CLEAR_SESSION_COOKIE = `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/`
+const ROLE_PATH = { cliente: '/', proveedor: '/proveedor', admin: '/admin' }
+
+function requireRole(req, res, role) {
+  const token = parseCookie(req, SESSION_COOKIE)
+  const sessionRole = auth.verifySession(token)
+  if (sessionRole !== role) { sendRedirect(res, '/login'); return false }
+  return true
+}
+```
+
+**3. Rutas**, arriba de todo en `onRequest`, ANTES de las 3 rutas
+existentes (`/`, `/proveedor`, `/admin` — a esas tres solo se les
+agrega el `if (!requireRole(...)) return` como primera línea del
+bloque):
+
+```js
+if (req.method === 'GET' && pathname === '/login') {
+  const sessionRole = auth.verifySession(parseCookie(req, SESSION_COOKIE))
+  if (sessionRole) return sendRedirect(res, ROLE_PATH[sessionRole])
+  const { LOGIN_HTML } = await import('./auth-pages.mjs')
+  return sendHtml(res, LOGIN_HTML)
+}
+if (req.method === 'POST' && pathname === '/login') {
+  const body = await readJsonBody(req)
+  const token = auth.login(body.usuario, body.password)
+  if (!token) return sendJson(res, 401, { ok: false })
+  const role = auth.verifySession(token)
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': sessionCookieHeader(token) })
+  return res.end(JSON.stringify({ ok: true, redirect: ROLE_PATH[role] }))
+}
+if (req.method === 'GET' && pathname === '/logout') {
+  auth.logout(parseCookie(req, SESSION_COOKIE))
+  return sendRedirect(res, '/login', { 'Set-Cookie': CLEAR_SESSION_COOKIE })
+}
+if (req.method === 'GET' && pathname === '/') {
+  if (!requireRole(req, res, 'cliente')) return
+  // ... resto sin cambios
+}
+if (req.method === 'GET' && pathname === '/proveedor') {
+  if (!requireRole(req, res, 'proveedor')) return
+  // ... resto sin cambios
+}
+if (req.method === 'GET' && pathname === '/admin') {
+  if (!requireRole(req, res, 'admin')) return
+  // ... resto sin cambios
+}
+```
+
+**4. (opcional, cosmético)** un log más en el `server.listen(...)`:
+`console.log('  [gateway] login: http://localhost:' + port + '/login')`.
+
+Con esto aplicado, `qvac-node serve --demo` ya pide login antes de
+mostrar cualquier panel.
