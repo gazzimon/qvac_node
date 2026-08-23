@@ -119,7 +119,14 @@ export class NodeSwarm {
 
   _onConnection(socket, info) {
     const key = info.publicKey.toString('hex')
-    const pipe = new FramedStream(socket)
+    // `bits: 24` y no el default de 32: con 32 el techo de un frame es
+    // 0xffffffff, asi que los PRIMEROS CUATRO BYTES de un desconocido pueden
+    // pedir un allocUnsafe de 4 GiB -- antes del manifiesto, antes de
+    // cualquier validacion, y sin que el timeout de handshake llegue a
+    // correr. El topic es publico y sale del codigo, asi que ese frame lo
+    // manda cualquiera. 16 MiB sobra de lejos: el manifiesto son ~2 KB y el
+    // chat esta capado en 32000 chars por Provider._validate.
+    const pipe = new FramedStream(socket, { bits: 24 })
 
     const peer = { pipe, socket, manifest: null, status: null, key }
     this.peers.set(key, peer)
@@ -149,6 +156,17 @@ export class NodeSwarm {
 
     socket.on('close', () => {
       clearTimeout(handshake)
+
+      // Si ya hay una conexion MAS NUEVA con este mismo par, este 'close' es
+      // el de la vieja y no tiene que tocar nada. `peers` va indexado por
+      // clave, asi que la conexion nueva ya piso la entrada: borrar aca deja
+      // al par fantasma -- canal vivo pero invisible para el gateway, sus
+      // filas del marketplace borradas, y sus requests en vuelo cancelados
+      // por cancelByPeer. Pasa en cualquier reconexion rapida y en la carrera
+      // de tie-break cliente/servidor de Hyperswarm, y desde afuera se lee
+      // como "se cayo la red".
+      if (this.peers.get(key) !== peer) return
+
       this.peers.delete(key)
       // D3: el candidato muere con el socket, sin esperar ningun expiresAt.
       if (this.store && peer.manifest) this.store.removeByPeer(key)

@@ -635,7 +635,7 @@ ${ESC}
           <td class="muted">\${esc(n.operator)}</td>
           <td><span class="badge \${esc(n.kind)}">\${esc(n.kind)}</span></td>
           <td><span class="badge \${esc(n.status)}">\${n.status === 'online' ? 'en línea' : 'fuera de línea'}</span></td>
-          <td>\${n.loadPct === null ? '—' : n.loadPct + '% (' + n.activeRequests + '/' + n.maxConcurrentRequests + ')'}</td>
+          <td>\${n.loadPct === null ? '—' : esc(n.loadPct + '% (' + n.activeRequests + '/' + n.maxConcurrentRequests + ')')}</td>
           <td>\${esc(n.pricing)}</td>
           <td><button class="\${n.status === 'online' ? 'danger' : 'ghost'}" data-id="\${esc(n.id)}" data-action="\${n.status === 'online' ? 'kick' : 'restore'}">\${n.status === 'online' ? 'Tirar' : 'Reactivar'}</button></td>
         </tr>

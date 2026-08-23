@@ -209,6 +209,21 @@ function formatPricing(pricing) {
     .join(' · ')
 }
 
+// Lo que trae el manifiesto lo eligio OTRA maquina. La firma prueba QUIEN lo
+// dijo, no que lo que dijo tenga sentido, y nada valida el schema en runtime:
+// `qos.maxConcurrentRequests` puede venir string, objeto o un numero absurdo.
+// El panel /admin lo concatena en el DOM, asi que un manifiesto perfectamente
+// firmado con HTML en ese campo era un XSS contra el operador que lo abre.
+// Se corta en el borde -aca, donde entra- y no en cada lugar que lo lee.
+function capacidad(v) {
+  const n = Math.floor(Number(v))
+  if (!Number.isFinite(n) || n < 1) return 1
+  // Un par no puede anunciar capacidad infinita: el numero solo sirve para
+  // mostrar carga y para el ruteo, y uno gigante hace que el par se vea
+  // eternamente libre.
+  return Math.min(n, 1024)
+}
+
 function peerNodeId(peerKey, modelId) {
   return `${peerKey.slice(0, 12)}:${modelId}`
 }
@@ -232,7 +247,7 @@ export function upsertFromManifest(peerKey, manifest) {
       tags,
       pricing: formatPricing(m.pricing),
       operator,
-      maxConcurrentRequests: (m.qos && m.qos.maxConcurrentRequests) || 1,
+      maxConcurrentRequests: capacidad(m.qos && m.qos.maxConcurrentRequests),
       activeRequests: 0,
       status: 'online'
     })
