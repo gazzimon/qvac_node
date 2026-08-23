@@ -122,6 +122,78 @@ function sendHtml(res, html) {
   res.end(html)
 }
 
+// El nombre llega de la query, o sea del browser, o sea de cualquiera que le
+// pegue al endpoint. Sin esto, un name de "../../.ssh/authorized_keys" escribe
+// donde no debe: el path se arma con join() y `..` lo saca de la carpeta.
+// Se queda SOLO con el nombre base y con caracteres que existan en los tres
+// sistemas de archivos que nos importan.
+function sanitizeFilename(nombre) {
+  const base = String(nombre).replace(/\\/g, '/').split('/').pop() || ''
+  const limpio = base
+    .replace(/[\x00-\x1f<>:"|?*]/g, '')
+    .replace(/^\.+/, '')
+    .trim()
+    .slice(0, 120)
+  return limpio === '.' || limpio === '..' ? '' : limpio
+}
+
+const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
+function uploadsDir() {
+  return storageSubdir('uploads')
+}
+
+function descargasDir() {
+  return storageSubdir('descargas')
+}
+
+// Las dos carpetas cuelgan del storage del nodo y no del cwd: `serve` puede
+// arrancar desde cualquier lado y los archivos no tienen por que aparecer
+// donde el operador ejecuto el comando.
+function storageSubdir(nombre) {
+  const base = filesApi && filesApi.dir ? filesApi.dir : '.'
+  return base.replace(/[\\/]+$/, '') + '/' + nombre
+}
+
+// Se escribe por stream, no con Buffer.concat: un archivo grande bufferizado
+// entero es memoria del proceso que ademas esta sirviendo inferencia.
+async function recibirArchivo(req, nombre) {
+  const fs = await import('bare-fs')
+  const dir = uploadsDir()
+  await fs.default.promises.mkdir(dir, { recursive: true })
+  const destino = dir + '/' + nombre
+
+  let total = 0
+  const out = fs.default.createWriteStream(destino)
+  try {
+    for await (const chunk of req) {
+      total += chunk.length
+      if (total > MAX_UPLOAD_BYTES) {
+        throw new Error(`archivo demasiado grande (limite ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB)`)
+      }
+      if (!out.write(chunk)) {
+        await new Promise((resolve) => out.once('drain', resolve))
+      }
+    }
+  } catch (err) {
+    out.destroy()
+    // Un upload cortado a la mitad deja un archivo truncado que despues se
+    // publica como si estuviera completo. Se borra antes de propagar.
+    await fs.default.promises.unlink(destino).catch(() => {})
+    throw err
+  }
+
+  await new Promise((resolve, reject) => {
+    out.end(() => resolve())
+    out.once('error', reject)
+  })
+  if (total === 0) {
+    await fs.default.promises.unlink(destino).catch(() => {})
+    throw new Error('el archivo llego vacio')
+  }
+  return destino
+}
+
 async function readJsonBody(req) {
   const chunks = []
   for await (const chunk of req) chunks.push(chunk)
@@ -213,6 +285,16 @@ const FIRST_CHUNK_TIMEOUT_MS = 120000
 const IDLE_TIMEOUT_MS = 60000
 
 let swarmRef = null
+
+// El Hyperdrive del nodo. Lo inyecta bin.mjs despues de abrirlo, igual que el
+// swarm: el gateway no lo abre por su cuenta porque el Corestore toma un lock
+// de RocksDB sobre su carpeta y un segundo `openStore` sobre el mismo path
+// falla. Un solo dueño del almacen, y el gateway es invitado.
+let filesApi = null
+
+export function setFiles(f) {
+  filesApi = f
+}
 
 export function setSwarm(swarm) {
   swarmRef = swarm
@@ -641,6 +723,96 @@ async function onRequest(req, res) {
     }
     if (req.method === 'POST' && pathname === '/v1/chat/completions') {
       return await handleChat(req, res)
+    }
+
+    // -----------------------------------------------------------------------
+    // Archivos (Hyperdrive). Ver qvac/files.mjs.
+    //
+    // Existe solo con `serve --swarm` y sin --no-store: sin Corestore no hay
+    // drive. Se responde 503 con un motivo legible en vez de 500, porque "no
+    // esta habilitado" y "se rompio" son cosas distintas para quien lo lee.
+    // -----------------------------------------------------------------------
+    if (pathname === '/v1/files' || pathname.startsWith('/v1/files/')) {
+      if (!filesApi) {
+        return sendError(res, 503, 'los archivos necesitan "serve --swarm" (hace falta el Corestore)', {
+          type: 'service_unavailable'
+        })
+      }
+    }
+
+    // Lo que publica ESTA maquina, o -con ?link=/?key=- lo que publica otra.
+    // Listar un drive remoto NO baja los blobs: la metadata de un Hyperdrive
+    // se replica aparte, asi que se puede mirar un drive de 40 GB y bajar un
+    // solo archivo.
+    if (req.method === 'GET' && pathname === '/v1/files') {
+      const q = new URLSearchParams(req.url.split('?')[1] || '')
+      const link = q.get('link')
+      const key = q.get('key')
+      try {
+        if (link || key) {
+          const { parseLink } = await import('./files.mjs')
+          const keyHex = key || parseLink(link).keyHex
+          if (!/^[0-9a-f]{64}$/.test(keyHex)) {
+            return sendError(res, 400, 'la clave del drive tiene que ser hex de 32 bytes')
+          }
+          const files = await filesApi.listRemote(keyHex, '/', { timeoutMs: 20000 })
+          return sendJson(res, 200, { keyHex, remote: true, files })
+        }
+        return sendJson(res, 200, {
+          keyHex: filesApi.keyHex,
+          remote: false,
+          files: await filesApi.list('/')
+        })
+      } catch (err) {
+        return sendError(res, 502, 'no se pudo leer el drive: ' + (err && err.message ? err.message : err))
+      }
+    }
+
+    // Publicar. El body son los BYTES crudos del archivo y el nombre viaja en
+    // la query: sin multipart no hay parser que escribir, y el browser puede
+    // mandar un File como body de fetch() tal cual. Se escribe a disco por
+    // stream y no a memoria -- un PDF de 200 MB bufferizado tumba el proceso.
+    if (req.method === 'POST' && pathname === '/v1/files/upload') {
+      const q = new URLSearchParams(req.url.split('?')[1] || '')
+      const nombre = sanitizeFilename(q.get('name') || '')
+      if (!nombre) return sendError(res, 400, 'falta "name" en la query')
+
+      try {
+        const guardado = await recibirArchivo(req, nombre)
+        const info = await filesApi.share(guardado, nombre)
+        return sendJson(res, 200, info) // { path, bytes, link }
+      } catch (err) {
+        const msg = err && err.message ? err.message : String(err)
+        const code = msg.includes('demasiado grande') ? 413 : 500
+        return sendError(res, code, 'no se pudo publicar: ' + msg)
+      }
+    }
+
+    // Bajar un archivo de otro drive al disco de esta maquina.
+    if (req.method === 'POST' && pathname === '/v1/files/fetch') {
+      let body
+      try {
+        body = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'body invalido, se esperaba JSON')
+      }
+      if (typeof body.link !== 'string') return sendError(res, 400, 'falta "link"')
+
+      try {
+        const { parseLink } = await import('./files.mjs')
+        const { keyHex, path: ruta } = parseLink(body.link)
+        if (ruta === '/') return sendError(res, 400, 'el link apunta al drive entero, no a un archivo')
+
+        const fs = await import('bare-fs')
+        const path = await import('bare-path')
+        const destino = path.default.join(descargasDir(), path.default.basename(ruta))
+        await fs.default.promises.mkdir(descargasDir(), { recursive: true })
+
+        const r = await filesApi.pull(keyHex, ruta, destino, { timeoutMs: 60000 })
+        return sendJson(res, 200, { destino, bytes: r && r.bytes ? r.bytes : null })
+      } catch (err) {
+        return sendError(res, 502, 'no se pudo bajar: ' + (err && err.message ? err.message : err))
+      }
     }
 
     // "Conectar": entrega la credencial y los datos que un cliente EXTERNO

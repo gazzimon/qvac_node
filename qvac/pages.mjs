@@ -289,6 +289,7 @@ ${ESC}
           <div class="actions">
             <button data-chat="\${esc(n.id)}">Chatear acá</button>
             <button class="ghost" data-conn="\${esc(n.id)}">Conectar…</button>
+            <button class="ghost" data-files="\${esc(n.id)}">Archivos</button>
           </div>
         </div>
       \`).join('')
@@ -308,6 +309,12 @@ ${ESC}
         el.addEventListener('click', ev => {
           ev.stopPropagation()
           abrirConexion(el.dataset.conn)
+        })
+      })
+      document.querySelectorAll('[data-files]').forEach(el => {
+        el.addEventListener('click', ev => {
+          ev.stopPropagation()
+          abrirArchivos(el.dataset.files)
         })
       })
     }
@@ -582,6 +589,49 @@ ${ESC}
       if (r.estado) {
         webuiArriba().then(pintarEstadoWebui)
         webuiPoll = setInterval(() => webuiArriba().then(pintarEstadoWebui), 3000)
+      }
+    }
+
+    async function abrirArchivos(id) {
+      try {
+        const r = await fetch('/v1/files')
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        const data = await r.json()
+
+        // Muestra el drive del nodo que eligio, con link qvac:// que se puede
+        // pegar en otra maquina para bajarlo sin conexion P2P previa.
+        const archivos = data.files || []
+        const modal = document.getElementById('modal')
+        modal.innerHTML = \`
+          <div class="modal-overlay" id="modal-overlay">
+            <div class="modal">
+              <h3>Archivos en \${esc(nodesById[id] ? nodesById[id].operator : 'este nodo')}</h3>
+              <p class="sub">Los links \`qvac://\` se pueden copiar y pegar en otra máquina para bajar sin pairing previo.</p>
+              \${archivos.length === 0
+                ? '<p class="muted">Sin archivos publicados.</p>'
+                : '<table><thead><tr><th>Nombre</th><th>Tamaño</th><th>Link</th></tr></thead><tbody>' +
+                  archivos.map(f => \`
+                    <tr>
+                      <td>\${esc(f.name)}</td>
+                      <td>\${(f.bytes / 1024 / 1024).toFixed(1)} MB</td>
+                      <td><button class="ghost" data-copy-file="\${esc(f.link)}" style="font-size:.75rem">Copiar</button></td>
+                    </tr>\`).join('') +
+                  '</tbody></table>'
+              }
+              <button class="ghost" id="cerrar-modal">Cerrar</button>
+            </div>
+          </div>\`
+
+        document.getElementById('cerrar-modal').addEventListener('click', cerrarModal)
+        document.getElementById('modal-overlay').addEventListener('click', ev => {
+          if (ev.target.id === 'modal-overlay') cerrarModal()
+        })
+        document.querySelectorAll('[data-copy-file]').forEach(btn => {
+          btn.addEventListener('click', () => copiar(btn.dataset.copyFile, btn))
+        })
+        document.addEventListener('keydown', onEsc)
+      } catch (err) {
+        alert('No se pudo leer los archivos: ' + (err && err.message ? err.message : err))
       }
     }
 

@@ -357,9 +357,11 @@ async function runServe() {
     })
     nodeSwarm.setProvider(provider)
 
-    // El gateway necesita el swarm para poder mandar chat:request a un par.
+    // El gateway necesita el swarm y los archivos para poder mandar chat:request
+    // a un par y publicar los que se suben.
     const gw = await import('./qvac/gateway.mjs')
     gw.setSwarm(nodeSwarm)
+    if (data && data.files) gw.setFiles(data.files)
   }
 
   let closing = false
