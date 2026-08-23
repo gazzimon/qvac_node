@@ -31,6 +31,7 @@
 
 import http from 'bare-http1'
 import * as store from './store.mjs'
+import * as apikeys from './apikeys.mjs'
 
 const MOCK_REPLIES = {
   'facturas-ar': (prompt) =>
@@ -438,7 +439,31 @@ function lastUserText(messages) {
   return messages[messages.length - 1].content
 }
 
+// Validacion OPCIONAL de la API key, y esta asimetria es deliberada:
+//
+//   - sin header Authorization  -> pasa. El panel se sirve del mismo origen y
+//     no maneja credencial; pedirsela seria pedirle una llave a la casa que ya
+//     esta adentro. Ademas mantiene andando cualquier curl viejo del runbook.
+//   - con header Authorization  -> tiene que ser una key emitida por
+//     /v1/connection. Una key mal pegada falla con 401 en vez de responder
+//     igual, que es lo unico que hace que la credencial signifique algo.
+//
+// ESTO NO ES AUTENTICACION: sin header no hay puerta. Es lo que corresponde a
+// una demo donde el gateway escucha en localhost, y esta escrito aca para que
+// nadie lo confunda con seguridad de verdad al leer el codigo despues.
+function rechazoPorKey(req) {
+  const header = req.headers['authorization'] || req.headers['Authorization']
+  if (!header || typeof header !== 'string') return null
+  if (!header.startsWith('Bearer ')) return 'el header Authorization tiene que ser "Bearer <api-key>"'
+  const key = header.slice(7).trim()
+  if (!key) return 'falta la api key despues de "Bearer"'
+  return apikeys.verifyKey(key) ? null : 'api key desconocida o revocada'
+}
+
 async function handleChat(req, res) {
+  const motivo = rechazoPorKey(req)
+  if (motivo) return sendError(res, 401, motivo)
+
   let body
   try {
     body = await readJsonBody(req)
@@ -615,6 +640,36 @@ async function onRequest(req, res) {
     }
     if (req.method === 'POST' && pathname === '/v1/chat/completions') {
       return await handleChat(req, res)
+    }
+
+    // "Conectar": entrega la credencial y los datos que un cliente EXTERNO
+    // necesita para hablarle a este nodo (OpenClaw/Telegram, Hermes, curl,
+    // Open WebUI). No abre un camino nuevo de inferencia -sigue siendo
+    // /v1/chat/completions-, solo arma la credencial y dice como usarla.
+    const connMatch = pathname.match(/^\/v1\/connection\/([^/]+)$/)
+    if (req.method === 'POST' && connMatch) {
+      const node = store.getNode(decodeURIComponent(connMatch[1]))
+      if (!node) return sendError(res, 404, 'nodo desconocido')
+
+      // La key se ata al nodo: apretar Conectar dos veces sobre la misma
+      // tarjeta devuelve la misma credencial en vez de generar huerfanas.
+      const entry = apikeys.keyForNode(node.id, node.operator)
+
+      // El host lo dice el request, no una constante: si el operador entra por
+      // la IP de la LAN, el comando que copia tiene que apuntar ahi y no a
+      // 127.0.0.1, que en la maquina del cliente es otra cosa.
+      const host = req.headers.host || 'localhost'
+      return sendJson(res, 200, {
+        apiKey: entry.key,
+        baseUrl: `http://${host}/v1`,
+        node: {
+          id: node.id,
+          modelId: node.modelId,
+          displayName: node.displayName,
+          operator: node.operator,
+          kind: node.kind
+        }
+      })
     }
 
     const kickMatch = pathname.match(/^\/v1\/nodes\/([^/]+)\/kick$/)

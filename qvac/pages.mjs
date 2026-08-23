@@ -105,6 +105,67 @@ const STYLE = `
   /* Verde como 'online': un par P2P verificado es la cosa buena que muestra
      la demo, no puede parecerse a un mock. */
   .badge.peer { background: #10331f; color: #4ade80; }
+  /* Acciones por tarjeta. "Chatear" queda primero y en azul: es la accion que
+     cuenta la demo sola. "Conectar" es secundaria pero es la que prueba que
+     esto es un gateway de verdad y no un chat con pasos extra. */
+  .actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; }
+  .actions button { margin-top: 0; font-size: .8rem; padding: .4rem .75rem; }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(6, 8, 12, .78); z-index: 50;
+    display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+  }
+  .modal {
+    background: #171a21; border: 1px solid #2e3546; border-radius: 12px;
+    padding: 1.25rem 1.4rem 1.4rem; width: 100%; max-width: 700px;
+    max-height: 86vh; overflow-y: auto;
+  }
+  .modal h3 { margin: 0 0 .2rem; font-size: 1.1rem; }
+  .modal .sub { margin-bottom: .8rem; }
+  .tabs {
+    display: flex; flex-wrap: wrap; gap: .2rem;
+    border-bottom: 1px solid #262b36; margin: 1rem 0 1.1rem;
+  }
+  .tabs button {
+    background: none; color: #8b93a7; margin: 0; padding: .5rem .85rem;
+    border-radius: 8px 8px 0 0; font-size: .84rem;
+    border-bottom: 2px solid transparent;
+  }
+  .tabs button:hover { background: #1f2430; color: #cfd6e4; }
+  .tabs button.on { background: none; color: #9fd6ff; border-bottom-color: #4a7dfc; }
+
+  /* Pasos numerados. Sin la numeracion, cuatro bloques de comandos seguidos se
+     leen como alternativas y no como una secuencia -pasaba con el modal de
+     Open WebUI, que la gente ejecutaba salteado-. */
+  .step { display: flex; gap: .65rem; margin-bottom: 1rem; }
+  .step .n {
+    flex: none; width: 1.55rem; height: 1.55rem; border-radius: 999px;
+    background: #232838; color: #9fd6ff; font-size: .76rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step .body { flex: 1; min-width: 0; }
+  .step p { margin: .2rem 0 .45rem; font-size: .86rem; color: #cfd6e4; line-height: 1.45; }
+  .step p a { color: #9fd6ff; }
+
+  .cmd { position: relative; }
+  .cmd pre {
+    background: #0c0f15; border: 1px solid #262b36; border-radius: 8px;
+    padding: .7rem 5rem .7rem .75rem; margin: 0; overflow-x: auto;
+    font-family: ui-monospace, monospace; font-size: .75rem; color: #d7dbe4;
+    line-height: 1.5;
+  }
+  .cmd button {
+    position: absolute; top: .4rem; right: .4rem; margin: 0;
+    padding: .25rem .55rem; font-size: .72rem; background: #2c3348;
+  }
+  .cmd button:hover { background: #3a445e; }
+
+  /* Estado real del servicio externo, no "asumamos que arranco". */
+  .dot { display: inline-flex; align-items: center; gap: .45rem; font-size: .82rem; color: #8b93a7; }
+  .dot i { width: .5rem; height: .5rem; border-radius: 999px; background: #6b7386; font-style: normal; }
+  .dot.up { color: #4ade80 } .dot.up i { background: #4ade80 }
+  .dot.down { color: #f87171 } .dot.down i { background: #f87171 }
+
   .chat { margin-top: 1.5rem; border-top: 1px solid #262b36; padding-top: 1.5rem; }
   textarea, input[type=text] {
     width: 100%; background: #10131a; border: 1px solid #262b36; color: #e6e6e6;
@@ -170,9 +231,10 @@ export const CLIENTE_HTML = page(
   'QVAC Marketplace · Cliente',
   `
   <h1>Marketplace de inferencias</h1>
-  <p class="sub">Elegí un proveedor y mandale un prompt. La inferencia corre en su nodo, no en un datacenter central.</p>
+  <p class="sub">Elegí un proveedor y chateá acá mismo, o conectate desde Telegram, tu terminal o cualquier cliente OpenAI-compatible. La inferencia corre en su nodo, no en un datacenter central.</p>
   <p class="hint" id="buscando" style="display:none"></p>
   <div id="grid" class="grid"></div>
+  <div id="modal"></div>
 
   <div id="chat" class="chat" style="display:none">
     <h3>Chat con <span id="chat-target"></span></h3>
@@ -221,10 +283,29 @@ ${ESC}
           <span class="badge offline" data-offline style="display:none">fuera de línea</span>
           <div class="state" data-state></div>
           <div class="bar-row" data-load style="display:none"><div class="bar"><div data-fill></div></div><span class="pct"></span></div>
+          <div class="actions">
+            <button data-chat="\${esc(n.id)}">Chatear acá</button>
+            <button class="ghost" data-conn="\${esc(n.id)}">Conectar…</button>
+          </div>
         </div>
       \`).join('')
       document.querySelectorAll('.card').forEach(el => {
         el.addEventListener('click', () => selectNode(el.dataset.id))
+      })
+      // stopPropagation en los dos: sin esto el click sube a la tarjeta y
+      // "Conectar" ademas seleccionaba el nodo y scrolleaba al chat.
+      document.querySelectorAll('[data-chat]').forEach(el => {
+        el.addEventListener('click', ev => {
+          ev.stopPropagation()
+          selectNode(el.dataset.chat)
+          document.getElementById('chat').scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      })
+      document.querySelectorAll('[data-conn]').forEach(el => {
+        el.addEventListener('click', ev => {
+          ev.stopPropagation()
+          abrirConexion(el.dataset.conn)
+        })
       })
     }
 
@@ -339,6 +420,212 @@ ${ESC}
       document.getElementById('chat').style.display = 'block'
       document.getElementById('chat-target').textContent = n.operator + ' · ' + n.displayName
       render(Object.values(nodesById))
+    }
+
+    // -----------------------------------------------------------------------
+    // "Conectar": el mismo nodo, consumido desde afuera del panel.
+    //
+    // Es la prueba de que esto es un gateway OpenAI-compatible de verdad y no
+    // un chat con nuestro protocolo adentro: el comando que se copia aca es el
+    // que usaria cualquier cliente de terceros, sin camino privilegiado.
+    // -----------------------------------------------------------------------
+
+    // navigator.clipboard NO existe fuera de un contexto seguro. El panel se
+    // abre por http://localhost (seguro) pero tambien por http://192.168.x.x
+    // desde otra maquina de la LAN, donde la API no esta y el boton "Copiar"
+    // no hacia nada en silencio. Por eso el fallback con execCommand.
+    async function copiar(texto, btn) {
+      let ok = false
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(texto)
+          ok = true
+        }
+      } catch { /* cae al fallback */ }
+      if (!ok) {
+        const ta = document.createElement('textarea')
+        ta.value = texto
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        try { ok = document.execCommand('copy') } catch { ok = false }
+        document.body.removeChild(ta)
+      }
+      const antes = btn.textContent
+      btn.textContent = ok ? 'Copiado' : 'Copiá a mano'
+      setTimeout(() => { btn.textContent = antes }, 1600)
+    }
+
+    function recetas(c) {
+      const modelo = c.node.modelId
+      const proveedorQvac = [
+        '{',
+        '  models: {',
+        '    providers: {',
+        '      qvac: {',
+        '        baseUrl: "' + c.baseUrl + '",',
+        '        apiKey: "' + c.apiKey + '",',
+        '        api: "openai-completions",',
+        '        models: [{ id: "' + modelo + '", name: "QVAC · red P2P" }]',
+        '      }',
+        '    }',
+        '  },',
+        '  agents: { defaults: { model: "qvac/' + modelo + '" } },',
+        '  channels: {',
+        '    telegram: {',
+        '      enabled: true,',
+        '      botToken: "PEGA_ACA_EL_TOKEN_DE_BOTFATHER",',
+        '      dmPolicy: "pairing"',
+        '    }',
+        '  }',
+        '}'
+      ].join('\\n')
+
+      return {
+        telegram: {
+          titulo: 'Telegram',
+          pie: 'OpenClaw es un runtime de agente self-hosted. Le escribís al bot desde el celular y la respuesta la genera este nodo — sin OpenAI ni servidor de terceros en el medio.',
+          pasos: [
+            { texto: 'Instalá OpenClaw.', cmd: 'npm install -g openclaw' },
+            { texto: 'En Telegram, hablale a <b>@BotFather</b>, mandá <b>/newbot</b> y guardá el token que te da (tiene forma <code>123:abc</code>).' },
+            { texto: 'Pegá esto en <code>~/.openclaw/openclaw.json</code>, reemplazando el token del paso 2:', cmd: proveedorQvac },
+            { texto: 'Arrancá el gateway y aprobá el pareo. El código vale 1 hora.', cmd: 'openclaw gateway\\nopenclaw pairing list telegram\\nopenclaw pairing approve telegram <CODIGO>' }
+          ]
+        },
+        terminal: {
+          titulo: 'Terminal',
+          pie: 'Forma OpenAI exacta. Si este curl anda, anda cualquier cliente compatible.',
+          pasos: [
+            { texto: 'Pedile una respuesta al nodo con streaming:', cmd: 'curl ' + c.baseUrl + '/chat/completions \\\\\\n  -H "Authorization: Bearer ' + c.apiKey + '" \\\\\\n  -H "Content-Type: application/json" \\\\\\n  -d \\'{"model":"' + modelo + '","messages":[{"role":"user","content":"hola"}],"stream":true}\\'' },
+            { texto: 'Y el catálogo de modelos de la red, igual que la API de OpenAI:', cmd: 'curl ' + c.baseUrl + '/models -H "Authorization: Bearer ' + c.apiKey + '"' }
+          ]
+        },
+        hermes: {
+          titulo: 'Hermes Agent',
+          pie: 'Agente con memoria persistente (SQLite local, sin servicio externo). No hay código nuestro acá: es configuración suya.',
+          pasos: [
+            { texto: 'Pegá esto en <code>~/.hermes/config.yaml</code>:', cmd: 'model:\\n  provider: custom\\n  base_url: ' + c.baseUrl + '\\n  api_key: ' + c.apiKey + '\\n  default: ' + modelo },
+            { texto: 'Arrancá Hermes. Usá chat simple, sin tool calls.', cmd: 'hermes' }
+          ]
+        },
+        webui: {
+          titulo: 'Open WebUI',
+          pie: 'Cara de ChatGPT, self-hosted, apuntada a este nodo. Necesita Docker Desktop corriendo.',
+          estado: true,
+          pasos: [
+            { texto: 'Levantá el contenedor apuntado a este gateway:', cmd: 'docker run -d -p 3000:8080 \\\\\\n  -e OPENAI_API_BASE_URL=' + c.baseUrl + ' \\\\\\n  -e OPENAI_API_KEY=' + c.apiKey + ' \\\\\\n  -v open-webui:/app/backend/data \\\\\\n  --name open-webui ghcr.io/open-webui/open-webui:main' },
+            { texto: 'Abrí <a href="http://localhost:3000" target="_blank" rel="noopener">localhost:3000</a> y elegí el modelo <code>' + modelo + '</code>.' }
+          ]
+        }
+      }
+    }
+
+    let webuiPoll = null
+
+    function cerrarModal() {
+      clearInterval(webuiPoll)
+      webuiPoll = null
+      document.getElementById('modal').innerHTML = ''
+      document.removeEventListener('keydown', onEsc)
+    }
+
+    function onEsc(ev) { if (ev.key === 'Escape') cerrarModal() }
+
+    // Open WebUI corre en OTRO origen, asi que un fetch normal da CORS aunque
+    // el servicio este arriba. Con mode:no-cors la respuesta es opaca -no se
+    // puede leer- pero la promesa resuelve si el puerto contesta y rechaza si
+    // no: alcanza para "esta arriba o no", que es lo unico que se pregunta.
+    async function webuiArriba() {
+      try {
+        await fetch('http://localhost:3000/', { mode: 'no-cors', cache: 'no-store' })
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    function pintarEstadoWebui(arriba) {
+      const el = document.getElementById('webui-dot')
+      if (!el) return
+      el.className = 'dot ' + (arriba ? 'up' : 'down')
+      el.innerHTML = '<i></i>' + (arriba ? 'Open WebUI responde en localhost:3000' : 'Open WebUI todavía no responde')
+    }
+
+    function pintarTab(rs, clave) {
+      document.querySelectorAll('.tabs button').forEach(b => {
+        b.classList.toggle('on', b.dataset.tab === clave)
+      })
+      const r = rs[clave]
+      const cuerpo = document.getElementById('tab-body')
+      cuerpo.innerHTML =
+        (r.estado ? '<p><span class="dot" id="webui-dot"><i></i>chequeando…</span></p>' : '') +
+        r.pasos.map((p, i) => \`
+          <div class="step">
+            <div class="n">\${i + 1}</div>
+            <div class="body">
+              <p>\${p.texto}</p>
+              \${p.cmd ? '<div class="cmd"><pre>' + esc(p.cmd) + '</pre><button data-copy="' + i + '">Copiar</button></div>' : ''}
+            </div>
+          </div>\`).join('') +
+        '<p class="sub" style="margin:1rem 0 0">' + r.pie + '</p>'
+
+      cuerpo.querySelectorAll('[data-copy]').forEach(btn => {
+        btn.addEventListener('click', () => copiar(r.pasos[Number(btn.dataset.copy)].cmd, btn))
+      })
+
+      clearInterval(webuiPoll)
+      webuiPoll = null
+      if (r.estado) {
+        webuiArriba().then(pintarEstadoWebui)
+        webuiPoll = setInterval(() => webuiArriba().then(pintarEstadoWebui), 3000)
+      }
+    }
+
+    async function abrirConexion(id) {
+      let c
+      try {
+        const r = await fetch('/v1/connection/' + encodeURIComponent(id), { method: 'POST' })
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        c = await r.json()
+      } catch (err) {
+        alert('No se pudo generar la conexión: ' + (err && err.message ? err.message : err))
+        return
+      }
+
+      const rs = recetas(c)
+      document.getElementById('modal').innerHTML = \`
+        <div class="modal-overlay" id="modal-overlay">
+          <div class="modal">
+            <h3>Conectar con \${esc(c.node.operator)}</h3>
+            <p class="sub">
+              Mismo nodo, consumido desde afuera del panel.
+              Tu API key: <code>\${esc(c.apiKey)}</code>
+            </p>
+            <div class="tabs">
+              <button data-tab="telegram">Telegram</button>
+              <button data-tab="terminal">Terminal</button>
+              <button data-tab="hermes">Hermes Agent</button>
+              <button data-tab="webui">Open WebUI</button>
+            </div>
+            <div id="tab-body"></div>
+            <button class="ghost" id="cerrar-modal">Cerrar</button>
+          </div>
+        </div>\`
+
+      document.querySelectorAll('.tabs button').forEach(b => {
+        b.addEventListener('click', () => pintarTab(rs, b.dataset.tab))
+      })
+      document.getElementById('cerrar-modal').addEventListener('click', cerrarModal)
+      // Cerrar clickeando el fondo, pero NO cuando el click nace adentro del
+      // panel: sin el chequeo de target, seleccionar texto de un comando y
+      // soltar el mouse afuera cerraba el modal.
+      document.getElementById('modal-overlay').addEventListener('click', ev => {
+        if (ev.target.id === 'modal-overlay') cerrarModal()
+      })
+      document.addEventListener('keydown', onEsc)
+
+      pintarTab(rs, 'telegram')
     }
 
     async function refresh() {
