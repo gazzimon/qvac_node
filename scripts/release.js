@@ -66,7 +66,7 @@ for (const t of targets) {
 // 2. carpeta de deployment: pear install busca /by-arch/<plataforma>/app/<bin>
 const buildArgs = ['build', '--package', './package.json', '--target', './build']
 for (const t of targets) {
-  const bin = t.startsWith('win32') ? 'qvac-node.exe' : 'qvac-node'
+  const bin = t.startsWith('win32') ? 'pyrusllm.exe' : 'pyrusllm'
   buildArgs.push(`--${t}-app`, `./out/${t}/${bin}`)
 }
 console.log('\n-- pear build')

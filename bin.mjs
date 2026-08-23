@@ -104,7 +104,7 @@ const sendCmd = command(
   summary('Publicar un archivo o carpeta y compartirlo por P2P'),
   description(
     'Mete el archivo en el Hyperdrive de este nodo y lo anuncia en la DHT.\n' +
-      'Imprime un link qvac:// que la otra maquina baja con `qvac-node fetch`.\n\n' +
+      'Imprime un link qvac:// que la otra maquina baja con `pyrusllm fetch`.\n\n' +
       'El proceso QUEDA CORRIENDO a proposito: Hypercore no es store-and-forward,\n' +
       'no hay servidor donde el archivo quede guardado. Los bytes salen de esta\n' +
       'maquina, asi que tiene que estar prendida mientras la otra baja.\n\n' +
@@ -127,7 +127,7 @@ const fetchCmd = command(
       'archivo alterado a mitad de camino no puede completarse. Lo que la clave\n' +
       'NO prueba es de quien es; eso depende del canal por el que llego el link.'
   ),
-  arg('<link>', 'link qvac:// que imprimio `qvac-node send`'),
+  arg('<link>', 'link qvac:// que imprimio `pyrusllm send`'),
   flag('--out <dir>', 'carpeta destino (default: la actual)'),
   flag('--timeout <s>', 'cuanto esperar a que aparezca un par con el drive (default 60)'),
   () => {
@@ -173,7 +173,7 @@ cmd.parse(Bare.argv.slice(isDev ? 2 : 1))
 if (pending) await pending
 
 // ---------------------------------------------------------------------------
-// qvac-node prompt "..."
+// pyrusllm prompt "..."
 // ---------------------------------------------------------------------------
 
 async function runPrompt() {
@@ -198,7 +198,7 @@ async function runPrompt() {
   }
 
   // Import DINAMICO: importar el motor hace dlopen del addon de llamacpp
-  // (96 MB en win32-x64) en el acto. `qvac-node` a secas no tiene por que
+  // (96 MB en win32-x64) en el acto. `pyrusllm` a secas no tiene por que
   // pagar eso. bare-pack igual lo mete en el binario standalone: el traverse
   // sigue los `import()` con especificador literal.
   const engine = await import('./qvac/engine.mjs')
@@ -221,7 +221,7 @@ async function runPrompt() {
 
     // La descarga de pesos es un efecto explicito de PEDIR una inferencia,
     // nunca un efecto de arrancar el nodo. Esa invariante del runbook sigue en
-    // pie: `qvac-node` a secas no baja un solo byte de modelo. `--no-download`
+    // pie: `pyrusllm` a secas no baja un solo byte de modelo. `--no-download`
     // esta para forzar el modo estricto igual.
     if (!cached && !allowDownload) {
       throw new Error(
@@ -288,7 +288,7 @@ async function readStdin() {
 }
 
 // ---------------------------------------------------------------------------
-// qvac-node serve
+// pyrusllm serve
 // ---------------------------------------------------------------------------
 
 async function runServe() {
@@ -424,7 +424,8 @@ function swarmModels() {
   return [
     {
       modelId: DEFAULT_MODEL,
-      displayName: (MODEL_INFO[DEFAULT_MODEL] && MODEL_INFO[DEFAULT_MODEL].displayName) || DEFAULT_MODEL,
+      displayName:
+        (MODEL_INFO[DEFAULT_MODEL] && MODEL_INFO[DEFAULT_MODEL].displayName) || DEFAULT_MODEL,
       maxConcurrentRequests: 3,
       pricing: [{ unit: 'per_1m_completion_tokens', amount: '1000000', currency: 'QVAC' }]
     }
@@ -440,7 +441,7 @@ function swarmStorageDir() {
 // cierra en orden.
 //
 // UN SOLO PROCESO POR DIRECTORIO DE STORAGE. El Corestore toma un lock de
-// RocksDB sobre su carpeta: `qvac-node send` mientras corre `qvac-node serve`
+// RocksDB sobre su carpeta: `pyrusllm send` mientras corre `pyrusllm serve`
 // sobre el mismo `--storage` falla al abrir. Es una restriccion real y no un
 // bug; para correr los dos a la vez, pasale `--storage` distinto al segundo.
 async function openData(dir, { files = true } = {}) {
@@ -523,7 +524,7 @@ async function joinSwarm({ operator, store = null, data = null }) {
 }
 
 // ---------------------------------------------------------------------------
-// qvac-node peers
+// pyrusllm peers
 // ---------------------------------------------------------------------------
 
 async function runPeers() {
@@ -592,7 +593,7 @@ async function runPeers() {
 }
 
 // ---------------------------------------------------------------------------
-// qvac-node send / fetch / files
+// pyrusllm send / fetch / files
 // ---------------------------------------------------------------------------
 
 // Sesion minima para los comandos de archivos: corestore + drive + un swarm
@@ -674,7 +675,7 @@ async function runSend() {
     console.log('')
     console.log('  En la otra maquina:')
     console.log('')
-    console.log(`    qvac-node fetch ${res.link}`)
+    console.log(`    pyrusllm fetch ${res.link}`)
     console.log('')
     console.log('  Este proceso tiene que quedar CORRIENDO mientras el otro baja:')
     console.log('  los bytes salen de aca, no de un servidor. Ctrl+C para cortar.')
@@ -797,7 +798,7 @@ async function runFiles() {
 }
 
 // ---------------------------------------------------------------------------
-// qvac-node  (nodo: banner + OTA)
+// pyrusllm  (nodo: banner + OTA)
 // ---------------------------------------------------------------------------
 
 async function runNode() {

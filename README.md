@@ -1,4 +1,4 @@
-# QVAC-Node
+# PyrusLLM
 
 **La red distribuye su propio cliente por la red.**
 
@@ -18,7 +18,7 @@ Hackathon CRECIMIENTO / Aleph 2026 — 🍐 Pears Track.
 ```bash
 npm i -g pear
 pear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny
-qvac-node --help
+pyrusllm --help
 ```
 
 No hay npm install del proyecto, no hay build, no hay repo que clonar. El canal
@@ -34,7 +34,7 @@ haga nada.
 ## Inferencia 100% local
 
 ```bash
-qvac-node prompt "¿Qué es una red peer-to-peer?"
+pyrusllm prompt "¿Qué es una red peer-to-peer?"
 ```
 
 El LLM corre **en tu máquina**. Nada del prompt ni de la respuesta sale de ahí.
@@ -43,12 +43,12 @@ registry de QVAC y quedan cacheados en `~/.qvac/models`. La primera corrida
 descarga el modelo (807 MB para el default, Llama 3.2 1B); las siguientes no.
 
 ```bash
-qvac-node prompt "..." --model smol        # SmolLM2 360M, más liviano
-qvac-node prompt "..." --gpu-layers 0      # todo CPU (ver abajo)
-qvac-node prompt "..." --ctx 4096          # tamaño de contexto
-qvac-node prompt "..." --no-download       # fallar si los pesos no están en cache
-qvac-node prompt "..." --quiet             # sólo la respuesta
-echo "¿Qué es P2P?" | qvac-node prompt -   # el prompt por stdin
+pyrusllm prompt "..." --model smol        # SmolLM2 360M, más liviano
+pyrusllm prompt "..." --gpu-layers 0      # todo CPU (ver abajo)
+pyrusllm prompt "..." --ctx 4096          # tamaño de contexto
+pyrusllm prompt "..." --no-download       # fallar si los pesos no están en cache
+pyrusllm prompt "..." --quiet             # sólo la respuesta
+echo "¿Qué es P2P?" | pyrusllm prompt -   # el prompt por stdin
 ```
 
 **Dos cosas que hay que saber antes de una demo:**
@@ -60,9 +60,9 @@ echo "¿Qué es P2P?" | qvac-node prompt -   # el prompt por stdin
 2. **En Windows, pasá el prompt por stdin si tiene acentos.** El binario
    standalone de `bare-build` recibe el argv en codepage ANSI y rompe cualquier
    carácter no-ASCII. Es un bug de bare-build, con repro mínimo en
-   [NOTES.md](NOTES.md). `qvac-node prompt -` lo esquiva.
+   [NOTES.md](NOTES.md). `pyrusllm prompt -` lo esquiva.
 
-Arrancar el nodo (`qvac-node serve`) **no** descarga ningún modelo: bajar pesos
+Arrancar el nodo (`pyrusllm serve`) **no** descarga ningún modelo: bajar pesos
 es siempre un efecto explícito de pedir una inferencia.
 
 ---
@@ -70,12 +70,12 @@ es siempre un efecto explícito de pedir una inferencia.
 ## El nodo completo
 
 ```bash
-qvac-node serve --swarm --operator "Mi Nodo"
+pyrusllm serve --swarm --operator "Mi Nodo"
 ```
 
 Un solo proceso que es las dos cosas a la vez: **gateway** (habla OpenAI hacia
 afuera) y **proveedor** (contesta prompts de otros nodos con su LLM local). Se
-une al topic `qvac-node:marketplace:v1`, anuncia su manifiesto firmado, y sirve
+une al topic `pyrusllm:marketplace:v1`, anuncia su manifiesto firmado, y sirve
 tres paneles y la API en `http://localhost:8787`.
 
 | Flag                  | Qué hace                                                       |
@@ -168,14 +168,14 @@ corridas).
 
 ```bash
 # en la máquina que manda
-qvac-node send ./plano.pdf
+pyrusllm send ./plano.pdf
 #   drive : 41dc77b9…
 #   En la otra maquina:
-#     qvac-node fetch qvac://41dc77b9…/plano.pdf
+#     pyrusllm fetch qvac://41dc77b9…/plano.pdf
 
 # en la máquina que recibe
-qvac-node fetch qvac://41dc77b9…/plano.pdf --out ./descargas
-qvac-node files --link qvac://41dc77b9…/     # listar sin bajar nada
+pyrusllm fetch qvac://41dc77b9…/plano.pdf --out ./descargas
+pyrusllm files --link qvac://41dc77b9…/     # listar sin bajar nada
 ```
 
 Lo mismo está en el panel de proveedor (`/v1/files/*`), donde arrastrás el
@@ -247,7 +247,7 @@ El cap de 16 MiB por frame que daba `bits: 24` no se pierde: `NoiseSecretStream`
 frena en `MAX_ATOMIC_WRITE = 0xffffff`, los mismos 16 MiB, una capa más abajo.
 
 **Esto rompe compatibilidad de cable con v0.10.0.** Un nodo viejo y uno nuevo no
-pueden hacer handshake, así que el topic pasó a `qvac-node:marketplace:v1`: en la
+pueden hacer handshake, así que el topic pasó a `pyrusllm:marketplace:v1`: en la
 ventana del OTA cada versión se ve entre sí y no se cruzan, en vez de conectarse
 y quedarse mudas hasta el timeout.
 
@@ -260,7 +260,7 @@ worker thread propio ([workers/main.js](workers/main.js)), separado del hilo que
 atiende al usuario.
 
 No es la variante más simple —`single-thread` lo es— y la elegimos igual, por
-una razón concreta. `qvac-node serve` es un proceso **long-lived** que va a
+una razón concreta. `pyrusllm serve` es un proceso **long-lived** que va a
 estar haciendo streaming de tokens hacia un cliente. El updater, mientras tanto,
 descarga decenas de megabytes por la red y escribe un binario a disco. En un
 solo hilo, esa descarga compite con el streaming: el usuario ve el output
@@ -281,7 +281,7 @@ exactamente el comportamiento que esta arquitectura existe para evitar.
 
 ```bash
 # en las DOS máquinas, al mismo tiempo
-qvac-node peers --operator "Maquina A" --timeout 90 --expect 1
+pyrusllm peers --operator "Maquina A" --timeout 90 --expect 1
 ```
 
 `peers` no levanta el gateway: se une al topic, anuncia su manifiesto firmado y
