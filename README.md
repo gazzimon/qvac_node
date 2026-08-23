@@ -133,10 +133,14 @@ porque "no está habilitado" y "se rompió" son cosas distintas para quien lo le
 
 El botón **Conectar** de cada tarjeta del marketplace emite una API key
 (`qvac_sk_…`, bytes de `hypercore-crypto`, nunca `Math.random`) y muestra los
-pasos exactos para cuatro clientes:
+pasos exactos para cinco clientes:
 
 - **Telegram** — vía OpenClaw, un runtime de agente self-hosted: le escribís a
   un bot desde el celular y la respuesta la genera este nodo.
+- **WhatsApp** — el mismo OpenClaw, otro canal. Acá no hay bot: se vincula la
+  cuenta personal del operador escaneando un **QR** (igual que WhatsApp Web),
+  así que el modal lo avisa **antes** de los pasos y deja `dmPolicy: "pairing"`
+  puesto por defecto: sin aprobar el pedido, nadie le escribe al nodo.
 - **Terminal** — un `curl` con `Authorization: Bearer`. Si ese curl anda, anda
   cualquier cliente compatible: el panel no tiene un camino privilegiado.
 - **Hermes Agent** — cuatro líneas en `~/.hermes/config.yaml`.

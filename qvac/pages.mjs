@@ -166,6 +166,15 @@ const STYLE = `
   .dot.up { color: #4ade80 } .dot.up i { background: #4ade80 }
   .dot.down { color: #f87171 } .dot.down i { background: #f87171 }
 
+  /* Advertencia previa a los pasos. WhatsApp no vincula un bot sino LA cuenta
+     personal del operador: eso hay que leerlo antes de escanear el QR, no
+     despues, asi que va arriba y no en el pie de la receta. */
+  .aviso {
+    background: #241d10; border: 1px solid #4a3a17; border-radius: 8px;
+    padding: .6rem .75rem; margin: 0 0 1.1rem;
+    font-size: .82rem; color: #e8c98a; line-height: 1.45;
+  }
+
   .chat { margin-top: 1.5rem; border-top: 1px solid #262b36; padding-top: 1.5rem; }
   textarea, input[type=text] {
     width: 100%; background: #10131a; border: 1px solid #262b36; color: #e6e6e6;
@@ -231,7 +240,7 @@ export const CLIENTE_HTML = page(
   'QVAC Marketplace · Cliente',
   `
   <h1>Marketplace de inferencias</h1>
-  <p class="sub">Elegí un proveedor y chateá acá mismo, o conectate desde Telegram, tu terminal o cualquier cliente OpenAI-compatible. La inferencia corre en su nodo, no en un datacenter central.</p>
+  <p class="sub">Elegí un proveedor y chateá acá mismo, o conectate desde Telegram, WhatsApp, tu terminal o cualquier cliente OpenAI-compatible. La inferencia corre en su nodo, no en un datacenter central.</p>
   <p class="hint" id="buscando" style="display:none"></p>
   <div id="grid" class="grid"></div>
   <div id="modal"></div>
@@ -469,7 +478,12 @@ ${ESC}
 
     function recetas(c) {
       const modelo = c.node.modelId
-      const proveedorQvac = [
+
+      // El bloque de proveedor es identico para todos los canales de OpenClaw
+      // -lo unico que cambia es que canal se enciende-, asi que se arma una
+      // sola vez y cada receta le pasa SU bloque de channels. Duplicar el
+      // config entero por canal garantizaba que uno quedara desactualizado.
+      const configOpenclaw = (canal) => [
         '{',
         '  models: {',
         '    providers: {',
@@ -483,14 +497,26 @@ ${ESC}
         '  },',
         '  agents: { defaults: { model: "qvac/' + modelo + '" } },',
         '  channels: {',
+        canal,
+        '  }',
+        '}'
+      ].join('\\n')
+
+      const proveedorQvac = configOpenclaw([
         '    telegram: {',
         '      enabled: true,',
         '      botToken: "PEGA_ACA_EL_TOKEN_DE_BOTFATHER",',
         '      dmPolicy: "pairing"',
-        '    }',
-        '  }',
-        '}'
-      ].join('\\n')
+        '    }'
+      ].join('\\n'))
+
+      const proveedorWhatsapp = configOpenclaw([
+        '    whatsapp: {',
+        '      enabled: true,',
+        '      dmPolicy: "pairing",',
+        '      allowFrom: ["+549XXXXXXXXXX"]',
+        '    }'
+      ].join('\\n'))
 
       return {
         telegram: {
@@ -501,6 +527,23 @@ ${ESC}
             { texto: 'En Telegram, hablale a <b>@BotFather</b>, mandá <b>/newbot</b> y guardá el token que te da (tiene forma <code>123:abc</code>).' },
             { texto: 'Pegá esto en <code>~/.openclaw/openclaw.json</code>, reemplazando el token del paso 2:', cmd: proveedorQvac },
             { texto: 'Arrancá el gateway y aprobá el pareo. El código vale 1 hora.', cmd: 'openclaw gateway\\nopenclaw pairing list telegram\\nopenclaw pairing approve telegram <CODIGO>' }
+          ]
+        },
+        whatsapp: {
+          titulo: 'WhatsApp',
+          aviso: '<b>No es un bot.</b> WhatsApp no tiene @BotFather: OpenClaw vincula <b>tu cuenta personal</b> como un dispositivo más (igual que WhatsApp Web). Usá un número que puedas dedicar a esto y dejá <code>dmPolicy: "pairing"</code>, así nadie te escribe al nodo sin que vos lo apruebes.',
+          pie: 'Mismo gateway que Telegram, otro canal. La respuesta la genera este nodo: WhatsApp sólo transporta el texto.',
+          estado: {
+            url: 'http://127.0.0.1:18789/',
+            up: 'El gateway de OpenClaw responde en 127.0.0.1:18789',
+            down: 'El gateway de OpenClaw todavía no responde'
+          },
+          pasos: [
+            { texto: 'Instalá OpenClaw y el plugin del canal.', cmd: 'npm install -g openclaw\\nopenclaw plugins install clawhub:@openclaw/whatsapp' },
+            { texto: 'Pegá esto en <code>~/.openclaw/openclaw.json</code>, con tu número en formato internacional (<code>+549…</code>) en <code>allowFrom</code>:', cmd: proveedorWhatsapp },
+            { texto: 'Vinculá la cuenta: el comando imprime un <b>QR en la terminal</b>. En el celular: <b>WhatsApp → Ajustes → Dispositivos vinculados → Vincular un dispositivo</b> y escaneá. El QR dura ~60 s; si vence, repetí el comando.', cmd: 'openclaw channels login --channel whatsapp' },
+            { texto: 'Arrancá el gateway y aprobá el primer mensaje. El pedido vale 1 hora.', cmd: 'openclaw gateway\\nopenclaw pairing list whatsapp\\nopenclaw pairing approve whatsapp <CODIGO>' },
+            { texto: 'El semáforo de arriba sólo dice si el gateway está vivo. Que WhatsApp haya quedado <b>vinculado</b> lo confirma este comando, y es lo primero que hay que mirar si no llega la respuesta — antes que el log del nodo.', cmd: 'openclaw channels status --probe' }
           ]
         },
         terminal: {
@@ -522,7 +565,11 @@ ${ESC}
         webui: {
           titulo: 'Open WebUI',
           pie: 'Cara de ChatGPT, self-hosted, apuntada a este nodo. Necesita Docker Desktop corriendo.',
-          estado: true,
+          estado: {
+            url: 'http://localhost:3000/',
+            up: 'Open WebUI responde en localhost:3000',
+            down: 'Open WebUI todavía no responde'
+          },
           pasos: [
             { texto: 'Levantá el contenedor apuntado a este gateway:', cmd: 'docker run -d -p 3000:8080 \\\\\\n  -e OPENAI_API_BASE_URL=' + c.baseUrl + ' \\\\\\n  -e OPENAI_API_KEY=' + c.apiKey + ' \\\\\\n  -v open-webui:/app/backend/data \\\\\\n  --name open-webui ghcr.io/open-webui/open-webui:main' },
             { texto: 'Abrí <a href="http://localhost:3000" target="_blank" rel="noopener">localhost:3000</a> y elegí el modelo <code>' + modelo + '</code>.' }
@@ -531,35 +578,41 @@ ${ESC}
       }
     }
 
-    let webuiPoll = null
+    let estadoPoll = null
 
     function cerrarModal() {
-      clearInterval(webuiPoll)
-      webuiPoll = null
+      clearInterval(estadoPoll)
+      estadoPoll = null
       document.getElementById('modal').innerHTML = ''
       document.removeEventListener('keydown', onEsc)
     }
 
     function onEsc(ev) { if (ev.key === 'Escape') cerrarModal() }
 
-    // Open WebUI corre en OTRO origen, asi que un fetch normal da CORS aunque
-    // el servicio este arriba. Con mode:no-cors la respuesta es opaca -no se
-    // puede leer- pero la promesa resuelve si el puerto contesta y rechaza si
-    // no: alcanza para "esta arriba o no", que es lo unico que se pregunta.
-    async function webuiArriba() {
+    // El servicio corre en OTRO origen, asi que un fetch normal da CORS aunque
+    // este arriba. Con mode:no-cors la respuesta es opaca -no se puede leer-
+    // pero la promesa resuelve si el puerto contesta y rechaza si no: alcanza
+    // para "esta arriba o no", que es lo unico que se pregunta.
+    //
+    // Lo unico. Vale para Open WebUI y para el gateway de OpenClaw por igual,
+    // y de ahi el limite honesto del semaforo: dice que el proceso contesta,
+    // NO que WhatsApp quedo vinculado. Eso solo lo sabe 'channels status', que
+    // es un comando y no un puerto. Pintar "vinculado" desde aca seria inventar
+    // un estado que el panel no puede ver.
+    async function servicioArriba(url) {
       try {
-        await fetch('http://localhost:3000/', { mode: 'no-cors', cache: 'no-store' })
+        await fetch(url, { mode: 'no-cors', cache: 'no-store' })
         return true
       } catch {
         return false
       }
     }
 
-    function pintarEstadoWebui(arriba) {
-      const el = document.getElementById('webui-dot')
+    function pintarEstado(e, arriba) {
+      const el = document.getElementById('estado-dot')
       if (!el) return
       el.className = 'dot ' + (arriba ? 'up' : 'down')
-      el.innerHTML = '<i></i>' + (arriba ? 'Open WebUI responde en localhost:3000' : 'Open WebUI todavía no responde')
+      el.innerHTML = '<i></i>' + (arriba ? e.up : e.down)
     }
 
     function pintarTab(rs, clave) {
@@ -569,7 +622,8 @@ ${ESC}
       const r = rs[clave]
       const cuerpo = document.getElementById('tab-body')
       cuerpo.innerHTML =
-        (r.estado ? '<p><span class="dot" id="webui-dot"><i></i>chequeando…</span></p>' : '') +
+        (r.aviso ? '<p class="aviso">' + r.aviso + '</p>' : '') +
+        (r.estado ? '<p><span class="dot" id="estado-dot"><i></i>chequeando…</span></p>' : '') +
         r.pasos.map((p, i) => \`
           <div class="step">
             <div class="n">\${i + 1}</div>
@@ -584,11 +638,13 @@ ${ESC}
         btn.addEventListener('click', () => copiar(r.pasos[Number(btn.dataset.copy)].cmd, btn))
       })
 
-      clearInterval(webuiPoll)
-      webuiPoll = null
+      clearInterval(estadoPoll)
+      estadoPoll = null
       if (r.estado) {
-        webuiArriba().then(pintarEstadoWebui)
-        webuiPoll = setInterval(() => webuiArriba().then(pintarEstadoWebui), 3000)
+        const e = r.estado
+        const chequear = () => servicioArriba(e.url).then(arriba => pintarEstado(e, arriba))
+        chequear()
+        estadoPoll = setInterval(chequear, 3000)
       }
     }
 
@@ -671,6 +727,7 @@ ${ESC}
             </p>
             <div class="tabs">
               <button data-tab="telegram">Telegram</button>
+              <button data-tab="whatsapp">WhatsApp</button>
               <button data-tab="terminal">Terminal</button>
               <button data-tab="hermes">Hermes Agent</button>
               <button data-tab="webui">Open WebUI</button>
