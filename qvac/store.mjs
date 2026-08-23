@@ -433,14 +433,23 @@ export function findAllByModelId(modelId) {
   return candidatos.sort((a, b) => (rank[a.kind] ?? 3) - (rank[b.kind] ?? 3))
 }
 
+// El rastro dejo de ser solo de ruteo: ahora tambien entran la carga del
+// modelo y los dos numeros D7 del swarm. `kind` es lo que los separa al
+// leerlos, y va por defecto en 'route' para que las entradas viejas -y
+// cualquier llamador que no lo pase- sigan significando lo mismo.
 export function pushLog(entry) {
-  routingLog.unshift({ ts: Date.now(), ...entry })
+  const full = { ts: Date.now(), kind: 'route', ...entry }
+  routingLog.unshift(full)
   if (routingLog.length > MAX_LOG) routingLog.length = MAX_LOG
 
   // El array en memoria sigue siendo el que lee el panel (30 entradas, rapido
   // y sin await). El bee guarda la serie completa, que es lo que despues
   // permite decir "este par fallo 3 veces esta semana" en vez de "fallo".
-  if (directory) directory.pushLog(entry)
+  //
+  // Se le pasa `full` y no `entry`: si el bee guardara la version sin `kind`,
+  // el historial largo no se podria filtrar por tipo y el panel tendria dos
+  // formas distintas de la misma entrada segun de donde la leyo.
+  if (directory) directory.pushLog(full)
 }
 
 // Contadores por par para el directorio. Se llama al terminar un request

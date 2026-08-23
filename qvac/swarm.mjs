@@ -227,6 +227,11 @@ export class NodeSwarm {
     if (this.firstPeerMs === null && this.joinedAt !== null) {
       this.firstPeerMs = Date.now() - this.joinedAt
       console.log(`[swarm] primer par en ${this.firstPeerMs}ms (D7)`)
+      // Al rastro, no solo a la consola: el numero D7 se medía una vez por
+      // sesion y moria con el scrollback de la terminal. En el bee queda la
+      // serie, que es lo que permite ver que el descubrimiento tarda ~17s en
+      // esta red y 2s en otra, en vez de recordarlo.
+      this._logEvento('peer_first', `primer par en ${this.firstPeerMs}ms`, this.firstPeerMs)
     }
 
     console.log(`[swarm] conectado ${key.slice(0, 8)}… (${this.peers.size} par/es)`)
@@ -329,6 +334,22 @@ export class NodeSwarm {
   // La basura de otra app que caiga en el mismo topic ya no llega hasta aca:
   // sin abrir el canal `qvac/node/v0` no hay a donde entregarsela, cosa que
   // con FramedStream sobre el socket crudo si pasaba.
+  // Los eventos del swarm entran al MISMO rastro que el ruteo, distinguidos
+  // por `kind`. Podrian haber ido a un log aparte, pero entonces reconstruir
+  // "el nodo se unio, tardo 17s en ver un par, y el primer chat pago 12s de
+  // carga de modelo" pediría cruzar dos series a mano — que es justo lo que el
+  // rastro tiene que evitar. `store` es opcional (el comando `peers` corre sin
+  // el), asi que esto no puede asumir que exista.
+  _logEvento(kind, reason, ms) {
+    if (!this.store || typeof this.store.pushLog !== 'function') return
+    try {
+      this.store.pushLog({ kind, operator: this.operator, reason, ms, ok: true })
+    } catch {
+      // El rastro nunca puede tumbar el swarm: si el bee falla al escribir,
+      // se pierde una linea de log, no la conexion con el par.
+    }
+  }
+
   _onMessage(peer, msg) {
     try {
       this._dispatch(peer, msg)
@@ -358,6 +379,11 @@ export class NodeSwarm {
       if (this.firstManifestMs === null && this.joinedAt !== null) {
         this.firstManifestMs = Date.now() - this.joinedAt
         console.log(`[swarm] primer manifiesto VERIFICADO en ${this.firstManifestMs}ms (D7)`)
+        this._logEvento(
+          'manifest_verified',
+          `primer manifiesto verificado en ${this.firstManifestMs}ms`,
+          this.firstManifestMs
+        )
       }
 
       const modelos = msg.manifest.models.map((m) => m.modelId).join(', ')

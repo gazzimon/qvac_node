@@ -1197,11 +1197,38 @@ ${ESC}
       })
     }
 
+    // El rastro dejo de ser solo de ruteo: ahora trae model_load y los dos
+    // eventos D7 del swarm, que no tienen modelId ni nodo destino. Pintarlos
+    // con la plantilla vieja mostraba "undefined → undefined (undefinedms)".
+    const linea = (e) => {
+      const hora = esc(new Date(e.ts).toLocaleTimeString())
+      const detalle = \`<span class="muted">\${esc(e.reason || '')}</span>\`
+
+      if (e.kind && e.kind !== 'route') {
+        return \`<div>\${hora} — <b>\${esc(e.kind)}</b> \${detalle}</div>\`
+      }
+
+      // Los tres numeros de la demo. Se muestran solo si existen: un request
+      // que fallo antes del primer token no tiene tok/s, y un "0 tok/s" ahi
+      // seria una medicion inventada.
+      const metricas = []
+      if (e.tokens) metricas.push(esc(e.tokens) + ' tok')
+      if (e.ttftMs !== null && e.ttftMs !== undefined) metricas.push('ttft ' + esc(e.ttftMs) + 'ms')
+      if (e.tokensPerSec) metricas.push(esc(e.tokensPerSec) + ' tok/s')
+      metricas.push(esc(e.ms) + 'ms')
+
+      const destino = e.target ? \` <b>[\${esc(e.target)}]</b>\` : ''
+      const fallo = e.ok === false ? \` <b>FALLO\${e.code ? ' ' + esc(e.code) : ''}</b>\` : ''
+
+      return \`<div>\${hora} — \${esc(e.modelId)}\${destino} → \${esc(e.operator)}\` +
+        \` (\${metricas.join(' · ')})\${fallo} \${detalle}</div>\`
+    }
+
     async function refreshLog() {
       const r = await fetch('/v1/routing-log')
       const { log } = await r.json()
       document.getElementById('log').innerHTML = log.length
-        ? log.map(e => \`<div>\${esc(new Date(e.ts).toLocaleTimeString())} — \${esc(e.modelId)} → \${esc(e.operator)} (\${esc(e.ms)}ms) <span class="muted">\${esc(e.reason)}</span></div>\`).join('')
+        ? log.map(linea).join('')
         : '<div class="muted">todavía no hay requests ruteados</div>'
     }
 

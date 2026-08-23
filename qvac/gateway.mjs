@@ -52,6 +52,20 @@ function truncate(s, n = 60) {
   return s.length > n ? s.slice(0, n) + '…' : s
 }
 
+// Tokens por segundo de la GENERACION, no del request: se descuenta el TTFT.
+// Mezclarlos daria un numero que baja cuando el modelo tarda en arrancar
+// aunque despues escupa tokens igual de rapido, y esa es justo la confusion
+// que el par de numeros (ttft + tok/s) existe para evitar.
+//
+// Devuelve null en vez de 0 cuando no hay nada que medir: un request que fallo
+// antes del primer token no genero "a cero tokens por segundo", no genero.
+function tokensPerSec({ tokens, ttftMs, ms }) {
+  if (!tokens || ttftMs === null) return null
+  const genMs = ms - ttftMs
+  if (genMs <= 0) return null
+  return Number(((tokens / genMs) * 1000).toFixed(2))
+}
+
 // El modelo real se carga UNA sola vez, perezoso -recien en el primer chat
 // que lo necesita-, igual que el "cero modelo" que ya define Fase 3: el
 // gateway arranca sin haber descargado ni cargado nada.
@@ -64,9 +78,24 @@ function ensureRealModel() {
   if (realModelId) return Promise.resolve(realModelId)
   if (!realModelLoading) {
     realModelLoading = (async () => {
+      const t0 = Date.now()
       engineMod = engineMod || (await import('./engine.mjs'))
       const { modelSrc } = await engineMod.resolveModel('llama1b')
       realModelId = await engineMod.loadModel({ modelSrc, gpuLayers })
+
+      // La carga perezosa es la explicacion de casi todo TTFT anomalo: el
+      // primer chat despues de arrancar paga la descarga y la carga del
+      // modelo, y sin esta entrada el rastro muestra un request lentisimo sin
+      // ninguna causa visible al lado.
+      store.pushLog({
+        kind: 'model_load',
+        modelId: 'llama1b',
+        target: 'local',
+        ok: true,
+        gpuLayers: gpuLayers ?? null,
+        reason: `modelo real cargado en ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+        ms: Date.now() - t0
+      })
       return realModelId
     })()
     // Si la carga falla, hay que SOLTAR la promesa rechazada. Si queda
@@ -180,7 +209,9 @@ async function recibirArchivo(req, nombre) {
     for await (const chunk of req) {
       total += chunk.length
       if (total > MAX_UPLOAD_BYTES) {
-        throw new Error(`archivo demasiado grande (limite ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB)`)
+        throw new Error(
+          `archivo demasiado grande (limite ${Math.floor(MAX_UPLOAD_BYTES / 1024 / 1024)} MB)`
+        )
       }
       if (streamErr) throw streamErr
       if (!out.write(chunk)) {
@@ -402,7 +433,19 @@ async function handleRemoteChat({ req, res, node, candidatos, model, messages, s
   let contenido = ''
   const startedAt = Date.now()
 
+  // D7 del lado del SERVIDOR. Estos tres numeros ya se median en el navegador
+  // (pages.mjs) y se perdian al cerrar la pestaña: eran evidencia de la demo
+  // que no sobrevivia a la demo. Medidos aca entran al rastro persistido, asi
+  // que despues se puede decir "este par dio 40 tok/s el martes" sin que
+  // nadie haya tenido que mirar la pantalla en ese momento.
+  let ttftMs = null
+  let tokens = 0
+
   const emit = (delta) => {
+    // El primer delta con contenido es el primer token, no el chunk de
+    // apertura: ese solo trae {role} y llegaria antes, midiendo de menos.
+    if (ttftMs === null) ttftMs = Date.now() - startedAt
+    tokens++
     contenido += delta
     if (!stream || cancelado) return
     // Escribir en una respuesta que el cliente ya cerro puede tirar. Esta
@@ -526,8 +569,12 @@ async function handleRemoteChat({ req, res, node, candidatos, model, messages, s
     if (headersSent || !stream) res.end()
     else if (!res.writableEnded) res.end()
 
+    const ms = Date.now() - startedAt
+    const ok = !!(ultimo && ultimo.ok)
+
     store.pushLog({
       modelId: model,
+      target: 'peer',
       nodeId: elegido ? elegido.id : null,
       operator: elegido ? elegido.operator : null,
       candidatos: candidatos.length,
@@ -535,8 +582,22 @@ async function handleRemoteChat({ req, res, node, candidatos, model, messages, s
         `par P2P${pares.length > 1 ? ` (${intentos.length} de ${pares.length} intentados)` : ''}` +
         ` — ${candidatos.length} candidato(s) para "${model}"; elegir por carga es D6, sin implementar`,
       intentos: intentos.length > 1 ? intentos : undefined,
-      ms: Date.now() - startedAt
+      ok,
+      code: ok ? null : (ultimo && ultimo.code) || 'no_peer',
+      tokens,
+      ttftMs,
+      tokensPerSec: tokensPerSec({ tokens, ttftMs, ms }),
+      ms
     })
+
+    // Contadores por par en el directorio. La funcion existia desde que se
+    // escribio `directory.recordStat` y no la llamaba NADIE: las stats de cada
+    // par quedaban en cero para siempre, y el panel mostraba un historial
+    // vacio que parecia un par recien conocido. Se cuenta el par que
+    // efectivamente atendio -o el ultimo que lo intento, si fallaron todos-.
+    if (elegido && elegido.peerKey) {
+      store.recordPeerResult(elegido.peerKey, { ok, ms, tokens })
+    }
   }
 }
 
@@ -627,24 +688,45 @@ async function handleChat(req, res) {
   const id = completionId()
   const created = Math.floor(Date.now() / 1000)
 
-  // El iterable de deltas es el mismo para stream y no-stream: la unica
-  // diferencia es como se empaqueta la salida.
-  const deltas = async function* () {
-    if (node.kind === 'real') {
-      const mid = await ensureRealModel()
-      yield* engineMod.complete({ modelId: mid, history: messages })
-    } else {
-      yield* mockTokens(node, prompt)
-    }
-  }
-
   store.beginRequest(node.id)
   const startedAt = Date.now()
+
+  // Mismos tres numeros que en el camino P2P, para que el rastro compare peras
+  // con peras: sin esto el panel podia decir "40 tok/s" de un par y nada del
+  // nodo local, que es exactamente la comparacion que la demo quiere mostrar.
+  let ttftMs = null
+  let tokens = 0
+
+  // El iterable de deltas es el mismo para stream y no-stream: la unica
+  // diferencia es como se empaqueta la salida. La medicion va ACA adentro y no
+  // en los dos consumidores por la misma razon: un solo lugar donde contar, y
+  // el camino no-stream deja de ser el que nunca reporta nada.
+  const deltas = async function* () {
+    const crudos =
+      node.kind === 'real'
+        ? (async function* () {
+            const mid = await ensureRealModel()
+            yield* engineMod.complete({ modelId: mid, history: messages })
+          })()
+        : mockTokens(node, prompt)
+
+    for await (const delta of crudos) {
+      if (ttftMs === null) ttftMs = Date.now() - startedAt
+      tokens++
+      yield delta
+    }
+  }
 
   // El camino no-stream y el de error-antes-de-headers responden con
   // `res.end()` adentro de sendJson/sendError. Sin este flag, el `finally`
   // llamaba a `res.end()` una segunda vez sobre una respuesta ya cerrada.
   let responded = false
+
+  // El camino local no tenia forma de decir en el log que un request habia
+  // fallado: el `finally` corria igual y escribia una entrada indistinguible
+  // de una exitosa. Sin esto, "el nodo local anduvo bien toda la tarde" y
+  // "el nodo local reviento en cada request" se ven idénticos en el panel.
+  let fallo = null
 
   try {
     if (!stream) {
@@ -684,6 +766,7 @@ async function handleChat(req, res) {
     }
   } catch (err) {
     const message = String((err && err.message) || err)
+    fallo = message
     if (!res.headersSent) {
       sendError(res, 500, message, { type: 'server_error' })
       responded = true
@@ -703,8 +786,13 @@ async function handleChat(req, res) {
     // `findByModelId` nunca elige entre dos candidatos. Elegir por carga es
     // D6 del ROADMAP y todavía no está implementado; el log no puede afirmar
     // una decisión que no ocurrió.
+    const ms = Date.now() - startedAt
     store.pushLog({
       modelId: model,
+      // 'local' es esta maquina generando de verdad; 'mock' es teatro de demo.
+      // Distinguirlos importa: sin el campo, una corrida con --demo produce un
+      // rastro con tok/s inventados que no se puede separar de uno real.
+      target: node.kind === 'real' ? 'local' : 'mock',
       nodeId: node.id,
       operator: node.operator,
       candidatos: candidatos.length,
@@ -712,7 +800,12 @@ async function handleChat(req, res) {
         candidatos.length === 1
           ? `único candidato para "${model}"`
           : `primero de ${candidatos.length} candidatos para "${model}" — elegir por carga es D6, sin implementar`,
-      ms: Date.now() - startedAt
+      ok: fallo === null,
+      code: fallo === null ? null : 'server_error',
+      tokens,
+      ttftMs,
+      tokensPerSec: tokensPerSec({ tokens, ttftMs, ms }),
+      ms
     })
   }
 }
@@ -759,6 +852,36 @@ async function onRequest(req, res) {
     }
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
       return sendJson(res, 200, { log: store.getLog() })
+    }
+
+    // La serie COMPLETA, desde el Hyperbee. `/v1/routing-log` devuelve el ring
+    // de 30 que pinta el panel; para una auditoria eso no alcanza -- 30
+    // entradas se llenan con una sola sesion de pruebas y la evidencia de la
+    // demo queda afuera. Esta ruta es la que consume scripts/auditoria.js.
+    //
+    // Va con la identidad del nodo al lado a proposito: un JSONL suelto no
+    // dice QUIEN lo genero, y una auditoria que no puede atribuir el rastro a
+    // una clave publica no prueba gran cosa.
+    if (req.method === 'GET' && pathname === '/v1/audit') {
+      const q = req.url.split('?')[1] || ''
+      const pedido = Number(new URLSearchParams(q).get('limit'))
+      const limit = Number.isFinite(pedido) && pedido > 0 ? Math.min(pedido, 10000) : 500
+
+      return sendJson(res, 200, {
+        generadoEn: new Date().toISOString(),
+        nodo: swarmRef
+          ? {
+              operator: swarmRef.operator,
+              publicKey: swarmRef.identity.publicKey.toString('hex'),
+              verifiedPeers: swarmRef.verifiedPeers().length
+            }
+          : null,
+        // `false` cuando el gateway corre sin `--data`: el rastro entonces es
+        // solo el ring en memoria y muere con el proceso. Decirlo importa,
+        // porque cambia lo que la evidencia puede afirmar.
+        persistido: store.getDirectory() !== null,
+        log: await store.getLogHistory(limit)
+      })
     }
     if (req.method === 'POST' && pathname === '/v1/chat/completions') {
       return await handleChat(req, res)
@@ -889,9 +1012,14 @@ async function onRequest(req, res) {
     // -----------------------------------------------------------------------
     if (pathname === '/v1/files' || pathname.startsWith('/v1/files/')) {
       if (!filesApi) {
-        return sendError(res, 503, 'los archivos necesitan "serve --swarm" (hace falta el Corestore)', {
-          type: 'service_unavailable'
-        })
+        return sendError(
+          res,
+          503,
+          'los archivos necesitan "serve --swarm" (hace falta el Corestore)',
+          {
+            type: 'service_unavailable'
+          }
+        )
       }
     }
 
@@ -916,7 +1044,11 @@ async function onRequest(req, res) {
           }
           const par = swarmRef.peersWithFiles().find((p) => p.peerKey === peerKey)
           if (!par) {
-            return sendError(res, 404, 'ese par no anuncio ningun archivo (todavia no conecto, o no publico nada)')
+            return sendError(
+              res,
+              404,
+              'ese par no anuncio ningun archivo (todavia no conecto, o no publico nada)'
+            )
           }
           const files = await filesApi.listRemote(par.driveKey, '/', { timeoutMs: 20000 })
           return sendJson(res, 200, { keyHex: par.driveKey, remote: true, files })
@@ -936,7 +1068,11 @@ async function onRequest(req, res) {
           files: await filesApi.list('/')
         })
       } catch (err) {
-        return sendError(res, 502, 'no se pudo leer el drive: ' + (err && err.message ? err.message : err))
+        return sendError(
+          res,
+          502,
+          'no se pudo leer el drive: ' + (err && err.message ? err.message : err)
+        )
       }
     }
 
@@ -982,7 +1118,8 @@ async function onRequest(req, res) {
       try {
         const { parseLink } = await import('./files.mjs')
         const { keyHex, path: ruta } = parseLink(body.link)
-        if (ruta === '/') return sendError(res, 400, 'el link apunta al drive entero, no a un archivo')
+        if (ruta === '/')
+          return sendError(res, 400, 'el link apunta al drive entero, no a un archivo')
 
         const fs = await import('bare-fs')
         const path = await import('bare-path')
