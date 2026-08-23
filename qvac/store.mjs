@@ -173,12 +173,38 @@ export function kick(id) {
 // El panel muestra el precio como texto. El manifiesto lo trae estructurado
 // (unit/amount/currency); esto lo aplana para mostrar, sin perder que el dato
 // firmado es el del manifiesto.
+// "1000000 QVAC" obliga a contar ceros para saber si son cien mil o un millon.
+// Nadie cuenta ceros mirando una grilla, y menos un jurado con 3 minutos.
+function compactAmount(n) {
+  const x = Number(n)
+  if (!Number.isFinite(x)) return String(n)
+  const corto = (v, suf) => (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)) + suf
+  if (Math.abs(x) >= 1e9) return corto(x / 1e9, 'B')
+  if (Math.abs(x) >= 1e6) return corto(x / 1e6, 'M')
+  if (Math.abs(x) >= 1e3) return corto(x / 1e3, 'K')
+  return String(x)
+}
+
+// El unit del manifiesto es un identificador (per_1m_completion_tokens), no
+// una frase. Reemplazar guiones bajos por espacios daba "per 1m completion
+// tokens": ni ingles ni castellano, y encima repetia el "1m" del monto.
+const UNIDAD_ES = {
+  per_1m_completion_tokens: 'por 1M tokens de salida',
+  per_1m_prompt_tokens: 'por 1M tokens de entrada',
+  per_1k_completion_tokens: 'por 1K tokens de salida',
+  per_1k_prompt_tokens: 'por 1K tokens de entrada',
+  per_request: 'por consulta',
+  per_token: 'por token',
+  per_second: 'por segundo'
+}
+
 function formatPricing(pricing) {
   if (!Array.isArray(pricing) || pricing.length === 0) return 'sin precio declarado'
   return pricing
     .map((p) => {
-      const unidad = String(p.unit || '').replace(/_/g, ' ')
-      return `${p.amount} ${p.currency} / ${unidad}`
+      const clave = String(p.unit || '')
+      const unidad = UNIDAD_ES[clave] || clave.replace(/_/g, ' ')
+      return `${compactAmount(p.amount)} ${p.currency} / ${unidad}`
     })
     .join(' · ')
 }

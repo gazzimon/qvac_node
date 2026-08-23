@@ -42,14 +42,55 @@ const STYLE = `
   }
   .card:hover { border-color: #4a7dfc; }
   .card.selected { border-color: #4a7dfc; box-shadow: 0 0 0 1px #4a7dfc; }
-  .card h3 { margin: 0 0 .3rem; font-size: 1rem; }
+  /* Jerarquia invertida a proposito: el titular es QUIEN provee, no que modelo
+     corre. Con el modelo de titulo, dos tarjetas de operadores distintos se
+     veian practicamente iguales -el nombre del modelo es el mismo en los dos
+     nodos- y la demo es justamente "le compro inferencia a la otra maquina".
+     El overflow-wrap es obligatorio: los modelId no tienen espacios y se
+     cortaban a la mitad ("llama_3.2_1b_intruct_tool_calli"). */
+  .card h3 { margin: 0 0 .1rem; font-size: 1.05rem; overflow-wrap: anywhere; }
+  .card .model {
+    font-family: ui-monospace, monospace; font-size: .72rem; color: #8b93a7;
+    overflow-wrap: anywhere; line-height: 1.3;
+  }
   .tags { display: flex; flex-wrap: wrap; gap: .3rem; margin: .4rem 0; }
   .tag {
     font-size: .72rem; background: #232838; color: #a9b4cc;
     padding: .1rem .5rem; border-radius: 999px;
   }
   .op { color: #8b93a7; font-size: .8rem; }
-  .price { font-size: .82rem; color: #d7dbe4; margin-top: .3rem; }
+  .price { font-size: .82rem; color: #d7dbe4; margin-top: .5rem; }
+  .price b { display: block; font-size: 1rem; color: #e6e6e6; }
+  .price span { display: block; font-size: .74rem; color: #8b93a7; }
+
+  /* Reemplaza a la barra en 0%: una barra vacia con "0%" no dice si el nodo
+     esta libre o colgado. El estado se nombra. */
+  .state { font-size: .8rem; font-weight: 600; margin-top: .6rem; }
+  .state.libre { color: #4ade80; }
+  .state.busy { color: #fbbf24; }
+  .state.full { color: #f87171; }
+
+  /* La linea de evidencia bajo la respuesta: sin esto, el texto aparece y nada
+     dice que viajo por P2P desde otra maquina. Es la prueba, no un adorno. */
+  .meta {
+    display: flex; flex-wrap: wrap; gap: .25rem .75rem; margin-top: .5rem;
+    font-size: .76rem; color: #8b93a7; font-family: ui-monospace, monospace;
+  }
+  .meta b { color: #4ade80; font-weight: 600; }
+
+  /* El descubrimiento por DHT tarda ~17s medidos. Sin estado de carga, eso son
+     17 segundos de pantalla vacia delante del jurado, que se leen como roto. */
+  .hint { color: #8b93a7; font-size: .88rem; margin: 0 0 1rem; }
+  .hint b { color: #9fd6ff; font-weight: 600; font-family: ui-monospace, monospace; }
+  .skel { background: #171a21; border: 1px solid #262b36; border-radius: 10px; padding: 1rem; }
+  .skel div {
+    height: .7rem; border-radius: 999px; background: #232838; margin-bottom: .55rem;
+    animation: pulso 1.4s ease-in-out infinite;
+  }
+  .skel div:nth-child(2) { animation-delay: .2s; }
+  .skel div:nth-child(3) { animation-delay: .4s; }
+  @keyframes pulso { 0%, 100% { opacity: .35 } 50% { opacity: .8 } }
+  @media (prefers-reduced-motion: reduce) { .skel div { animation: none } }
   .bar-row { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; }
   .bar { flex: 1; height: 6px; background: #262b36; border-radius: 999px; overflow: hidden; }
   .bar > div { height: 100%; border-radius: 999px; transition: width .4s ease; }
@@ -130,6 +171,7 @@ export const CLIENTE_HTML = page(
   `
   <h1>Marketplace de inferencias</h1>
   <p class="sub">Elegí un proveedor y mandale un prompt. La inferencia corre en su nodo, no en un datacenter central.</p>
+  <p class="hint" id="buscando" style="display:none"></p>
   <div id="grid" class="grid"></div>
 
   <div id="chat" class="chat" style="display:none">
@@ -137,6 +179,7 @@ export const CLIENTE_HTML = page(
     <textarea id="prompt" placeholder="Escribí tu prompt..."></textarea>
     <button id="send">Enviar</button>
     <pre id="out" class="response"></pre>
+    <div id="meta" class="meta" style="display:none"></div>
   </div>
 
   <script>
@@ -171,12 +214,13 @@ ${ESC}
       document.getElementById('grid').innerHTML = nodes.map(n => \`
         <div class="card" data-id="\${esc(n.id)}">
           <span class="badge \${esc(n.kind)}">\${KIND_LABEL[n.kind] || esc(n.kind)}</span>
-          <h3>\${esc(n.displayName)}</h3>
-          <div class="op">\${esc(n.operator)}</div>
+          <h3>\${esc(n.operator)}</h3>
+          <div class="model">\${esc(n.displayName)}</div>
           <div class="tags">\${n.tags.map(t => \`<span class="tag">\${esc(t)}</span>\`).join('')}</div>
           <div class="price" data-price></div>
           <span class="badge offline" data-offline style="display:none">fuera de línea</span>
-          <div class="bar-row" data-load><div class="bar"><div data-fill></div></div><span class="pct"></span></div>
+          <div class="state" data-state></div>
+          <div class="bar-row" data-load style="display:none"><div class="bar"><div data-fill></div></div><span class="pct"></span></div>
         </div>
       \`).join('')
       document.querySelectorAll('.card').forEach(el => {
@@ -184,7 +228,43 @@ ${ESC}
       })
     }
 
+    // Estado de carga del descubrimiento. Medido: el primer par tarda ~17s en
+    // aparecer por la DHT. Sin esto son 17 segundos de grilla vacia delante
+    // del jurado, que no se leen como "buscando" sino como "esta roto".
+    const abiertoEn = Date.now()
+    let buscando = false
+
+    function renderBuscando() {
+      if (buscando) return
+      buscando = true
+      const seg = () => Math.round((Date.now() - abiertoEn) / 1000)
+      document.getElementById('grid').innerHTML = \`
+        <div class="skel"><div style="width:60%"></div><div style="width:85%"></div><div style="width:40%"></div></div>
+        <div class="skel"><div style="width:70%"></div><div style="width:50%"></div><div style="width:65%"></div></div>
+      \`
+      const hint = document.getElementById('buscando')
+      hint.style.display = ''
+      hint.innerHTML = 'Buscando proveedores en la DHT… <b><span id="seg"></span>s</b>'
+      document.getElementById('seg').textContent = seg()
+      clearInterval(window.__segTimer)
+      window.__segTimer = setInterval(() => {
+        const el = document.getElementById('seg')
+        if (el) el.textContent = seg()
+      }, 1000)
+    }
+
     function render(nodes) {
+      if (!nodes.length) {
+        gridKey = null
+        nodesById = {}
+        return renderBuscando()
+      }
+      if (buscando) {
+        buscando = false
+        clearInterval(window.__segTimer)
+        document.getElementById('buscando').style.display = 'none'
+      }
+
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
 
       // Solo la identidad de los nodos justifica rearmar el DOM; el precio y
@@ -199,20 +279,55 @@ ${ESC}
         const card = document.querySelector('.card[data-id="' + CSS.escape(n.id) + '"]')
         if (!card) continue
         card.classList.toggle('selected', selected === n.id)
-        card.querySelector('[data-price]').textContent = n.pricing
+
+        // El precio se parte en monto (grande) y unidad (chica). Se arma con
+        // nodos y textContent y NO con innerHTML: el precio lo escribe el
+        // proveedor desde su panel, y ya se probo que un <img src=x onerror>
+        // ahi adentro ejecuta al abrir la pagina.
+        const precio = card.querySelector('[data-price]')
+        precio.textContent = ''
+        const corte = String(n.pricing).indexOf(' / ')
+        const monto = document.createElement('b')
+        const unidad = document.createElement('span')
+        monto.textContent = corte === -1 ? n.pricing : String(n.pricing).slice(0, corte)
+        unidad.textContent = corte === -1 ? '' : String(n.pricing).slice(corte + 3)
+        precio.appendChild(monto)
+        precio.appendChild(unidad)
 
         // Se muestra uno u otro, sin recrear nodos: asi la transicion CSS de
         // la barra anima de verdad en vez de reiniciarse en cada poll.
         const load = card.querySelector('[data-load]')
         const offline = card.querySelector('[data-offline]')
+        const estado = card.querySelector('[data-state]')
         const caido = n.loadPct === null
-        load.style.display = caido ? 'none' : ''
         offline.style.display = caido ? '' : 'none'
+        estado.style.display = caido ? 'none' : ''
+
+        // La barra solo aparece cuando hay carga de verdad. Al 0% era una
+        // barra vacia con un "0%" al lado que no distinguia "libre" de
+        // "colgado"; el estado ahora se dice con palabras.
+        load.style.display = !caido && n.loadPct > 0 ? '' : 'none'
         if (!caido) {
-          const fill = load.querySelector('[data-fill]')
-          fill.style.width = n.loadPct + '%'
-          fill.style.background = barColor(n.loadPct)
-          load.querySelector('.pct').textContent = n.loadPct + '%'
+          // Tres estados, no dos: un nodo con 1 de 4 slots tomados NO esta
+          // "ocupado" -acepta trabajo-, y decirlo asi desalienta al comprador
+          // en la unica pantalla donde elige. "Ocupado" se reserva para el que
+          // de verdad no tiene lugar.
+          const activos = n.activeRequests
+          const tope = n.maxConcurrentRequests
+          const lleno = activos >= tope
+          const ocupado = activos > 0
+          estado.className = 'state ' + (lleno ? 'full' : ocupado ? 'busy' : 'libre')
+          estado.textContent = lleno
+            ? 'Ocupado · ' + activos + '/' + tope
+            : ocupado
+              ? 'Atendiendo · ' + activos + '/' + tope
+              : 'Disponible'
+          if (ocupado) {
+            const fill = load.querySelector('[data-fill]')
+            fill.style.width = n.loadPct + '%'
+            fill.style.background = barColor(n.loadPct)
+            load.querySelector('.pct').textContent = n.loadPct + '%'
+          }
         }
       }
     }
@@ -222,7 +337,7 @@ ${ESC}
       const n = nodesById[id]
       if (!n) return
       document.getElementById('chat').style.display = 'block'
-      document.getElementById('chat-target').textContent = n.displayName + ' (' + n.operator + ')'
+      document.getElementById('chat-target').textContent = n.operator + ' · ' + n.displayName
       render(Object.values(nodesById))
     }
 
@@ -237,9 +352,46 @@ ${ESC}
       const prompt = document.getElementById('prompt').value.trim()
       if (!prompt) return
       const out = document.getElementById('out')
+
+      // El nodo elegido pudo desaparecer entre el click y el Enviar: si el par
+      // se desconecta, el poll lo saca de la grilla y esto quedaba undefined.
+      const nodo = nodesById[selected]
+      if (!nodo) {
+        out.textContent = '[error] el proveedor que elegiste ya no está conectado'
+        return
+      }
+
       out.textContent = ''
       const btn = document.getElementById('send')
       btn.disabled = true
+
+      // D7 del lado del cliente. Sin estos numeros la respuesta aparece y nada
+      // prueba que se genero en otra maquina: la linea de abajo es la
+      // evidencia de la demo, no un adorno.
+      const t0 = Date.now()
+      let primerTokenMs = null
+      let tokens = 0
+      const metaEl = document.getElementById('meta')
+      metaEl.style.display = 'none'
+      metaEl.textContent = ''
+
+      const pintarMeta = () => {
+        const total = ((Date.now() - t0) / 1000).toFixed(1)
+        const partes = [
+          (nodo.kind === 'peer' ? 'respondió ' : 'local · ') + nodo.operator,
+          tokens + ' tokens',
+          primerTokenMs === null ? 'sin respuesta' : 'primer token ' + primerTokenMs + 'ms',
+          total + 's total'
+        ]
+        metaEl.textContent = ''
+        partes.forEach((p, i) => {
+          const el = document.createElement(i === 0 && nodo.kind === 'peer' ? 'b' : 'span')
+          el.textContent = p
+          metaEl.appendChild(el)
+        })
+        metaEl.style.display = ''
+      }
+
       try {
         const resp = await fetch('/v1/chat/completions', {
           method: 'POST',
@@ -299,7 +451,12 @@ ${ESC}
             // chat.completion.chunk: el primer chunk trae solo {role} y el
             // ultimo solo {finish_reason}. Ninguno de los dos tiene content.
             const delta = ev.choices && ev.choices[0] && ev.choices[0].delta
-            out.textContent += (delta && delta.content) || ''
+            const trozo = (delta && delta.content) || ''
+            if (trozo) {
+              if (primerTokenMs === null) primerTokenMs = Date.now() - t0
+              tokens++
+            }
+            out.textContent += trozo
           }
         }
       } catch (err) {
@@ -308,6 +465,9 @@ ${ESC}
         out.textContent += '\\n[error] ' + (err && err.message ? err.message : String(err))
       } finally {
         btn.disabled = false
+        // Se pinta aun si hubo error: "0 tokens / sin respuesta" es informacion
+        // util cuando el nodo se cae a mitad de stream (D3/D4 de Fase 5).
+        pintarMeta()
       }
     }
 
