@@ -50,6 +50,7 @@
     "make:linux-x64": "bare-build --name pyrusllm --standalone --host linux-x64 --out ./out/linux-x64 bin.mjs",
     "make:win32-x64": "bare-build --name pyrusllm --standalone --host win32-x64 --out ./out/win32-x64 bin.mjs",
     "soak": "node scripts/soak.js",
+    "auditoria": "node scripts/auditoria.js",
     "release": "node scripts/release.js",
     "release:host": "node scripts/release.js --host",
     "seed": "pear seed pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny"
