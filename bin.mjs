@@ -60,6 +60,11 @@ const serveCmd = command(
       ' Sin este flag el gateway arranca sin ningun nodo.'
   ),
   flag('--swarm', 'unirse al topic P2P y poblar el registro con pares verificados (Fase 2-b)'),
+  flag(
+    '--no-store',
+    'no abrir el Hyperbee/Hyperdrive: el nodo corre sin persistencia ni archivos,' +
+      ' como antes de Fase 5. Util para correr dos nodos sobre el mismo --storage.'
+  ),
   flag('--operator <nombre>', 'nombre del operador que se anuncia en el manifiesto'),
   flag(
     '--gpu-layers <n>',
@@ -90,6 +95,61 @@ const peersCmd = command(
   }
 )
 
+// ---------------------------------------------------------------------------
+// Archivos entre maquinas (Hyperdrive). Ver qvac/files.mjs.
+// ---------------------------------------------------------------------------
+
+const sendCmd = command(
+  'send',
+  summary('Publicar un archivo o carpeta y compartirlo por P2P'),
+  description(
+    'Mete el archivo en el Hyperdrive de este nodo y lo anuncia en la DHT.\n' +
+      'Imprime un link qvac:// que la otra maquina baja con `qvac-node fetch`.\n\n' +
+      'El proceso QUEDA CORRIENDO a proposito: Hypercore no es store-and-forward,\n' +
+      'no hay servidor donde el archivo quede guardado. Los bytes salen de esta\n' +
+      'maquina, asi que tiene que estar prendida mientras la otra baja.\n\n' +
+      'Solo se transfiere lo que se pide: un drive con 40 GB publicados no\n' +
+      'obliga a nadie a bajar mas que el archivo que eligio.'
+  ),
+  arg('<ruta>', 'archivo o carpeta a publicar'),
+  flag('--as <nombre>', 'nombre con el que se publica (default: el del archivo)'),
+  () => {
+    pending = runSend()
+  }
+)
+
+const fetchCmd = command(
+  'fetch',
+  summary('Bajar un archivo publicado por otra maquina'),
+  description(
+    'Toma un link qvac://<clave>/<ruta> y baja ese archivo a disco.\n\n' +
+      'Cada bloque se verifica contra el merkle root del drive al llegar: un\n' +
+      'archivo alterado a mitad de camino no puede completarse. Lo que la clave\n' +
+      'NO prueba es de quien es; eso depende del canal por el que llego el link.'
+  ),
+  arg('<link>', 'link qvac:// que imprimio `qvac-node send`'),
+  flag('--out <dir>', 'carpeta destino (default: la actual)'),
+  flag('--timeout <s>', 'cuanto esperar a que aparezca un par con el drive (default 60)'),
+  () => {
+    pending = runFetch()
+  }
+)
+
+const filesCmd = command(
+  'files',
+  summary('Listar los archivos publicados por este nodo o por un par'),
+  description(
+    'Sin argumentos lista lo que publica esta maquina.\n' +
+      'Con --link lista lo que publica el drive de otra, sin bajar el contenido:\n' +
+      'la metadata de un Hyperdrive se replica aparte de los blobs.'
+  ),
+  flag('--link <qvac://…>', 'listar el drive de otra maquina en vez del propio'),
+  flag('--timeout <s>', 'cuanto esperar al par remoto (default 30)'),
+  () => {
+    pending = runFiles()
+  }
+)
+
 const cmd = command(
   appName,
   summary(pkg.description),
@@ -100,6 +160,9 @@ const cmd = command(
   promptCmd,
   serveCmd,
   peersCmd,
+  sendCmd,
+  fetchCmd,
+  filesCmd,
   () => {
     pending = runNode()
   }
@@ -242,6 +305,7 @@ async function runServe() {
 
   let nodeSwarm = null
   let provider = null
+  let data = null
   if (useSwarm) {
     // El swarm escribe en el MISMO registro que lee el gateway: un manifiesto
     // verificado se vuelve una fila del marketplace, y los paneles la dibujan
@@ -249,7 +313,24 @@ async function runServe() {
     const store = await import('./qvac/store.mjs')
     const operator = serveCmd.flags.operator || `Nodo de ${os.hostname()}`
 
-    nodeSwarm = await joinSwarm({ operator, store })
+    // El Hyperbee y el Hyperdrive se abren ANTES del join: el manifiesto que
+    // se firma al conectarse lleva la clave del directorio adentro, y firmarlo
+    // sin ella significaria anunciar el mock de D2 durante toda la sesion.
+    if (serveCmd.flags.store !== false) {
+      data = await openData(swarmStorageDir())
+      store.attachDirectory(data.directory)
+
+      const hidratados = await store.hydrateFromDirectory()
+      if (hidratados > 0) {
+        console.log(`  [store] ${hidratados} par/es del directorio, offline hasta que se conecten`)
+      }
+
+      // La poda es del arranque y no de un timer: correrla mientras el nodo
+      // sirve tokens seria meter escrituras al bee en el camino caliente.
+      data.directory.pruneLog().catch(() => {})
+    }
+
+    nodeSwarm = await joinSwarm({ operator, store, data })
 
     // Este nodo tambien SIRVE: `serve --swarm` es el nodo completo (gateway +
     // proveedor). Se registra la fila local en el registro con o sin --demo,
@@ -301,6 +382,12 @@ async function runServe() {
     // les cierre el socket abajo.
     if (provider) await provider.shutdown()
     if (nodeSwarm) await nodeSwarm.destroy()
+
+    // El corestore va DESPUES del swarm: cerrarlo con sockets replicando
+    // encima deja streams escribiendo contra cores ya cerrados. Si tarda, el
+    // timeout de arriba corta igual.
+    if (data) await data.close().catch(() => {})
+
     await shutdownGateway()
     server.close(() => {
       clearTimeout(forced)
@@ -349,7 +436,43 @@ function swarmStorageDir() {
   return cmd.flags.storage || path.join(isDev ? os.tmpdir() : persistent(), appName)
 }
 
-async function joinSwarm({ operator, store = null }) {
+// Abre el Corestore y lo que cuelga de el: el Hyperbee del directorio y el
+// Hyperdrive de archivos. Devuelve las tres cosas mas un `close()` que las
+// cierra en orden.
+//
+// UN SOLO PROCESO POR DIRECTORIO DE STORAGE. El Corestore toma un lock de
+// RocksDB sobre su carpeta: `qvac-node send` mientras corre `qvac-node serve`
+// sobre el mismo `--storage` falla al abrir. Es una restriccion real y no un
+// bug; para correr los dos a la vez, pasale `--storage` distinto al segundo.
+async function openData(dir, { files = true } = {}) {
+  const { openStore, closeStore } = await import('./qvac/corestore.mjs')
+  const { Directory } = await import('./qvac/directory.mjs')
+
+  const corestore = await openStore(dir)
+
+  const directory = new Directory(corestore)
+  await directory.ready()
+
+  let filesApi = null
+  if (files) {
+    const { Files } = await import('./qvac/files.mjs')
+    filesApi = new Files(corestore)
+    await filesApi.ready()
+  }
+
+  return {
+    corestore,
+    directory,
+    files: filesApi,
+    async close() {
+      if (filesApi) await filesApi.close()
+      await directory.close()
+      await closeStore()
+    }
+  }
+}
+
+async function joinSwarm({ operator, store = null, data = null }) {
   const { loadOrCreateIdentity } = await import('./qvac/identity.mjs')
   const { NodeSwarm, TOPIC_NAME } = await import('./qvac/swarm.mjs')
 
@@ -363,7 +486,10 @@ async function joinSwarm({ operator, store = null }) {
     models,
     operator: operator || `Nodo de ${os.hostname()}`,
     tags: ['general', 'chat'],
-    store
+    store,
+    corestore: data ? data.corestore : null,
+    directory: data ? data.directory : null,
+    files: data ? data.files : null
   })
 
   console.log('')
@@ -371,10 +497,26 @@ async function joinSwarm({ operator, store = null }) {
   console.log(`  [swarm] identidad: ${identity.publicKey.toString('hex').slice(0, 16)}…`)
   console.log(`  [swarm] ${identity.created ? 'clave NUEVA generada' : 'clave existente reusada'}`)
   console.log(`  [swarm] anuncia  : ${models.map((m) => m.modelId).join(', ')}`)
+  if (data) {
+    console.log(
+      `  [swarm] directorio: ${data.directory.keyHex.slice(0, 16)}… (v${data.directory.version})`
+    )
+    if (data.files) console.log(`  [swarm] archivos : ${data.files.keyHex.slice(0, 16)}…`)
+  }
   console.log('')
 
   await nodeSwarm.join()
   nodeSwarm.startStatusBroadcast()
+
+  // El drive se anuncia tambien en SU propio topic, no solo por
+  // `files:announce` a los pares del marketplace. Asi un link `qvac://` que
+  // alguien pegue en otra maquina se puede bajar sin que esa maquina tenga que
+  // entrar al marketplace ni descubrir a este nodo por el topic comun.
+  if (data && data.files) {
+    data.files.swarm = nodeSwarm.swarm
+    await data.files.serve()
+  }
+
   console.log('  [swarm] anunciado en la DHT, esperando pares...')
   console.log('')
 
@@ -448,6 +590,211 @@ async function runPeers() {
   process.on('SIGINT', () => finish(0))
   process.on('SIGQUIT', () => finish(131))
   process.on('SIGTERM', () => finish(143))
+}
+
+// ---------------------------------------------------------------------------
+// qvac-node send / fetch / files
+// ---------------------------------------------------------------------------
+
+// Sesion minima para los comandos de archivos: corestore + drive + un swarm
+// propio. NO se une al topic del marketplace -- un `fetch` no tiene por que
+// anunciarse como nodo de inferencia ni descubrir proveedores. Se une nada mas
+// que al topic del drive que le interesa.
+async function filesSession() {
+  const Hyperswarm = (await import('hyperswarm')).default
+  const { loadOrCreateIdentity } = await import('./qvac/identity.mjs')
+
+  const dir = swarmStorageDir()
+  const identity = loadOrCreateIdentity(dir)
+  const data = await openData(dir)
+
+  const swarm = new Hyperswarm({ keyPair: identity })
+  // Cada conexion replica el corestore entero. Es la unica cosa que estos
+  // comandos hacen sobre la red.
+  swarm.on('connection', (socket) => {
+    socket.on('error', () => {})
+    data.corestore.replicate(socket)
+  })
+
+  data.files.swarm = swarm
+
+  return {
+    ...data,
+    swarm,
+    async close() {
+      await swarm.destroy()
+      await data.close()
+    }
+  }
+}
+
+function mb(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1e6) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1e6).toFixed(1)} MB`
+}
+
+async function runSend() {
+  const fs = await import('bare-fs')
+  const ruta = sendCmd.args.ruta
+
+  let stat
+  try {
+    stat = fs.default.statSync(ruta)
+  } catch {
+    console.error(`[files] no existe: ${ruta}`)
+    Bare.exitCode = 1
+    return
+  }
+
+  const sesion = await filesSession()
+
+  try {
+    const esDir = stat.isDirectory()
+    const res = esDir
+      ? await sesion.files.shareDir(ruta, sendCmd.flags.as)
+      : await sesion.files.share(ruta, sendCmd.flags.as)
+
+    // El drive se anuncia en su propio topic. `flushed()` espera a que este
+    // publicado en la DHT: sin eso, imprimir el link y que el otro lo pegue al
+    // segundo siguiente es una carrera que pierde el que baja.
+    await sesion.files.serve()
+
+    console.log('')
+    console.log(`  QVAC-NODE v${pkg.version} — compartiendo por P2P`)
+    console.log('')
+    if (esDir) {
+      console.log(`  carpeta  : ${res.base}  (${res.files.length} archivo/s)`)
+      const total = res.files.reduce((n, f) => n + f.bytes, 0)
+      console.log(`  tamaño   : ${mb(total)}`)
+    } else {
+      console.log(`  archivo  : ${res.path}`)
+      console.log(`  tamaño   : ${mb(res.bytes)}`)
+    }
+    console.log(`  drive    : ${sesion.files.keyHex}`)
+    console.log('')
+    console.log('  En la otra maquina:')
+    console.log('')
+    console.log(`    qvac-node fetch ${res.link}`)
+    console.log('')
+    console.log('  Este proceso tiene que quedar CORRIENDO mientras el otro baja:')
+    console.log('  los bytes salen de aca, no de un servidor. Ctrl+C para cortar.')
+    console.log('')
+  } catch (err) {
+    console.error(`[files] no se pudo publicar: ${(err && err.message) || err}`)
+    await sesion.close()
+    Bare.exitCode = 1
+    return
+  }
+
+  const finish = async (code) => {
+    console.log('\n[files] cerrando...')
+    await sesion.close()
+    Bare.exit(code)
+  }
+
+  process.on('SIGHUP', () => finish(129))
+  process.on('SIGINT', () => finish(0))
+  process.on('SIGQUIT', () => finish(131))
+  process.on('SIGTERM', () => finish(143))
+}
+
+async function runFetch() {
+  const pathMod = await import('bare-path')
+  const { parseLink } = await import('./qvac/files.mjs')
+
+  let link
+  try {
+    link = parseLink(fetchCmd.args.link)
+  } catch (err) {
+    console.error(`[files] ${err.message}`)
+    Bare.exitCode = 1
+    return
+  }
+
+  const timeoutMs = (Number.isFinite(+fetchCmd.flags.timeout) ? +fetchCmd.flags.timeout : 60) * 1000
+  const outDir = fetchCmd.flags.out || '.'
+  const sesion = await filesSession()
+
+  console.log('')
+  console.log(`  drive    : ${link.keyHex.slice(0, 16)}…`)
+  console.log(`  ruta     : ${link.path}`)
+  console.log('  buscando un par que lo tenga...')
+
+  let code = 0
+  const t0 = Date.now()
+
+  try {
+    // Una ruta que termina en '/' es una carpeta. Es la unica pista que hay:
+    // preguntarle al drive obliga a esperar la metadata, y si no aparece nadie
+    // no se puede distinguir "es carpeta" de "no hay par".
+    if (link.path.endsWith('/')) {
+      const escritos = await sesion.files.pullDir(link.keyHex, link.path, outDir, {
+        timeoutMs,
+        onFile: ({ dest }) => console.log(`  ✓ ${dest}`)
+      })
+      console.log('')
+      console.log(`  ${escritos.length} archivo/s en ${secs(Date.now() - t0)}`)
+    } else {
+      const nombre = link.path.split('/').filter(Boolean).pop()
+      const dest = pathMod.default.join(outDir, nombre)
+
+      let ultimo = -1
+      const res = await sesion.files.pull(link.keyHex, link.path, dest, {
+        timeoutMs,
+        onProgress: ({ progress, bytes, total }) => {
+          const pct = Math.floor(progress * 100)
+          if (pct === ultimo) return
+          ultimo = pct
+          process.stdout.write(`\r  bajando ${pct}%  ${mb(bytes)} / ${mb(total)}   `)
+        }
+      })
+      process.stdout.write('\n')
+      console.log('')
+      console.log(`  ✓ ${res.path}  (${mb(res.bytes)} en ${secs(Date.now() - t0)})`)
+    }
+    console.log('')
+  } catch (err) {
+    console.error(`\n[files] no se pudo bajar: ${(err && err.message) || err}`)
+    code = 1
+  }
+
+  await sesion.close()
+  Bare.exit(code)
+}
+
+async function runFiles() {
+  const { parseLink } = await import('./qvac/files.mjs')
+  const timeoutMs = (Number.isFinite(+filesCmd.flags.timeout) ? +filesCmd.flags.timeout : 30) * 1000
+
+  const sesion = await filesSession()
+  let code = 0
+
+  try {
+    if (filesCmd.flags.link) {
+      const link = parseLink(filesCmd.flags.link)
+      console.log(`\n  drive remoto ${link.keyHex.slice(0, 16)}…\n`)
+      const entradas = await sesion.files.listRemote(link.keyHex, link.path, { timeoutMs })
+      if (entradas.length === 0) console.log('  (vacio)')
+      for (const e of entradas) console.log(`  ${e.path.padEnd(40)} ${mb(e.bytes)}`)
+    } else {
+      console.log(`\n  drive local ${sesion.files.keyHex}\n`)
+      const entradas = await sesion.files.list()
+      if (entradas.length === 0) {
+        console.log('  (todavia no publicaste nada)')
+        console.log('')
+        console.log(`  Proba:  ${appName} send ./archivo.pdf`)
+      }
+      for (const e of entradas) console.log(`  ${e.path.padEnd(40)} ${mb(e.bytes)}`)
+    }
+    console.log('')
+  } catch (err) {
+    console.error(`[files] ${(err && err.message) || err}`)
+    code = 1
+  }
+
+  await sesion.close()
+  Bare.exit(code)
 }
 
 // ---------------------------------------------------------------------------

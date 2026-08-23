@@ -250,3 +250,237 @@ test('buildManifest rechaza entradas invalidas y marca los mocks', async (t) => 
   t.ok(m.directory._mock, 'directory esta marcado como mock')
   t.is(m.node.endpoint.openaiCompatible, false, 'D1: no hay baseUrl P2P al que apuntar')
 })
+
+// ---------------------------------------------------------------------------
+// Manifiesto: el directorio deja de ser mock cuando hay un Hyperbee detras
+// ---------------------------------------------------------------------------
+
+test('buildManifest firma el directorio real cuando se le pasa uno', async (t) => {
+  const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
+  const id = createIdentity()
+
+  const directory = {
+    writerPublicKey: 'ab'.repeat(32),
+    discoveryKey: 'cd'.repeat(32),
+    sequence: 7
+  }
+
+  const m = signManifest(
+    buildManifest({ publicKey: id.publicKey, models: MODELS, directory }),
+    id.secretKey
+  )
+
+  t.absent(m.directory._mock, 'sin la marca de mock: el directorio es real')
+  t.is(m.directory.writerPublicKey, directory.writerPublicKey)
+  t.is(m.directory.sequence, 7)
+  t.ok(verifyManifest(m, { expectedPublicKey: id.publicKey }).ok, 'la firma cubre el directorio')
+
+  // Un descriptor mal armado tiene que morir ANTES de firmarse: un manifiesto
+  // firmado con una clave que no existe manda al par a replicar la nada, y el
+  // error aparece a tres saltos de donde se origino.
+  t.exception(
+    () =>
+      buildManifest({
+        publicKey: id.publicKey,
+        models: MODELS,
+        directory: { ...directory, writerPublicKey: 'nope' }
+      }),
+    /hex de 32 bytes/
+  )
+  t.exception(
+    () =>
+      buildManifest({
+        publicKey: id.publicKey,
+        models: MODELS,
+        directory: { ...directory, sequence: -1 }
+      }),
+    /entero/
+  )
+})
+
+test('cambiar el directorio firmado invalida la firma', async (t) => {
+  const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
+  const id = createIdentity()
+
+  const m = signManifest(
+    buildManifest({
+      publicKey: id.publicKey,
+      models: MODELS,
+      directory: { writerPublicKey: 'ab'.repeat(32), discoveryKey: 'cd'.repeat(32), sequence: 1 }
+    }),
+    id.secretKey
+  )
+
+  // Apuntar el directorio de otro nodo a un Hyperbee propio seria poder
+  // reescribirle el marketplace entero a quien confie en ese manifiesto.
+  const alterado = { ...m, directory: { ...m.directory, writerPublicKey: 'ff'.repeat(32) } }
+  t.absent(verifyManifest(alterado, { expectedPublicKey: id.publicKey }).ok)
+})
+
+// ---------------------------------------------------------------------------
+// Links de archivos (qvac://)
+// ---------------------------------------------------------------------------
+
+test('los links qvac:// van y vuelven sin perder nada', async (t) => {
+  const { formatLink, parseLink, drivePath } = await import('../qvac/files.mjs')
+  const clave = '3f'.repeat(32)
+
+  const link = formatLink(clave, '/planos/casa.pdf')
+  t.is(link, 'qvac://' + clave + '/planos/casa.pdf')
+
+  const vuelta = parseLink(link)
+  t.is(vuelta.keyHex, clave)
+  t.is(vuelta.path, '/planos/casa.pdf')
+
+  // Sin ruta se asume la raiz: sirve para listar el drive entero.
+  t.is(parseLink('qvac://' + clave).path, '/')
+
+  t.exception(() => parseLink('http://ejemplo.com/x.pdf'), /empieza con qvac/)
+  t.exception(() => parseLink('qvac://cortito/x.pdf'), /hex de 32 bytes/)
+
+  // En Windows path.join mete backslashes. Sin normalizar, el archivo se sube
+  // con backslashes en el nombre y del otro lado no lo encuentra nadie.
+  t.is(drivePath('planos\\casa.pdf'), '/planos/casa.pdf')
+  t.is(drivePath('//planos//casa.pdf'), '/planos/casa.pdf')
+})
+
+// ---------------------------------------------------------------------------
+// Directorio Hyperbee + la barrera que lo separa del ruteo
+// ---------------------------------------------------------------------------
+
+async function directorioTemporal() {
+  const Corestore = require('corestore')
+  const fs = require('bare-fs')
+  const os = require('bare-os')
+  const path = require('bare-path')
+  const { Directory } = await import('../qvac/directory.mjs')
+
+  // No se usa mkdtempSync: en Windows bare-fs devuelve una ruta extendida
+  // y RocksDB le concatena "db/LOG" con barra normal, que despues de ese
+  // prefijo es ilegal. El codigo real no pasa por mkdtemp. Ver NOTES.md.
+  const dir = path.join(
+    os.tmpdir(),
+    'qvac-test-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  )
+  fs.mkdirSync(dir, { recursive: true })
+
+  const store = new Corestore(dir)
+  await store.ready()
+  const directory = new Directory(store)
+  await directory.ready()
+
+  return {
+    directory,
+    async close() {
+      await directory.close()
+      await store.close()
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+      } catch {}
+    }
+  }
+}
+
+function manifiestoDe(operator, modelIds) {
+  return {
+    models: modelIds.map((id) => ({
+      modelId: id,
+      displayName: id,
+      qos: { maxConcurrentRequests: 2 }
+    })),
+    metadata: { operator, tags: ['general'] }
+  }
+}
+
+test('el directorio guarda pares y los indexa por modelo', async (t) => {
+  const { directory, close } = await directorioTemporal()
+  const A = 'aa'.repeat(32)
+  const B = 'bb'.repeat(32)
+
+  await directory.recordManifest(A, manifiestoDe('FiscalNode', ['facturas-ar', 'llama1b']))
+  await directory.recordManifest(B, manifiestoDe('ArqNode', ['llama1b']))
+  await directory.flush()
+
+  const pares = await directory.knownPeers()
+  t.is(pares.length, 2, 'los dos pares quedaron guardados')
+
+  // El indice secundario por modelo es lo que evita recorrer todos los pares
+  // para contestar "quien sirve llama1b".
+  const proveedores = await directory.providersOf('llama1b')
+  t.is(proveedores.length, 2)
+  t.alike(proveedores.map((p) => p.operator).sort(), ['ArqNode', 'FiscalNode'])
+  t.is((await directory.providersOf('facturas-ar')).length, 1)
+
+  // Reanunciar con MENOS modelos no puede dejar fantasmas del anuncio anterior.
+  await directory.recordManifest(A, manifiestoDe('FiscalNode', ['facturas-ar']))
+  await directory.flush()
+  const soloB = await directory.providersOf('llama1b')
+  t.is(soloB.length, 1, 'el modelo que el par dejo de servir no sigue indexado')
+  t.is(soloB[0].operator, 'ArqNode')
+
+  await close()
+})
+
+test('el directorio acumula estadisticas y log podable', async (t) => {
+  const { directory, close } = await directorioTemporal()
+  const A = 'aa'.repeat(32)
+
+  await directory.recordStat(A, { ok: true, ms: 120, tokens: 50 })
+  await directory.recordStat(A, { ok: false, ms: 900, tokens: 0 })
+  await directory.flush()
+
+  const s = await directory.stats(A)
+  t.is(s.requests, 2)
+  t.is(s.errors, 1, 'los errores se cuentan aparte: es la base de la reputacion')
+  t.is(s.tokens, 50)
+
+  const ahora = Date.now()
+  await directory.pushLog({ que: 'viejo' }, { now: ahora - 30 * 24 * 60 * 60 * 1000 })
+  await directory.pushLog({ que: 'nuevo' }, { now: ahora })
+  await directory.flush()
+
+  const log = await directory.recentLog(10)
+  t.is(log.length, 2)
+  t.is(log[0].que, 'nuevo', 'el log sale del mas nuevo al mas viejo')
+
+  const podadas = await directory.pruneLog({ now: ahora })
+  t.is(podadas, 1, 'la entrada de hace 30 dias se poda')
+  t.is((await directory.recentLog(10)).length, 1)
+
+  await close()
+})
+
+test('un par del directorio NO puede volverse candidato de ruteo', async (t) => {
+  const { directory, close } = await directorioTemporal()
+  const store = await import('../qvac/store.mjs')
+  const A = 'aa'.repeat(32)
+
+  await directory.recordManifest(A, manifiestoDe('FiscalNode', ['llama1b']))
+  await directory.flush()
+
+  store.attachDirectory(directory)
+  const n = await store.hydrateFromDirectory()
+  t.is(n, 1, 'el par del bee entra a la grilla')
+
+  const filas = store.listNodes().filter((f) => f.modelId === 'llama1b')
+  t.is(filas.length, 1)
+  t.is(filas[0].kind, 'known', 'entra como conocido, no como par conectado')
+  t.is(filas[0].status, 'offline')
+
+  // LA invariante: un manifiesto replicado prueba que alguien dijo algo, no
+  // que ese alguien este vivo. D3 no puede tener excepciones ni por accidente.
+  t.is(store.findAllByModelId('llama1b').length, 0, 'no es candidato de ruteo')
+
+  // Cuando se conecta de verdad SI lo es.
+  store.upsertFromManifest(A, manifiestoDe('FiscalNode', ['llama1b']))
+  t.is(store.findAllByModelId('llama1b').length, 1, 'con socket vivo pasa a candidato')
+
+  // Y al caerse la conexion vuelve a ser conocido: deja de rutear en el acto,
+  // pero no desaparece del panel.
+  store.removeByPeer(A)
+  t.is(store.findAllByModelId('llama1b').length, 0, 'deja de ser candidato al instante')
+  t.is(store.listNodes().filter((f) => f.modelId === 'llama1b')[0].status, 'offline')
+
+  store.attachDirectory(null)
+  await close()
+})

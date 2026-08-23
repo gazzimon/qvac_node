@@ -64,6 +64,72 @@ pesos es siempre un efecto explícito de pedir una inferencia.
 
 ---
 
+## Mandar archivos entre máquinas
+
+```bash
+# en la máquina que manda
+qvac-node send ./plano.pdf
+#   drive : 41dc77b9…
+#   En la otra maquina:
+#     qvac-node fetch qvac://41dc77b9…/plano.pdf
+
+# en la máquina que recibe
+qvac-node fetch qvac://41dc77b9…/plano.pdf --out ./descargas
+qvac-node files --link qvac://41dc77b9…/     # listar sin bajar nada
+```
+
+Va por **Hyperdrive**: un Hyperbee de metadata (ruta → puntero al blob) más un
+Hyperblobs con los bytes. De ahí salen las dos propiedades que importan:
+
+- **Se transfiere solo lo que se pide.** Un drive con 40 GB publicados no
+  obliga a nadie a bajar más que el archivo que eligió. `files --link` lista el
+  contenido sin traer un solo byte de blob, porque la metadata replica aparte.
+- **Cada bloque se verifica contra el merkle root al llegar.** Un archivo
+  alterado a mitad de camino no puede completarse. Eso lo da Hypercore.
+
+Dos cosas que **no** hace, dichas en voz alta:
+
+1. **No es store-and-forward.** No hay servidor donde el archivo quede
+   guardado: los bytes salen de la máquina que hizo `send`, y por eso ese
+   proceso queda corriendo. Si se apaga antes de que el otro termine, la
+   descarga se corta (y retoma sola cuando vuelve: lo que ya bajó no se
+   re-descarga).
+2. **La clave no dice de quién es.** Que los bytes correspondan a la clave está
+   garantizado; que la clave sea de quien creés, no. Cuando llega por
+   `files:announce` viene por el canal Noise ya autenticado y es atribuible al
+   par. Cuando la pegás a mano, la confianza es la del canal por el que te
+   pasaron el link.
+
+El mismo Hyperdrive es el que resuelve el transporte de los nodos verticales
+del marketplace: un plano o un PDF escaneado no entra por el canal de control
+—16 MiB por frame, y `Provider._validate` corta el contenido en 32000
+caracteres—, así que "Facturas AR" y "Lectura de planos" reciben la clave del
+drive y la ruta, no el archivo.
+
+---
+
+## El marketplace se acuerda de los nodos que vio
+
+Antes, dos nodos se conocían **solo si estaban online al mismo tiempo**: el
+manifiesto se intercambiaba en el handshake y moría con el socket. Ahora cada
+nodo escribe los manifiestos verificados en un **Hyperbee** propio que replica
+con sus pares, así que conectarse con uno alcanza para enterarse de todos los
+que ese par vio.
+
+Retransmitir el manifiesto de un tercero es seguro porque ya viene firmado: el
+que lo recibe de rebote lo verifica igual, sin confiar en el intermediario.
+
+Lo que un manifiesto de rebote **no** prueba es que ese nodo esté vivo —
+`verifyManifest` ata la firma a la clave del socket, y un manifiesto que sale
+del Hyperbee no tiene socket. Por eso esas entradas aparecen en el panel como
+**conocidas y offline**, y nunca como candidatas de ruteo: D3 (el candidato
+nace y muere con su socket) no tiene excepciones. Hay un test que lo fija.
+
+De paso, el campo `directory` del manifiesto **deja de ser un mock** (D2 del
+roadmap): lo que se firma ahí es la clave real del Hyperbee.
+
+---
+
 ## Por qué el pear-runtime corre en un worker thread
 
 Usamos la variante `main` de `hello-pear-bare`: el updater OTA vive en un
@@ -193,4 +259,21 @@ en [NOTES.md](NOTES.md).
 
 `bare` 1.31 · `pear-runtime` 1.3.1 · `hyperswarm` 4.17 · `hypercore` 11.35 ·
 `@qvac/bare-sdk` 0.17.1 + `@qvac/llm-llamacpp` 0.46.0 (Fase 1) ·
-`bare-http1` 4.5.8 (Fase 2)
+`bare-http1` 4.5.8 (Fase 2) · `protomux` 3.11 + `corestore` 7.12 +
+`hyperbee` 2.27 + `hyperdrive` 13.3 (Fase 5)
+
+### Una conexión, tres cosas encima
+
+El socket de Hyperswarm ya no va envuelto en `FramedStream` —que se adueña del
+stream— sino en un canal **Protomux** (`qvac/node/v0`). Sobre ese mismo
+multiplexor viaja la replicación del Corestore. Resultado: un solo
+hole-punch transporta el chat, el directorio Hyperbee y los Hyperdrive de
+archivos, sin la segunda conexión que D1 existe para evitar.
+
+El cap de 16 MiB por frame que daba `bits: 24` no se pierde: `NoiseSecretStream`
+frena en `MAX_ATOMIC_WRITE = 0xffffff`, los mismos 16 MiB, una capa más abajo.
+
+**Esto rompe compatibilidad de cable con v0.10.0.** Un nodo viejo y uno nuevo no
+pueden hacer handshake, así que el topic pasó a `qvac-node:marketplace:v1`: en la
+ventana del OTA cada versión se ve entre sí y no se cruzan, en vez de conectarse
+y quedarse mudas hasta el timeout.

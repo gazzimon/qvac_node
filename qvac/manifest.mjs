@@ -15,7 +15,11 @@
 import crypto from 'hypercore-crypto'
 
 export const SCHEMA_VERSION = 0
-export const PROTOCOL_VERSION = '0.1.0'
+// 0.2.0: el transporte pasa de FramedStream a un canal Protomux, se agrega
+// `files:announce`, y `directory` deja de ser un mock. El schemaVersion NO
+// cambia -- la forma del manifiesto es la misma, lo que cambio es el protocolo
+// que lo transporta y el contenido de un campo que antes era relleno.
+export const PROTOCOL_VERSION = '0.2.0'
 
 // ---------------------------------------------------------------------------
 // JCS — RFC 8785
@@ -99,11 +103,32 @@ const ECONOMIC_MOCK = {
   settlement: 'batch-receipts'
 }
 
+// El directorio DEJO de ser un mock cuando el nodo abre su Hyperbee: la clave
+// que se firma aca es la que el par usa para replicarlo (ver directory.mjs).
+// El mock queda para los caminos que no montan almacenamiento -- `peers` sin
+// storage, y los tests del manifiesto, que no tienen por que abrir un disco.
 const DIRECTORY_MOCK = {
   _mock: 'NO IMPLEMENTADO — valores fijos para validar el schema. Ver ROADMAP D2.',
   writerPublicKey: '00'.repeat(32),
   discoveryKey: '00'.repeat(32),
   sequence: 0
+}
+
+// Se valida la forma antes de firmarla. Un descriptor mal armado firmado es
+// peor que ninguno: el par lo verifica bien, intenta replicar una clave que no
+// existe, y el error aparece a tres saltos de donde se origino.
+function directorySection(directory) {
+  if (!directory) return DIRECTORY_MOCK
+
+  const { writerPublicKey, discoveryKey, sequence } = directory
+  if (!isHex(writerPublicKey, 32) || !isHex(discoveryKey, 32)) {
+    throw new Error('buildManifest: el directorio necesita claves hex de 32 bytes')
+  }
+  if (!Number.isInteger(sequence) || sequence < 0) {
+    throw new Error('buildManifest: directory.sequence tiene que ser un entero >= 0')
+  }
+
+  return { writerPublicKey, discoveryKey, sequence }
 }
 
 // Un manifiesto SIN firmar. `signManifest` es el unico que le agrega
@@ -115,6 +140,7 @@ export function buildManifest({
   operator = 'Nodo QVAC',
   tags = [],
   region = 'sa-east',
+  directory = null,
   ttlMs = 24 * 60 * 60 * 1000,
   now = Date.now()
 }) {
@@ -167,7 +193,7 @@ export function buildManifest({
       allowedTools: [],
       maxToolCallsPerRequest: 0
     },
-    directory: DIRECTORY_MOCK,
+    directory: directorySection(directory),
     metadata: { operator, tags }
   }
 }

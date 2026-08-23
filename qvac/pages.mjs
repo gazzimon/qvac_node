@@ -255,7 +255,10 @@ export const CLIENTE_HTML = page(
     const KIND_LABEL = {
       real: 'nodo real (este equipo)',
       peer: 'par P2P verificado',
-      mock: 'simulado'
+      mock: 'simulado',
+      // Sale del directorio Hyperbee: su manifiesto verifico alguna vez, pero
+      // ahora no hay socket. Nunca es candidato de ruteo (ver store.mjs).
+      known: 'conocido · desconectado'
     }
 ${ESC}
 

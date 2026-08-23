@@ -1,17 +1,54 @@
-// Registro en memoria del marketplace simulado (Fase 2, demo corta).
+// Registro del marketplace: la vista CALIENTE, en memoria.
 //
 // Mezcla UN nodo real (infiere de verdad via engine.mjs) con nodos mock
-// (responden texto enlatado, tokenizado, para parecer streaming real). No hay
-// P2P ni firma todavia -eso es Fase 2/3 completas, ver ROADMAP_FASE2-6.md-,
-// esto es solo lo minimo para que los 3 paneles (cliente/proveedor/admin)
-// tengan algo real que mostrar en el video. Se resetea al reiniciar el
-// proceso, a proposito: no hay persistencia que mantener para una demo.
+// (responden texto enlatado, tokenizado, para parecer streaming real) y con
+// los pares P2P verificados.
+//
+// PERSISTENCIA. Este Map sigue siendo la unica fuente para el ruteo, y sigue
+// arrancando vacio: lo que un candidato necesita es un socket vivo, y eso no
+// se persiste. Lo que SI se persiste es la historia -- quien existe, que
+// anuncio, como se porto -- y eso vive en el Hyperbee de directory.mjs. Se
+// engancha con `attachDirectory()`; sin el, este modulo se comporta
+// exactamente como antes.
+//
+// La regla que ordena las dos capas: el bee no puede crear candidatos. Una
+// fila que salio del directorio entra como 'known' y con `status: 'offline'`,
+// y `findAllByModelId` filtra por online -- asi D3 (el candidato muere con el
+// socket) no tiene excepciones ni siquiera por accidente.
 
 const nodes = new Map()
 const routingLog = []
 const MAX_LOG = 30
 
 let fluctuationTimer = null
+
+// El Hyperbee, si hay. Escribir es fire-and-forget: `directory._write` encola
+// y traga los errores, para que un disco lento no frene el handler del swarm.
+let directory = null
+
+export function attachDirectory(dir) {
+  directory = dir
+}
+
+export function getDirectory() {
+  return directory
+}
+
+// Trae del directorio los pares que este nodo conocio ALGUNA VEZ y los deja en
+// la grilla como offline. Es lo que hace que el panel muestre el marketplace
+// entero al arrancar en vez de una tabla vacia esperando a que alguien se
+// conecte.
+export async function hydrateFromDirectory() {
+  if (!directory) return 0
+
+  let n = 0
+  for (const entry of await directory.knownPeers()) {
+    if (!entry || !entry.manifest) continue
+    upsertFromManifest(entry.peerKey, entry.manifest, { online: false })
+    n++
+  }
+  return n
+}
 
 function makeNode({
   id,
@@ -228,19 +265,24 @@ function peerNodeId(peerKey, modelId) {
   return `${peerKey.slice(0, 12)}:${modelId}`
 }
 
-export function upsertFromManifest(peerKey, manifest) {
+// `online: false` es la puerta por la que entran las filas del directorio: un
+// par hidratado del Hyperbee NO tiene socket, asi que no puede ser candidato.
+// Entra como 'known' y offline, y ahi se queda hasta que se conecte de verdad.
+export function upsertFromManifest(peerKey, manifest, { online = true } = {}) {
   const operator = (manifest.metadata && manifest.metadata.operator) || 'Nodo remoto'
   const tags = (manifest.metadata && manifest.metadata.tags) || []
 
   // Se borran las filas viejas de ESTE par antes de insertar: si reanuncia con
   // menos modelos, los que ya no sirve tienen que desaparecer del marketplace.
-  removeByPeer(peerKey)
+  // `hard` porque esto es un reemplazo, no una desconexion: degradarlas a
+  // 'known' dejaria fantasmas de los modelos que el par dejo de servir.
+  removeByPeer(peerKey, { hard: true })
 
   for (const m of manifest.models) {
     const id = peerNodeId(peerKey, m.modelId)
     nodes.set(id, {
       id,
-      kind: 'peer',
+      kind: online ? 'peer' : 'known',
       peerKey,
       modelId: m.modelId,
       displayName: m.displayName || m.modelId,
@@ -249,7 +291,7 @@ export function upsertFromManifest(peerKey, manifest) {
       operator,
       maxConcurrentRequests: capacidad(m.qos && m.qos.maxConcurrentRequests),
       activeRequests: 0,
-      status: 'online'
+      status: online ? 'online' : 'offline'
     })
   }
 }
@@ -315,9 +357,27 @@ export function updateStatus(peerKey, status) {
 }
 
 // D3: se cae la conexion, se cae el candidato. Sin mirar `expiresAt`.
-export function removeByPeer(peerKey) {
+//
+// Con el directorio enganchado la fila no se BORRA, se degrada a 'known' +
+// offline. D3 sigue intacto -- `findAllByModelId` filtra por online, asi que
+// deja de ser candidato en el mismo instante -- pero el par no desaparece del
+// panel: queda como "lo conozco, ahora no esta", que es la informacion que el
+// Hyperbee existe para conservar. Sin directorio se borra como antes.
+//
+// `hard: true` fuerza el borrado real. Lo usa `upsertFromManifest`, donde el
+// par NO se fue: se esta reemplazando su lista de modelos.
+export function removeByPeer(peerKey, { hard = false } = {}) {
   for (const [id, node] of nodes) {
-    if (node.peerKey === peerKey) nodes.delete(id)
+    if (node.peerKey !== peerKey) continue
+
+    if (hard || !directory) {
+      nodes.delete(id)
+      continue
+    }
+
+    node.kind = 'known'
+    node.status = 'offline'
+    node.activeRequests = 0
   }
 }
 
@@ -340,6 +400,11 @@ export function localLoad() {
 // sirviendo el mismo modelId, y el log no puede seguir diciendo "unico
 // candidato" cuando habia tres.
 export function findAllByModelId(modelId) {
+  // El filtro por `online` es tambien la barrera del directorio: las filas
+  // 'known' que salieron del Hyperbee estan siempre offline, asi que no pueden
+  // convertirse en candidatas por mas que anuncien el modelo. Un manifiesto
+  // replicado prueba que alguien dijo algo, no que ese alguien este vivo
+  // (ver la nota larga de directory.mjs).
   const candidatos = [...nodes.values()].filter(
     (n) => n.modelId === modelId && n.status === 'online'
   )
@@ -360,6 +425,24 @@ export function findAllByModelId(modelId) {
 export function pushLog(entry) {
   routingLog.unshift({ ts: Date.now(), ...entry })
   if (routingLog.length > MAX_LOG) routingLog.length = MAX_LOG
+
+  // El array en memoria sigue siendo el que lee el panel (30 entradas, rapido
+  // y sin await). El bee guarda la serie completa, que es lo que despues
+  // permite decir "este par fallo 3 veces esta semana" en vez de "fallo".
+  if (directory) directory.pushLog(entry)
+}
+
+// Contadores por par para el directorio. Se llama al terminar un request
+// ruteado a un par remoto; sin directorio no hace nada.
+export function recordPeerResult(peerKey, { ok = true, ms = null, tokens = 0 } = {}) {
+  if (directory && peerKey) directory.recordStat(peerKey, { ok, ms, tokens })
+}
+
+// El log largo, desde el Hyperbee. El panel puede pedir mas de 30 entradas sin
+// que el array en memoria tenga que crecer.
+export async function getLogHistory(limit = 200) {
+  if (!directory) return routingLog.slice(0, limit)
+  return await directory.recentLog(limit)
 }
 
 export function getLog() {

@@ -454,7 +454,8 @@ function lastUserText(messages) {
 function rechazoPorKey(req) {
   const header = req.headers['authorization'] || req.headers['Authorization']
   if (!header || typeof header !== 'string') return null
-  if (!header.startsWith('Bearer ')) return 'el header Authorization tiene que ser "Bearer <api-key>"'
+  if (!header.startsWith('Bearer '))
+    return 'el header Authorization tiene que ser "Bearer <api-key>"'
   const key = header.slice(7).trim()
   if (!key) return 'falta la api key despues de "Bearer"'
   return apikeys.verifyKey(key) ? null : 'api key desconocida o revocada'

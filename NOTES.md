@@ -678,3 +678,123 @@ mejor que los 1.5 s de `bare`. El camino de la demo no pasa por acá.
 - **Cross-compilación: todas las plataformas compilan desde Windows.** No hace
   falta una Mac para publicar el binario de Mac. (Eran 6 en Fase 0; desde
   Fase 1 son 5: `win32-arm64` se sacó por falta de prebuild del addon.)
+
+---
+
+## Fase 5 — Hyperbee, Hyperdrive y el socket compartido
+
+### Lo que se midió
+
+| Qué                                                                | Resultado                                                                       |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Archivo de 3 MB entre dos corestores locales (bare, misma máquina) | 305 ms, byte a byte idéntico                                                    |
+| Archivo de 58 B entre dos `--storage` distintos, por el CLI real   | 2.2 s de punta a punta (incluye descubrimiento en la DHT)                       |
+| Replicación del Hyperbee de un par por el socket del chat          | funciona: el nodo A leyó una clave escrita por B sin abrir una segunda conexión |
+| Suite de tests                                                     | 16/16, 85/85 asserts                                                            |
+
+### Protomux en vez de FramedStream: por qué hubo que cambiarlo
+
+`FramedStream` se adueña del stream que envuelve. `corestore.replicate(socket)`
+necesita ESE MISMO stream para multiplexar la replicación de hypercores. Las dos
+cosas no entran en una conexión, y abrir una segunda es exactamente lo que D1
+decidió no hacer.
+
+La trampa concreta, que costó encontrar: `Protomux.from(socket)` devuelve
+`socket.userData` si ya hay un mux ahí, y **si no, crea uno nuevo sin
+guardarlo**. `corestore.replicate` hace lo mismo por su lado (vía
+`Hypercore.createProtocolStream`, que sí lo guarda). Si el canal de control se
+abre sin dejar el mux en `userData`, terminan DOS multiplexores escribiendo
+frames intercalados sobre el mismo socket. Desde afuera se lee como "se cayó la
+red". Por eso `channel.mjs` expone `attachMux(socket)` y `swarm.mjs` lo llama
+primero, antes de replicar y antes de abrir el canal.
+
+Lo que NO se pierde al sacar FramedStream: el cap de 16 MiB por frame que daba
+`bits: 24`. `NoiseSecretStream` frena en `MAX_ATOMIC_WRITE = 0xffffff`, los
+mismos 16 MiB, una capa más abajo — antes de que Protomux reserve nada.
+
+Lo que se GANA: la basura de otra app que caiga en el mismo topic ya no llega al
+dispatcher. Sin abrir el canal `qvac/node/v0` no hay a dónde entregársela.
+
+### El topic subió a v1 y hay que entender por qué
+
+Protomux y FramedStream no son compatibles en el cable. Visto en vivo contra un
+nodo v0.10.0 corriendo al lado:
+
+```
+[swarm] conectado d6ad6dab… (1 par/es)
+[swarm] d6ad6dab… no mando manifiesto, se descarta
+[swarm] desconectado d6ad6dab… (0 par/es)
+[swarm] conectado d6ad6dab… (1 par/es)      <- en loop
+```
+
+Los dos nodos estaban sanos. Se conectaban porque el topic era el mismo y
+después se quedaban mudos hasta el `HANDSHAKE_TIMEOUT_MS`.
+
+`qvac-node:marketplace:v1` convierte esa incompatibilidad silenciosa en una
+ausencia limpia: durante la ventana del OTA los v0 se ven entre ellos y los v1
+entre ellos. Cuando el último nodo se actualiza, el topic v0 queda vacío solo.
+
+**Consecuencia para el runbook de 2 máquinas: las dos tienen que estar en la
+misma versión.** Una en v0.10.0 y otra en v0.11.0 da cero pares verificados, y
+el síntoma se lee igual que un problema de red — que es justo el falso positivo
+que el gate de `--expect` existe para cazar.
+
+### Un core recién abierto contesta `null`, no espera
+
+Bug que se comió una tarde y que vuelve a morder a cualquiera que lea un
+Hyperbee o un Hyperdrive remoto:
+
+Un core recién abierto tiene `length === 0` **localmente**. Hyperbee, sobre un
+core de largo cero, contesta `null` a cualquier `get` — en el acto, sin error y
+sin esperar a nadie. Pedir un archivo que existe perfectamente del otro lado
+devuelve "el drive no tiene esa ruta": un falso negativo idéntico a un link mal
+escrito.
+
+La cura es `await drive.update({ wait: true })` ANTES de leer, con
+`findingPeers()` abierto para que ese update espere a que aparezca alguien en
+vez de resolver contra cero pares. Está encapsulado en `Files._syncRemote()`.
+
+### `mkdtempSync` de bare-fs en Windows rompe RocksDB
+
+En Windows, `fs.mkdtempSync` de **bare-fs** devuelve una ruta extendida:
+
+```
+\\?\C:\Users\User\AppData\Local\Temp\qvac-x-h5h4s8
+```
+
+RocksDB le concatena `db/LOG` con barra normal, y después del prefijo `\\?\`
+las barras normales son ilegales. El error:
+
+```
+Unexpected error for: \\?\C:\...\A\db/LOG: El nombre de archivo, el nombre de
+directorio o la sintaxis de la etiqueta del volumen no son correctos. (EIO)
+```
+
+Node no lo hace: `fs.mkdtempSync` de Node devuelve la ruta normal y el mismo
+Corestore abre sin chistar. Es específico de bare-fs.
+
+**El código real no está afectado**: `swarmStorageDir()` usa `os.tmpdir()` y
+`persistent()` directo, que devuelven rutas normales. Muerde solo en tests y
+scripts que arman directorios temporales — por eso `test/index.js` arma el
+suyo con `path.join(os.tmpdir(), 'qvac-test-' + …)` en vez de `mkdtemp`.
+
+### Bug que cazó un test
+
+`Directory.recordManifest` indexaba `model/<modelId>/<peerKey>` pero nunca
+borraba las entradas del anuncio anterior. Un par que reanuncia con MENOS
+modelos —porque descargó uno, o porque se quedó sin VRAM— dejaba su fila vieja
+indexada para siempre, y el panel seguía diciendo que alguien sirve algo que ya
+nadie sirve. Se reconstruye el índice usando la lista de modelos del manifiesto
+guardado, y no un scan del prefijo `model/`: el `peerKey` es el último tramo de
+esa clave, así que buscar "las de este par" obligaría a recorrer el índice
+entero.
+
+### Lo que sigue sin implementarse
+
+**Autobase.** Es lo que hace falta para el ledger multi-escritor (recibos,
+reputación agregada, liquidación en QVAC), y no entra por complejidad de código
+sino por gobernanza: hay que decidir quién es el primer escritor, cómo entra el
+segundo, y quiénes firman la vista como indexers. La `apply` además tiene que
+ser determinista y pura, e idempotente bajo re-ejecución, porque Autobase trunca
+y re-aplica la vista cuando llega un mensaje viejo de un par que estuvo offline.
+Sigue siendo Fase 6.

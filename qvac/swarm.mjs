@@ -1,13 +1,20 @@
 // Descubrimiento P2P del nodo. Fase 2-b del ROADMAP.
 //
 // Un topic fijo: todos los nodos QVAC se encuentran ahi sin configuracion. Cada
-// conexion -entrante o saliente- se envuelve en FramedStream (D1), que es el
-// MISMO canal que despues transporta chat:request/chat:chunk en Fase 3. No hay
-// una segunda conexion para inferencia.
+// conexion -entrante o saliente- lleva UN canal Protomux (D1), que es el MISMO
+// canal que transporta chat:request/chat:chunk. No hay una segunda conexion
+// para inferencia.
+//
+// Sobre ESE MISMO socket viaja tambien la replicacion del Corestore, en otros
+// canales del mismo multiplexor: el directorio Hyperbee y los Hyperdrive de
+// archivos. Una sola conexion, un solo hole-punch, tres cosas encima.
+// (Antes el socket iba envuelto en FramedStream, que se adueña del stream y
+// hacia imposible compartirlo. Ver la nota de channel.mjs.)
 //
 // Protocolo (JSON por mensaje, tabla de D1):
 //   manifest:announce  nodo -> par    el manifiesto firmado
 //   node:status        nodo -> par    { activeRequests, maxConcurrentRequests }
+//   files:announce     nodo -> par    { driveKey }  <- agregado, ver files.mjs
 //   chat:request       par  -> nodo   { requestId, model, messages, stream }
 //   chat:chunk         nodo -> par    { requestId, delta }
 //   chat:done          nodo -> par    { requestId }
@@ -17,14 +24,25 @@
 // node:status. El transporte de chat es Fase 2-c/3 y engancha en `onMessage`.
 
 import Hyperswarm from 'hyperswarm'
-import FramedStream from 'framed-stream'
 import crypto from 'hypercore-crypto'
+import { openChannel, attachMux } from './channel.mjs'
 import { buildManifest, signManifest, verifyManifest } from './manifest.mjs'
 
 // Topic fijo y hardcodeado a proposito: es el "canal QVAC". Se deriva de una
 // frase por hash para que sea reproducible desde el codigo y no un blob de hex
 // que nadie puede auditar de un vistazo.
-export const TOPIC_NAME = 'qvac-node:marketplace:v0'
+//
+// **v1 y no v0**: el cambio de FramedStream a Protomux NO es compatible en el
+// cable. Un nodo v0 y uno v1 se conectan igual -- el topic era el mismo -- y
+// despues se quedan mudos hasta que salta el HANDSHAKE_TIMEOUT_MS, porque
+// ninguno entiende el framing del otro. Visto en vivo: "no mando manifiesto,
+// se descarta", en loop, contra un nodo que estaba perfectamente sano.
+//
+// Separar el topic convierte una incompatibilidad silenciosa en una ausencia
+// limpia: durante la ventana del OTA, los v0 siguen viendose entre ellos y los
+// v1 entre ellos, sin conexiones que nacen muertas ni logs que hacen pensar
+// que se cayo la red. Cuando el ultimo nodo se actualiza, el v0 queda vacio.
+export const TOPIC_NAME = 'qvac-node:marketplace:v1'
 export const TOPIC = crypto.data(Buffer.from(TOPIC_NAME))
 
 const STATUS_INTERVAL_MS = 2000
@@ -35,7 +53,17 @@ const STATUS_INTERVAL_MS = 2000
 const HANDSHAKE_TIMEOUT_MS = 10000
 
 export class NodeSwarm {
-  constructor({ identity, models, operator, tags, store, onPeerChange = () => {} } = {}) {
+  constructor({
+    identity,
+    models,
+    operator,
+    tags,
+    store,
+    corestore = null,
+    directory = null,
+    files = null,
+    onPeerChange = () => {}
+  } = {}) {
     this.identity = identity || crypto.keyPair()
     this.models = models || []
     this.operator = operator || 'Nodo QVAC'
@@ -43,8 +71,15 @@ export class NodeSwarm {
     this.store = store || null
     this.onPeerChange = onPeerChange
 
+    // Los tres son opcionales: `peers` (el comando del hard gate) corre sin
+    // ninguno y sigue midiendo lo mismo que antes. Cuando estan, la conexion
+    // ademas replica y persiste.
+    this.corestore = corestore
+    this.directory = directory
+    this.files = files
+
     this.swarm = null
-    // key hex del peer -> { pipe, manifest, status, socket }
+    // key hex del peer -> { channel, manifest, status, socket, filesKey }
     this.peers = new Map()
 
     // Marca de agua alta: pares cuyo manifiesto verifico ALGUNA vez en esta
@@ -86,7 +121,11 @@ export class NodeSwarm {
           publicKey: this.identity.publicKey,
           models: this.models,
           operator: this.operator,
-          tags: this.tags
+          tags: this.tags,
+          // El campo `directory` del schema deja de ser un mock (D2) cuando hay
+          // un Hyperbee de verdad detras: la clave que se firma aca es la que
+          // el par usa para replicarlo.
+          directory: this.directory ? this.directory.descriptor() : null
         }),
         this.identity.secretKey
       )
@@ -119,16 +158,44 @@ export class NodeSwarm {
 
   _onConnection(socket, info) {
     const key = info.publicKey.toString('hex')
-    // `bits: 24` y no el default de 32: con 32 el techo de un frame es
-    // 0xffffffff, asi que los PRIMEROS CUATRO BYTES de un desconocido pueden
-    // pedir un allocUnsafe de 4 GiB -- antes del manifiesto, antes de
-    // cualquier validacion, y sin que el timeout de handshake llegue a
-    // correr. El topic es publico y sale del codigo, asi que ese frame lo
-    // manda cualquiera. 16 MiB sobra de lejos: el manifiesto son ~2 KB y el
-    // chat esta capado en 32000 chars por Provider._validate.
-    const pipe = new FramedStream(socket, { bits: 24 })
 
-    const peer = { pipe, socket, manifest: null, status: null, key }
+    // ORDEN IMPORTANTE. `attachMux` deja el multiplexor en `socket.userData`
+    // ANTES de que nadie mas lo toque. `corestore.replicate` busca uno ahi y,
+    // si no lo encuentra, crea el suyo: dos multiplexores escribiendo frames
+    // sobre el mismo stream rompen la conexion de una forma que desde afuera
+    // se lee como "se cayo la red". Ver el encabezado de channel.mjs.
+    attachMux(socket)
+
+    // Replicacion del directorio y de los drives por el MISMO socket. Corestore
+    // sirve por discoveryKey lo que tenga (`ondiscoverykey`), asi que esto
+    // alcanza para que un par pueda bajar un archivo publicado por este nodo
+    // sin abrir ninguna conexion nueva.
+    if (this.corestore) this.corestore.replicate(socket)
+
+    // El cap de 16 MiB por frame que daba `bits: 24` no se pierde al sacar
+    // FramedStream: NoiseSecretStream frena en MAX_ATOMIC_WRITE = 0xffffff,
+    // los mismos 16 MiB, y lo hace una capa mas abajo -- antes de que Protomux
+    // llegue a reservar nada. El topic es publico y sale del codigo, asi que
+    // ese frame lo puede mandar cualquiera; el manifiesto son ~2 KB y el chat
+    // esta capado en 32000 chars por Provider._validate.
+    // El peer se declara ANTES de abrir el canal para que el `onmessage` no
+    // capture una binding en zona muerta: protomux no entrega nada de forma
+    // sincrona, pero depender de eso es una trampa esperando a alguien.
+    const peer = { channel: null, socket, manifest: null, status: null, key, filesKey: null }
+
+    const chan = openChannel(socket, {
+      onmessage: (msg) => this._onMessage(peer, msg)
+    })
+
+    if (chan === null) {
+      // Ya habia un canal de control sobre este socket. Es un bug de programa,
+      // no una condicion de red: mejor cortar que quedarse con un par mudo.
+      console.error(`[swarm] canal duplicado con ${key.slice(0, 8)}…, se corta`)
+      socket.destroy()
+      return
+    }
+
+    peer.channel = chan
     this.peers.set(key, peer)
 
     if (this.firstPeerMs === null && this.joinedAt !== null) {
@@ -144,8 +211,6 @@ export class NodeSwarm {
     socket.on('error', (err) => {
       console.log(`[swarm] socket ${key.slice(0, 8)}… caido: ${(err && err.message) || err}`)
     })
-    pipe.on('error', () => {})
-
     const handshake = setTimeout(() => {
       if (!peer.manifest) {
         console.log(`[swarm] ${key.slice(0, 8)}… no mando manifiesto, se descarta`)
@@ -190,21 +255,22 @@ export class NodeSwarm {
       this.onPeerChange(this.peers)
     })
 
-    pipe.on('data', (data) => this._onMessage(peer, data))
-
     // Se anuncia primero, sin esperar al otro: los dos lados hacen lo mismo y
     // el handshake no tiene turnos que puedan quedar trabados.
     this._send(peer, { type: 'manifest:announce', manifest: this.manifest() })
     this._sendStatus(peer)
+
+    // La clave del drive va DESPUES del manifiesto y en su propio mensaje: el
+    // schema v0 esta congelado con `additionalProperties: false`, asi que no
+    // hay campo del manifiesto donde meterla sin romper la validacion. Va por
+    // el canal Noise, que ya autentico al par, con la misma clase de confianza
+    // que `node:status` -- atribuible, no firmada. Ver files.mjs.
+    if (this.files) this._send(peer, { type: 'files:announce', driveKey: this.files.keyHex })
   }
 
   _send(peer, msg) {
-    try {
-      peer.pipe.write(Buffer.from(JSON.stringify(msg)))
-    } catch {
-      // El peer se fue entre el check y el write. El 'close' del socket ya lo
-      // va a limpiar; no hay nada que hacer aca.
-    }
+    if (!peer.channel) return
+    peer.channel.send(msg)
   }
 
   _sendStatus(peer) {
@@ -223,15 +289,20 @@ export class NodeSwarm {
     this._send(peer, { type: 'node:status', ...status })
   }
 
-  // El pipe llama a esto por cada mensaje. TODO lo de adentro va envuelto: una
-  // excepcion que se escape sube al 'data' del FramedStream y se lleva puesto
-  // el canal con ese par -- no este request, el canal entero, para todos los
+  // El canal llama a esto por cada mensaje, YA decodificado (protomux hace el
+  // JSON.parse con el encoding `c.json`). TODO lo de adentro va envuelto: una
+  // excepcion que se escape sube al onmessage de protomux y se lleva puesto el
+  // canal con ese par -- no este request, el canal entero, para todos los
   // requests que vengan despues. El par sigue "conectado" en la tabla y sus
   // chat:request no llegan nunca mas: un modo de falla muy dificil de leer
   // desde afuera.
-  _onMessage(peer, data) {
+  //
+  // La basura de otra app que caiga en el mismo topic ya no llega hasta aca:
+  // sin abrir el canal `qvac/node/v0` no hay a donde entregarsela, cosa que
+  // con FramedStream sobre el socket crudo si pasaba.
+  _onMessage(peer, msg) {
     try {
-      this._dispatch(peer, data)
+      this._dispatch(peer, msg)
     } catch (err) {
       console.error(
         `[swarm] handler de ${peer.key.slice(0, 8)}… tiro una excepcion: ${(err && err.message) || err}`
@@ -239,15 +310,7 @@ export class NodeSwarm {
     }
   }
 
-  _dispatch(peer, data) {
-    let msg
-    try {
-      msg = JSON.parse(data.toString())
-    } catch {
-      // Basura en el canal: puede ser otra app en el mismo topic. Se ignora el
-      // mensaje, no se mata la conexion -- todavia puede mandar algo valido.
-      return
-    }
+  _dispatch(peer, msg) {
     if (!msg || typeof msg.type !== 'string') return
 
     if (msg.type === 'manifest:announce') {
@@ -273,6 +336,27 @@ export class NodeSwarm {
       console.log(`[swarm] manifiesto OK de ${op} (${peer.key.slice(0, 8)}…): ${modelos}`)
 
       if (this.store) this.store.upsertFromManifest(peer.key, msg.manifest)
+
+      // Al directorio va con origin 'socket': este manifiesto SI probo
+      // identidad contra la clave de la conexion. El que se replique despues a
+      // otro nodo no le transfiere esa propiedad -- ver directory.mjs.
+      if (this.directory) this.directory.recordManifest(peer.key, msg.manifest)
+
+      this.onPeerChange(this.peers)
+      return
+    }
+
+    if (msg.type === 'files:announce') {
+      // Mismo criterio que node:status: sin manifiesto verificado no se le
+      // acepta nada a un desconocido, ni siquiera una clave de drive.
+      if (!peer.manifest) return
+      if (typeof msg.driveKey !== 'string' || !/^[0-9a-f]{64}$/.test(msg.driveKey)) return
+
+      peer.filesKey = msg.driveKey
+      if (this.directory) this.directory.recordFilesKey(peer.key, msg.driveKey)
+      console.log(
+        `[swarm] ${peer.key.slice(0, 8)}… publica archivos en ${msg.driveKey.slice(0, 8)}…`
+      )
       this.onPeerChange(this.peers)
       return
     }
@@ -364,6 +448,19 @@ export class NodeSwarm {
     return [...this.peers.values()].filter((p) => p.manifest)
   }
 
+  // Los pares conectados que anunciaron un drive. Es la lista de "a quien le
+  // puedo pedir un archivo AHORA": los que estan en el directorio pero no
+  // conectados no entran, por la misma razon que no son candidatos de ruteo.
+  peersWithFiles() {
+    return this.verifiedPeers()
+      .filter((p) => p.filesKey)
+      .map((p) => ({
+        peerKey: p.key,
+        driveKey: p.filesKey,
+        operator: (p.manifest.metadata && p.manifest.metadata.operator) || 'Nodo remoto'
+      }))
+  }
+
   timings() {
     return {
       joinToFirstPeerMs: this.firstPeerMs,
@@ -376,6 +473,14 @@ export class NodeSwarm {
 
   async destroy() {
     this.stopStatusBroadcast()
+
+    // Los canales se cierran antes que el swarm. Al reves, `swarm.destroy()`
+    // rompe el socket abajo del multiplexor y protomux emite el cierre sobre
+    // un stream ya muerto.
+    for (const peer of this.peers.values()) {
+      if (peer.channel) peer.channel.close()
+    }
+
     if (this.swarm) await this.swarm.destroy()
     this.peers.clear()
   }
