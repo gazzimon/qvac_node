@@ -1,15 +1,20 @@
 # PyrusLLM
 
-**La red distribuye su propio cliente por la red.**
+**Un marketplace de inferencia de IA sin datacenter en el medio.**
 
-Un CLI que se instala con `pear install`, se actualiza solo por OTA P2P, y al
-instalarse hace que tu máquina entre a una red de inferencia viva. Cada nodo
-corre un LLM local con QVAC y se anuncia en un topic Hyperswarm con un
-manifiesto firmado; un gateway compatible con la API de OpenAI enruta requests
-hacia esos nodos, y cualquier cliente OpenAI —tu terminal, un bot de Telegram,
-Open WebUI— le puede hablar sin modificarlo.
+PyrusLLM convierte cualquier computadora en un proveedor de inferencia: instala
+un CLI que se actualiza solo por OTA P2P, y al instalarse hace que la máquina
+entre a una red viva de nodos. Cada nodo corre un LLM local con QVAC y se
+anuncia con un manifiesto firmado; un gateway compatible con la API de OpenAI
+enruta cada request hacia el proveedor disponible, y cualquier cliente OpenAI
+—tu terminal, un bot de Telegram, Open WebUI— le habla sin modificar una línea.
 
-Hackathon CRECIMIENTO / Aleph 2026 — 🍐 Pears Track.
+Para quien compra inferencia, es una factura más baja y sin intermediario
+centralizado. Para quien la vende, es monetizar cómputo que hoy está ocioso.
+El protocolo es el mismo de un lado y del otro: no hay servidor propietario en
+el medio, ni un tercero que se quede con el margen.
+
+Hackathon CRECIMIENTO / Aleph 2026 — Pears Track.
 
 ---
 
@@ -50,6 +55,12 @@ GET  /v1/files · POST /upload · POST /fetch     archivos entre nodos (Hyperdri
 El botón **Conectar** de cada nodo en el panel emite una API key y muestra los
 pasos para Telegram, WhatsApp, terminal, Hermes Agent u Open WebUI — el mismo
 nodo, hablado desde afuera del panel, sin camino privilegiado.
+
+El botón **Archivos** de cada nodo abre un modal de **solo lectura**: lista lo
+que ese nodo publica y deja copiar el link `qvac://`. La carga y la descarga
+**no tienen UI todavía** —`/v1/files/upload` y `/v1/files/fetch` existen en el
+gateway, pero ningún botón del panel las llama—; hoy se hacen por CLI con
+`send`/`fetch`, como en el bloque de arriba.
 
 Detalles de por qué (Protomux sobre una sola conexión, D1–D7, el updater OTA en
 su propio hilo, verificación con dos máquinas) están en [NOTES.md](NOTES.md).
