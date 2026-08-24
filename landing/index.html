@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PyrusLLM</title>
-<meta name="description" content="La red distribuye su propio cliente por la red — un marketplace P2P de inferencia de IA, sin datacenter central.">
+<meta name="description" content="The Airbnb of AI compute — a P2P marketplace where any capable machine sells inference, with no central datacenter and no operator you have to take on faith.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -294,61 +294,64 @@
 <section class="hero">
   <nav class="top">
     <span class="word">pyrusllm</span>
-    <a class="repo" href="https://github.com/gazzimon/qvac_node" target="_blank" rel="noopener">↗ ver el código</a>
+    <a class="repo" href="https://github.com/gazzimon/qvac_node" target="_blank" rel="noopener">↗ view the code</a>
   </nav>
   <canvas id="mesh" aria-hidden="true"></canvas>
   <div class="wrap">
-    <p class="eyebrow">Hackathon CRECIMIENTO · Aleph 2026 · Pears Track</p>
-    <h1>La red distribuye<br>su propio cliente<br>por la red.</h1>
-    <p class="lede">Un CLI que instalás una vez y convierte tu máquina en un nodo de una
-      red de inferencia viva: corre un LLM local, se anuncia en la red P2P y vende
-      esa capacidad a cualquier cliente OpenAI que se la pida. Sin datacenter,
-      sin servidor central, sin que nadie más tenga tus prompts.</p>
+    <p class="eyebrow">CRECIMIENTO Hackathon · Aleph 2026 · Pears Track</p>
+    <h1>Your idle hardware,<br>selling AI<br>inference.</h1>
+    <p class="lede">A CLI you install once that turns your machine into a node of a live
+      inference network: it runs a local LLM, announces itself signed on the P2P network
+      and charges for every request it serves. On the other side, any OpenAI client picks
+      a provider by price and availability. No datacenter, and no operator in the middle
+      setting the price or keeping the margin.</p>
     <div class="cta-row">
-      <a class="btn primary" href="#instalar">Instalar el nodo</a>
-      <a class="btn ghost" href="#mercado">Cómo funciona el mercado</a>
+      <a class="btn primary" href="#install">Install the node</a>
+      <a class="btn ghost" href="#market">How the market works</a>
+      <a class="btn ghost" href="#trust">Why nobody has to be trusted</a>
     </div>
     <div class="stats">
-      <div class="stat"><b>0</b><span>servidores centrales</span></div>
-      <div class="stat"><b>~10s</b><span>actualización OTA por P2P</span></div>
-      <div class="stat"><b>3</b><span>paneles: comprar, vender, administrar</span></div>
+      <div class="stat"><b>0</b><span>central servers</span></div>
+      <div class="stat"><b>~10s</b><span>OTA update over P2P</span></div>
+      <div class="stat"><b>3</b><span>panels: buy, sell, administer</span></div>
     </div>
   </div>
 </section>
 
 <section class="problem">
   <div class="wrap">
-    <p class="eyebrow reveal">El problema</p>
-    <h2 class="reveal" style="margin-top:.9rem">Hoy, "usar IA" significa mandarle tu prompt a la máquina de otro.</h2>
+    <p class="eyebrow reveal">The problem</p>
+    <h2 class="reveal" style="margin-top:.9rem">Today, "using AI" means sending your prompt to somebody else’s machine.</h2>
     <div class="lines reveal">
-      <p>Cada request a un modelo grande viaja a un <b>datacenter que no controlás</b>,
-        con un costo por token que fija otro y una cola de espera que depende de
-        cuánta gente más lo esté pidiendo en ese momento.</p>
-      <p>Si ese proveedor cae, sube el precio o cambia los términos, no hay
-        <b>plan B</b> — tu producto depende de una sola compañía, en un solo lugar.</p>
-      <p>Mientras tanto, la mayoría de las máquinas con GPU o buena CPU del
-        planeta están <b>prendidas y ociosas</b> la mayor parte del día.</p>
+      <p>Every request to a large model travels to a <b>datacenter you don’t control</b>,
+        at a per-token cost somebody else sets, in a queue whose length depends on
+        how many other people are asking for it right then.</p>
+      <p>If that provider goes down, raises the price or changes the terms, there is no
+        <b>plan B</b> — your product depends on a single company, in a single place.</p>
+      <p>Meanwhile, most machines on the planet with a GPU or a decent CPU sit
+        <b>powered on and idle</b> for most of the day.</p>
     </div>
   </div>
 </section>
 
-<section class="solution" id="mercado">
+<section class="solution" id="market">
   <div class="wrap">
     <div class="grid">
       <div>
-        <p class="eyebrow reveal">La idea</p>
-        <h2 class="reveal" style="margin-top:.9rem">Un Mercado Libre de las IAs — cada nodo es comprador y vendedor.</h2>
-        <p class="lede reveal">No hay un servidor de PyrusLLM en el medio. Cada máquina que
-          instala el CLI corre su propio modelo, firma un manifiesto y lo anuncia
-          en un topic de Hyperswarm. Un gateway compatible con la API de OpenAI
-          enruta cada pedido al nodo que corresponde — el tuyo, o el de otro
-          operador de la red — y factura en QVAC según lo que ese nodo cobra.</p>
+        <p class="eyebrow reveal">The idea</p>
+        <h2 class="reveal" style="margin-top:.9rem">The Airbnb of AI compute — every node is both buyer and seller.</h2>
+        <p class="lede reveal">There is no PyrusLLM server in the middle. Every machine that
+          installs the CLI runs its own model, signs a manifest and announces it on a
+          Hyperswarm topic. A gateway compatible with the OpenAI API routes each request
+          to the node it belongs to — yours, or another operator’s on the network —
+          and records what was consumed to settle it in batches in
+          <span class="mono">$QVAC</span>.</p>
       </div>
       <div class="flow reveal">
-        <div class="row"><span class="k">01 nodo</span><span class="v">corre un LLM local con QVAC</span></div>
-        <div class="row"><span class="k">02 firma</span><span class="v">anuncia un manifiesto firmado en Hyperswarm</span></div>
-        <div class="row"><span class="k">03 gateway</span><span class="v">expone /v1/chat/completions, formato OpenAI</span></div>
-        <div class="row"><span class="k">04 cliente</span><span class="v">tu terminal, un bot, Open WebUI — sin modificar</span></div>
+        <div class="row"><span class="k">01 node</span><span class="v">runs a local LLM with QVAC</span></div>
+        <div class="row"><span class="k">02 signing</span><span class="v">announces a signed manifest on Hyperswarm</span></div>
+        <div class="row"><span class="k">03 gateway</span><span class="v">exposes /v1/chat/completions, OpenAI format</span></div>
+        <div class="row"><span class="k">04 client</span><span class="v">your terminal, a bot, Open WebUI — unmodified</span></div>
       </div>
     </div>
   </div>
@@ -357,27 +360,55 @@
 <section class="roles">
   <div class="wrap">
     <div class="head">
-      <p class="eyebrow reveal">El marketplace</p>
-      <h2 class="reveal" style="margin-top:.9rem">Tres paneles, un mismo nodo.</h2>
+      <p class="eyebrow reveal">The marketplace</p>
+      <h2 class="reveal" style="margin-top:.9rem">Three panels, one and the same node.</h2>
     </div>
     <div class="cards reveal">
       <div class="role">
         <span class="path mono">/</span>
-        <h3>Cliente</h3>
-        <p>Elegís proveedor por precio, tags y disponibilidad, chateás ahí mismo o
-          apretás <em>Conectar</em> para usarlo desde tu propio cliente OpenAI.</p>
+        <h3>Client</h3>
+        <p>Pick a provider by price, tags and availability, chat right there or
+          hit <em>Connect</em> to use it from your own OpenAI client.</p>
       </div>
       <div class="role">
         <span class="path mono">/proveedor</span>
-        <h3>Proveedor</h3>
-        <p>Publicás lo que ofrece tu máquina: precio, capacidad, archivos —
-          y entrás a la red con un solo comando.</p>
+        <h3>Provider</h3>
+        <p>Publish what your machine offers: price, capacity, files —
+          and join the network with a single command.</p>
       </div>
       <div class="role">
         <span class="path mono">/admin</span>
         <h3>Admin</h3>
-        <p>Ves el registro completo de la red, el log de por qué se eligió cada
-          nodo, y podés sacar uno del registro.</p>
+        <p>See the network’s full registry, the log of why each node was chosen,
+          and drop any of them from the registry.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="solution" id="trust">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">Trust</p>
+        <h2 class="reveal" style="margin-top:.9rem">Whatever decides and charges cannot belong to anyone.</h2>
+        <p class="lede reveal">An inference market has a blind spot: someone has to match every
+          request with a node, and in doing so sees both ends — who is asking and who is
+          answering. Someone has to count consumption and decide how much each provider
+          charges. That someone can reconstruct the whole network’s activity and controls
+          the money. Encrypting the traffic does not prevent it: it needs to read both
+          sides in order to work.</p>
+        <p class="lede reveal">That is why that layer runs inside a confidential execution
+          environment. We are not promising not to look: we cannot, and with the enclave
+          code published anyone can verify it. What is still outside it we say anyway —
+          while answering, the node reads the prompt in plaintext; closing that last leg
+          takes confidential GPU, and that is the next step.</p>
+      </div>
+      <div class="flow reveal">
+        <div class="row"><span class="k">01 matching</span><span class="v">which node serves each request</span></div>
+        <div class="row"><span class="k">02 metering</span><span class="v">tokens consumed and price applied</span></div>
+        <div class="row"><span class="k">03 settlement</span><span class="v">batched receipts to each provider</span></div>
+        <div class="row"><span class="k">04 reputation</span><span class="v">measured performance, not self-declared</span></div>
       </div>
     </div>
   </div>
@@ -387,16 +418,16 @@
   <div class="wrap">
     <div class="grid">
       <div>
-        <p class="eyebrow reveal">Por qué es real</p>
-        <h2 class="reveal" style="margin-top:.9rem">Compatible de verdad, no una demo con nombre de API.</h2>
-        <p class="lede reveal">/v1/models y /v1/chat/completions siguen el formato de
-          OpenAI al pie de la letra — cualquier cliente existente le pega sin
-          tocarle una línea. Lo que es propio del marketplace (precio, operador,
-          carga) vive aparte, en /v1/nodes, para no ensuciar el protocolo.</p>
+        <p class="eyebrow reveal">Why it is real</p>
+        <h2 class="reveal" style="margin-top:.9rem">Genuinely compatible, not a demo wearing an API’s name.</h2>
+        <p class="lede reveal">/v1/models and /v1/chat/completions follow the OpenAI format to
+          the letter — any existing client hits them without a single line changed.
+          What belongs to the marketplace (price, operator, load) lives apart, in
+          /v1/nodes, so the protocol stays clean.</p>
         <div class="facts reveal">
-          <div class="fact"><span class="n">→</span><p>La copia instalada <span>se actualiza sola por P2P en ~10 segundos</span>, sin acción del usuario.</p></div>
-          <div class="fact"><span class="n">→</span><p>Los archivos viajan por Hyperdrive: <span>cada bloque se verifica contra el merkle root</span> al llegar.</p></div>
-          <div class="fact"><span class="n">→</span><p>El canal de distribución <span>es la red P2P misma</span> — nada que clonar, nada que buildear.</p></div>
+          <div class="fact"><span class="n">→</span><p>The installed copy <span>updates itself over P2P in ~10 seconds</span>, with no user action.</p></div>
+          <div class="fact"><span class="n">→</span><p>Files travel over Hyperdrive: <span>every block is verified against the merkle root</span> on arrival.</p></div>
+          <div class="fact"><span class="n">→</span><p>The distribution channel <span>is the P2P network itself</span> — nothing to clone, nothing to build.</p></div>
         </div>
       </div>
       <div class="endpoints reveal">
@@ -411,47 +442,47 @@
   </div>
 </section>
 
-<section class="install" id="instalar">
+<section class="install" id="install">
   <div class="wrap">
     <div class="grid">
       <div>
-        <p class="eyebrow reveal">Empezá ahora</p>
-        <h2 class="reveal" style="margin-top:.9rem">Tres líneas y tu máquina ya es parte de la red.</h2>
-        <p class="lede reveal">Sin cuenta, sin config previa. El binario trae el motor de
-          inferencia adentro y arranca sin descargar ningún modelo hasta que le
-          pedís el primer prompt.</p>
+        <p class="eyebrow reveal">Get started</p>
+        <h2 class="reveal" style="margin-top:.9rem">Three lines and your machine is part of the network.</h2>
+        <p class="lede reveal">No account, no setup. The binary ships the inference engine
+          inside and starts without downloading any model until you send it the first
+          prompt.</p>
       </div>
       <div class="term reveal">
         <div class="bar"><i></i><i></i><i></i></div>
         <pre id="cmd"><span class="c1">$</span> npm i -g pear
 <span class="c1">$</span> pear install <span class="c2">pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny</span>
 <span class="c1">$</span> pyrusllm --help</pre>
-        <button class="copy" id="copyBtn">copiar comando</button>
+        <button class="copy" id="copyBtn">copy command</button>
       </div>
     </div>
   </div>
 </section>
 
 <footer>
-  <span>PyrusLLM — hackathon CRECIMIENTO / Aleph 2026, Pears Track.</span>
+  <span>PyrusLLM — CRECIMIENTO hackathon / Aleph 2026, Pears Track.</span>
   <a href="https://github.com/gazzimon/qvac_node" target="_blank" rel="noopener">github.com/gazzimon/qvac_node ↗</a>
 </footer>
 
 <script>
-  // Copiar comando de instalación.
+  // Copy the install command.
   document.getElementById('copyBtn').addEventListener('click', async (ev) => {
     const text = 'npm i -g pear\npear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny\npyrusllm --help'
     const btn = ev.currentTarget
     try {
       await navigator.clipboard.writeText(text)
-      btn.textContent = 'copiado ✓'
+      btn.textContent = 'copied ✓'
     } catch {
-      btn.textContent = 'copiá a mano'
+      btn.textContent = 'copy it manually'
     }
-    setTimeout(() => { btn.textContent = 'copiar comando' }, 1600)
+    setTimeout(() => { btn.textContent = 'copy command' }, 1600)
   })
 
-  // Scroll reveal — se salta entero con prefers-reduced-motion (ver CSS).
+  // Scroll reveal — skipped entirely under prefers-reduced-motion (see CSS).
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (!reduceMotion && 'IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries) => {
@@ -462,10 +493,10 @@
     document.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'))
   }
 
-  // Red de nodos en el hero: cada punto es "una maquina", las lineas que
-  // aparecen entre puntos cercanos son la red anunciandose — el mismo gesto
-  // que hace Hyperswarm, dibujado. Estatica (un solo frame) si el visitante
-  // pidio menos movimiento.
+  // Node mesh in the hero: each dot is "a machine", and the lines that appear
+  // between nearby dots are the network announcing itself — the same gesture
+  // Hyperswarm makes, drawn. Static (a single frame) if the visitor asked for
+  // less motion.
   ;(function mesh() {
     const canvas = document.getElementById('mesh')
     const ctx = canvas.getContext('2d')
