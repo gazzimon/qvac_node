@@ -93,27 +93,6 @@ El plan por fases, en [ROADMAP_FASE2-6.md](ROADMAP_FASE2-6.md).
   corporación centralizada agrega tus datos a escala", no "nadie más lo ve":
   el cifrado E2E está fuera de alcance.
 
-## Desarrollo
-
-```bash
-npm install
-npm start          # local con bare, sin updates
-npm test           # brittle-bare test/index.js
-npm run release     # build + stage, las 5 plataformas
-```
-
-| Archivo | Qué resuelve |
-| --- | --- |
-| [bin.mjs](bin.mjs) | CLI: `prompt`, `serve`, `peers`, `send`, `fetch`, `files` |
-| [qvac/engine.mjs](qvac/engine.mjs) | LLM local sobre `@qvac/llm-llamacpp` |
-| [qvac/manifest.mjs](qvac/manifest.mjs) | Ed25519 sobre JCS, firma y verificación |
-| [qvac/swarm.mjs](qvac/swarm.mjs) | topic, Protomux, `chat:*` |
-| [qvac/directory.mjs](qvac/directory.mjs) | Hyperbee de manifiestos vistos |
-| [qvac/files.mjs](qvac/files.mjs) | Hyperdrive, links `qvac://` |
-| [qvac/gateway.mjs](qvac/gateway.mjs) | HTTP, ruteo, SSE en formato OpenAI |
-| [qvac/pages.mjs](qvac/pages.mjs) | los tres paneles |
-| [workers/main.js](workers/main.js) | updater OTA, en su propio hilo |
-
 ## Stack
 
 `bare` 1.31 · `pear-runtime` 1.3.1 · `hyperswarm` 4.17 · `hypercore` 11.35 ·
