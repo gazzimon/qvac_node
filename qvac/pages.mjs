@@ -1057,14 +1057,14 @@ ${ESC}
       const cmd = 'pyrusllm serve --swarm --operator "your name"'
       box.innerHTML = \`
         <div class="card" style="margin-bottom:1.5rem; cursor:default">
-          <h3>Este panel todavía no está anunciado en la red P2P</h3>
-          <p class="sub">Para que tu máquina entre a la red de inferencia, reiniciá con:</p>
+          <h3>This node is not announced on the P2P network yet</h3>
+          <p class="sub">Launch it from the chat, or restart the gateway with:</p>
           <pre>\${esc(cmd)}</pre>
-          <button id="copy-swarm-cmd" class="ghost">Copiar comando</button>
+          <button id="copy-swarm-cmd" class="ghost">Copy command</button>
         </div>
       \`
       document.getElementById('copy-swarm-cmd')
-        .addEventListener('click', (e) => { navigator.clipboard.writeText(cmd); e.target.textContent = 'Copiado ✓' })
+        .addEventListener('click', (e) => { navigator.clipboard.writeText(cmd); e.target.textContent = 'Copied' })
     }
 
     // -------------------------------------------------------------------
@@ -1111,19 +1111,19 @@ ${ESC}
       }
       box.innerHTML = \`
         <div class="field">
-          <label>Nombre publicado</label>
+          <label>Published name</label>
           <input type="text" id="displayName">
         </div>
         <div class="field">
-          <label>Tags (separados por coma)</label>
+          <label>Tags (comma separated)</label>
           <input type="text" id="tagsInput">
         </div>
         <div class="field">
-          <label>Capacidad (requests simultáneos)</label>
+          <label>Capacity (concurrent requests)</label>
           <input type="text" id="maxConc">
         </div>
         <div class="field">
-          <label>Modelo</label>
+          <label>Model</label>
           <select id="modelSelect"></select>
           <div class="muted" id="modelLoadStatus" style="margin-top:.3rem"></div>
         </div>
@@ -1140,7 +1140,7 @@ ${ESC}
 
       const badge = document.getElementById('d-badge')
       badge.className = 'badge ' + n.status
-      badge.textContent = n.status === 'online' ? 'en línea' : 'fuera de línea'
+      badge.textContent = n.status === 'online' ? 'online' : 'offline'
       document.getElementById('d-name').textContent = n.displayName
       document.getElementById('d-op').textContent = n.operator
       document.getElementById('d-tags').innerHTML =
@@ -1148,9 +1148,9 @@ ${ESC}
       document.getElementById('d-pct').textContent =
         n.loadPct === null ? '—' : n.loadPct + '%'
       document.getElementById('d-req').textContent =
-        '(' + n.activeRequests + '/' + n.maxConcurrentRequests + ' requests activos)'
+        '(' + n.activeRequests + '/' + n.maxConcurrentRequests + ' active requests)'
       document.getElementById('toggle').textContent =
-        n.status === 'online' ? 'Ponerme fuera de línea' : 'Volver a estar en línea'
+        n.status === 'online' ? 'Go offline' : 'Go back online'
 
       // Lo unico que el usuario edita: solo se pisa si NO lo esta tocando.
       const pricing = document.getElementById('pricing')
@@ -1184,7 +1184,7 @@ ${ESC}
         modelSelectBuiltWith = key
         select.innerHTML = Object.entries(catalogById).map(([alias, m]) => \`
           <option value="\${esc(alias)}" \${!m.fits ? 'disabled' : ''}>
-            \${esc(m.displayName)} (\${m.sizeGB} GB)\${m.fits ? '' : ' — no entra en esta RAM'}
+            \${esc(m.displayName)} (\${m.sizeGB} GB)\${m.fits ? '' : ' — does not fit in this RAM'}
           </option>\`).join('')
       }
       if (document.activeElement !== select) select.value = currentModelId
@@ -1232,8 +1232,8 @@ ${ESC}
         }
         if (status) {
           status.textContent = data.modelLoad.status === 'loading'
-            ? 'Cargando modelo nuevo… (puede tardar)'
-            : 'Fallo la carga: ' + (data.modelLoad.message || 'error desconocido')
+            ? 'Loading the new model… (this can take a while)'
+            : 'Load failed: ' + (data.modelLoad.message || 'unknown error')
         }
         if (data.modelLoad.status === 'error') clearInterval(modelLoadPoll)
       }, 2000)

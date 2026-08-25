@@ -274,9 +274,15 @@
 
   /* -------------------------------------------------------------- install */
   .install { text-align: left; }
-  .install .grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: clamp(2rem, 5vw, 4rem); align-items: center; }
+  /* minmax(0, ...): el comando de instalacion es una linea larga sin espacios
+     y su min-content aplastaba la columna del titulo a 298px. Con esto el
+     <pre> scrollea adentro de su propia caja, que es lo que ya sabe hacer. */
+  .install .grid {
+    display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 4rem); align-items: center;
+  }
   @media (max-width: 760px) { .install .grid { grid-template-columns: 1fr; } }
-  .install h2 { font-size: clamp(1.8rem, 4vw, 2.6rem); max-width: 14ch; }
+  .install h2 { font-size: clamp(1.8rem, 4vw, 2.6rem); max-width: 19ch; }
   .install .lede { margin-top: 1.1rem; max-width: 40ch; }
   .term {
     background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
@@ -292,6 +298,9 @@
     font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.9;
     color: var(--ink); overflow-x: auto;
   }
+  /* El comando entra entero: una barra de scroll horizontal justo donde le
+     pedis a alguien que copie algo esconde la mitad de lo que tiene que copiar. */
+  #cmd { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
   .term .c1 { color: var(--mute); }
   .term .c2 { color: var(--network); }
   .term .copy {
@@ -455,6 +464,22 @@
   }
   .tip.on { opacity: 1; }
   @media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+
+  .os-tabs { display: flex; gap: .35rem; margin-bottom: .9rem; flex-wrap: wrap; }
+  .os-tabs button {
+    font-family: "IBM Plex Mono", monospace; font-size: .78rem;
+    background: none; border: 1px solid var(--line); color: var(--mute);
+    padding: .35rem .8rem; border-radius: 3px; cursor: pointer;
+  }
+  .os-tabs button[aria-selected="true"] { border-color: var(--network); color: var(--ink); }
+  .install .alt {
+    margin-top: 1.6rem; padding-top: 1.4rem; border-top: 1px solid var(--line);
+    font-size: .85rem;
+  }
+  .install .alt code {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem;
+    color: var(--ink); overflow-wrap: anywhere;
+  }
 
   footer {
     padding: 2.25rem clamp(1.5rem, 5vw, 4rem) 3rem;
@@ -766,17 +791,27 @@
     <div class="grid">
       <div>
         <p class="eyebrow reveal">Get started</p>
-        <h2 class="reveal" style="margin-top:.9rem">Three lines and your machine is part of the network.</h2>
-        <p class="lede reveal">No account, no setup. The binary ships the inference engine
-          inside and starts without downloading any model until you send it the first
-          prompt.</p>
+        <h2 class="reveal" style="margin-top:.9rem">One line, and your machine is part of the network.</h2>
+        <p class="lede reveal">No account, no runtime to install first. The download is a single
+          self-contained binary with the inference engine inside &mdash; no Node, no npm, no Pear.
+          It opens in your browser and waits there; no model is downloaded until you send
+          the first prompt.</p>
+        <div class="alt reveal">
+          <p>Already running Node, or want automatic P2P updates? Install over Pear instead:</p>
+          <p style="margin-top:.5rem"><code>npm i -g pear &amp;&amp; pear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny</code></p>
+        </div>
       </div>
-      <div class="term reveal">
-        <div class="bar"><i></i><i></i><i></i></div>
-        <pre id="cmd"><span class="c1">$</span> npm i -g pear
-<span class="c1">$</span> pear install <span class="c2">pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny</span>
-<span class="c1">$</span> pyrusllm --help</pre>
-        <button class="copy" id="copyBtn">copy command</button>
+      <div class="reveal">
+        <div class="os-tabs" role="tablist" aria-label="Your operating system">
+          <button type="button" role="tab" data-os="mac" aria-selected="false">macOS</button>
+          <button type="button" role="tab" data-os="linux" aria-selected="false">Linux</button>
+          <button type="button" role="tab" data-os="win" aria-selected="false">Windows</button>
+        </div>
+        <div class="term">
+          <div class="bar"><i></i><i></i><i></i></div>
+          <pre id="cmd"></pre>
+          <button class="copy" id="copyBtn">copy command</button>
+        </div>
       </div>
     </div>
   </div>
@@ -788,12 +823,43 @@
 </footer>
 
 <script>
-  // Copy the install command.
+  // The install one-liner, per platform. The tab is preselected from the
+  // visitor's own OS: making somebody pick their operating system before they
+  // can copy a command is a step the machine already knows the answer to.
+  const RAW = 'https://raw.githubusercontent.com/gazzimon/qvac_node/main'
+  const CMDS = {
+    mac: 'curl -fsSL ' + RAW + '/install.sh | sh',
+    linux: 'curl -fsSL ' + RAW + '/install.sh | sh',
+    win: 'irm ' + RAW + '/install.ps1 | iex'
+  }
+
+  function detectOS() {
+    const ua = navigator.userAgent
+    if (/Windows/i.test(ua)) return 'win'
+    if (/Mac|iPhone|iPad/i.test(ua)) return 'mac'
+    return 'linux'
+  }
+
+  let currentOS = detectOS()
+
+  function paintCmd() {
+    const prompt = currentOS === 'win' ? 'PS&gt;' : '$'
+    document.getElementById('cmd').innerHTML =
+      '<span class="c1">' + prompt + '</span> ' + CMDS[currentOS]
+    document.querySelectorAll('[data-os]').forEach((b) => {
+      b.setAttribute('aria-selected', String(b.dataset.os === currentOS))
+    })
+  }
+
+  document.querySelectorAll('[data-os]').forEach((b) => {
+    b.addEventListener('click', () => { currentOS = b.dataset.os; paintCmd() })
+  })
+  paintCmd()
+
   document.getElementById('copyBtn').addEventListener('click', async (ev) => {
-    const text = 'npm i -g pear\npear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny\npyrusllm --help'
     const btn = ev.currentTarget
     try {
-      await navigator.clipboard.writeText(text)
+      await navigator.clipboard.writeText(CMDS[currentOS])
       btn.textContent = 'copied ✓'
     } catch {
       btn.textContent = 'copy it manually'
