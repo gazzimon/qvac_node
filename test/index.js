@@ -540,3 +540,162 @@ test('los montos son enteros y redondean hacia arriba', async (t) => {
   t.is(costs.usdAMicros(0.1), 100_000)
   t.is(costs.usdAMicros(-5), 0, 'un tope negativo es cero, no una deuda')
 })
+
+// ---------------------------------------------------------------------------
+// Fase 6.5 — presupuesto (qvac/budget.mjs)
+// ---------------------------------------------------------------------------
+
+test('la reserva aparta la cota superior y la liquidacion devuelve el resto', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  budget.reset()
+
+  const estimado = costs.estimar({
+    model: 'claude-sonnet-5',
+    promptTokens: 2000,
+    maxTokens: 4096
+  })
+  const r = budget.reserve('ana', estimado)
+  t.ok(r.ok, 'entra en el tope de USD 20')
+
+  // Mientras el request esta en vuelo el saldo esta comprometido: no es gasto
+  // todavia, pero tampoco esta disponible para otro request.
+  const enVuelo = budget.usage('ana')
+  t.is(enVuelo.spent, 0, 'no se gasto nada todavia')
+  t.is(enVuelo.reserved, estimado, 'pero esta apartado')
+  t.is(enVuelo.remaining, budget.TOPE_DEFAULT_MICROS - estimado)
+
+  // El modelo genero 500 tokens, no los 4096 del tope. La diferencia vuelve.
+  const real = costs.real({ model: 'claude-sonnet-5', promptTokens: 2000, completionTokens: 500 })
+  t.is(budget.settle(r.id, real), 13500, 'se cobra lo que costo de verdad')
+
+  const cerrado = budget.usage('ana')
+  t.is(cerrado.spent, 13500)
+  t.is(cerrado.reserved, 0, 'la reserva se libero')
+  t.is(cerrado.remaining, budget.TOPE_DEFAULT_MICROS - 13500, 'el sobrante volvio al saldo')
+})
+
+test('EL TOPE CORTA: el gasto real nunca supera el declarado', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  budget.reset()
+
+  // El DoD de la Fase 6.5: tope de USD 0,10 y se consume hasta agotarlo.
+  const TOPE = costs.usdAMicros(0.1)
+  budget.setCap('ana', TOPE)
+
+  const porTurno = costs.estimar({
+    model: 'claude-sonnet-5',
+    promptTokens: 2000,
+    maxTokens: 500
+  })
+
+  let aceptados = 0
+  let rechazado = null
+  // Mas vueltas de las que el tope puede pagar, para que el corte tenga que
+  // ocurrir dentro del loop y no por quedarse sin iteraciones.
+  for (let i = 0; i < 100; i++) {
+    const r = budget.reserve('ana', porTurno)
+    if (!r.ok) {
+      rechazado = r
+      break
+    }
+    aceptados++
+    budget.settle(r.id, porTurno)
+  }
+
+  t.ok(rechazado, 'en algun momento corta')
+  t.is(rechazado.reason, 'presupuesto agotado')
+  t.ok(aceptados > 0, 'y antes de cortar dejo trabajar')
+
+  const fin = budget.usage('ana')
+  t.ok(fin.spent <= TOPE, 'LA INVARIANTE: el gasto nunca supera el tope')
+  t.ok(fin.remaining < porTurno, 'y lo que queda no alcanza para otro turno')
+})
+
+test('costo cero no toca el ledger', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  budget.reset()
+  budget.setCap('ana', 0) // sin un peso de presupuesto
+
+  // Inferencia local: gratis. Tiene que pasar igual, con el tope en cero. Es
+  // la degradacion de la Fase 6.5 -- se corta la red y el externo, no el
+  // producto.
+  const r = budget.reserve('ana', 0)
+  t.ok(r.ok, 'lo gratis nunca se rechaza, ni con el tope agotado')
+  t.is(r.id, null, 'y no abre una reserva que despues haya que liquidar')
+  t.is(budget.usage('ana').spent, 0)
+})
+
+test('dos requests en vuelo no gastan los mismos dolares', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  budget.reset()
+  budget.setCap('ana', 1000)
+
+  const a = budget.reserve('ana', 600)
+  const b = budget.reserve('ana', 600)
+
+  t.ok(a.ok, 'el primero entra')
+  t.absent(b.ok, 'el segundo NO: los 600 del primero ya estan comprometidos')
+  t.is(b.remaining, 400)
+
+  // Al liquidar barato el primero, el segundo ya entra.
+  budget.settle(a.id, 100)
+  t.ok(budget.reserve('ana', 600).ok, 'con el saldo devuelto vuelve a haber lugar')
+})
+
+test('settle nunca cobra mas de lo reservado', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  budget.reset()
+
+  const r = budget.reserve('ana', 1000)
+  // El real salio mas caro que la cota superior: la estimacion fallo. El error
+  // no lo paga el usuario -- cobrar de mas seria pasarse del tope por la
+  // ventana de atras.
+  t.is(budget.settle(r.id, 5000), 1000, 'se cobra lo reservado, no lo real')
+  t.is(budget.usage('ana').spent, 1000)
+})
+
+test('el mes rota: el gasto vuelve a cero, el tope sobrevive, el cerrado queda', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  const ENERO = Date.UTC(2026, 0, 15)
+  const FEBRERO = Date.UTC(2026, 1, 2)
+
+  budget.reset({ now: ENERO })
+  budget.setCap('ana', 500_000)
+  const r = budget.reserve('ana', 300_000, { now: ENERO })
+  budget.settle(r.id, 300_000)
+  t.is(budget.usage('ana', { now: ENERO }).spent, 300_000)
+
+  const feb = budget.usage('ana', { now: FEBRERO })
+  t.is(feb.period, '2026-02')
+  t.is(feb.spent, 0, 'el gasto arranca de cero')
+  t.is(feb.cap, 500_000, 'el tope NO se resetea: es mensual, no de un solo mes')
+
+  // Y enero sigue disponible para facturarlo, que es todo el punto de guardarlo.
+  const cierre = budget.report({ period: '2026-01', now: FEBRERO })
+  t.ok(cierre.found, 'el mes cerrado se puede leer despues')
+  t.is(cierre.total, 300_000)
+  t.is(cierre.accounts[0].account, 'ana')
+})
+
+test('el reparto acumula durante el mes, no se calcula al cierre', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  budget.reset()
+
+  for (const [quien, monto] of [
+    ['ana', 5000],
+    ['beto', 12000],
+    ['ana', 3000]
+  ]) {
+    const r = budget.reserve(quien, monto)
+    budget.settle(r.id, monto)
+  }
+
+  const rep = budget.report()
+  t.is(rep.total, 20000)
+  t.is(rep.accounts.length, 2)
+  t.is(rep.accounts[0].account, 'beto', 'ordenado por consumo')
+  t.is(rep.accounts[0].spent, 12000)
+  t.is(rep.accounts[1].spent, 8000, 'ana suma sus dos requests')
+})
