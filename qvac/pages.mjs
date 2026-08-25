@@ -731,13 +731,26 @@ ${ESC}
           <div class="state" data-state></div>
           <div class="bar-row" data-load style="display:none"><div class="bar"><div data-fill></div></div><span class="pct"></span></div>
           <div class="actions">
+            <button class="ghost" data-usar="\${esc(n.id)}">Use this node</button>
             <button class="ghost" data-files="\${esc(n.id)}">Files</button>
           </div>
         </div>
       \`).join('')
-      // La tarjeta ya no selecciona nada: esta pagina es de lectura. Chatear
-      // vive en /, y "Conectar" se mudo a /node porque la credencial autentica
-      // contra TU gateway y no contra el nodo ajeno que muestra la tarjeta.
+      // Mirar el marketplace y elegir una maquina para hablarle es el recorrido
+      // que faltaba: hasta ahora el chat solo dejaba nombrar un MODELO, y dos
+      // pares sirviendo el mismo colapsaban en una opcion. El pin viaja por
+      // sessionStorage porque es una eleccion de esta sesion, no una
+      // preferencia que deba sobrevivir al navegador.
+      document.querySelectorAll('[data-usar]').forEach(el => {
+        el.addEventListener('click', ev => {
+          ev.stopPropagation()
+          try { sessionStorage.setItem('pyrus.pin', el.dataset.usar) } catch (e) { /* modo privado */ }
+          window.location.href = '/'
+        })
+      })
+
+      // "Conectar" se mudo a /node porque la credencial autentica contra TU
+      // gateway y no contra el nodo ajeno que muestra la tarjeta.
       document.querySelectorAll('[data-files]').forEach(el => {
         el.addEventListener('click', ev => {
           ev.stopPropagation()
@@ -1732,13 +1745,35 @@ const CHAT_JS = String.raw`
       return nodes.filter(function (n) { return n.kind === 'real' })[0] || null
     }
 
-    // "Auto" = el mejor disponible. El gateway ya prefiere el par remoto sobre
-    // el local para un mismo modelId (findAllByModelId), asi que alcanza con
-    // nombrar el modelo: si hay un par sirviendolo, gana el.
+    // "Auto" = el mejor disponible. Nombra el MODELO y deja que el gateway
+    // elija la maquina: desde la fase 8 eso lo decide pickCandidate por carga,
+    // asi que Auto por fin significa algo. Antes se apoyaba en que
+    // findAllByModelId prefiriera al par, que era una preferencia de demo.
     function autoModelId() {
       var p = peersOnline()[0]
       var l = localNode()
       return (p && p.modelId) || (l && l.modelId) || 'llama1b'
+    }
+
+    // Todos los candidatos que se pueden fijar a mano, uno por MAQUINA y no
+    // por modelo. Antes se deduplicaba por modelId y dos pares sirviendo
+    // llama1b colapsaban en una sola opcion: no habia forma de elegir cual.
+    function fijables() {
+      return nodes.filter(function (n) {
+        return n.status === 'online' && (n.kind === 'peer' || n.kind === 'real' || n.kind === 'mock')
+      })
+    }
+
+    // El nodo que quedo fijado desde /network ("Use this node").
+    function pinGuardado() {
+      try { return sessionStorage.getItem('pyrus.pin') } catch (e) { return null }
+    }
+
+    function guardarPin(id) {
+      try {
+        if (id) sessionStorage.setItem('pyrus.pin', id)
+        else sessionStorage.removeItem('pyrus.pin')
+      } catch (e) { /* modo privado: el pin vive solo en el selector */ }
     }
 
     // -------------------------------------------------------------- la puerta
@@ -1788,44 +1823,102 @@ const CHAT_JS = String.raw`
     })
 
     // ------------------------------------------------------------- opciones
+    // El selector tiene TRES modos, que son dos preguntas distintas:
+    // que modelo se quiere y en que maquina. Hasta ahora solo se podia
+    // contestar la primera.
+    //
+    //   local        -> esta maquina, y nada sale de aca   (local:true)
+    //   auto         -> el mejor disponible, decide el gateway por carga
+    //   node:<id>    -> una maquina concreta                (node:<id>)
+    //
+    // El checkbox "Local only" se absorbio en la primera opcion. Existiendo
+    // los dos por separado se podian contradecir -- elegir el modelo de un par
+    // Y tildar local only daba 404, porque el gateway filtra los pares
+    // despues de elegir.
     function paintOptions() {
       var sel = document.getElementById('model')
       var vivo = agentLive()
-      var pares = peersOnline()
       var loc = localNode()
-      var elegido = sel.value
+      var elegido = sel.value || pinGuardado() && 'node:' + pinGuardado()
 
-      var opts = ['<option value="auto"' + (vivo ? '' : ' disabled') + '>Auto - best available node</option>']
+      var opts = []
       if (loc) {
-        opts.push('<option value="' + esc(loc.modelId) + '">' + esc(loc.displayName) + ' - this machine</option>')
+        opts.push('<option value="local">' + esc(loc.displayName) + ' - this machine only</option>')
       }
-      var vistos = {}
-      pares.forEach(function (n) {
-        if (vistos[n.modelId]) return
-        vistos[n.modelId] = 1
-        opts.push('<option value="' + esc(n.modelId) + '">' + esc(n.displayName) + ' - ' + esc(n.operator) + '</option>')
-      })
+      opts.push('<option value="auto"' + (vivo ? '' : ' disabled') + '>Auto - best available node</option>')
+
+      // Una opcion por MAQUINA, con su carga: es lo que hace posible elegir
+      // entre dos pares que sirven el mismo modelo.
+      var lista = fijables()
+      if (lista.length) {
+        opts.push('<optgroup label="Specific node">')
+        lista.forEach(function (n) {
+          var carga = typeof n.loadPct === 'number' ? ' - ' + n.loadPct + '% busy' : ''
+          opts.push(
+            '<option value="node:' + esc(n.id) + '">' +
+            esc(n.operator) + ' - ' + esc(n.displayName) + carga +
+            '</option>'
+          )
+        })
+        opts.push('</optgroup>')
+      }
       sel.innerHTML = opts.join('')
 
       var sigue = false
       for (var i = 0; i < sel.options.length; i++) {
         if (sel.options[i].value === elegido && !sel.options[i].disabled) sigue = true
       }
+
+      // Un pin que llego desde /network manda sobre el default, pero solo si
+      // ese nodo sigue estando: si se fue, se cae a Auto y se limpia, en vez
+      // de dejar el selector apuntando a un fantasma.
+      var pin = pinGuardado()
+      if (pin && !sigue) {
+        var vivoPin = false
+        for (var j = 0; j < sel.options.length; j++) {
+          if (sel.options[j].value === 'node:' + pin) vivoPin = true
+        }
+        // Solo se descarta un pin cuando SABEMOS que el nodo no esta: con la
+        // grilla todavia vacia -- el primer pintado ocurre antes de que
+        // conteste /v1/nodes -- ningun pin figura, y borrarlo ahi tiraba
+        // siempre el que acababa de llegar desde /network.
+        if (!vivoPin && lista.length) { guardarPin(null); pin = null }
+      }
+
       // Si nadie eligio a mano, Auto gana apenas queda disponible: antes el
       // nodo se ponia vivo y el selector seguia clavado en el modelo local
       // porque era la unica opcion valida cuando se pinto la primera vez.
-      if (!userPicked && vivo) sel.value = 'auto'
-      else sel.value = sigue ? elegido : (vivo ? 'auto' : (loc ? loc.modelId : 'auto'))
+      if (sigue) sel.value = elegido
+      else if (pin) sel.value = 'node:' + pin
+      else if (!userPicked && vivo) sel.value = 'auto'
+      else sel.value = vivo ? 'auto' : (loc ? 'local' : 'auto')
 
       var nota = document.getElementById('routing')
-      var soloLocal = document.getElementById('localonly').checked
-      if (soloLocal) {
+      var pares = peersOnline()
+      if (sel.value === 'local') {
         nota.textContent = 'Nothing leaves this machine.'
+      } else if (sel.value.indexOf('node:') === 0) {
+        nota.textContent = 'Pinned to one machine - no fallback if it is busy.'
       } else if (!vivo) {
         nota.textContent = 'Node offline - the network is out of reach.'
       } else {
         nota.textContent = pares.length + (pares.length === 1 ? ' node' : ' nodes') + ' reachable'
       }
+    }
+
+    // Traduce el modo del selector a los tres campos del request.
+    function destino() {
+      var v = document.getElementById('model').value
+      if (v === 'local') {
+        var l = localNode()
+        return { model: (l && l.modelId) || autoModelId(), local: true, node: null }
+      }
+      if (v.indexOf('node:') === 0) {
+        var id = v.slice(5)
+        var n = nodes.filter(function (x) { return x.id === id })[0]
+        return { model: (n && n.modelId) || autoModelId(), local: false, node: id }
+      }
+      return { model: autoModelId(), local: false, node: null }
     }
 
     // --------------------------------------------------------------- el hilo
@@ -1875,9 +1968,7 @@ const CHAT_JS = String.raw`
       var texto = ta.value.trim()
       if (!texto) return
 
-      var sel = document.getElementById('model')
-      var soloLocal = document.getElementById('localonly').checked
-      var modelo = sel.value === 'auto' ? autoModelId() : sel.value
+      var dest = destino()
 
       msgs.push({ role: 'user', content: texto })
       var slot = { role: 'assistant', content: '', meta: null, streaming: true }
@@ -1904,7 +1995,16 @@ const CHAT_JS = String.raw`
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: ctrl.signal,
-          body: JSON.stringify({ model: modelo, messages: historial, stream: true, local: soloLocal })
+          body: JSON.stringify({
+            model: dest.model,
+            messages: historial,
+            stream: true,
+            local: dest.local,
+            // El campo node solo viaja cuando el usuario fijo una maquina: mandarlo
+            // en null en todos los requests ensuciaria el contrato para los
+            // clientes que nunca lo usan.
+            node: dest.node || undefined
+          })
         })
 
         if (!resp.ok) {
@@ -1990,9 +2090,13 @@ const CHAT_JS = String.raw`
     document.getElementById('stop').addEventListener('click', function () {
       if (ctrl) ctrl.abort()
     })
-    document.getElementById('localonly').addEventListener('change', paintOptions)
     document.getElementById('model').addEventListener('change', function () {
       userPicked = true
+      // Elegir a mano descarta el pin que venia de /network: el selector es la
+      // ultima palabra, si no el chip diria una cosa y el request haria otra.
+      if (this.value.indexOf('node:') !== 0) guardarPin(null)
+      else guardarPin(this.value.slice(5))
+      paintOptions()
     })
     document.getElementById('new').addEventListener('click', function () {
       msgs = []
@@ -2046,7 +2150,6 @@ export const CHAT_HTML = page(
     <div class="composer">
       <div class="opts">
         <select id="model"></select>
-        <label class="chk"><input type="checkbox" id="localonly"> Local only</label>
         <button class="ghost" id="new" style="margin:0;padding:.25rem .6rem;font-size:.78rem">New chat</button>
         <span class="note" id="routing"></span>
       </div>

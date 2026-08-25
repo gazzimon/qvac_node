@@ -237,6 +237,21 @@ test('un modelo que nadie sirve da 404 y dice cuales SI hay', async (t) => {
   )
 })
 
+// El JS del chat vive dentro de un template literal, asi que una comilla
+// invertida suelta en un comentario rompe la pagina entera sin que ningun test
+// unitario se entere. Esto lo agarra: si la pagina no parsea, no renderiza.
+test('el selector del chat ofrece los tres modos', async (t) => {
+  const r = await pedir('GET', '/')
+  t.is(r.status, 200)
+  t.ok(r.body.indexOf('this machine only') !== -1, 'modo 1: solo esta maquina')
+  t.ok(r.body.indexOf('Auto - best available node') !== -1, 'modo 2: el mejor disponible')
+  t.ok(r.body.indexOf('Specific node') !== -1, 'modo 3: una maquina concreta')
+  t.ok(r.body.indexOf('localonly') === -1, 'el checkbox se absorbio en el modo 1')
+  // Una opcion por MAQUINA, no por modelo: es lo que hacia imposible elegir
+  // entre dos pares sirviendo el mismo modelId.
+  t.ok(r.body.indexOf('function fijables') !== -1, 'la lista ya no deduplica por modelId')
+})
+
 test('cierra el gateway sin dejar el puerto tomado', async (t) => {
   const { shutdownGateway } = await import('../qvac/gateway.mjs')
   await shutdownGateway()
