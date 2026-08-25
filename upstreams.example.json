@@ -1,0 +1,92 @@
+{
+  "_comentario": [
+    "Copiar a <storage>/upstreams.json y ajustar. NUNCA poner la credencial aca:",
+    "'apiKeyEnv' es el NOMBRE de una variable de entorno. El secreto no toca el",
+    "disco del repo ni entra al manifiesto firmado que se anuncia a la red.",
+    "",
+    "brokerEnabled: si es true, este nodo ANUNCIA estos modelos a la red y sirve",
+    "los pedidos de otros pares contra tu cuenta. Apagado por defecto: revender",
+    "la API de un tercero no puede pasar por accidente.",
+    "",
+    "Todo lo medido abajo es contra integrate.api.nvidia.com el 2026-08-25.",
+    "Volver a medir antes de confiar: son numeros de una cuenta y un dia."
+  ],
+
+  "brokerEnabled": false,
+
+  "upstreams": [
+    {
+      "id": "nim",
+      "label": "NVIDIA NIM",
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "apiKeyEnv": "NVIDIA_API_KEY",
+
+      "models": [
+        {
+          "modelId": "nvidia/nemotron-3.5-lightning-30b-a3b",
+          "displayName": "Nemotron 3.5 Lightning 30B",
+          "tags": ["upstream", "agentic", "fast"],
+          "maxConcurrent": 4,
+
+          "_medido": {
+            "ttftMs": 430,
+            "nota": "El mas rapido de los probados. Es el default por eso."
+          },
+
+          "extraBody": {
+            "stream_options": { "include_usage": true },
+            "chat_template_kwargs": { "enable_thinking": false }
+          },
+
+          "_porQueEsosCampos": [
+            "include_usage: sin esto el proveedor NO manda `usage` en streaming y",
+            "la liquidacion del budget se queda sin los tokens reales de entrada.",
+            "",
+            "enable_thinking:false: MEDIDO, no elegido. Con thinking activado -que",
+            "es el default del modelo- la pregunta 'cuanto es 2+2' devuelve 200",
+            "tokens de 'Here's a thinking process: 1. Analyze User Input...' y NUNCA",
+            "llega al 4, porque se come el max_tokens razonando. Con thinking",
+            "apagado devuelve '4' en 2 tokens y 430ms.",
+            "",
+            "Son 100x el costo y 10x la latencia por la misma pregunta. Y ademas el",
+            "razonamiento sale por `content`, no por `reasoning_content`, asi que el",
+            "filtro que descarta el pensamiento del modelo NO lo atrapa: llega al",
+            "cliente y delata al proveedor de atras.",
+            "",
+            "Si algun dia se quiere el razonamiento, se prende A PROPOSITO y con un",
+            "max_tokens acorde -- no por default."
+          ]
+        }
+      ],
+
+      "_modelosDescartados": {
+        "meta/llama-3.3-70b-instruct": [
+          "MEDIDO 43.4 segundos al primer byte, con curl y con el cliente propio.",
+          "No es arranque en frio: se repite. Inservible para un chat.",
+          "El mismo endpoint sirve nemotron-3.5-lightning en 0.73s."
+        ],
+        "nvidia/llama-3.2-nv-embedqa-1b-v1": [
+          "404 para esta cuenta aunque figure en /v1/models."
+        ]
+      }
+    }
+  ],
+
+  "_embeddings": {
+    "_nota": "Lo usa el RAG (qvac/embeddings.mjs), no el ruteo de chat.",
+    "model": "nvidia/nemotron-3-embed-1b",
+    "dimension": 2048,
+    "inputTypeAsimetrico": true,
+    "_medido": [
+      "coseno(passage, query) del MISMO texto = 0.72: la asimetria es real y hay",
+      "que mandar el input_type correcto. Mandarlo mal no da error, solo baja el",
+      "recall en silencio.",
+      "",
+      "Los cosenos absolutos quedan bajos (0.18 a 0.52) aunque el orden sea",
+      "correcto. Sirve el ranking, NO un umbral fijo.",
+      "",
+      "El endpoint devolvio 502 'timed out' ingestando por lotes. Para ingestas",
+      "grandes conviene el embebedor local."
+    ]
+  }
+}
