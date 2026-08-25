@@ -484,3 +484,59 @@ test('un par del directorio NO puede volverse candidato de ruteo', async (t) => 
   store.attachDirectory(null)
   await close()
 })
+
+// ---------------------------------------------------------------------------
+// Fase 6.5 — costos (qvac/costs.mjs)
+// ---------------------------------------------------------------------------
+
+test('estimar acota por arriba y real cobra lo generado', async (t) => {
+  const costs = await import('../qvac/costs.mjs')
+
+  // El turno tipico del ROADMAP: 2000 de entrada, 500 de salida, Sonnet 5 a
+  // precio estandar. 2000 * 3 + 500 * 15 = 6000 + 7500 = 13500 micros.
+  const usado = costs.real({
+    model: 'claude-sonnet-5',
+    promptTokens: 2000,
+    completionTokens: 500
+  })
+  t.is(usado, 13500, 'USD 0,0135 por turno, el numero que calibra el tope')
+
+  // La estimacion asume que se generan TODOS los maxTokens. Tiene que ser
+  // mayor o igual al costo real del mismo request: si no, la reserva se queda
+  // corta y el tope se pasa.
+  const estimado = costs.estimar({
+    model: 'claude-sonnet-5',
+    promptTokens: 2000,
+    maxTokens: 4096
+  })
+  t.ok(estimado >= usado, 'la estimacion nunca queda por debajo del costo real')
+  t.is(estimado, 6000 + Math.ceil((4096 * 15_000_000) / 1_000_000))
+})
+
+test('lo que no esta en la tabla de precios sale cero', async (t) => {
+  const costs = await import('../qvac/costs.mjs')
+
+  // La inferencia local y la de un par de la red no cuestan dolares. Este
+  // camino existe para que el contador tenga UNA sola entrada para todos los
+  // targets, en vez de un `if` en el gateway.
+  t.is(costs.real({ model: 'llama1b', promptTokens: 9999, completionTokens: 9999 }), 0)
+  t.absent(costs.conocido('llama1b'))
+  t.ok(costs.conocido('claude-sonnet-5'))
+})
+
+test('los montos son enteros y redondean hacia arriba', async (t) => {
+  const costs = await import('../qvac/costs.mjs')
+
+  // Un token de entrada de Sonnet 5 sale 3 micros exactos; uno de Haiku, 1.
+  // Lo que importa del caso chico es que NO devuelva 0: truncar hacia abajo
+  // acumula gasto que el contador no ve.
+  const unToken = costs.real({ model: 'claude-haiku-4-5', promptTokens: 1, completionTokens: 0 })
+  t.is(unToken, 1, 'un token no puede costar cero')
+  t.ok(Number.isInteger(unToken), 'los montos son enteros, nunca floats')
+
+  // usdAMicros redondea al reves -- hacia abajo -- porque un tope nunca se
+  // agranda por un redondeo.
+  t.is(costs.usdAMicros(20), 20_000_000)
+  t.is(costs.usdAMicros(0.1), 100_000)
+  t.is(costs.usdAMicros(-5), 0, 'un tope negativo es cero, no una deuda')
+})
