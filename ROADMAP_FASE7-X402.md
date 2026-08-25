@@ -197,8 +197,27 @@ Bare y se distribuye como binario standalone que **no requiere Node instalado**.
 **Opciones:** (a) `@tetherto/wdk-wallet-evm` directo bajo Bare; (b) worklet
 `@tetherto/pear-wrk-wdk`; (c) sidecar Node.
 
-**Decisión: spike de 2h que decide entre (a) y (b). (c) solo si las dos
-fallan.** El spike es concreto y su resultado es binario:
+**Decisión: (a), `@tetherto/wdk-wallet-evm` directo bajo Bare.**
+
+> **RESUELTO el 2026-08-25 por el spike.** Los cuatro pasos pasan bajo Bare sin
+> shim, sin worklet y sin sidecar. Y hay un resultado que el spike no buscaba y
+> vale más que el sí: **la firma EIP-3009 es byte a byte idéntica bajo Node y
+> bajo Bare** — misma seed, mismo dominio, mismos 65 bytes. Eso descarta de una
+> vez la pregunta de si dos máquinas del swarm con runtimes distintos podrían
+> firmar autorizaciones distintas.
+>
+> ```
+> OK 1. import @tetherto/wdk-wallet-evm            -> function
+> OK 2. derivar una cuenta desde la seed           -> 0xf39Fd6e5…92266
+> OK 3. firmar EIP-3009 OFFLINE                    -> 0x65afa8f9…3a9181c
+> OK 4. import @x402/core y @x402/evm              -> core:1, evm:52
+> ```
+>
+> (b) y (c) quedan como planes de contingencia si una versión futura de WDK
+> rompe la compatibilidad, no como caminos a construir. **El riesgo #1 del
+> roadmap está muerto y las Fases 7 a 12 quedan desbloqueadas.**
+
+El spike que lo resolvió, para poder repetirlo cuando suba una versión:
 
 ```
 1. bare -e "import('@tetherto/wdk-wallet-evm').then(m => console.log(Object.keys(m)))"
@@ -207,15 +226,11 @@ fallan.** El spike es concreto y su resultado es binario:
 4. lo mismo para @x402/core y @x402/evm
 ```
 
-Si los cuatro pasan, es (a). Si fallan por dependencias nativas o de
-`node:crypto`, es (b) — que además es el camino oficial de Tether para
-exactamente este caso. (c) rompe la promesa de "el binario trae todo adentro":
-sería un retroceso de producto, no solo de código, y hay que decirlo en el
-README si se llega ahí.
-
-**Impacto si no se decide:** es la decisión que define el calendario de las
-Fases 7 a 12 enteras. **Se corre antes que cualquier otra cosa de este
-roadmap.**
+Si los cuatro pasan, es (a) — que es lo que ocurrió. Si una versión futura
+falla por dependencias nativas o de `node:crypto`, es (b), que además es el
+camino oficial de Tether para exactamente este caso. (c) rompe la promesa de
+"el binario trae todo adentro": sería un retroceso de producto, no solo de
+código, y habría que decirlo en el README si se llega ahí.
 
 ---
 
@@ -970,7 +985,7 @@ cobro propio sería el invento.
 
 | # | Riesgo | Cómo se mide | Plan B |
 | --- | --- | --- | --- |
-| 1 | **WDK/x402 no corre bajo Bare** | El spike de D11, cuatro pasos, resultado binario | Worklet `pear-wrk-wdk` → sidecar Node como último recurso, declarado en el README |
+| 1 | ~~WDK/x402 no corre bajo Bare~~ **CERRADO 2026-08-25** | El spike de D11 pasó los cuatro pasos, con firma idéntica a Node | — ya no hace falta |
 | 2 | **Plata real en mainnet** (Plasma no es testnet) | Montos de $0.001 y una wallet con USD 2 | Facilitator self-hosted contra una EVM testnet con USD₮0 |
 | 3 | El settle falla **después** de que el nodo ya gastó GPU | Contar fallos de settle en el log de ruteo | Verificación estricta previa + montos chicos; la reputación por par ya existe en `recordPeerResult` |
 | 4 | La seed de la wallet queda en claro como la de red | Revisión de D13 antes de fondear nada | No fondear hasta que esté cifrada. No es negociable |
@@ -1006,7 +1021,7 @@ cobro propio sería el invento.
 | --- | --- | --- |
 | 0 | **Aplicar al early access de VELA** | Es lo único que no controlamos. Se dispara y se sigue trabajando |
 | 1 | **Fase 6.5 — presupuesto, corte y degradación** | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza |
-| 1' | **Spike de D11** — *en paralelo con la 6.5* | Define el calendario de todo lo que viene después. No bloquea a la 6.5, por eso van juntas |
+| 1' | ~~Spike de D11~~ **HECHO** | Pasó: WDK y x402 corren directo bajo Bare, con firma idéntica a Node |
 | 1'' | Fase 6.6 — cuota gratuita del proveedor | Misma forma que la 6.5 y tampoco depende de D11. El punto de control ya existe en provider.mjs |
 | 2 | Fase 7 — desmockear `economic` (incluye D13) | Precondición de todo cobro |
 | 3 | Fase 8 — precio comparable y que rutea | Vale sola aunque x402 se caiga |
@@ -1028,7 +1043,7 @@ arriba). La columna **Tipo** dice por qué.
 | D8  | El 402 vive en el gateway, no en el nodo | arquitectura | Fase 9 |
 | D9  | `exact` con tope declarado (Fase 9) → prepago (Fase 10); `finish_reason: length` si se recorta | negocio | Fase 9 |
 | D10 | `payTo` directo a la wallet del proveedor, tomada del manifiesto firmado | negocio | Fase 9 |
-| D11 | Runtime de la wallet: spike decide entre Bare directo y worklet | arquitectura | **Fases 7–12** |
+| D11 | ~~Runtime de la wallet~~ **CERRADA**: `wdk-wallet-evm` directo bajo Bare | arquitectura | — (desbloqueó 7–12) |
 | D12 | Verificar sincrónico, liquidar después, recibo como evento SSE final | arquitectura | Fase 9 |
 | D13 | Seed de wallet separada de la de red y cifrada; no fondear antes | **seguridad** | Fase 7 |
 | D14 | Facilitator hosted hasta la Fase 10 | arquitectura | Fase 9 |
