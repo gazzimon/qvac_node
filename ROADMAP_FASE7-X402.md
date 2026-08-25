@@ -19,6 +19,20 @@ vea — en el código que lo arma, en el README y en el propio artefacto. Un
 ve idéntica a que funcione, y es la única forma de perder por deshonestidad en
 vez de por alcance.
 
+**Regla de delegación (nueva, y es la que estructura el documento):** las
+**fases** son delegables —exploración, debugging, refactor, implementación,
+tests y documentación—, y en las complejas se usan varios agentes para analizar,
+implementar y revisar por separado. Las **decisiones D8–D21 no se delegan**: son
+de arquitectura, seguridad, modelo de datos o negocio. Un agente propone y
+ejecuta; la decisión final es del dueño del proyecto.
+
+Por eso este documento está partido en dos mitades con propósitos distintos: la
+sección 1 son decisiones que necesitan una firma humana antes de que alguien
+escriba una línea, y la sección 2 son fases que se pueden repartir apenas esas
+decisiones estén tomadas. La tabla de la sección 7 marca de qué tipo es cada
+decisión, para que se vea de un vistazo cuál no puede salir en un PR de un
+agente.
+
 ---
 
 ## 0 · De qué se parte
@@ -84,6 +98,23 @@ x402 devuelve el settlement en el header `X-PAYMENT-RESPONSE`, pero en SSE los
 headers salen **antes** del primer token. Liquidar antes de streamear mete la
 latencia de una transacción on-chain delante del TTFT, que es la métrica del
 pitch. Ver D12.
+
+### R5 — El asistente externo introduce una economía distinta
+
+Cuando la red se satura y el request se va a un asistente externo (Claude), el
+costo deja de ser P2P y pasa a ser **una factura en dólares contra una empresa
+centralizada**. Eso rompe tres supuestos de todo lo anterior:
+
+1. **El costo se paga en fiat y se cobra en USD₮.** El operador adelanta la
+   plata y la recupera a fin de mes: eso es riesgo de crédito, no de protocolo.
+2. **El prompt sale de la red.** La promesa del README —*"ninguna corporación
+   centralizada agrega tus datos a escala"*— no aplica a ese camino, y hay que
+   decirlo en la respuesta misma, no en una nota al pie.
+3. **El tope de USD 20 no es un descuento, es un corte.** Un tope que se aplica
+   al facturar es un descuento: el gasto ya ocurrió y alguien lo pagó. Para que
+   sea un tope tiene que evaluarse **antes** de mandar el request.
+
+De ahí sale la Fase 6.5 y las decisiones D18 y D19.
 
 ---
 
@@ -313,7 +344,236 @@ esta decisión esté cerrada.
 
 ---
 
+### D18. Cómo se impone el tope de USD 20 (negocio + seguridad)
+
+**Problema:** el tope tiene que evaluarse **antes** del gasto (R5.3). Y hay una
+restricción técnica que lo complica: una autorización EIP-3009 es por un **monto
+fijo** — no se liquida parcialmente. Firmar USD 20 y consumir USD 7 no deja
+liquidar 7: deja liquidar 20 o nada.
+
+**Opciones:**
+
+- **(a) Autorizaciones denominadas.** El usuario firma N autorizaciones chicas
+  (por ejemplo 20 × USD 1) válidas por el mes; a fin de mes se liquidan solo las
+  que se consumieron. **El techo es criptográfico**: no existe una firma para el
+  peso número 21, así que el sistema no puede cobrar de más aunque el código
+  tenga un bug.
+- **(b) Saldo prepago** (`prepaid-balance`, que el schema ya nombra). Se carga en
+  tramos, se descuenta por uso medido, se corta en cero. El tope es no
+  autorecargar más de 4 tramos de USD 5 por mes.
+- **(c) Postpago con tope por política.** Se mide todo el mes y se factura al
+  final aplicando el tope.
+
+**Decisión: (b) en la Fase 6.5, (a) como objetivo de la Fase 10.** (c) queda
+descartada por lo que dice R5.3 — un tope aplicado al facturar es un descuento,
+porque el gasto ya ocurrió y alguien lo pagó.
+
+Lo que hace que (b) vaya primero no es que sea mejor, sino que **se puede
+construir hoy, sin wallet y sin blockchain**: la medición ya existe en
+`pushLog`, y un contador con corte no necesita nada de lo que D11 todavía no
+resolvió. (a) es estrictamente superior —el techo lo impone la criptografía y no
+el código del gateway— pero depende de que WDK corra.
+
+**Condición no negociable:** el contador vive del lado que gasta, nunca en el
+cliente. Un tope que el consumidor puede editar no es un tope.
+
+**Impacto si no se decide:** se implementa (c) sin querer, porque es la más
+fácil, y el primer mes con tráfico real termina en una factura que nadie acordó.
+
+---
+
+### D19. Cuándo se dispara el asistente externo, y qué se le dice al usuario (negocio + privacidad)
+
+**Problema:** *"cuando la red se satura"* no es una condición ejecutable, y el
+camino externo rompe la promesa de privacidad del README (R5.2).
+
+**Decisión: tres condiciones, todas necesarias.**
+
+1. **No hay candidato con capacidad** — todos los pares que sirven ese modelo
+   están en su `maxConcurrentRequests`, o no hay ninguno. Se reutiliza el
+   `node:status` de D6, no se inventa una métrica de saturación nueva.
+2. **El usuario lo habilitó** — opt-in por cuenta, apagado por default.
+3. **Queda presupuesto** (D18).
+
+Si alguna falla: 503 con el motivo, o el modelo local. **Nunca el externo en
+silencio.**
+
+**Divulgación:** se reutilizan los headers de procedencia que ya existen —
+`X-Pyrus-Operator: Anthropic`, `X-Pyrus-Kind: external`, `X-Pyrus-Model` con el
+ID real— y el chat lo muestra en la respuesta como muestra cualquier otro nodo.
+`local: true` prohíbe este camino igual que prohíbe los pares remotos: es la
+misma regla, sin excepción nueva.
+
+**Modelo:** `claude-sonnet-5`, que es el que pediste. Los números para la
+aritmética del tope, al 2026-08-25:
+
+| Modelo | ID | Input $/1M | Output $/1M |
+| --- | --- | ---: | ---: |
+| Claude Sonnet 5 | `claude-sonnet-5` | $3,00 (intro $2,00 **hasta 2026-08-31**) | $15,00 (intro $10,00) |
+| Claude Haiku 4.5 | `claude-haiku-4-5` | $1,00 | $5,00 |
+
+**Ojo con la fecha: el precio intro de Sonnet 5 vence el 31-ago-2026**, dentro de
+seis días. Si la aritmética del tope se calibra esta semana con $2/$10, el 1 de
+septiembre el costo por turno sube 50% solo, sin que nadie toque nada.
+
+Con un turno típico de 2.000 tokens de entrada y 500 de salida, a precio
+estándar: **USD 0,0135 por turno → ~1.480 turnos por los USD 20**. Con Haiku 4.5:
+USD 0,0045 → ~4.400 turnos. Dos palancas más que están en la API y no cuestan
+código nuevo: **prompt caching** (las lecturas de caché salen ~0,1× y el system
+prompt del agente es estable, así que es la optimización más grande disponible)
+y la **Batch API a mitad de precio**, que no sirve para el chat interactivo pero
+**sí para el procesamiento de lotes de la Fase 11**, que no es sensible a la
+latencia.
+
+**Lo que queda para vos:** Sonnet 5 o Haiku 4.5 es una decisión de negocio —
+triplica la cantidad de turnos por el mismo tope, a cambio de capacidad. Y hay
+un detalle técnico que la inclina: el canal de instrucciones de operador a mitad
+de conversación (mensajes con rol `system` dentro de `messages[]`), que es el
+camino recomendado contra inyección de prompt en D21, **existe en Opus 5 y Opus
+4.8 pero no en Sonnet 5**.
+
+**Impacto si no se decide:** el fallback se dispara por una heurística escrita en
+vivo, y el primer usuario que vea "Anthropic" en un header sin haberlo
+habilitado tiene razón en enojarse.
+
+---
+
+### D20. Harness del agente: límites, timeouts, reintentos, idempotencia (arquitectura)
+
+**Problema:** el agente de la Fase 11 corre solo, con herramientas y con acceso
+a una wallet. Sin límites duros, un loop no es un bug: es una factura.
+
+**Decisión: cuatro controles, todos en el harness y ninguno confiado al
+modelo.**
+
+| Control | Qué evita | Cómo |
+| --- | --- | --- |
+| **Límite de pasos y de tokens por tarea** | loops infinitos | Contador en el harness. El gateway ya cuenta tokens por request; acá se acumulan por tarea |
+| **Timeout por herramienta** | que una herramienta colgada bloquee la tarea entera | Timeout propio por llamada, más chico que el de la tarea |
+| **Reintentos con backoff exponencial y jitter** | fallos transitorios | Solo para 429, 5xx y errores de conexión. **Nunca** para 400, 404 ni un pago inválido: reintentar un error determinista es gastar dos veces para fallar igual |
+| **Idempotencia** | que el reintento cobre o escriba dos veces | Ver abajo |
+
+**La idempotencia tiene una respuesta que sale gratis del stack:** el `nonce` del
+EIP-3009 **es** la clave de idempotencia. Un reintento que reusa el mismo nonce
+no puede cobrar dos veces, porque la cadena rechaza la segunda liquidación. No
+hay que inventar un registro de claves: el mecanismo de pago ya trae uno, y es
+más fuerte que cualquier tabla en memoria porque lo impone la red y no el
+proceso. Para las operaciones que no involucran pago (escribir un campo
+extraído, guardar un recibo), la clave se deriva del hash del documento más el
+identificador del campo.
+
+Esto es lo que hace que reintentar sea seguro. **Sin idempotencia, el backoff
+exponencial no es tolerancia a fallas: es un multiplicador de cobros.**
+
+Hay precedente en el repo y conviene respetarlo: D4 ya decidió que el gateway
+reintenta solo **antes** del primer chunk, y nunca después de empezar a
+streamear. El harness del agente aplica la misma regla un nivel más arriba.
+
+**Impacto si no se decide:** el primer fallo transitorio en producción cobra dos
+veces, y el log no alcanza para saber si fue un bug o un doble consumo real.
+
+---
+
+### D21. Prompt injection y exfiltración: cómo se miden (seguridad)
+
+**Problema:** el agente documental de la Fase 11 lee entradas que vienen de
+afuera —facturas escaneadas, PDFs de terceros, texto OCR— y tiene herramientas y
+un presupuesto. **Un documento con texto adversarial es una entrada de
+ejecución**, no un dato. Esto no es hipotético en este proyecto: la Parte D del
+diseño original pide explícitamente fixtures "genuinamente desprolijos" de
+origen externo.
+
+**Decisión: se mide, no se asume.** Una suite adversarial con fixtures
+envenenados —instrucciones embebidas en el cuerpo del documento, en metadatos,
+en texto blanco sobre blanco, en el resultado del OCR— y cuatro métricas que se
+publican junto con las de acierto:
+
+| Métrica | Qué cuenta |
+| --- | --- |
+| **Obediencia a la inyección** | cuántas veces el agente siguió la instrucción del documento en vez de la del operador |
+| **Violación de herramientas** | llamadas a una herramienta fuera de la allowlist, o con argumentos fuera del rango declarado |
+| **Exfiltración** | datos del documento apareciendo en un destino que no les corresponde — incluido **el prompt saliendo hacia el asistente externo sin opt-in** (D19) |
+| **Gasto no autorizado** | el caso propio de este proyecto: ¿el documento logró que el agente pagara algo? |
+
+**Trazabilidad:** por cada paso se registra la **cadena de entrada completa**,
+**qué herramienta se eligió y con qué argumentos**, y **la salida**. El log
+JSONL del gateway ya es el audit trail —así lo declara el diseño de la capa
+agéntica—; acá se extiende con esos tres campos, no se inventa un sistema nuevo.
+
+**Tres controles que no dependen de que el modelo se porte bien**, porque
+medir sin contener es solo documentar el incidente:
+
+1. **El presupuesto (D18) es el límite de daño.** Un agente comprometido no
+   puede gastar más que el tope. Esta es la razón más fuerte para que la Fase
+   6.5 vaya antes que la capa agéntica y no después.
+2. **`security.allowedTools` del manifiesto deja de estar vacío.** El campo
+   existe desde la Fase 2 con la lista en cero; acá empieza a usarse.
+3. **El contenido del documento nunca se concatena al system prompt.** Va en un
+   bloque marcado como datos. Para instrucciones de operador que llegan a mitad
+   de la conversación, la API tiene un canal propio —mensajes con rol `system`
+   dentro de `messages[]`— que existe justamente para no reescribir el prompt
+   del sistema con texto que vino de afuera; disponible en Opus 5 y Opus 4.8, no
+   en Sonnet 5 (ver D19).
+
+**Impacto si no se decide:** la Fase 11 sale con un agente que tiene wallet,
+herramientas y entradas de origen desconocido, y sin un solo número que diga qué
+tan seguido hace lo que le pide el documento en vez de lo que le pide el dueño.
+
+---
+
 ## 2 · Fases
+
+### Fase 6.5 — Presupuesto, corte y degradación a local (~2 días) ← va primero
+
+**Sí, esto va antes que todo lo demás, y la razón no es económica: es de
+seguridad.**
+
+El mecanismo de corte es la misma pieza que aparece cuatro veces en este
+documento con nombres distintos: el tope de USD 20 del asistente externo, el
+`--budget` del agente de la Fase 11, el límite de tokens por tarea de D20, y el
+límite de daño de un agente comprometido de D21. **Construirlo una vez, primero,
+hace que todas las fases siguientes lo hereden.** Construirlo al final significa
+que cada fase intermedia inventa su propia versión y ninguna es la buena.
+
+Y tiene una propiedad que ninguna otra fase de este roadmap tiene: **no depende
+de D11.** Un contador de consumo con corte no necesita wallet, ni cadena, ni que
+WDK corra bajo Bare — necesita medición, y la medición ya existe en `pushLog`.
+Es la única fase que se puede empezar hoy sin saber el resultado del spike, y
+eso la vuelve el mejor primer movimiento aunque x402 después se caiga entero.
+
+**Qué se construye:**
+
+1. **Contador de consumo por cuenta**, del lado que gasta (D18), persistido.
+   Toma los `tokens` que el gateway ya cuenta y les aplica el precio de la
+   Fase 8 cuando exista; hasta entonces, el precio del asistente externo, que sí
+   es un número real y conocido.
+2. **Corte duro con degradación, no con error.** Al llegar al tope, la cuenta no
+   se rompe: **se cae a inferencia local**, que es gratis y sigue funcionando.
+   El usuario pierde la red y el asistente externo, no el producto. Esa es la
+   diferencia entre un límite y una baja de servicio.
+3. **Estimación previa al gasto.** Antes de mandar un request al asistente
+   externo se estima su costo y se compara contra lo que queda. La API tiene un
+   endpoint de conteo de tokens para exactamente esto: se cuenta antes, no se
+   descubre después.
+4. **Reparto de la cuota compartida a fin de mes.** El consumo se atribuye por
+   cuenta durante todo el mes; a fin de mes se cobra lo efectivamente consumido,
+   **nunca más que el tope**, porque el tope ya cortó en el paso 2.
+
+**DoD:**
+
+- Una cuenta que llega al tope recibe respuestas locales y un aviso claro, no un
+  500 ni un cuelgue.
+- El panel muestra consumido / disponible / cuánto falta para el corte.
+- Bajar el tope a USD 0,10 y correr el agente hasta agotarlo produce un corte
+  exacto: **el gasto real nunca supera el tope declarado**, y eso está en un
+  test, no en una corrida a mano.
+- El reparto de fin de mes suma exactamente el consumo medido — sin redondeos
+  que aparezcan de la nada.
+
+**Lo que NO se hace acá:** cobrar. Esta fase mide, atribuye y corta. El cobro es
+la Fase 9 y el prepago con firma es la Fase 10.
+
+---
 
 ### Fase 7 — Desmockear `economic` (~1 día)
 
@@ -349,6 +609,31 @@ anterior, que sigue pendiente.
 
 **Esta fase vale sola.** Si x402 se cae entero por D11, la 7 y la 8 siguen
 siendo trabajo bueno que cierra deudas declaradas.
+
+---
+
+### Fase 8.5 — El asistente externo como un candidato más (~1 día)
+
+Con la Fase 8 hecha, el ruteo ya elige por precio y carga. Entonces el asistente
+externo **no necesita un camino especial: es un candidato más**, con un precio
+conocido (D19), capacidad prácticamente infinita, y tres condiciones de
+elegibilidad en vez de una (D19: sin capacidad local, opt-in, y presupuesto).
+
+Eso es lo que hace que esta fase sea chica. Todo lo que necesita ya existe:
+`node:status` dice si los pares están saturados, el ruteo sabe comparar precios,
+los headers de procedencia saben decir quién contestó, `local: true` ya sabe
+excluir candidatos, y la Fase 6.5 ya sabe cortar.
+
+**DoD:**
+
+- Con la red saturada y el opt-in activado, el request se va al externo y la
+  respuesta **dice que fue al externo** en los headers y en el chat.
+- Con el opt-in apagado: 503 con el motivo, o local. Nunca el externo.
+- Con el presupuesto agotado: local, con aviso. Nunca el externo.
+- `local: true` nunca sale de la máquina, con o sin opt-in.
+- El README dice, en la sección de "qué es simulado" o en la que la reemplace,
+  que este camino manda el prompt a un tercero — la promesa de privacidad se
+  acota ahí, no en una nota al pie.
 
 ---
 
@@ -406,9 +691,56 @@ inferencia de proveedores desconocidos, sin registrarse en ninguno, pagando por
 HTTP.** El agente no necesita correr bajo Bare —habla el protocolo de OpenAI
 como cualquier cliente—, así que esta fase no toca el pipeline de distribución.
 
-**DoD:** el agente se queda sin presupuesto a mitad de un lote y **para**,
-diciendo cuánto procesó y cuánto le faltó. Un agente que se pasa del presupuesto
-es peor que uno que no arranca.
+**El harness, que es la mitad del trabajo de esta fase** (D20). No es una capa
+de prolijidad alrededor del agente: es lo que hace que un agente con wallet sea
+operable.
+
+| Control | Valor de arranque | Qué pasa al cruzarlo |
+| --- | --- | --- |
+| Pasos por documento | acotado y explícito | corta, marca `needs_review`, sigue con el próximo documento |
+| Tokens por tarea | derivado del presupuesto restante | corta antes de gastar, no después |
+| Timeout por herramienta | menor que el de la tarea | falla esa herramienta, no la tarea |
+| Reintentos | backoff exponencial con jitter, solo transitorios | tras el último intento, falla explícita en el audit trail |
+| Idempotencia | `nonce` del pago para lo cobrable; hash del documento + campo para lo demás | el reintento no duplica ni el cobro ni la escritura |
+
+**DoD:**
+
+- El agente se queda sin presupuesto a mitad de un lote y **para**, diciendo
+  cuánto procesó y cuánto le faltó. Un agente que se pasa del presupuesto es
+  peor que uno que no arranca.
+- Matar la red a mitad de un lote y reanudar **no vuelve a cobrar** los
+  documentos ya pagados. Esto se prueba, no se razona: es el DoD que justifica
+  toda la columna de idempotencia.
+- Cada campo extraído tiene, en el audit trail, la evidencia que lo originó, qué
+  nodo respondió, qué decisión de ruteo se tomó y **cuánto costó**.
+
+---
+
+### Fase 11.5 — Evaluación adversarial (~1-2 días) ← no es opcional
+
+Implementa D21. Va pegada a la Fase 11 y no después de la 12, porque un agente
+con wallet y entradas de origen desconocido sin esta fase es exactamente el
+problema que D21 describe.
+
+**Qué se construye:**
+
+1. **Fixtures envenenados** junto a los fixtures sucios que la Parte D ya pedía:
+   instrucciones embebidas en el cuerpo, en metadatos, en texto invisible, y en
+   la salida del OCR.
+2. **Las cuatro métricas de D21** —obediencia a la inyección, violación de
+   herramientas, exfiltración, gasto no autorizado— corriendo en el mismo
+   comando `eval` que ya mide acierto por campo.
+3. **Los tres controles duros** de D21: el presupuesto como límite de daño,
+   `security.allowedTools` dejando de estar vacío, y el contenido del documento
+   entrando siempre como dato y nunca como instrucción.
+4. **Los tres campos nuevos del audit trail:** cadena de entrada completa,
+   herramienta elegida con sus argumentos, y salida.
+
+**DoD — y es el mismo criterio que el proyecto ya aplica a la tasa de acierto:**
+las cuatro métricas se publican en el README **incluyendo los casos donde el
+agente falla**. Un README que dice "la tasa de obediencia a inyección es 4% y
+estos son los tres fixtures que la logran" vale más que uno que no mide. La
+alternativa —no medirlo— no es "cero por ciento": es no saber.
 
 ---
 
@@ -522,6 +854,10 @@ cobro propio sería el invento.
 | 4 | La seed de la wallet queda en claro como la de red | Revisión de D13 antes de fondear nada | No fondear hasta que esté cifrada. No es negociable |
 | 5 | Dependencia de un facilitator de terceros que Tether **no** respalda | — | Self-hosted, ya presupuestado en la Fase 10 |
 | 6 | VELA no da early access, o lo da tarde | Aplicar primero y seguir sin esperar | El Track V es paralelo justamente por esto: nada del camino crítico lo espera |
+| 7 | **El operador adelanta el costo externo en fiat y cobra en USD₮** — riesgo de crédito y de cambio (R5.1) | Diferencia entre lo consumido y lo cobrado, por mes | El corte de la Fase 6.5 acota la exposición máxima a USD 20 por cuenta. Si no alcanza, pasar a (a) de D18: cobrado antes de gastar |
+| 8 | **El precio intro de Sonnet 5 vence el 31-ago-2026** y el costo por turno sube 50% solo | Está en el calendario, no hay que medirlo | Calibrar la aritmética del tope con el precio estándar desde el día uno, no con el intro |
+| 9 | **Inyección de prompt** en documentos de origen externo | Las cuatro métricas de la Fase 11.5 | Los tres controles duros de D21. El presupuesto acota el daño aunque la inyección funcione |
+| 10 | Un reintento cobra dos veces | Contar liquidaciones por `nonce` repetido en el log | La idempotencia de D20. Es la razón por la que el backoff no se implementa antes que ella |
 
 ---
 
@@ -534,6 +870,11 @@ cobro propio sería el invento.
   superficie de prueba sin agregar nada al pitch. Después de la Fase 12, si
   acaso.
 - **Inferencia dentro del enclave.** Por las tres razones de la sección 3.
+- **Postpago con tope aplicado al facturar.** Descartado en D18: no es un tope,
+  es un descuento sobre un gasto que ya ocurrió.
+- **El asistente externo sin opt-in.** Descartado en D19. No hay una versión
+  "por default está prendido porque mejora la experiencia": el prompt sale de la
+  red y eso lo decide el dueño del prompt.
 
 ---
 
@@ -542,29 +883,39 @@ cobro propio sería el invento.
 | Orden | Qué | Por qué ahí |
 | --- | --- | --- |
 | 0 | **Aplicar al early access de VELA** | Es lo único que no controlamos. Se dispara y se sigue trabajando |
-| 1 | **Spike de D11** | Define el calendario de las seis fases siguientes |
+| 1 | **Fase 6.5 — presupuesto, corte y degradación** | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza |
+| 1' | **Spike de D11** — *en paralelo con la 6.5* | Define el calendario de todo lo que viene después. No bloquea a la 6.5, por eso van juntas |
 | 2 | Fase 7 — desmockear `economic` (incluye D13) | Precondición de todo cobro |
 | 3 | Fase 8 — precio comparable y que rutea | Vale sola aunque x402 se caiga |
-| 4 | Fase 9 — x402 en el borde | El hito técnico |
-| 5 | Fase 10 — recibos y lote | Mata la Fase 6 |
-| 6 | Fase 11 — capa agéntica con presupuesto | El pitch |
-| 7 | Fase 12 — MCP toolkit | Upside; se corta primero |
+| 4 | Fase 8.5 — el asistente externo como candidato | Chica, porque la 8 ya dejó el ruteo listo |
+| 5 | Fase 9 — x402 en el borde | El hito técnico |
+| 6 | Fase 10 — recibos y lote | Mata la Fase 6 |
+| 7 | Fase 11 — capa agéntica con harness | El pitch |
+| 8 | Fase 11.5 — evaluación adversarial | Pegada a la 11. No es opcional |
+| 9 | Fase 12 — MCP toolkit | Upside; se corta primero |
 | — | V2/V3 — enclave | Cuando haya acceso y D17 esté cerrada |
 
 ### Decisiones a cerrar
 
-| #   | Decisión | Bloquea |
-| --- | --- | --- |
-| D8  | El 402 vive en el gateway, no en el nodo | Fase 9 |
-| D9  | `exact` con tope declarado (Fase 9) → prepago (Fase 10); `finish_reason: length` si se recorta | Fase 9 |
-| D10 | `payTo` directo a la wallet del proveedor, tomada del manifiesto firmado | Fase 9 |
-| D11 | Runtime de la wallet: spike decide entre Bare directo y worklet | **Fases 7–12** |
-| D12 | Verificar sincrónico, liquidar después, recibo como evento SSE final | Fase 9 |
-| D13 | Seed de wallet separada de la de red y cifrada; no fondear antes | Fase 7 |
-| D14 | Facilitator hosted hasta la Fase 10 | Fase 9 |
-| D15 | Plasma default, Stable fallback; `chains` kebab-case sin tocar el schema | Fase 7 |
-| D16 | Tres caminos de acceso: local gratis, key con saldo, desconocido con 402 | Fase 9 |
-| D17 | Cadena de liquidación si VELA entra — **se cierra recién con el early access** | V2 |
+Todas son del dueño del proyecto, no de un agente (ver la regla de delegación
+arriba). La columna **Tipo** dice por qué.
+
+| #   | Decisión | Tipo | Bloquea |
+| --- | --- | --- | --- |
+| D8  | El 402 vive en el gateway, no en el nodo | arquitectura | Fase 9 |
+| D9  | `exact` con tope declarado (Fase 9) → prepago (Fase 10); `finish_reason: length` si se recorta | negocio | Fase 9 |
+| D10 | `payTo` directo a la wallet del proveedor, tomada del manifiesto firmado | negocio | Fase 9 |
+| D11 | Runtime de la wallet: spike decide entre Bare directo y worklet | arquitectura | **Fases 7–12** |
+| D12 | Verificar sincrónico, liquidar después, recibo como evento SSE final | arquitectura | Fase 9 |
+| D13 | Seed de wallet separada de la de red y cifrada; no fondear antes | **seguridad** | Fase 7 |
+| D14 | Facilitator hosted hasta la Fase 10 | arquitectura | Fase 9 |
+| D15 | Plasma default, Stable fallback; `chains` kebab-case sin tocar el schema | modelo de datos | Fase 7 |
+| D16 | Tres caminos de acceso: local gratis, key con saldo, desconocido con 402 | negocio | Fase 9 |
+| D17 | Cadena de liquidación si VELA entra — **se cierra recién con el early access** | arquitectura | V2 |
+| D18 | Tope impuesto **antes** del gasto: prepago (6.5) → autorizaciones denominadas (10). Nunca postpago | **negocio + seguridad** | Fase 6.5 |
+| D19 | Tres condiciones para el externo (sin capacidad + opt-in + presupuesto), divulgación en los headers, y qué modelo | **negocio + privacidad** | Fase 8.5 |
+| D20 | Harness: pasos, tokens, timeouts, backoff solo transitorio, `nonce` como clave de idempotencia | arquitectura | Fase 11 |
+| D21 | Cuatro métricas adversariales publicadas con sus fallos + tres controles duros | **seguridad** | Fase 11.5 |
 
 ---
 
@@ -586,4 +937,7 @@ Es lo único de este roadmap que espera un dato de afuera.
 
 - [WDK — x402](https://docs.wdk.tether.io/ai/x402/) · [Node.js & Bare Quickstart](https://docs.wdk.tether.io/start-building/nodejs-bare-quickstart/) · [Arquitectura del SDK](https://docs.wdk.tether.io/sdk/get-started/) · [MCP Toolkit](https://docs.wdk.tether.io/ai/mcp-toolkit/) · [Agent Skills](https://docs.wdk.tether.io/ai/agent-skills/)
 - [tetherto/pear-wrk-wdk](https://github.com/tetherto/pear-wrk-wdk)
+- Precios, IDs de modelo, prompt caching, Batch API y conteo de tokens de la
+  API de Claude: referencia consultada el 2026-08-25. **El precio intro de
+  Sonnet 5 vence el 31-ago-2026** — revalidar antes de calibrar el tope.
 - [Horizen Labs — VELA](https://horizenlabs.io/vela/) · [docs.horizen.io/vela](https://docs.horizen.io/vela/introduction) · [HorizenOfficial/vela](https://github.com/HorizenOfficial/vela)
