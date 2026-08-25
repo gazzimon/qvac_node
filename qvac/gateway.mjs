@@ -34,6 +34,7 @@ import * as store from './store.mjs'
 import * as apikeys from './apikeys.mjs'
 import * as budget from './budget.mjs'
 import * as costs from './costs.mjs'
+import * as quota from './quota.mjs'
 import { pickCandidate } from './routing.mjs'
 
 const MOCK_REPLIES = {
@@ -1283,6 +1284,38 @@ async function onRequest(req, res) {
       })
     }
 
+    // FASE 6.6 — la otra cara del mismo espejo: cuanto REGALO este nodo.
+    //
+    // /v1/budget mira hacia adentro (lo que esta maquina consumio y le queda);
+    // esto mira hacia afuera (lo que esta maquina le presto a otros). Son dos
+    // contadores distintos y a proposito: el de arriba lo lleva el gateway
+    // porque es quien gasta, y este lo lleva el proveedor porque es quien
+    // presta la GPU. D18 y D23, el mismo principio aplicado a los dos lados.
+    //
+    // La clave del par se muestra recortada. Entera no aporta nada en una
+    // pantalla y es el identificador de red de otra persona: no hay motivo
+    // para dejarlo escrito completo en la vista del panel.
+    if (req.method === 'GET' && pathname === '/v1/quota') {
+      const motivo = rechazoPorKey(req)
+      if (motivo) return sendError(res, 401, motivo)
+
+      const cfg = quota.config()
+      const filas = quota.listar()
+      return sendJson(res, 200, {
+        quota_tokens: cfg.tokens,
+        window_hours: cfg.horas,
+        // Lo regalado en la ventana, sumado. Es el numero que le importa al
+        // duenio del nodo: cuanta GPU puso de su bolsillo hoy.
+        given_tokens: filas.reduce((acc, f) => acc + f.used, 0),
+        peers: filas.map((f) => ({
+          peer: f.peerKey.slice(0, 8) + '…',
+          used: f.used,
+          remaining: f.remaining,
+          quota: f.quota
+        }))
+      })
+    }
+
     // La serie COMPLETA, desde el Hyperbee. `/v1/routing-log` devuelve el ring
     // de 30 que pinta el panel; para una auditoria eso no alcanza -- 30
     // entradas se llenan con una sola sesion de pruebas y la evidencia de la
@@ -1438,10 +1471,11 @@ async function onRequest(req, res) {
         // rechaza requests, provider.mjs:169 -- quedaba en el valor del
         // arranque. El nodo terminaba anunciando una capacidad que no honraba,
         // que es exactamente lo que el manifiesto firmado existe para impedir.
-        swarmRef.provider.maxConcurrent = updated.reduce(
-          (n, m) => n + (Number.isFinite(m.maxConcurrentRequests) ? m.maxConcurrentRequests : 0),
-          0
-        ) || 1
+        swarmRef.provider.maxConcurrent =
+          updated.reduce(
+            (n, m) => n + (Number.isFinite(m.maxConcurrentRequests) ? m.maxConcurrentRequests : 0),
+            0
+          ) || 1
 
         // Y la fila del registro, que es de donde sale el `node:status` que ven
         // los pares: sin esto la red seguiria viendo la capacidad vieja.
