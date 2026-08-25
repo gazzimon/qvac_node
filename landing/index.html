@@ -19,6 +19,15 @@
     --network: #2f6fd6;
     --signal: #a6650a;
     --signal-ink: #ffffff;
+    /* Sequential ramp for the payback heatmap: one hue, light -> dark, darker =
+       pays back sooner. Never a rainbow, and every cell prints its number too,
+       so color is never the only channel. `-i` is the ink that clears contrast
+       on top of each step. */
+    --s1: #cde2fb; --s1i: #12151c;
+    --s2: #9ec5f4; --s2i: #12151c;
+    --s3: #5598e7; --s3i: #12151c;
+    --s4: #256abf; --s4i: #ffffff;
+    --s5: #104281; --s5i: #ffffff;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -31,6 +40,13 @@
       --network: #5fa8ff;
       --signal: #ffb545;
       --signal-ink: #16110a;
+      /* Dark mode is stepped from the same hue, not flipped: on a dark surface
+         "more" reads as brighter, so the ramp runs dim -> bright. */
+      --s1: #17293f; --s1i: #b9d4f2;
+      --s2: #1d4372; --s2i: #d7e7fb;
+      --s3: #2a6fbd; --s3i: #ffffff;
+      --s4: #4a95e0; --s4i: #0b0d12;
+      --s5: #8dc2f7; --s5i: #0b0d12;
     }
   }
   :root[data-theme="dark"] {
@@ -43,6 +59,11 @@
     --network: #5fa8ff;
     --signal: #ffb545;
     --signal-ink: #16110a;
+    --s1: #17293f; --s1i: #b9d4f2;
+    --s2: #1d4372; --s2i: #d7e7fb;
+    --s3: #2a6fbd; --s3i: #ffffff;
+    --s4: #4a95e0; --s4i: #0b0d12;
+    --s5: #8dc2f7; --s5i: #0b0d12;
   }
 
   * { box-sizing: border-box; }
@@ -280,6 +301,157 @@
   }
   .term .copy:hover { color: var(--ink); border-color: var(--network); }
 
+  /* ----------------------------------------------------------- calculator */
+  .calc { background: var(--surface); }
+  .calc h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); max-width: 21ch; }
+  .calc .lede { margin-top: 1.1rem; max-width: 54ch; }
+  .calc .cols {
+    margin-top: clamp(2.25rem, 5vw, 3.25rem);
+    display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+    gap: clamp(1.5rem, 4vw, 2.75rem); align-items: start;
+  }
+  @media (max-width: 900px) { .calc .cols { grid-template-columns: 1fr; } }
+
+  .panel {
+    border: 1px solid var(--line); border-radius: 4px; background: var(--bg);
+    padding: 1.3rem 1.35rem 1.4rem;
+  }
+  .panel + .panel { margin-top: 1rem; }
+  .panel > .ph {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--network);
+    margin-bottom: 1.05rem;
+  }
+  .ctrl { display: grid; gap: .4rem; margin-bottom: 1.05rem; }
+  .ctrl:last-child { margin-bottom: 0; }
+  .ctrl > label {
+    font-family: "IBM Plex Mono", monospace; font-size: .73rem;
+    letter-spacing: .03em; text-transform: uppercase; color: var(--mute);
+    display: flex; justify-content: space-between; gap: .75rem; align-items: baseline;
+  }
+  .ctrl > label .rd { color: var(--ink); text-transform: none; letter-spacing: 0; }
+  .calc select, .calc input[type="number"] {
+    font-family: "IBM Plex Mono", monospace; font-size: .82rem;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: .5rem .55rem; width: 100%;
+  }
+  .calc input[type="range"] { width: 100%; accent-color: var(--network); }
+  .calc select:focus-visible,
+  .calc input:focus-visible,
+  .calc button:focus-visible { outline: 2px solid var(--network); outline-offset: 2px; }
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  /* The unit rides inside the field. Four bare number boxes in a 2x2 grid are
+     unreadable without it -- you cannot tell price from bandwidth. */
+  .mini { position: relative; display: block; }
+  .mini i {
+    position: absolute; right: .5rem; top: 50%; transform: translateY(-50%);
+    font-family: "IBM Plex Mono", monospace; font-size: .68rem; font-style: normal;
+    color: var(--mute); pointer-events: none;
+  }
+  .mini input[type="number"] { padding-right: 3.1rem; }
+  .fine { font-size: .75rem; color: var(--mute); line-height: 1.55; }
+  .fine + .fine { margin-top: .5rem; }
+
+  /* ---- results: one hero (the comparison), then a column per machine ---- */
+  .verdict {
+    border: 1px solid var(--line); border-radius: 4px;
+    background: var(--bg); padding: 1.4rem 1.5rem;
+  }
+  .verdict .k {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--mute);
+  }
+  /* The one hero figure of the view. Proportional figures on purpose: tabular
+     digits look loose at display size. */
+  .verdict .v {
+    font-size: clamp(2.4rem, 5.6vw, 3.2rem); font-weight: 600;
+    line-height: 1.08; margin-top: .45rem; color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    text-wrap: balance;
+  }
+  .verdict .why { margin-top: .85rem; font-size: .95rem; color: var(--ink); max-width: 58ch; }
+  .verdict .why b { color: var(--signal); font-weight: 600; }
+
+  .machines {
+    margin-top: 1rem;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    background: var(--line); border: 1px solid var(--line); border-radius: 4px;
+    overflow: hidden;
+  }
+  @media (max-width: 620px) { .machines { grid-template-columns: 1fr; } }
+  .machine { background: var(--bg); padding: 1.2rem 1.3rem 1.35rem; }
+  .machine .top { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+  .machine .slot {
+    font-family: "IBM Plex Mono", monospace; font-size: .7rem; font-weight: 600;
+    color: var(--signal-ink); background: var(--signal);
+    border-radius: 2px; padding: .05rem .38rem;
+  }
+  .machine h3 { font-size: 1rem; }
+  .machine .spec {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    color: var(--mute); margin-top: .3rem;
+  }
+  .machine .pb {
+    margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line);
+    font-size: 1.9rem; font-weight: 600; line-height: 1.1;
+  }
+  .machine .pb small { display: block; font-size: .4em; font-weight: 500; color: var(--mute); margin-top: .15rem; }
+  .machine .pb.dead { color: var(--mute); }
+  .machine dl { margin: .95rem 0 0; display: grid; gap: .4rem; }
+  .machine dl div { display: flex; justify-content: space-between; gap: .75rem; align-items: baseline; }
+  .machine dt { font-size: .78rem; color: var(--mute); }
+  .machine dd {
+    margin: 0; font-family: "IBM Plex Mono", monospace; font-size: .8rem;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  .machine .flag { margin-top: .85rem; font-size: .78rem; color: var(--signal); line-height: 1.5; }
+
+  /* ---- sensitivity heatmap ---- */
+  .sens { margin-top: 1.75rem; }
+  .sens .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+  .sens h3 { font-size: .98rem; }
+  .sens .toggle { display: flex; gap: .3rem; }
+  .sens .toggle button {
+    font-family: "IBM Plex Mono", monospace; font-size: .74rem;
+    background: none; border: 1px solid var(--line); color: var(--mute);
+    padding: .3rem .7rem; border-radius: 3px; cursor: pointer;
+  }
+  .sens .toggle button[aria-pressed="true"] { border-color: var(--network); color: var(--ink); }
+  .sens .scroll { overflow-x: auto; margin-top: .85rem; }
+  .sens table {
+    width: 100%; min-width: 460px;
+    border-collapse: separate; border-spacing: 2px;
+    font-family: "IBM Plex Mono", monospace; font-size: .75rem;
+  }
+  .sens caption { caption-side: bottom; margin-top: .7rem; font-size: .75rem; color: var(--mute); text-align: left; line-height: 1.55; }
+  .sens th {
+    font-weight: 500; color: var(--mute); padding: .35rem .5rem; white-space: nowrap;
+  }
+  .sens thead th { text-align: center; }
+  .sens tbody th { text-align: right; }
+  .sens td {
+    text-align: center; padding: .55rem .35rem; border-radius: 2px;
+    font-variant-numeric: tabular-nums; cursor: default;
+  }
+  .sens td.dead { background: var(--surface-2); color: var(--mute); }
+  .sens td.now { box-shadow: inset 0 0 0 2px var(--signal); font-weight: 600; }
+  .ramp {
+    display: flex; align-items: center; gap: .35rem; margin-top: .8rem;
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem; color: var(--mute);
+  }
+  .ramp i { width: 1.6rem; height: .55rem; border-radius: 1px; display: block; }
+
+  .tip {
+    position: fixed; z-index: 30; pointer-events: none; opacity: 0;
+    transition: opacity .12s ease;
+    background: var(--ink); color: var(--bg);
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem; line-height: 1.45;
+    padding: .45rem .6rem; border-radius: 3px; max-width: 26ch;
+  }
+  .tip.on { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+
   footer {
     padding: 2.25rem clamp(1.5rem, 5vw, 4rem) 3rem;
     display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
@@ -307,6 +479,7 @@
       setting the price or keeping the margin.</p>
     <div class="cta-row">
       <a class="btn primary" href="#install">Install the node</a>
+      <a class="btn ghost" href="#calculator">What would your machine earn?</a>
       <a class="btn ghost" href="#market">How the market works</a>
       <a class="btn ghost" href="#trust">Why nobody has to be trusted</a>
     </div>
@@ -442,6 +615,148 @@
   </div>
 </section>
 
+<section class="calc" id="calculator">
+  <div class="wrap">
+    <p class="eyebrow reveal">The economics</p>
+    <h2 class="reveal" style="margin-top:.9rem">A cheap machine can pay for itself faster than an expensive one.</h2>
+    <p class="lede reveal">Payback is capital divided by the tokens you actually produce — so the
+      question is never "how fast is this hardware", it is "how many hours a day is it
+      producing tokens somebody values". Put two machines side by side and see for yourself.
+      Every assumption below is editable.</p>
+
+    <div class="cols reveal">
+      <div>
+        <div class="panel">
+          <p class="ph">The market</p>
+
+          <div class="ctrl">
+            <label for="c-model">Model served</label>
+            <select id="c-model">
+              <option value="0" selected>Llama 3.1 8B — 4-bit</option>
+              <option value="1">Qwen3 32B — 4-bit</option>
+              <option value="2">Llama 3.3 70B — 4-bit</option>
+              <option value="3">gpt-oss-120b — MoE, ~5B active</option>
+            </select>
+          </div>
+
+          <div class="ctrl">
+            <label for="c-batch">Concurrency</label>
+            <select id="c-batch">
+              <option value="1" selected>One request at a time</option>
+              <option value="8">Batched — 8 at a time</option>
+            </select>
+          </div>
+
+          <div class="ctrl">
+            <label for="c-hours">Hours a day producing <span class="rd" id="c-hours-rd"></span></label>
+            <input type="range" id="c-hours" min="0.5" max="24" step="0.5" value="6">
+          </div>
+
+          <div class="ctrl">
+            <label for="c-price">Value of a token <span class="rd" id="c-price-rd"></span></label>
+            <select id="c-price">
+              <option value="0.30">USD 0.30 — open-model commodity</option>
+              <option value="1">USD 1 — open-model premium</option>
+              <option value="5" selected>USD 5 — Haiku 4.5 output</option>
+              <option value="15">USD 15 — Sonnet 5 output</option>
+              <option value="25">USD 25 — Opus 5 output</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input type="number" id="c-price-custom" min="0" step="0.05" value="5" hidden aria-label="Custom token value, USD per million output tokens">
+          </div>
+
+          <div class="ctrl">
+            <label for="c-kwh">Electricity <span class="rd">USD / kWh</span></label>
+            <input type="number" id="c-kwh" min="0" step="0.001" value="0.084">
+          </div>
+        </div>
+
+        <div class="panel">
+          <p class="ph">The machines</p>
+
+          <div class="ctrl">
+            <label for="c-a">Machine A</label>
+            <select id="c-a" data-slot="a">
+              <option value="gmk" selected>GMKtec K16 — Ryzen 7 7735HS</option>
+              <option value="dgx">NVIDIA DGX Spark</option>
+              <option value="mac">Mac Studio M4 Max — 128 GB</option>
+              <option value="rtx">RTX 4090 desktop</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <div class="duo" style="margin-top:.15rem">
+              <span class="mini"><input type="number" id="c-a-usd" min="0" step="10" aria-label="Machine A price, USD"><i>USD</i></span>
+              <span class="mini"><input type="number" id="c-a-bw" min="1" step="1" aria-label="Machine A memory bandwidth, GB per second"><i>GB/s</i></span>
+            </div>
+            <div class="duo">
+              <span class="mini"><input type="number" id="c-a-mem" min="1" step="1" aria-label="Machine A memory, GB"><i>GB</i></span>
+              <span class="mini"><input type="number" id="c-a-w" min="1" step="5" aria-label="Machine A watts under load"><i>W</i></span>
+            </div>
+          </div>
+
+          <div class="ctrl">
+            <label for="c-b">Machine B</label>
+            <select id="c-b" data-slot="b">
+              <option value="gmk">GMKtec K16 — Ryzen 7 7735HS</option>
+              <option value="dgx" selected>NVIDIA DGX Spark</option>
+              <option value="mac">Mac Studio M4 Max — 128 GB</option>
+              <option value="rtx">RTX 4090 desktop</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <div class="duo" style="margin-top:.15rem">
+              <span class="mini"><input type="number" id="c-b-usd" min="0" step="10" aria-label="Machine B price, USD"><i>USD</i></span>
+              <span class="mini"><input type="number" id="c-b-bw" min="1" step="1" aria-label="Machine B memory bandwidth, GB per second"><i>GB/s</i></span>
+            </div>
+            <div class="duo">
+              <span class="mini"><input type="number" id="c-b-mem" min="1" step="1" aria-label="Machine B memory, GB"><i>GB</i></span>
+              <span class="mini"><input type="number" id="c-b-w" min="1" step="5" aria-label="Machine B watts under load"><i>W</i></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="verdict">
+          <p class="k">The comparison</p>
+          <p class="v" id="c-verdict"></p>
+          <p class="why" id="c-why"></p>
+        </div>
+
+        <div class="machines" id="c-machines"></div>
+
+        <div class="sens">
+          <div class="hd">
+            <h3>Months to pay the machine back</h3>
+            <div class="toggle" role="group" aria-label="Which machine the table shows">
+              <button type="button" data-sens="a" aria-pressed="true">A</button>
+              <button type="button" data-sens="b" aria-pressed="false">B</button>
+            </div>
+          </div>
+          <div class="scroll">
+            <table id="c-sens">
+              <caption>Every cell is the same machine and the same model — only how busy it is and
+                what its tokens are worth change. That spread is the whole business.</caption>
+            </table>
+          </div>
+          <div class="ramp" aria-hidden="true">
+            <span>pays back sooner</span>
+            <i style="background:var(--s5)"></i><i style="background:var(--s4)"></i><i style="background:var(--s3)"></i><i style="background:var(--s2)"></i><i style="background:var(--s1)"></i>
+            <span>later</span>
+          </div>
+        </div>
+
+        <p class="fine" style="margin-top:1.5rem"><b style="color:var(--ink);font-weight:600">How this is computed.</b>
+          Generating a token reads the whole model out of memory once, so throughput is bounded by
+          memory bandwidth: <span class="mono">tok/s ≈ bandwidth × 75% ÷ model size</span>. These are
+          physical-limit estimates, <b style="color:var(--ink);font-weight:600">not measurements on the machines</b>,
+          and bandwidth figures come from each machine's memory spec. Prices are list, with no import
+          duty added. Payback is capital ÷ monthly net; NPV discounts 36 months at 12% a year.</p>
+        <p class="fine">Same arithmetic as <span class="mono">scripts/eval-dgx-spark.py</span> in the repo,
+          which regenerates the written study.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="install" id="install">
   <div class="wrap">
     <div class="grid">
@@ -564,6 +879,305 @@
     } else {
       step(); cancelAnimationFrame(raf)
     }
+  })()
+
+  // --------------------------------------------------------------- payback
+  // Ported from scripts/eval-dgx-spark.py -- same formulas, same constants.
+  // If one side changes and the other does not, this page starts lying about
+  // the study it cites, so they are meant to be edited together.
+  ;(function calculator() {
+    if (!document.getElementById('calculator')) return
+
+    const SEC_PER_MONTH = 30 * 24 * 3600
+    const BW_EFFICIENCY = 0.75 // share of theoretical bandwidth actually reached
+    const HORIZON = 36         // months
+    const R_M = Math.pow(1.12, 1 / 12) - 1
+
+    // usd: list price, no import duty (the K16 figure is the FOB price from
+    // EVALUACION-ECONOMICA.md). bw: GB/s derived from the memory spec, not
+    // measured. w/idle: whole-machine watts, estimates.
+    const MACHINES = {
+      gmk: { name: 'GMKtec K16', sub: 'Ryzen 7 7735HS · 32 GB LPDDR5-6400', usd: 750, bw: 102.4, mem: 32, w: 60, idle: 15 },
+      dgx: { name: 'NVIDIA DGX Spark', sub: 'GB10 · 128 GB LPDDR5x unified', usd: 4800, bw: 273, mem: 128, w: 150, idle: 45 },
+      mac: { name: 'Mac Studio M4 Max', sub: '128 GB unified memory', usd: 3699, bw: 546, mem: 128, w: 160, idle: 12 },
+      rtx: { name: 'RTX 4090 desktop', sub: '24 GB GDDR6X', usd: 2900, bw: 1008, mem: 24, w: 500, idle: 60 },
+      custom: { name: 'Custom machine', sub: 'your own numbers', usd: 1000, bw: 200, mem: 32, w: 100, idle: 20 }
+    }
+
+    // read: GB pulled out of memory per generated token. resident: GB the
+    // weights occupy -- a MoE reads little per token but must still fit whole.
+    // batch: throughput multiplier at 8 concurrent requests.
+    const MODELS = [
+      { name: 'Llama 3.1 8B', read: 4.7, resident: 5.5, batch: 6.0 },
+      { name: 'Qwen3 32B', read: 18.0, resident: 20.0, batch: 4.5 },
+      { name: 'Llama 3.3 70B', read: 40.0, resident: 43.0, batch: 3.5 },
+      { name: 'gpt-oss-120b', read: 3.5, resident: 63.0, batch: 3.0 }
+    ]
+
+    const UTILS = [0.05, 0.10, 0.25, 0.50, 1.00]
+    const PRICES = [0.30, 1, 5, 15, 25]
+    const SLOTS = ['a', 'b']
+
+    const $ = (id) => document.getElementById(id)
+    const num = (id, fallback) => {
+      const v = parseFloat($(id).value)
+      return Number.isFinite(v) && v > 0 ? v : fallback
+    }
+
+    let sensSlot = 'a'
+
+    const tip = document.createElement('div')
+    tip.className = 'tip'
+    tip.setAttribute('role', 'tooltip')
+    document.body.appendChild(tip)
+
+    function powerCost(m, util, kwh) {
+      return (m.w * util + m.idle * (1 - util)) * 720 / 1000 * kwh
+    }
+
+    function npv(rate, flows) {
+      let acc = 0
+      for (let t = 0; t < flows.length; t++) acc += flows[t] / Math.pow(1 + rate, t)
+      return acc
+    }
+
+    // Bisection, same as irr() in the python: npv is monotonically decreasing
+    // in the rate for these flows, so halving always converges.
+    function irr(flows) {
+      let lo = 1e-9, hi = 1
+      for (let i = 0; i < 300; i++) {
+        const mid = (lo + hi) / 2
+        if (npv(mid, flows) > 0) lo = mid
+        else hi = mid
+      }
+      return (lo + hi) / 2
+    }
+
+    function run(m, model, batch, util, price, kwh) {
+      // 10% of memory left for the KV cache and the OS: a model that exactly
+      // equals RAM does not actually run.
+      const fits = model.resident <= m.mem * 0.9
+      const tps = fits ? (m.bw * BW_EFFICIENCY / model.read) * (batch === 8 ? model.batch : 1) : 0
+      const capacity = tps * SEC_PER_MONTH / 1e6 // MTok/month at full saturation
+      const sold = capacity * util
+      const power = powerCost(m, util, kwh)
+      const net = sold * price - power
+      const flows = [-m.usd]
+      for (let t = 0; t < HORIZON; t++) flows.push(net)
+      const value = npv(R_M, flows)
+      return {
+        fits, tps, sold, power, net, npv: value,
+        payback: net > 0 ? m.usd / net : Infinity,
+        irr: net > 0 && value > 0 ? Math.pow(1 + irr(flows), 12) - 1 : null,
+        marginal: sold > 0 ? power / sold : null
+      }
+    }
+
+    const months = (p) =>
+      !isFinite(p) ? 'never' : p > 240 ? '20 yr+' : p < 1.5 ? '1 mo' : Math.round(p) + ' mo'
+    const usd = (n, d) =>
+      n.toLocaleString('en-US', { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 })
+
+    // Five steps of one hue. Never a rainbow, and the number is printed in
+    // every cell anyway, so color is a second channel and not the only one.
+    function step(p) {
+      if (!isFinite(p) || p > 240) return 0
+      if (p <= 6) return 5
+      if (p <= 12) return 4
+      if (p <= 24) return 3
+      if (p <= 48) return 2
+      return 1
+    }
+
+    function fillSpecs(slot) {
+      const base = MACHINES[$('c-' + slot).value]
+      $('c-' + slot + '-usd').value = base.usd
+      $('c-' + slot + '-bw').value = base.bw
+      $('c-' + slot + '-mem').value = base.mem
+      $('c-' + slot + '-w').value = base.w
+    }
+
+    function machineFrom(slot) {
+      const key = $('c-' + slot).value
+      const base = MACHINES[key]
+      return {
+        key,
+        name: base.name,
+        sub: base.sub,
+        usd: num('c-' + slot + '-usd', base.usd),
+        bw: num('c-' + slot + '-bw', base.bw),
+        mem: num('c-' + slot + '-mem', base.mem),
+        w: num('c-' + slot + '-w', base.w),
+        idle: base.idle
+      }
+    }
+
+    function priceValue() {
+      const sel = $('c-price').value
+      if (sel !== 'custom') return parseFloat(sel)
+      return num('c-price-custom', 5)
+    }
+
+    function render() {
+      const model = MODELS[parseInt($('c-model').value, 10)]
+      const batch = parseInt($('c-batch').value, 10)
+      const hours = parseFloat($('c-hours').value)
+      const util = hours / 24
+      const price = priceValue()
+      const kwh = num('c-kwh', 0.084)
+
+      $('c-hours-rd').textContent = hours + ' h · ' + Math.round(util * 100) + '% busy'
+      $('c-price-rd').textContent = 'USD / MTok out'
+
+      const specs = SLOTS.map(machineFrom)
+      const results = specs.map((m) => run(m, model, batch, util, price, kwh))
+
+      // ---- the machine columns
+      $('c-machines').innerHTML = specs.map((m, i) => {
+        const r = results[i]
+        const rows = r.fits
+          ? [
+              ['Sustained output', Math.round(r.tps) + ' tok/s'],
+              ['Sold per month', r.sold.toFixed(1) + ' MTok'],
+              ['Net per month', 'USD ' + usd(r.net, 0)],
+              ['Electricity', 'USD ' + usd(r.power, 2)],
+              ['NPV over 36 mo', 'USD ' + usd(r.npv, 0)],
+              ['Annual IRR', r.irr === null ? '—' : Math.round(r.irr * 100) + '%']
+            ]
+          : []
+        return '<div class="machine">' +
+          '<div class="top"><span class="slot">' + SLOTS[i].toUpperCase() + '</span><h3>' + m.name + '</h3></div>' +
+          '<p class="spec">' + m.sub + '</p>' +
+          '<p class="spec">USD ' + usd(m.usd, 0) + ' · ' + m.bw + ' GB/s · ' + m.mem + ' GB</p>' +
+          (r.fits
+            ? '<p class="pb' + (isFinite(r.payback) ? '' : ' dead') + '">' + months(r.payback) +
+              '<small>to pay the machine back</small></p>'
+            : '<p class="pb dead">—<small>' + model.name + ' does not fit in ' + m.mem + ' GB</small></p>') +
+          (rows.length
+            ? '<dl>' + rows.map((x) => '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>').join('') + '</dl>'
+            : '') +
+          (r.fits && !isFinite(r.payback)
+            ? '<p class="flag">At this price and utilisation it never clears its own electricity bill.</p>'
+            : '') +
+          '</div>'
+      }).join('')
+
+      // ---- the one hero figure: which machine wins, and why
+      const [ra, rb] = results
+      const [ma, mb] = specs
+      const v = $('c-verdict')
+      const why = $('c-why')
+
+      if (!ra.fits && !rb.fits) {
+        v.textContent = 'Neither machine can hold this model.'
+        why.innerHTML = 'Pick a smaller model, or give one of them more memory. ' +
+          '<b>' + model.name + '</b> needs about ' + model.resident + ' GB resident.'
+      } else if (!isFinite(ra.payback) && !isFinite(rb.payback)) {
+        v.textContent = 'Neither machine pays for itself.'
+        why.innerHTML = 'At <b>USD ' + price + ' / MTok</b> and <b>' + hours + ' h a day</b>, ' +
+          'the tokens are worth less than the power to make them. This is the commodity trap: ' +
+          'selling generic tokens cheap never returns the capital.'
+      } else {
+        const win = (isFinite(ra.payback) ? ra.payback : Infinity) <= (isFinite(rb.payback) ? rb.payback : Infinity) ? 0 : 1
+        const lose = 1 - win
+        const rw = results[win], rl = results[lose], mw = specs[win], ml = specs[lose]
+        if (!isFinite(rl.payback)) {
+          v.textContent = mw.name + ' is the only one that pays for itself.'
+          why.innerHTML = '<b>' + ml.name + '</b> never clears its own power bill at this utilisation — ' +
+            'it draws ' + ml.w + ' W to produce ' + Math.round(rl.tps) + ' tok/s.'
+        } else {
+          const ratio = rl.payback / rw.payback
+          v.textContent = mw.name + ' pays back ' + ratio.toFixed(1) + '× sooner.'
+          // Both ratios are winner-over-loser, so "< 1" means the winner is the
+          // smaller one on that axis -- fewer tokens, less money.
+          const tpsR = rl.tps > 0 ? rw.tps / rl.tps : 0
+          const usdR = ml.usd > 0 ? mw.usd / ml.usd : 0
+          why.innerHTML = tpsR < 1 && usdR < 1
+            ? 'It produces <b>' + (1 / tpsR).toFixed(1) + '× fewer tokens per second</b>, but it costs <b>' +
+              (1 / usdR).toFixed(1) + '× less</b>. Payback is capital divided by output, so the cheaper machine wins ' +
+              'whenever its price falls faster than its throughput does.'
+            : 'It clears <b>' + months(rw.payback) + '</b> against <b>' + months(rl.payback) + '</b> — ' +
+              Math.round(rw.tps) + ' tok/s at USD ' + usd(mw.usd, 0) + ', versus ' +
+              Math.round(rl.tps) + ' tok/s at USD ' + usd(ml.usd, 0) + '.'
+        }
+      }
+
+      // ---- sensitivity heatmap for the selected machine
+      const si = sensSlot === 'a' ? 0 : 1
+      const m = specs[si]
+      const closest = UTILS.reduce((best, u) =>
+        Math.abs(u - util) < Math.abs(best - util) ? u : best, UTILS[0])
+
+      let html = '<caption>Every cell is the same machine and the same model — only how busy it is ' +
+        'and what its tokens are worth change. That spread is the whole business.</caption>' +
+        '<thead><tr><th scope="col">Hours a day</th>' +
+        PRICES.map((p) => '<th scope="col">USD ' + p + '</th>').join('') + '</tr></thead><tbody>'
+
+      for (const u of UTILS) {
+        html += '<tr><th scope="row">' + (u * 24).toFixed(u === 0.05 ? 1 : 0) + ' h · ' +
+          Math.round(u * 100) + '%</th>'
+        for (const p of PRICES) {
+          const r = run(m, model, batch, u, p, kwh)
+          const s = step(r.payback)
+          const here = u === closest && p === price
+          const label = !r.fits ? '—' : months(r.payback).replace(' mo', '')
+          const style = s === 0 ? '' : ' style="background:var(--s' + s + ');color:var(--s' + s + 'i)"'
+          html += '<td class="' + (s === 0 ? 'dead' : '') + (here ? ' now' : '') + '"' + style +
+            ' data-tip="' + (u * 24).toFixed(1) + ' h a day at USD ' + p + ' / MTok → ' +
+            (r.fits ? months(r.payback) : 'model does not fit') + '">' + label + '</td>'
+        }
+        html += '</tr>'
+      }
+      $('c-sens').innerHTML = html + '</tbody>'
+    }
+
+    // Editing a spec means it is no longer the preset machine, so the label
+    // stops claiming it is one.
+    for (const slot of SLOTS) {
+      $('c-' + slot).addEventListener('change', () => { fillSpecs(slot); render() })
+      for (const f of ['usd', 'bw', 'mem', 'w']) {
+        $('c-' + slot + '-' + f).addEventListener('input', () => {
+          if ($('c-' + slot).value !== 'custom') $('c-' + slot).value = 'custom'
+          render()
+        })
+      }
+    }
+
+    $('c-price').addEventListener('change', () => {
+      const custom = $('c-price').value === 'custom'
+      $('c-price-custom').hidden = !custom
+      if (custom) $('c-price-custom').focus()
+      render()
+    })
+
+    for (const id of ['c-model', 'c-batch', 'c-hours', 'c-kwh', 'c-price-custom']) {
+      $(id).addEventListener('input', render)
+    }
+
+    document.querySelectorAll('[data-sens]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sensSlot = btn.dataset.sens
+        document.querySelectorAll('[data-sens]').forEach((b) => {
+          b.setAttribute('aria-pressed', String(b.dataset.sens === sensSlot))
+        })
+        render()
+      })
+    })
+
+    const sens = $('c-sens')
+    sens.addEventListener('pointerover', (ev) => {
+      const cell = ev.target.closest('td[data-tip]')
+      if (!cell) return
+      tip.textContent = cell.dataset.tip
+      const r = cell.getBoundingClientRect()
+      tip.style.left = Math.min(r.left, window.innerWidth - 240) + 'px'
+      tip.style.top = (r.top - 40) + 'px'
+      tip.classList.add('on')
+    })
+    sens.addEventListener('pointerout', () => tip.classList.remove('on'))
+
+    SLOTS.forEach(fillSpecs)
+    render()
   })()
 </script>
 
