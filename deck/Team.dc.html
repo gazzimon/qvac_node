@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    a { color: #5fa8ff; text-decoration: none; }
+    a:hover { color: #ffb545; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 810px; background: #0b0d12; color: #e8eaf0; font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; font-size: 17px; line-height: 1.6; padding: 72px 88px; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #5fa8ff;">
+    <span style="width: 7px; height: 7px; border-radius: 50%; background: #5fa8ff; box-shadow: 0 0 0 4px rgba(95,168,255,.18); flex: none; display: block;"></span>
+    <span>10 · Team</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 64px; margin-top: 24px; align-items: end;">
+    <h2 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 46px; line-height: 1.12; letter-spacing: -.01em; margin: 0; max-width: 20ch;">Two founders. One protocol already shipped.</h2>
+    <p style="margin: 0; color: #8891a6; font-size: 16.5px; line-height: 1.55;">We built distribution, discovery, signed verification and an OpenAI-compatible gateway at the CRECIMIENTO / Aleph 2026 hackathon, Pears Track — and verified it across separate machines rather than demoing it on one.</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: #262b38; border: 1px solid #262b38; margin-top: 44px;">
+
+    <div style="background: #12151c; padding: 36px 34px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="width: 52px; height: 52px; border: 1px solid #262b38; border-radius: 3px; background: #171b24; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 18px; color: #5fa8ff;">01</div>
+      <h3 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 24px; line-height: 1.2; margin: 8px 0 0;">[FOUNDER NAME]</h3>
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff;">[ROLE]</div>
+      <p style="margin: 0; color: #8891a6; font-size: 16px; line-height: 1.55;">[ONE LINE: what they built before this, and why it makes them the right person for this piece]</p>
+    </div>
+
+    <div style="background: #12151c; padding: 36px 34px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="width: 52px; height: 52px; border: 1px solid #262b38; border-radius: 3px; background: #171b24; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 18px; color: #5fa8ff;">02</div>
+      <h3 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 24px; line-height: 1.2; margin: 8px 0 0;">[FOUNDER NAME]</h3>
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff;">[ROLE]</div>
+      <p style="margin: 0; color: #8891a6; font-size: 16px; line-height: 1.55;">[ONE LINE: what they built before this, and why it makes them the right person for this piece]</p>
+    </div>
+
+  </div>
+
+  <div style="display: flex; gap: 40px; margin-top: 40px; padding-top: 28px; border-top: 1px solid #262b38;">
+    <div style="flex-grow: 1;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: #8891a6; margin-bottom: 9px;">How we work</div>
+      <p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #8891a6;">Open source from day one, Apache-2.0. Every limitation is written into the README and the source before anyone finds it — including the ones that make us look unfinished.</p>
+    </div>
+    <div style="flex-grow: 1;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: #8891a6; margin-bottom: 9px;">What we measure, not assume</div>
+      <p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #8891a6;">Decisions in the repo were discarded by measurement, not intuition. The engineering notes record what was tried, what the numbers said, and what we dropped because of them.</p>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6;">pyrusllm</div>
+  <div style="position: absolute; right: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6; letter-spacing: .08em;">11 / 12</div>
+
+</div>
+</x-dc>
+</body>
+</html>

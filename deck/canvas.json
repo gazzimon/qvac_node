@@ -1,0 +1,28 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",         "x": 0,    "y": 0,    "w": 1440, "h": 810, "title": "01 · Cover" },
+    { "file": "Problem.dc.html",      "x": 1560, "y": 0,    "w": 1440, "h": 810, "title": "02 · Problem" },
+    { "file": "Solution.dc.html",     "x": 3120, "y": 0,    "w": 1440, "h": 810, "title": "03 · What it is" },
+    { "file": "Architecture.dc.html", "x": 4680, "y": 0,    "w": 1440, "h": 810, "title": "04 · How it works" },
+
+    { "file": "Traction.dc.html",     "x": 0,    "y": 970,  "w": 1440, "h": 810, "title": "05 · State of the product" },
+    { "file": "TrustGap.dc.html",     "x": 1560, "y": 970,  "w": 1440, "h": 810, "title": "06 · The trust gap" },
+    { "file": "Enclave.dc.html",      "x": 3120, "y": 970,  "w": 1440, "h": 810, "title": "07 · Where the enclave fits" },
+    { "file": "Roadmap.dc.html",      "x": 4680, "y": 970,  "w": 1440, "h": 810, "title": "08 · The plan" },
+
+    { "file": "Market.dc.html",       "x": 0,    "y": 1940, "w": 1440, "h": 810, "title": "09 · Market" },
+    { "file": "Economics.dc.html",    "x": 1560, "y": 1940, "w": 1440, "h": 810, "title": "10 · Unit economics" },
+    { "file": "Team.dc.html",         "x": 3120, "y": 1940, "w": 1440, "h": 810, "title": "11 · Team" },
+    { "file": "Ask.dc.html",          "x": 4680, "y": 1940, "w": 1440, "h": 810, "title": "12 · The ask" }
+  ],
+  "annotations": [
+    {
+      "id": "fill-in",
+      "x": 6200,
+      "y": 1940,
+      "w": 300,
+      "text": "Still to fill in:\n\n• Team — both founder names, roles and one line of background each\n• Ask — round size, use of funds, contact email\n\nEverything in [BRACKETS] is a placeholder, deliberately left blank rather than invented."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

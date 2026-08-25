@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    a { color: #5fa8ff; text-decoration: none; }
+    a:hover { color: #ffb545; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 810px; background: #0b0d12; color: #e8eaf0; font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; font-size: 17px; line-height: 1.6; padding: 72px 88px; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #5fa8ff;">
+    <span style="width: 7px; height: 7px; border-radius: 50%; background: #5fa8ff; box-shadow: 0 0 0 4px rgba(95,168,255,.18); flex: none; display: block;"></span>
+    <span>03 · How it works</span>
+  </div>
+
+  <h2 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 46px; line-height: 1.12; letter-spacing: -.01em; margin: 24px 0 0; max-width: 24ch;">One connection. Three things running on top of it.</h2>
+
+  <div style="display: flex; gap: 0; margin-top: 46px; align-items: stretch; border: 1px solid #262b38; border-radius: 4px; overflow: hidden;">
+    <div style="background: #12151c; padding: 24px 22px; flex-grow: 1; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid #262b38;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #5fa8ff; letter-spacing: .08em;">01 INSTALL</div>
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #e8eaf0;">pear install</div>
+      <div style="font-size: 13.5px; color: #8891a6; line-height: 1.5;">Binary + engine, over P2P</div>
+    </div>
+    <div style="background: #12151c; padding: 24px 22px; flex-grow: 1; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid #262b38;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #5fa8ff; letter-spacing: .08em;">02 JOIN</div>
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #e8eaf0;">Hyperswarm</div>
+      <div style="font-size: 13.5px; color: #8891a6; line-height: 1.5;">Fixed topic, no config</div>
+    </div>
+    <div style="background: #12151c; padding: 24px 22px; flex-grow: 1; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid #262b38;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #5fa8ff; letter-spacing: .08em;">03 ANNOUNCE</div>
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #e8eaf0;">signed manifest</div>
+      <div style="font-size: 13.5px; color: #8891a6; line-height: 1.5;">Models, capacity, price</div>
+    </div>
+    <div style="background: #12151c; padding: 24px 22px; flex-grow: 1; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid #262b38;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #ffb545; letter-spacing: .08em;">04 VERIFY</div>
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #e8eaf0;">Ed25519 / JCS</div>
+      <div style="font-size: 13.5px; color: #8891a6; line-height: 1.5;">Bound to the connection key</div>
+    </div>
+    <div style="background: #12151c; padding: 24px 22px; flex-grow: 1; display: flex; flex-direction: column; gap: 8px;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #5fa8ff; letter-spacing: .08em;">05 SERVE</div>
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #e8eaf0;">:8787 /v1</div>
+      <div style="font-size: 13.5px; color: #8891a6; line-height: 1.5;">OpenAI-compatible gateway</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 56px; margin-top: 46px; align-items: start;">
+
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #8891a6;">One socket, one hole-punch</div>
+      <div style="background: #171b24; border: 1px solid #262b38; border-radius: 4px; padding: 22px 24px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13.5px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; gap: 14px;"><span style="color: #5fa8ff; width: 11ch; flex: none;">chat</span><span style="color: #8891a6;">inference streamed over the channel</span></div>
+        <div style="display: flex; align-items: baseline; gap: 14px;"><span style="color: #5fa8ff; width: 11ch; flex: none;">directory</span><span style="color: #8891a6;">Hyperbee — who we have seen, and when</span></div>
+        <div style="display: flex; align-items: baseline; gap: 14px;"><span style="color: #5fa8ff; width: 11ch; flex: none;">files</span><span style="color: #8891a6;">Hyperdrive — verified against the merkle root</span></div>
+      </div>
+      <p style="margin: 0; color: #8891a6; font-size: 15.5px; line-height: 1.55;">All three multiplexed over a single Protomux connection. Not a second port, not an HTTP hop to localhost.</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #8891a6;">The surface clients already speak</div>
+      <div style="border: 1px solid #262b38; border-radius: 4px; overflow: hidden; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px;">
+        <div style="display: flex; gap: 16px; padding: 12px 18px; border-bottom: 1px solid #262b38; background: #171b24;"><span style="color: #ffb545; width: 5ch; flex: none;">GET</span><span style="color: #e8eaf0;">/v1/models</span></div>
+        <div style="display: flex; gap: 16px; padding: 12px 18px; border-bottom: 1px solid #262b38; background: #171b24;"><span style="color: #ffb545; width: 5ch; flex: none;">POST</span><span style="color: #e8eaf0;">/v1/chat/completions</span><span style="color: #8891a6;">SSE · JSON</span></div>
+        <div style="display: flex; gap: 16px; padding: 12px 18px; border-bottom: 1px solid #262b38; background: #171b24;"><span style="color: #ffb545; width: 5ch; flex: none;">GET</span><span style="color: #e8eaf0;">/v1/nodes</span><span style="color: #8891a6;">marketplace view</span></div>
+        <div style="display: flex; gap: 16px; padding: 12px 18px; background: #171b24;"><span style="color: #ffb545; width: 5ch; flex: none;">POST</span><span style="color: #e8eaf0;">/v1/connection/:id</span><span style="color: #8891a6;">issue a key</span></div>
+      </div>
+      <p style="margin: 0; color: #8891a6; font-size: 15.5px; line-height: 1.55;">Errors carry OpenAI's error shape too. Caveat we state up front: no <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; color: #e8eaf0;">tools</span>, no <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; color: #e8eaf0;">usage</span> yet.</p>
+    </div>
+
+  </div>
+
+  <div style="position: absolute; left: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6;">pyrusllm</div>
+  <div style="position: absolute; right: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6; letter-spacing: .08em;">04 / 12</div>
+
+</div>
+</x-dc>
+</body>
+</html>

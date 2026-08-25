@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    a { color: #5fa8ff; text-decoration: none; }
+    a:hover { color: #ffb545; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 810px; background: #0b0d12; color: #e8eaf0; font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; font-size: 17px; line-height: 1.6; padding: 72px 88px; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #ffb545;">
+    <span style="width: 7px; height: 7px; border-radius: 50%; background: #ffb545; box-shadow: 0 0 0 4px rgba(255,181,69,.18); flex: none; display: block;"></span>
+    <span>05 · The trust gap</span>
+  </div>
+
+  <h2 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 46px; line-height: 1.12; letter-spacing: -.01em; margin: 24px 0 0; max-width: 25ch;">A market needs someone who sees both ends. That is the problem.</h2>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 64px; margin-top: 46px; align-items: start;">
+
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #8891a6;">Someone has to match each request to a node — and in doing so sees <b style="color: #e8eaf0; font-weight: 600;">who asked and who answered</b>. Someone has to meter consumption, apply the price, and decide what each provider is owed.</p>
+      <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #8891a6;">That someone reconstructs the entire activity of the network and holds the money. Encrypting the traffic doesn't prevent it: <b style="color: #e8eaf0; font-weight: 600;">the coordinator has to read both sides to do its job</b>.</p>
+      <div style="margin-top: 8px; padding: 26px 28px; background: #171b24; border: 1px solid #262b38; border-left: 2px solid #ffb545; border-radius: 4px;">
+        <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 20px; line-height: 1.35; color: #e8eaf0; letter-spacing: -.01em;">You cannot have an ownerless market if the piece that decides and charges belongs to someone.</p>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 18px;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #8891a6;">Four jobs, and what each one leaks</div>
+      <div style="border: 1px solid #262b38; border-radius: 4px; overflow: hidden;">
+        <div style="display: flex; gap: 18px; padding: 20px 22px; border-bottom: 1px solid #262b38; background: #171b24; align-items: baseline;">
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 11ch; flex: none;">matching</span>
+          <span style="font-size: 15px; color: #8891a6; line-height: 1.5;">links a buyer to a seller — both identities, every request</span>
+        </div>
+        <div style="display: flex; gap: 18px; padding: 20px 22px; border-bottom: 1px solid #262b38; background: #171b24; align-items: baseline;">
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 11ch; flex: none;">metering</span>
+          <span style="font-size: 15px; color: #8891a6; line-height: 1.5;">volume and shape of everything anyone consumes</span>
+        </div>
+        <div style="display: flex; gap: 18px; padding: 20px 22px; border-bottom: 1px solid #262b38; background: #171b24; align-items: baseline;">
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 11ch; flex: none;">settlement</span>
+          <span style="font-size: 15px; color: #8891a6; line-height: 1.5;">who gets paid what — and the power to tilt it</span>
+        </div>
+        <div style="display: flex; gap: 18px; padding: 20px 22px; background: #171b24; align-items: baseline;">
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 11ch; flex: none;">reputation</span>
+          <span style="font-size: 15px; color: #8891a6; line-height: 1.5;">who stays in the market and who is quietly buried</span>
+        </div>
+      </div>
+      <p style="margin: 0; color: #8891a6; font-size: 15.5px; line-height: 1.55;">Transport, discovery and verification between nodes are solved for us. This centre is what the protocol cannot solve on its own.</p>
+    </div>
+
+  </div>
+
+  <div style="position: absolute; left: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6;">pyrusllm</div>
+  <div style="position: absolute; right: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6; letter-spacing: .08em;">06 / 12</div>
+
+</div>
+</x-dc>
+</body>
+</html>

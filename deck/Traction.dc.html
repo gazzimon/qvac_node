@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    a { color: #5fa8ff; text-decoration: none; }
+    a:hover { color: #ffb545; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 810px; background: #0b0d12; color: #e8eaf0; font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; font-size: 17px; line-height: 1.6; padding: 72px 88px; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #5fa8ff;">
+    <span style="width: 7px; height: 7px; border-radius: 50%; background: #5fa8ff; box-shadow: 0 0 0 4px rgba(95,168,255,.18); flex: none; display: block;"></span>
+    <span>04 · State of the product</span>
+  </div>
+
+  <h2 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 46px; line-height: 1.12; letter-spacing: -.01em; margin: 24px 0 0; max-width: 26ch;">What runs today — and what doesn't, said out loud.</h2>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: #262b38; border: 1px solid #262b38; margin-top: 42px;">
+
+    <div style="background: #12151c; padding: 32px 34px; display: flex; flex-direction: column; gap: 18px;">
+      <div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #5fa8ff;">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: #5fa8ff; flex: none; display: block;"></span>
+        <span>Shipped and measured</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 15px;">
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff; width: 6ch; flex: none;">24 s</span><span style="font-size: 15.5px; line-height: 1.5;">from <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace;">pear install</span> to the first token</span></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff; width: 6ch; flex: none;">~10 s</span><span style="font-size: 15.5px; line-height: 1.5;">for an OTA update to reach a running node, with no user action</span></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff; width: 6ch; flex: none;">81 MB</span><span style="font-size: 15.5px; line-height: 1.5;">installed cross-machine, Windows → MacBook Air over a phone hotspot — the Mac picked its own architecture unaided</span></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff; width: 6ch; flex: none;">7/7</span><span style="font-size: 15.5px; line-height: 1.5;">soak runs clean, across 5 platform binaries</span></div>
+        <div style="height: 1px; background: #262b38; margin: 3px 0;"></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff; width: 6ch; flex: none;">sig</span><span style="font-size: 15.5px; line-height: 1.5;">Ed25519 manifests over canonical JCS (RFC 8785), with the signature bound to the connection key — a valid signature from the wrong peer is rejected</span></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff; width: 6ch; flex: none;">api</span><span style="font-size: 15.5px; line-height: 1.5;">the real OpenAI protocol: models, streaming completions, error shape</span></div>
+      </div>
+    </div>
+
+    <div style="background: #12151c; padding: 32px 34px; display: flex; flex-direction: column; gap: 18px;">
+      <div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #ffb545;">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: #ffb545; flex: none; display: block;"></span>
+        <span>Not built yet</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 15px;">
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 6ch; flex: none;">meter</span><span style="font-size: 15.5px; line-height: 1.5;">no token accounting. The engine does not expose usage, so there is no unit of account — and without one, nothing downstream can exist</span></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 6ch; flex: none;">pay</span><span style="font-size: 15.5px; line-height: 1.5;">the manifest's economic block is a mock — a zero wallet, flagged <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace;">_mock</span> in the source rather than dressed up</span></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 6ch; flex: none;">rep</span><span style="font-size: 15.5px; line-height: 1.5;">no reputation. We count per-peer activity; nothing scores it yet</span></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 6ch; flex: none;">route</span><span style="font-size: 15.5px; line-height: 1.5;">requests don't pick a node by load yet — a market that always picks the first peer isn't a market</span></div>
+        <div style="height: 1px; background: #262b38; margin: 3px 0;"></div>
+        <div style="display: flex; gap: 14px; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ffb545; width: 6ch; flex: none;">priv</span><span style="font-size: 15.5px; line-height: 1.5;">the serving node reads the prompt in plaintext. Closing that needs confidential inference hardware — we are not claiming it</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <p style="margin: 32px 0 0; color: #8891a6; font-size: 16px; line-height: 1.55; max-width: 92ch;">Every gap on the right is written into the README and the source before anyone asks. A judge who opens the repo finds the same list — that is the point.</p>
+
+  <div style="position: absolute; left: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6;">pyrusllm</div>
+  <div style="position: absolute; right: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6; letter-spacing: .08em;">05 / 12</div>
+
+</div>
+</x-dc>
+</body>
+</html>

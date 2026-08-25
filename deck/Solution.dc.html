@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    a { color: #5fa8ff; text-decoration: none; }
+    a:hover { color: #ffb545; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 810px; background: #0b0d12; color: #e8eaf0; font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; font-size: 17px; line-height: 1.6; padding: 72px 88px; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #5fa8ff;">
+    <span style="width: 7px; height: 7px; border-radius: 50%; background: #5fa8ff; box-shadow: 0 0 0 4px rgba(95,168,255,.18); flex: none; display: block;"></span>
+    <span>02 · What it is</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 64px; margin-top: 24px; align-items: end;">
+    <h2 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 46px; line-height: 1.12; letter-spacing: -.01em; margin: 0; max-width: 18ch;">One command. Your machine joins a live market.</h2>
+    <div style="background: #171b24; border: 1px solid #262b38; border-radius: 6px; overflow: hidden;">
+      <div style="display: flex; align-items: center; gap: 7px; padding: 11px 16px; border-bottom: 1px solid #262b38;">
+        <i style="width: 9px; height: 9px; border-radius: 50%; background: #262b38; display: block;"></i>
+        <i style="width: 9px; height: 9px; border-radius: 50%; background: #262b38; display: block;"></i>
+        <i style="width: 9px; height: 9px; border-radius: 50%; background: #262b38; display: block;"></i>
+      </div>
+      <pre style="margin: 0; padding: 20px 22px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13.5px; line-height: 2; color: #e8eaf0;"><span style="color: #8891a6;">$</span> npm i -g pear
+<span style="color: #8891a6;">$</span> pear install <span style="color: #5fa8ff;">pear://8f789f6h…znpny</span>
+<span style="color: #8891a6;">$</span> pyrusllm serve --swarm</pre>
+    </div>
+  </div>
+
+  <p style="margin: 28px 0 0; color: #8891a6; font-size: 18px; line-height: 1.55; max-width: 80ch; text-wrap: pretty;">No repo to clone, no build step, no package registry. The distribution channel <b style="color: #e8eaf0; font-weight: 600;">is</b> the P2P network: the binary carries the inference engine inside it and updates itself over the air.</p>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: #262b38; border: 1px solid #262b38; margin-top: 44px;">
+    <div style="background: #12151c; padding: 32px 30px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff;">buy</div>
+      <h3 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 20px; line-height: 1.2; margin: 0;">Point any OpenAI client at it</h3>
+      <p style="margin: 0; color: #8891a6; font-size: 15.5px; line-height: 1.55;">Your terminal, a Telegram bot, Open WebUI, an agent framework. Same base URL, same request shape, no code changes.</p>
+    </div>
+    <div style="background: #12151c; padding: 32px 30px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff;">sell</div>
+      <h3 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 20px; line-height: 1.2; margin: 0;">Serve inference from idle hardware</h3>
+      <p style="margin: 0; color: #8891a6; font-size: 15.5px; line-height: 1.55;">The node runs a local LLM, announces a signed manifest with its models and capacity, and answers requests from verified peers.</p>
+    </div>
+    <div style="background: #12151c; padding: 32px 30px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #5fa8ff;">both</div>
+      <h3 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 20px; line-height: 1.2; margin: 0;">Every node is both sides</h3>
+      <p style="margin: 0; color: #8891a6; font-size: 15.5px; line-height: 1.55;">The protocol is symmetric. There is no proprietary server in the middle, and no privileged path a node can take that a peer cannot.</p>
+    </div>
+  </div>
+
+  <div style="position: absolute; left: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6;">pyrusllm</div>
+  <div style="position: absolute; right: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6; letter-spacing: .08em;">03 / 12</div>
+
+</div>
+</x-dc>
+</body>
+</html>

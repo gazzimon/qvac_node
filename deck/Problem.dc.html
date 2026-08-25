@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    a { color: #5fa8ff; text-decoration: none; }
+    a:hover { color: #ffb545; }
+  </style>
+</helmet>
+<div style="width: 1440px; height: 810px; background: #0b0d12; color: #e8eaf0; font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; font-size: 17px; line-height: 1.6; padding: 72px 88px; display: flex; flex-direction: column; position: relative; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #5fa8ff;">
+    <span style="width: 7px; height: 7px; border-radius: 50%; background: #5fa8ff; box-shadow: 0 0 0 4px rgba(95,168,255,.18); flex: none; display: block;"></span>
+    <span>01 · The problem</span>
+  </div>
+
+  <h2 style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600; font-size: 46px; line-height: 1.12; letter-spacing: -.01em; margin: 24px 0 0; max-width: 21ch;">Using AI means sending your prompt to someone else's machine.</h2>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 64px; margin-top: 52px; align-items: start;">
+
+    <div style="display: flex; flex-direction: column; gap: 26px;">
+      <p style="margin: 0; font-size: 18px; line-height: 1.6;">Three companies set the price of inference, capture the margin on <b style="color: #ffb545; font-weight: 600;">compute that millions already own</b>, and can change the rules whenever they choose.</p>
+      <p style="margin: 0; font-size: 18px; line-height: 1.6;">Every request is an act of faith. You cannot verify what happens to your prompt, and there is <b style="color: #ffb545; font-weight: 600;">no second source</b> the day the terms move.</p>
+      <p style="margin: 0; font-size: 18px; line-height: 1.6;">Meanwhile the hardware to serve that inference already exists — in offices, in homes, in datacenters with spare capacity — <b style="color: #ffb545; font-weight: 600;">idle most of the day</b>.</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      <div style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #8891a6;">The shape of the market today</div>
+      <div style="background: #171b24; border: 1px solid #262b38; border-radius: 4px; padding: 28px 26px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13.5px; display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; align-items: baseline; gap: 14px;"><span style="color: #8891a6; width: 14ch; flex: none;">every client</span><span style="color: #e8eaf0;">→ one API</span></div>
+        <div style="display: flex; align-items: baseline; gap: 14px;"><span style="color: #8891a6; width: 14ch; flex: none;">every prompt</span><span style="color: #e8eaf0;">→ one datacenter</span></div>
+        <div style="display: flex; align-items: baseline; gap: 14px;"><span style="color: #8891a6; width: 14ch; flex: none;">every margin</span><span style="color: #e8eaf0;">→ one balance sheet</span></div>
+        <div style="height: 1px; background: #262b38; margin: 4px 0;"></div>
+        <div style="display: flex; align-items: baseline; gap: 14px;"><span style="color: #8891a6; width: 14ch; flex: none;">your leverage</span><span style="color: #ffb545;">→ none</span></div>
+      </div>
+      <p style="margin: 0; color: #8891a6; font-size: 15.5px; line-height: 1.55;">Encryption doesn't fix this. The provider has to read your prompt to answer it, and has to see your account to bill it.</p>
+    </div>
+
+  </div>
+
+  <div style="position: absolute; left: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6;">pyrusllm</div>
+  <div style="position: absolute; right: 88px; bottom: 44px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8891a6; letter-spacing: .08em;">02 / 12</div>
+
+</div>
+</x-dc>
+</body>
+</html>

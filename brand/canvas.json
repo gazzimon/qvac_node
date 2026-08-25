@@ -1,0 +1,19 @@
+{
+  "artboards": [
+    { "file": "Rationale.dc.html",  "x": 0,    "y": 0,    "w": 1000, "h": 920, "title": "Where the mark comes from" },
+    { "file": "Main.dc.html",       "x": 1120, "y": 0,    "w": 1000, "h": 920, "title": "A · The seeded pear" },
+    { "file": "DirectionB.dc.html", "x": 2240, "y": 0,    "w": 1000, "h": 920, "title": "B · Three pips" },
+    { "file": "DirectionC.dc.html", "x": 1120, "y": 1080, "w": 1000, "h": 920, "title": "C · The ownerless ring" },
+    { "file": "DirectionD.dc.html", "x": 2240, "y": 1080, "w": 1000, "h": 920, "title": "D · The announcing node" }
+  ],
+  "annotations": [
+    {
+      "id": "how-to-read",
+      "x": 0,
+      "y": 1080,
+      "w": 300,
+      "text": "Read the rationale board first — it frames the actual choice.\n\nThen pick a PAIR of meanings, not a drawing:\n\nA / B — heritage + distribution\nC — the ownerless argument\nD — coherence, for free\n\nTell me which and I'll take it to a finished mark: real SVG files, sizes, light/dark, clear space."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
