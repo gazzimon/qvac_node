@@ -1024,3 +1024,128 @@ test('normalizeRequest acepta fijar la maquina, no solo el modelo', async (t) =>
   // Y la forma corta propia tambien, como con local.
   t.is(normalizeRequest({ modelId: 'llama1b', prompt: 'hola', node: 'x:y' }).pin, 'x:y')
 })
+
+// ---------------------------------------------------------------------------
+// Fase 6.6 / D23 — la cuota gratuita enganchada al provider (qvac/quota.mjs)
+// ---------------------------------------------------------------------------
+
+// Un Provider con un motor falso: no carga pesos, no toca el registry, y
+// genera exactamente los tokens que se le piden. Sin esto no hay forma de
+// probar el descuento de cuota sin 807 MB y una GPU.
+async function providerDePrueba (tokensPorRespuesta = 5) {
+  const { Provider } = await import('../qvac/provider.mjs')
+  const engine = {
+    resolveModel: async () => ({ modelSrc: {} }),
+    loadModel: async () => 'cargado',
+    complete: async function * () {
+      for (let i = 0; i < tokensPorRespuesta; i++) yield 'tok'
+    },
+    shutdown: async () => {}
+  }
+  return new Provider({
+    engineLoader: async () => engine,
+    models: [{ modelId: 'llama1b', maxConcurrentRequests: 3 }],
+    maxConcurrent: 3
+  })
+}
+
+// Junta lo que el provider le contesta al par.
+function capturar () {
+  const vistos = []
+  return { vistos, send: (m) => vistos.push(m) }
+}
+
+const PEER = { key: 'ff'.repeat(32) }
+
+async function pedir (provider, peer, requestId) {
+  const cap = capturar()
+  await provider._serve(peer, {
+    requestId,
+    model: 'llama1b',
+    messages: [{ role: 'user', content: 'hola' }]
+  }, cap.send)
+  return cap.vistos
+}
+
+test('la cuota se descuenta con los tokens servidos de verdad', async (t) => {
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+  quota.configurar({ tokens: 12 })
+
+  const provider = await providerDePrueba(5)
+
+  const primera = await pedir(provider, PEER, 'r1')
+  t.is(primera[0].type, 'chat:accepted', 'con cuota entra')
+  t.is(quota.usado(PEER.key), 5, 'descuenta lo generado, no lo pedido')
+
+  await pedir(provider, PEER, 'r2')
+  t.is(quota.usado(PEER.key), 10)
+
+  quota.reset()
+})
+
+test('agotada la cuota se rechaza ANTES de gastar la GPU', async (t) => {
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+  quota.configurar({ tokens: 4 })
+
+  const provider = await providerDePrueba(5)
+
+  await pedir(provider, PEER, 'r1')
+  t.is(quota.usado(PEER.key), 5, 'el primero se sirve entero aunque se pase')
+
+  // El desborde de UN request se acepta a proposito (ver quota.mjs): cortar
+  // una generacion por la mitad se ve como un bug y regala igual la GPU ya
+  // gastada. Lo que no puede pasar es que entre el siguiente.
+  const segunda = await pedir(provider, PEER, 'r2')
+
+  t.is(segunda[0].type, 'chat:error', 'el segundo no entra')
+  t.is(segunda[0].code, 'quota_exceeded')
+  t.is(segunda.length, 1, 'ni un solo chunk: no se gasto GPU')
+  t.ok(segunda[0].resetsInMs > 0, 'y dice en cuanto se repone: ' + segunda[0].resetsInMs)
+
+  quota.reset()
+})
+
+test('la cuota es por par: agotar la de uno no toca la del otro', async (t) => {
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+  quota.configurar({ tokens: 3 })
+
+  const provider = await providerDePrueba(5)
+  const otro = { key: 'ab'.repeat(32) }
+
+  await pedir(provider, PEER, 'r1')
+  const suyo = await pedir(provider, PEER, 'r2')
+  t.is(suyo[0].code, 'quota_exceeded', 'el primero se quedo sin cuota')
+
+  // La clave del par la establece la conexion de Hyperswarm, no el contenido
+  // del mensaje: por eso el proveedor puede contar por par sin creerle a nadie.
+  const ajeno = await pedir(provider, otro, 'r3')
+  t.is(ajeno[0].type, 'chat:accepted', 'el otro par tiene la suya intacta')
+
+  quota.reset()
+})
+
+test('un request que falla cargando el modelo no gasta cuota', async (t) => {
+  const quota = await import('../qvac/quota.mjs')
+  const { Provider } = await import('../qvac/provider.mjs')
+  quota.reset()
+
+  const provider = new Provider({
+    engineLoader: async () => ({
+      resolveModel: async () => {
+        throw new Error('el registry no contesta')
+      }
+    }),
+    models: [{ modelId: 'llama1b', maxConcurrentRequests: 3 }]
+  })
+
+  const vistos = await pedir(provider, PEER, 'r1')
+  t.is(vistos[vistos.length - 1].code, 'inference_failed')
+  // La cuota mide GPU entregada, no intentos: cobrarle al par un modelo que
+  // nunca cargo seria cobrarle por nuestro problema.
+  t.is(quota.usado(PEER.key), 0, 'no se le descuenta nada')
+
+  quota.reset()
+})

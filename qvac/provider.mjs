@@ -23,6 +23,8 @@
 // tendria que elegir entre un timeout corto que mata cargas legitimas o uno
 // largo que hace esperar de gratis contra un par muerto.
 
+import * as quota from './quota.mjs'
+
 const MAX_MESSAGES = 64
 const MAX_CONTENT_CHARS = 32000
 
@@ -159,6 +161,23 @@ export class Provider {
       })
     }
 
+    // La cuota gratuita del par (D23 / Fase 6.6). Va ANTES del limite de
+    // capacidad a proposito: los dos rechazan antes del primer chunk, asi que
+    // D4 reintenta igual, pero el motivo no es intercambiable. "Estoy lleno"
+    // invita a volver en dos segundos; "te quedaste sin cuota" dice en cuanto
+    // se repone. Contestar lo primero cuando pasa lo segundo manda al
+    // consumidor a un reintento que va a fallar igual.
+    const cuota = quota.check(peer.key)
+    if (!cuota.ok) {
+      return reply('chat:error', {
+        message: cuota.reason,
+        code: 'quota_exceeded',
+        // El dato accionable: sin esto el consumidor sabe que no puede, pero
+        // no cuando podria.
+        resetsInMs: cuota.resetsInMs
+      })
+    }
+
     // Capacidad declarada = capacidad honrada. El manifiesto anuncia
     // maxConcurrentRequests y este es el unico lugar donde eso se cumple: sin
     // el limite, el numero del manifiesto seria decorativo.
@@ -222,6 +241,14 @@ export class Provider {
     } finally {
       this.active.delete(msg.requestId)
       if (localNodeId) this.store.endRequest(localNodeId)
+
+      // Se descuenta lo que se genero DE VERDAD, no lo que se pidio. Un
+      // request cancelado a los tres tokens gasta tres, y uno que fallo
+      // cargando el modelo no gasta nada: la cuota mide GPU entregada, no
+      // intentos. Va en el finally por lo mismo que la liquidacion del
+      // budget del otro lado -- un stream que revienta a la mitad igual
+      // consumio lo que consumio.
+      quota.registrar(peer.key, deltas)
 
       // El rastro de lo que ESTE nodo sirvio PARA otro. Sin esta entrada no
       // habia manera de saber quien nos consumio: el log de ruteo solo tenia
