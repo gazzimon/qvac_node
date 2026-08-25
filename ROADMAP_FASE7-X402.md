@@ -22,7 +22,7 @@ vez de por alcance.
 **Regla de delegación (nueva, y es la que estructura el documento):** las
 **fases** son delegables —exploración, debugging, refactor, implementación,
 tests y documentación—, y en las complejas se usan varios agentes para analizar,
-implementar y revisar por separado. Las **decisiones D8–D21 no se delegan**: son
+implementar y revisar por separado. Las **decisiones D8–D23 no se delegan**: son
 de arquitectura, seguridad, modelo de datos o negocio. Un agente propone y
 ejecuta; la decisión final es del dueño del proyecto.
 
