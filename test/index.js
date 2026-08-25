@@ -699,3 +699,29 @@ test('el reparto acumula durante el mes, no se calcula al cierre', async (t) => 
   t.is(rep.accounts[0].spent, 12000)
   t.is(rep.accounts[1].spent, 8000, 'ana suma sus dos requests')
 })
+
+test('local:true sobrevive a normalizeRequest en la forma estandar de OpenAI', async (t) => {
+  const { normalizeRequest } = await import('../qvac/gateway.mjs')
+
+  // Regresion. La forma corta propia devolvia `local` y la estandar no, asi
+  // que el toggle "local only" del chat -- que manda la estandar -- llegaba
+  // como undefined y handleChat nunca filtraba los pares. El candado de la
+  // pantalla no cerraba nada.
+  const estandar = normalizeRequest({
+    model: 'llama1b',
+    messages: [{ role: 'user', content: 'hola' }],
+    local: true
+  })
+  t.is(estandar.local, true, 'la forma estandar conserva local')
+
+  const corta = normalizeRequest({ modelId: 'llama1b', prompt: 'hola', local: true })
+  t.is(corta.local, true, 'la forma corta tambien, como ya hacia')
+
+  // Y sin el campo sigue siendo false, no undefined: el filtro compara por
+  // verdad, pero el contrato del normalizador es devolver un booleano.
+  const sinFlag = normalizeRequest({
+    model: 'llama1b',
+    messages: [{ role: 'user', content: 'hola' }]
+  })
+  t.is(sinFlag.local, false)
+})

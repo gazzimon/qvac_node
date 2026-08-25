@@ -347,7 +347,12 @@ export function normalizeRequest(body) {
     messages.push({ role: m.role, content })
   }
 
-  return { model: body.model, messages, stream, maxTokens }
+  // `local` viaja tambien por acá. Faltaba: la forma corta ({modelId, prompt})
+  // lo devolvia y la forma estandar de OpenAI no, asi que el toggle "local
+  // only" del chat -- que manda la forma estandar, ver pages.mjs -- llegaba
+  // como undefined y el filtro de handleChat nunca se aplicaba. El prompt
+  // podia salir a un par con el candado puesto en la pantalla.
+  return { model: body.model, messages, stream, local, maxTokens }
 }
 
 // ---------------------------------------------------------------------------
