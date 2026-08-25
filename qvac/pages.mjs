@@ -312,6 +312,78 @@ const STYLE = `
   }
   .composer select:disabled { opacity: .55; }
   .composer label.chk { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+
+  /* Paleta de acciones (Ctrl+K). Vive en el chat y no en un panel aparte
+     porque lo que hace -- cambiar de modelo, limpiar, ver el gasto -- son
+     decisiones que se toman MIENTRAS se escribe, no antes. */
+  .pal-overlay {
+    position: fixed; inset: 0; background: rgba(8,10,16,.72);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 12vh; z-index: 50;
+  }
+  .pal {
+    width: min(680px, 92vw); background: #161b28;
+    border: 1px solid #2c3348; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  }
+  .pal input.filtro {
+    width: 100%; box-sizing: border-box; background: transparent; border: 0;
+    border-bottom: 1px solid #2c3348; color: #e8ecf6;
+    padding: .85rem 1rem; font-size: .95rem; outline: none;
+  }
+  .pal-lista { max-height: 52vh; overflow-y: auto; padding: .35rem 0; }
+  .pal-grupo {
+    padding: .55rem 1rem .25rem; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .06em; color: #7c8699;
+  }
+  .pal-item {
+    display: flex; align-items: center; gap: .6rem; width: 100%;
+    padding: .5rem 1rem; background: transparent; border: 0; cursor: pointer;
+    color: #e8ecf6; font-size: .9rem; text-align: left; margin: 0; border-radius: 0;
+  }
+  .pal-item:hover, .pal-item.sel { background: #232838; }
+  .pal-item .der { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+  .pal-item .val { font-size: .8rem; color: #9aa4b8; }
+
+  /* La marca de mock NO es decorativa: el proyecto exige que todo lo simulado
+     se vea. Un control que parece funcionar y no hace nada es peor que uno
+     ausente, porque el que lo usa cree que ya lo configuro. */
+  .pal-item .mock {
+    font-size: .66rem; text-transform: uppercase; letter-spacing: .05em;
+    background: #3a2f16; color: #e0b95a; border: 1px solid #5a4a20;
+    padding: .1rem .4rem; border-radius: 4px;
+  }
+  .pal-item[disabled] { cursor: default; }
+  .pal-item[disabled]:hover { background: transparent; }
+
+  /* Interruptor y escalon: son controles de aspecto real aunque casi todos
+     esten mockeados, porque el punto del pedido es ver la forma. */
+  .sw { width: 34px; height: 19px; border-radius: 999px; background: #2c3348; position: relative; flex: none; }
+  .sw.on { background: #4f7cff; }
+  .sw i { position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #e8ecf6; transition: left .12s; }
+  .sw.on i { left: 17px; }
+  .esf { display: flex; gap: 4px; align-items: center; }
+  .esf b { width: 7px; height: 7px; border-radius: 50%; background: #2c3348; display: block; }
+  .esf b.on { background: #9aa4b8; }
+  .esf b.pico { background: #a06cff; }
+
+  .pal-pie { border-top: 1px solid #2c3348; padding: .5rem 1rem; font-size: .72rem; color: #7c8699; }
+  .pal-vacio { padding: 1.2rem 1rem; color: #7c8699; font-size: .88rem; }
+
+  /* El "+" del composer */
+  .mas-menu {
+    position: absolute; bottom: calc(100% + .4rem); left: 0; min-width: 210px;
+    background: #161b28; border: 1px solid #2c3348; border-radius: 10px;
+    padding: .3rem 0; z-index: 40; box-shadow: 0 12px 30px rgba(0,0,0,.45);
+  }
+  .composer .row { position: relative; }
+  .adjuntos { display: flex; flex-wrap: wrap; gap: .35rem; padding: 0 0 .4rem; }
+  .adjunto {
+    display: inline-flex; align-items: center; gap: .35rem; font-size: .74rem;
+    background: #232838; border: 1px solid #2c3348; border-radius: 6px; padding: .15rem .45rem;
+  }
+  .adjunto button { all: unset; cursor: pointer; color: #7c8699; padding: 0 .1rem; }
+  .adjunto button:hover { color: #e8ecf6; }
   .composer .note { margin-left: auto; font-size: .76rem; }
   .composer .note a { color: #9fd6ff; }
 </style>`
@@ -445,6 +517,23 @@ const MODAL_JS = `
     }
 
     function onEsc(ev) { if (ev.key === 'Escape') cerrarModal() }
+
+    // Modal simple para contenido ya armado. Los paneles que necesitan uno con
+    // tabs y polling siguen escribiendo #modal a mano; este es para el caso
+    // comun -- un titulo y un cuerpo -- que antes obligaba a repetir el
+    // overlay, el cierre por Esc y el cierre por click afuera en cada lugar.
+    function abrirModal(titulo, cuerpoHtml) {
+      document.getElementById('modal').innerHTML =
+        '<div class="modal-overlay" id="modal-overlay"><div class="modal">' +
+        '<h3>' + esc(titulo) + '</h3>' + cuerpoHtml +
+        '<div style="margin-top:1rem"><button class="ghost" id="modal-cerrar">Close</button></div>' +
+        '</div></div>'
+      document.getElementById('modal-cerrar').addEventListener('click', cerrarModal)
+      document.getElementById('modal-overlay').addEventListener('click', function (ev) {
+        if (ev.target.id === 'modal-overlay') cerrarModal()
+      })
+      document.addEventListener('keydown', onEsc)
+    }
 
     function formatBytes(n) {
       if (!n) return '0 B'
@@ -2125,6 +2214,326 @@ const CHAT_JS = String.raw`
       } catch (e) { /* el poll siguiente reintenta */ }
     }
 
+    // ======================================================================
+    // Paleta de acciones (Ctrl+K) y menu "+" del composer.
+    //
+    // La mitad de estas acciones estan CABLEADAS contra endpoints que ya
+    // existen; la otra mitad es forma sin fondo todavia. Las segundas llevan
+    // una etiqueta MOCK visible, no solo un comentario: un control que parece
+    // funcionar y no hace nada es peor que uno ausente, porque el que lo toca
+    // se queda creyendo que ya lo configuro.
+    // ======================================================================
+
+    var opciones = { thinking: false, esfuerzo: 2, rapido: false, cambiarSiFlag: false, modo: 'auto' }
+    try {
+      var guardadas = JSON.parse(sessionStorage.getItem('pyrus.opts') || 'null')
+      if (guardadas) opciones = Object.assign(opciones, guardadas)
+    } catch (e) { /* sin sesion, quedan los defaults */ }
+
+    function guardarOpts() {
+      try { sessionStorage.setItem('pyrus.opts', JSON.stringify(opciones)) } catch (e) {}
+    }
+
+    var adjuntos = []
+
+    function pintarAdjuntos() {
+      var cont = document.getElementById('adjuntos')
+      cont.innerHTML = adjuntos.map(function (a, i) {
+        return '<span class="adjunto">' + esc(a.nombre) +
+          ' <button data-quita="' + i + '" title="Remove">&times;</button></span>'
+      }).join('')
+      cont.querySelectorAll('[data-quita]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          adjuntos.splice(Number(b.dataset.quita), 1)
+          pintarAdjuntos()
+        })
+      })
+    }
+
+    function interruptor(on) { return '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>' }
+
+    function escalon(n) {
+      var out = '<span class="esf">'
+      for (var i = 0; i < 5; i++) {
+        var cls = i === 4 ? (n >= 4 ? 'pico' : '') : (i <= n ? 'on' : '')
+        out += '<b class="' + cls + '"></b>'
+      }
+      return out + '</span>'
+    }
+
+    var NIVELES = ['Minimal', 'Low', 'Medium', 'High', 'Max']
+
+    // Cada accion declara si esta cableada. mock:true pinta la etiqueta.
+    function acciones() {
+      return [
+        { g: 'Context', t: 'Attach file...', d: 'Sube al drive de este nodo e inserta su nombre', f: adjuntarArchivo },
+        { g: 'Context', t: 'Mention file from this node...', d: 'Lista lo que este nodo publica', f: mencionarArchivo },
+        { g: 'Context', t: 'Clear conversation', f: function () { document.getElementById('new').click() } },
+        { g: 'Context', t: 'Rewind', d: 'Deshace el ultimo intercambio', f: rebobinar, off: msgs.length < 2 },
+        { g: 'Context', t: 'Browse the web', mock: true, d: 'No hay herramienta de web todavia' },
+
+        { g: 'Model', t: 'Switch model...', v: etiquetaModelo(), f: function () {
+          cerrarPal()
+          var sel = document.getElementById('model')
+          sel.focus()
+          if (sel.showPicker) { try { sel.showPicker() } catch (e) {} }
+        } },
+        { g: 'Model', t: 'Effort', v: NIVELES[opciones.esfuerzo], extra: escalon(opciones.esfuerzo), mock: true,
+          f: function () { opciones.esfuerzo = (opciones.esfuerzo + 1) % 5; guardarOpts(); repintarPal() } },
+        { g: 'Model', t: 'Thinking', extra: interruptor(opciones.thinking), mock: true,
+          d: 'Medido: prenderlo en nemotron-3.5 cuesta 100x tokens. Falta cablear upstreams',
+          f: function () { opciones.thinking = !opciones.thinking; guardarOpts(); repintarPal() } },
+        { g: 'Model', t: 'Switch models when a message is flagged', extra: interruptor(opciones.cambiarSiFlag), mock: true,
+          f: function () { opciones.cambiarSiFlag = !opciones.cambiarSiFlag; guardarOpts(); repintarPal() } },
+        { g: 'Model', t: 'Toggle fast mode', extra: interruptor(opciones.rapido), mock: true,
+          f: function () { opciones.rapido = !opciones.rapido; guardarOpts(); repintarPal() } },
+        { g: 'Model', t: 'Account & usage...', d: 'Gasto y cuota reales de este nodo', f: verCuenta },
+
+        { g: 'Modes', t: 'Manual', d: 'Pide aprobacion antes de cada accion', mock: true,
+          v: opciones.modo === 'manual' ? 'activo' : '',
+          f: function () { opciones.modo = 'manual'; guardarOpts(); repintarPal() } },
+        { g: 'Modes', t: 'Plan', d: 'Explora y propone antes de tocar nada', mock: true,
+          v: opciones.modo === 'plan' ? 'activo' : '',
+          f: function () { opciones.modo = 'plan'; guardarOpts(); repintarPal() } },
+        { g: 'Modes', t: 'Auto', d: 'Aprueba lo seguro y frena en lo riesgoso', mock: true,
+          v: opciones.modo === 'auto' ? 'activo' : '',
+          f: function () { opciones.modo = 'auto'; guardarOpts(); repintarPal() } }
+      ]
+    }
+
+    function etiquetaModelo() {
+      var sel = document.getElementById('model')
+      if (!sel || sel.selectedIndex < 0) return ''
+      var t = sel.options[sel.selectedIndex].textContent
+      return t.length > 34 ? t.slice(0, 33) + '…' : t
+    }
+
+    // ---------------------------------------------------- acciones reales
+
+    function rebobinar() {
+      // Se saca el ultimo par usuario/asistente. Es local y exacto: el
+      // historial COMPLETO se manda en cada request, asi que deshacerlo aca
+      // deshace de verdad lo que el modelo va a ver en el turno siguiente.
+      cerrarPal()
+      while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
+      if (msgs.length) msgs.pop()
+      save()
+      render()
+    }
+
+    async function verCuenta() {
+      cerrarPal()
+      abrirModal('Account & usage', '<p class="hint">Cargando...</p>')
+      try {
+        var res = await Promise.all([
+          authFetch('/v1/budget').then(function (x) { return x.json() }),
+          authFetch('/v1/quota').then(function (x) { return x.json() })
+        ])
+        var b = res[0]
+        var q = res[1]
+        abrirModal('Account & usage',
+          '<p class="sub">Numeros reales de este nodo, no un ejemplo.</p>' +
+          '<h4 style="margin:.6rem 0 .3rem">Gasto en APIs externas (' + esc(b.period || '') + ')</h4>' +
+          '<p>Gastado <b>' + esc(b.spent || '-') + '</b> de un tope de <b>' + esc(b.cap || '-') +
+          '</b> &middot; queda ' + esc(b.remaining || '-') + '</p>' +
+          '<h4 style="margin:.9rem 0 .3rem">Cuota que este nodo REGALA a sus pares</h4>' +
+          '<p><b>' + esc(String(q.given_tokens != null ? q.given_tokens : 0)) + '</b> tokens entregados &middot; ' +
+          esc(String(q.quota_tokens || 0)) + ' por par cada ' + esc(String(q.window_hours || 0)) + ' h &middot; ' +
+          esc(String((q.peers || []).length)) + ' par(es) consumiendo</p>')
+      } catch (e) {
+        abrirModal('Account & usage', '<p class="hint">No se pudo leer: ' + esc(e.message) + '</p>')
+      }
+    }
+
+    async function mencionarArchivo() {
+      cerrarPal()
+      abrirModal('Mention a file', '<p class="hint">Leyendo el drive de este nodo...</p>')
+      try {
+        var res = await authFetch('/v1/files')
+        var j = await res.json()
+        var fs = j.files || []
+        if (!fs.length) {
+          abrirModal('Mention a file', '<p class="hint">Este nodo no publica ningun archivo todavia. ' +
+            'Subi uno con "Attach file" o desde <a href="/node">my node</a>.</p>')
+          return
+        }
+        abrirModal('Mention a file', '<div class="pal-lista">' + fs.map(function (f) {
+          var nombre = f.name || f.path || ''
+          return '<button class="pal-item" data-men="' + esc(nombre) + '">' + esc(nombre) +
+            '<span class="der"><span class="val">' + esc(String(f.size != null ? f.size : '')) +
+            '</span></span></button>'
+        }).join('') + '</div>')
+        document.querySelectorAll('[data-men]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var ta = document.getElementById('prompt')
+            ta.value = (ta.value ? ta.value + ' ' : '') + '@' + b.dataset.men
+            cerrarModal()
+            ta.focus()
+          })
+        })
+      } catch (e) {
+        abrirModal('Mention a file', '<p class="hint">No se pudo listar: ' + esc(e.message) + '</p>')
+      }
+    }
+
+    function adjuntarArchivo() {
+      cerrarPal()
+      var inp = document.createElement('input')
+      inp.type = 'file'
+      inp.addEventListener('change', async function () {
+        var f = inp.files && inp.files[0]
+        if (!f) return
+        adjuntos.push({ nombre: f.name + ' (subiendo...)' })
+        pintarAdjuntos()
+        var i = adjuntos.length - 1
+        try {
+          // Sube DE VERDAD al Hyperdrive de este nodo. Lo que no existe es un
+          // modelo que lea el archivo: por eso se inserta el nombre en el
+          // prompt y no se manda el binario al chat.
+          var res = await authFetch('/v1/files/upload?name=' + encodeURIComponent(f.name), {
+            method: 'POST',
+            body: f
+          })
+          if (!res.ok) throw new Error('HTTP ' + res.status)
+          adjuntos[i] = { nombre: f.name }
+          var ta = document.getElementById('prompt')
+          ta.value = (ta.value ? ta.value + ' ' : '') + '@' + f.name
+        } catch (e) {
+          adjuntos[i] = { nombre: f.name + ' (fallo)' }
+        }
+        pintarAdjuntos()
+      })
+      inp.click()
+    }
+
+    // ------------------------------------------------------------ la paleta
+
+    var palAbierta = false
+    var palFiltro = ''
+    var palSel = 0
+
+    function visibles() {
+      var q = palFiltro.toLowerCase()
+      return acciones().filter(function (a) {
+        return !q || (a.t + ' ' + (a.d || '') + ' ' + a.g).toLowerCase().indexOf(q) !== -1
+      })
+    }
+
+    function repintarPal() {
+      if (!palAbierta) return
+      var lista = visibles()
+      var html = ''
+      var grupo = null
+      lista.forEach(function (a, i) {
+        if (a.g !== grupo) {
+          grupo = a.g
+          html += '<div class="pal-grupo">' + esc(grupo) + '</div>'
+        }
+        html += '<button class="pal-item' + (i === palSel ? ' sel' : '') + '"' +
+          (a.off ? ' disabled' : '') + ' data-i="' + i + '"><span>' + esc(a.t) +
+          (a.d ? '<br><span class="val">' + esc(a.d) + '</span>' : '') + '</span><span class="der">' +
+          (a.v ? '<span class="val">' + esc(a.v) + '</span>' : '') +
+          (a.mock ? '<span class="mock">mock</span>' : '') +
+          (a.extra || '') + '</span></button>'
+      })
+      if (!html) html = '<div class="pal-vacio">Nada coincide con ese filtro.</div>'
+
+      document.getElementById('pal-lista').innerHTML = html
+      document.querySelectorAll('#pal-lista .pal-item').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var a = visibles()[Number(b.dataset.i)]
+          if (a && a.f && !a.off) a.f()
+        })
+      })
+    }
+
+    function abrirPal() {
+      palAbierta = true
+      palFiltro = ''
+      palSel = 0
+      document.getElementById('palette').innerHTML =
+        '<div class="pal-overlay" id="pal-ov"><div class="pal">' +
+        '<input class="filtro" id="pal-filtro" placeholder="Filter actions..." autocomplete="off">' +
+        '<div class="pal-lista" id="pal-lista"></div>' +
+        '<div class="pal-pie">Enter para ejecutar &middot; Esc para cerrar &middot; ' +
+        'lo marcado <b>mock</b> todavia no hace nada</div></div></div>'
+      repintarPal()
+      var inp = document.getElementById('pal-filtro')
+      inp.focus()
+      inp.addEventListener('input', function () {
+        palFiltro = inp.value
+        palSel = 0
+        repintarPal()
+      })
+      document.getElementById('pal-ov').addEventListener('click', function (ev) {
+        if (ev.target.id === 'pal-ov') cerrarPal()
+      })
+    }
+
+    function cerrarPal() {
+      palAbierta = false
+      document.getElementById('palette').innerHTML = ''
+    }
+
+    document.getElementById('abrir-pal').addEventListener('click', abrirPal)
+
+    document.addEventListener('keydown', function (ev) {
+      if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'k' || ev.key === 'K')) {
+        ev.preventDefault()
+        if (palAbierta) cerrarPal()
+        else abrirPal()
+        return
+      }
+      if (!palAbierta) return
+      if (ev.key === 'Escape') { ev.preventDefault(); cerrarPal(); return }
+      var lista = visibles()
+      if (ev.key === 'ArrowDown') {
+        ev.preventDefault()
+        palSel = Math.min(palSel + 1, lista.length - 1)
+        repintarPal()
+      }
+      if (ev.key === 'ArrowUp') {
+        ev.preventDefault()
+        palSel = Math.max(palSel - 1, 0)
+        repintarPal()
+      }
+      if (ev.key === 'Enter') {
+        ev.preventDefault()
+        var a = lista[palSel]
+        if (a && a.f && !a.off) a.f()
+      }
+    })
+
+    // --------------------------------------------------------- el menu "+"
+
+    document.getElementById('mas').addEventListener('click', function (ev) {
+      ev.stopPropagation()
+      var ya = document.getElementById('mas-menu')
+      if (ya) { ya.remove(); return }
+      var fila = document.getElementById('mas').parentNode
+      var m = document.createElement('div')
+      m.className = 'mas-menu'
+      m.id = 'mas-menu'
+      m.innerHTML =
+        '<button class="pal-item" data-m="subir">Upload from computer</button>' +
+        '<button class="pal-item" data-m="ctx">Add context</button>' +
+        '<button class="pal-item" data-m="web">Browse the web<span class="der">' +
+        '<span class="mock">mock</span></span></button>'
+      fila.appendChild(m)
+      m.querySelectorAll('[data-m]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          m.remove()
+          if (b.dataset.m === 'subir') adjuntarArchivo()
+          if (b.dataset.m === 'ctx') mencionarArchivo()
+        })
+      })
+      document.addEventListener('click', function cerrar() {
+        var el = document.getElementById('mas-menu')
+        if (el) el.remove()
+        document.removeEventListener('click', cerrar)
+      })
+    })
+
     load()
     render()
     refreshNodes()
@@ -2153,16 +2562,22 @@ export const CHAT_HTML = page(
         <button class="ghost" id="new" style="margin:0;padding:.25rem .6rem;font-size:.78rem">New chat</button>
         <span class="note" id="routing"></span>
       </div>
+      <div class="adjuntos" id="adjuntos"></div>
       <div class="row">
+        <button class="ghost" id="mas" title="Add context" style="margin:0;padding:.35rem .6rem">+</button>
+        <button class="ghost" id="abrir-pal" title="Actions (Ctrl+K)" style="margin:0;padding:.35rem .6rem">&#9092;</button>
         <textarea id="prompt" rows="1" placeholder="Ask anything..."></textarea>
         <button id="send">Send</button>
         <button id="stop" class="ghost" style="display:none">Stop</button>
       </div>
     </div>
+  <div id="modal"></div>
+  <div id="palette"></div>
   </div>
 
   <script>
 ${ESC}
+${MODAL_JS}
 ${CHAT_JS}
   </script>
   `,

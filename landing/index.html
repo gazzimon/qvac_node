@@ -481,6 +481,67 @@
     color: var(--ink); overflow-wrap: anywhere;
   }
 
+  /* ------------------------------------------------------- direct downloads */
+  /* El one-liner sigue siendo el camino principal. Esto es para quien no
+     ejecuta un script bajado de internet sin haber visto antes el archivo: el
+     mismo binario, su tamano y su checksum, a un click. */
+  .dl {
+    margin-top: clamp(2.5rem, 5vw, 3.5rem);
+    padding-top: clamp(1.75rem, 4vw, 2.4rem);
+    border-top: 1px solid var(--line);
+  }
+  .dl h3 { font-size: 1.05rem; font-weight: 600; }
+  .dl .lede { margin-top: .7rem; max-width: 60ch; font-size: .9rem; }
+  .dl ul {
+    list-style: none; margin: 1.4rem 0 1.2rem; padding: 0;
+    border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  }
+  .dl li {
+    display: grid; grid-template-columns: minmax(0, 1fr) 6rem 8.5rem 4.5rem;
+    align-items: center; gap: 1rem;
+    padding: .8rem 1.1rem; background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+  .dl li:first-child { border-top: none; }
+  /* La fila que corresponde al sistema del visitante, marcada igual que la
+     pestana de arriba: la eleccion ya esta hecha, y la lista lo dice. */
+  .dl li.mine { background: var(--surface-2); }
+  .dl .p { font-size: .92rem; color: var(--ink); }
+  .dl .p i { font-style: normal; color: var(--mute); font-size: .82rem; }
+  .dl .tag {
+    font-family: "IBM Plex Mono", monospace; font-size: .66rem; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--network); border: 1px solid var(--network);
+    border-radius: 999px; padding: .1rem .45rem; margin-left: .45rem; display: none;
+  }
+  .dl li.mine .tag { display: inline-block; }
+  .dl .s { font-family: "IBM Plex Mono", monospace; font-size: .78rem; color: var(--mute); }
+  .dl a.get {
+    font-family: "IBM Plex Mono", monospace; font-size: .78rem; text-decoration: none;
+    color: var(--mute); border: 1px solid var(--line); border-radius: 3px;
+    padding: .38rem .8rem; text-align: center;
+  }
+  .dl a.get:hover { color: var(--ink); border-color: var(--network); }
+  .dl li.mine a.get { color: var(--ink); border-color: var(--network); }
+  .dl a.sum {
+    font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--mute);
+    text-decoration: none; border-bottom: 1px dotted var(--line);
+    /* Sin esto el subrayado se estira con la celda de la grilla y queda una
+       linea punteada suelta a la derecha del texto. */
+    justify-self: start;
+  }
+  .dl a.sum:hover { color: var(--ink); border-bottom-color: var(--network); }
+  /* Abajo de 640px las cuatro columnas quedarian de 3ch: la fila se parte en
+     dos lineas antes de llegar a eso. */
+  @media (max-width: 640px) {
+    .dl li { grid-template-columns: minmax(0, 1fr) auto; row-gap: .55rem; }
+    .dl .p { grid-column: 1 / -1; }
+    /* Tamano y checksum comparten la segunda linea -- en filas separadas, el
+       sha256 quedaba solo en una tercera linea vacia. */
+    .dl .s { grid-column: 1; grid-row: 2; }
+    .dl a.sum { grid-column: 1; grid-row: 2; justify-self: end; }
+    .dl a.get { grid-column: 2; grid-row: 2; }
+  }
+
   footer {
     padding: 2.25rem clamp(1.5rem, 5vw, 4rem) 3rem;
     display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
@@ -818,11 +879,61 @@
           <button class="copy" id="copyBtn">copy command</button>
         </div>
         <p class="alt" style="margin-top:1.1rem;padding-top:0;border:none">
-          Rather download it by hand? Every platform&rsquo;s binary is on the
-          <a href="https://github.com/gazzimon/qvac_node/releases/latest" target="_blank" rel="noopener">latest release &nearr;</a>,
-          with checksums.
+          Rather see the file before you run anything?
+          <a href="#downloads">Every platform&rsquo;s binary is right below &darr;</a>, with checksums.
         </p>
       </div>
+    </div>
+    <div class="dl reveal" id="downloads">
+      <h3>Or take the binary yourself</h3>
+      <p class="lede">These are the exact files the one-liner downloads, straight from the latest
+        release. One self-contained executable each &mdash; the inference engine is inside, so there
+        is nothing else to install. The row for your system is marked; the rest are there because
+        the machine you are reading this on is not always the machine you want to run a node.</p>
+      <ul>
+        <li data-os="mac">
+          <span class="p">macOS <i>Apple silicon &middot; arm64</i><span class="tag">your OS</span></span>
+          <span class="s">~101 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-darwin-arm64">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-darwin-arm64.sha256">sha256</a>
+        </li>
+        <li data-os="mac">
+          <span class="p">macOS <i>Intel &middot; x64</i><span class="tag">your OS</span></span>
+          <span class="s">~104 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-darwin-x64">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-darwin-x64.sha256">sha256</a>
+        </li>
+        <li data-os="linux">
+          <span class="p">Linux <i>x64</i><span class="tag">your OS</span></span>
+          <span class="s">~253 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-linux-x64">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-linux-x64.sha256">sha256</a>
+        </li>
+        <li data-os="linux">
+          <span class="p">Linux <i>arm64</i><span class="tag">your OS</span></span>
+          <span class="s">~228 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-linux-arm64">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-linux-arm64.sha256">sha256</a>
+        </li>
+        <li data-os="win">
+          <span class="p">Windows <i>x64</i><span class="tag">your OS</span></span>
+          <span class="s">~158 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-win32-x64.exe">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-win32-x64.exe.sha256">sha256</a>
+        </li>
+      </ul>
+      <p class="fine"><b style="color:var(--ink);font-weight:600">After a manual download.</b>
+        The installers verify the checksum, mark the file executable and start it; by hand that is
+        on you. On macOS and Linux: <span class="mono">shasum -a 256 pyrusllm-&lt;platform&gt;</span>
+        against the <span class="mono">.sha256</span>, then <span class="mono">chmod +x</span> and run
+        it. macOS also quarantines anything downloaded from a browser, so the first run needs
+        <span class="mono">xattr -d com.apple.quarantine pyrusllm-darwin-arm64</span>. On Windows,
+        <span class="mono">Get-FileHash</span> checks it and SmartScreen will warn once: the binary is
+        not code-signed.</p>
+      <p class="fine">Windows on ARM has no build yet &mdash; the inference engine publishes no
+        prebuilt addon for it, so there is nothing to link. And the one-line installers are verified
+        end to end on Windows: the macOS and Linux paths are written but have not been run start to
+        finish, which is why the files are here to take directly.</p>
     </div>
   </div>
 </section>
@@ -856,12 +967,20 @@
     const prompt = currentOS === 'win' ? 'PS&gt;' : '$'
     document.getElementById('cmd').innerHTML =
       '<span class="c1">' + prompt + '</span> ' + CMDS[currentOS]
-    document.querySelectorAll('[data-os]').forEach((b) => {
+    // Acotado a .os-tabs: las filas de descarga tambien llevan data-os, y sin
+    // el prefijo esto les ponia aria-selected -- y el listener de abajo les
+    // colgaba un click que cambiaba la pestana en vez de bajar el archivo.
+    document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
       b.setAttribute('aria-selected', String(b.dataset.os === currentOS))
+    })
+    // La lista de descargas sigue a la pestana: marcar la fila que corresponde
+    // ahorra leer cinco lineas casi iguales para encontrar la propia.
+    document.querySelectorAll('.dl li[data-os]').forEach((li) => {
+      li.classList.toggle('mine', li.dataset.os === currentOS)
     })
   }
 
-  document.querySelectorAll('[data-os]').forEach((b) => {
+  document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
     b.addEventListener('click', () => { currentOS = b.dataset.os; paintCmd() })
   })
   paintCmd()
