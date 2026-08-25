@@ -25,7 +25,7 @@ function randomToken(bytes) {
     .replace(/=+$/, '')
 }
 
-export function createKey({ label = 'sin nombre', nodeId = null } = {}) {
+export function createKey({ label = 'unnamed', nodeId = null } = {}) {
   const id = randomToken(6)
   const key = `qvac_sk_${randomToken(24)}`
   const entry = { id, key, label, nodeId, createdAt: Date.now(), lastUsedAt: null }
@@ -58,6 +58,28 @@ export function listKeys() {
   return [...keys.values()].map(mask)
 }
 
+// Igual que listKeys pero con la credencial en claro.
+//
+// Solo para el panel local: el gateway escucha unicamente en 127.0.0.1 y el
+// sentido de esa pantalla es poder volver a copiar una key en la config de un
+// bot semanas despues. Enmascararla ahi obligaria a rotarla cada vez que uno
+// se olvida de guardarla, que es peor que mostrarla en una pagina que solo se
+// alcanza desde esta maquina. `mask()` sigue existiendo para cualquier
+// consumidor que no sea local.
+export function listKeysFull() {
+  return [...keys.values()].map((e) => ({
+    id: e.id,
+    label: e.label,
+    key: e.key,
+    createdAt: e.createdAt,
+    lastUsedAt: e.lastUsedAt
+  }))
+}
+
+export function count() {
+  return keys.size
+}
+
 export function revokeKey(id) {
   return keys.delete(id)
 }
@@ -85,6 +107,10 @@ export function verifyKey(rawKey) {
   return null
 }
 
+// Devuelve cuantas revoco. Sin ese numero la UI solo podia decir "se revoco la
+// key actual", que es mentira cuando hay varias emitidas.
 export function reset() {
+  const n = keys.size
   keys.clear()
+  return n
 }

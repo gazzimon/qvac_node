@@ -185,6 +185,7 @@ export class Provider {
 
     const t0 = Date.now()
     let deltas = 0
+    let ttftMs = null
 
     try {
       const modelId = await this._ensureModel(msg.model)
@@ -201,6 +202,7 @@ export class Provider {
           console.log(`[provider] ${msg.requestId} cortado tras ${deltas} deltas`)
           break
         }
+        if (ttftMs === null) ttftMs = Date.now() - t0
         deltas++
         reply('chat:chunk', { delta })
       }
@@ -220,6 +222,32 @@ export class Provider {
     } finally {
       this.active.delete(msg.requestId)
       if (localNodeId) this.store.endRequest(localNodeId)
+
+      // El rastro de lo que ESTE nodo sirvio PARA otro. Sin esta entrada no
+      // habia manera de saber quien nos consumio: el log de ruteo solo tenia
+      // el trafico saliente -lo que pedimos nosotros- y la mitad de la
+      // relacion economica quedaba invisible.
+      //
+      // `kind: 'served'` y no 'route': una entrada de ruteo dice a quien le
+      // pedimos, esta dice quien nos pidio. Mezclarlas en el mismo kind
+      // obligaria a adivinar la direccion por los campos que traen.
+      if (this.store && typeof this.store.pushLog === 'function') {
+        const ms = Date.now() - t0
+        this.store.pushLog({
+          kind: 'served',
+          peerKey: peer.key,
+          operator: this.store.operatorForPeer
+            ? this.store.operatorForPeer(peer.key)
+            : peer.key.slice(0, 8),
+          modelId: msg.model,
+          tokens: deltas,
+          ttftMs,
+          tokensPerSec: ttftMs !== null && ms > 0 ? +(deltas / (ms / 1000)).toFixed(2) : null,
+          ms,
+          ok: !entry.cancelled && deltas > 0,
+          reason: entry.cancelled ? 'cancelado por el par' : undefined
+        })
+      }
     }
   }
 

@@ -385,6 +385,15 @@ export function setSwarm(swarm) {
 let launcher = null
 let launchState = { status: 'offline', message: null }
 
+// La credencial del propio panel. `keyForNode` reusa la entrada existente para
+// el mismo id, asi que pedirla en cada carga devuelve LA MISMA key en vez de
+// llenar el registro de huerfanas.
+//
+// El panel necesita una porque el gate dejo de aceptar requests sin
+// Authorization: si el navegador no mandara credencial, la pagina de chat
+// seria el unico cliente que no puede hablarle a su propio gateway.
+const PANEL_KEY_ID = 'panel'
+
 export function setLauncher(fn) {
   launcher = fn
 }
@@ -683,14 +692,32 @@ function lastUserText(messages) {
 // ESTO NO ES AUTENTICACION: sin header no hay puerta. Es lo que corresponde a
 // una demo donde el gateway escucha en localhost, y esta escrito aca para que
 // nadie lo confunda con seguridad de verdad al leer el codigo despues.
+// El gate. Antes devolvia null cuando NO habia header -- o sea que cualquiera
+// que llegara al puerto podia gastar tu GPU sin presentar nada, y la key solo
+// servia para identificar a quien se molestaba en mandarla.
+//
+// Ahora falta de credencial es rechazo. El panel tampoco esta exento: pide la
+// suya a /v1/keys/panel y la manda como cualquier otro cliente, asi hay UN
+// solo camino de autenticacion y no una puerta trasera para el navegador.
 function rechazoPorKey(req) {
   const header = req.headers['authorization'] || req.headers['Authorization']
-  if (!header || typeof header !== 'string') return null
+  if (!header || typeof header !== 'string') {
+    return 'falta la api key: manda el header "Authorization: Bearer <api-key>"'
+  }
   if (!header.startsWith('Bearer '))
     return 'el header Authorization tiene que ser "Bearer <api-key>"'
   const key = header.slice(7).trim()
   if (!key) return 'falta la api key despues de "Bearer"'
   return apikeys.verifyKey(key) ? null : 'api key desconocida o revocada'
+}
+
+// Que credencial vino en el request, para poder atribuirle el consumo. Se
+// llama DESPUES de rechazoPorKey, asi que a esta altura ya se sabe que existe.
+function keyLabelDe(req) {
+  const header = req.headers['authorization'] || req.headers['Authorization']
+  if (!header || !header.startsWith('Bearer ')) return null
+  const entry = apikeys.verifyKey(header.slice(7).trim())
+  return entry ? entry.label : null
 }
 
 async function handleChat(req, res) {
@@ -911,6 +938,78 @@ async function onRequest(req, res) {
     if (req.method === 'GET' && (pathname === '/proveedor' || pathname === '/cliente')) {
       res.writeHead(302, { Location: pathname === '/proveedor' ? '/node' : '/' })
       return res.end()
+    }
+
+    // -----------------------------------------------------------------------
+    // Credenciales de ESTE gateway.
+    //
+    // Son varias a proposito: si hubiera una sola, cada bot nuevo obligaria a
+    // compartir la misma credencial y revocar por uno seria revocar por todos.
+    // Con una key por cliente se puede cortar a uno sin tocar al resto, y el
+    // rastro puede decir cual pidio que.
+    //
+    // La key autentica contra TU gateway, no contra el nodo remoto que termina
+    // sirviendo: es el gateway quien despues decide a donde rutear. Por eso
+    // esto vive en "My Node" y no en la tarjeta de un par.
+    // -----------------------------------------------------------------------
+
+    // La credencial del propio panel. Se crea sola la primera vez y se reusa
+    // por nodeId, asi el navegador no genera una key nueva en cada recarga.
+    if (req.method === 'GET' && pathname === '/v1/keys/panel') {
+      const entry = apikeys.keyForNode(PANEL_KEY_ID, 'web panel')
+      return sendJson(res, 200, { id: entry.id, label: entry.label, key: entry.key })
+    }
+
+    // Administrar credenciales exige presentar una. La unica excepcion es
+    // /v1/keys/panel de arriba, que es el arranque: el navegador tiene que
+    // poder conseguir SU key antes de poder autenticarse con ella.
+    //
+    // Limite honesto: el gateway escucha solo en 127.0.0.1, asi que esto no
+    // defiende de otro proceso de la misma maquina -- que puede pedirle la key
+    // al bootstrap igual que el panel. Defiende del resto de la red si el bind
+    // alguna vez deja de ser loopback, y hace el consumo atribuible por
+    // cliente, que es de lo que se trata tener varias keys.
+    if (pathname === '/v1/keys' || pathname.startsWith('/v1/keys/')) {
+      const motivoKeys = rechazoPorKey(req)
+      if (motivoKeys) return sendError(res, 401, motivoKeys)
+    }
+
+    // Revocar TODO. Va antes del match de /v1/keys/:id para que "revoke-all"
+    // no se lea como el id de una key.
+    if (req.method === 'POST' && pathname === '/v1/keys/revoke-all') {
+      const revoked = apikeys.reset()
+      // El panel se quedaria sin credencial y dejaria de poder chatear: se le
+      // emite una nueva en el acto.
+      apikeys.keyForNode(PANEL_KEY_ID, 'web panel')
+      return sendJson(res, 200, { revoked, keys: apikeys.listKeysFull() })
+    }
+
+    if (pathname === '/v1/keys') {
+      if (req.method === 'GET') {
+        return sendJson(res, 200, { keys: apikeys.listKeysFull() })
+      }
+      if (req.method === 'POST') {
+        let body = {}
+        try {
+          body = await readJsonBody(req)
+        } catch { /* sin body: queda el label por defecto */ }
+        const raw = typeof body.label === 'string' ? body.label.trim() : ''
+        const entry = apikeys.createKey({ label: raw ? raw.slice(0, 40) : 'unnamed client' })
+        return sendJson(res, 201, {
+          id: entry.id,
+          label: entry.label,
+          key: entry.key,
+          createdAt: entry.createdAt,
+          lastUsedAt: null
+        })
+      }
+    }
+
+    const keyMatch = pathname.match(/^\/v1\/keys\/([^/]+)$/)
+    if (req.method === 'DELETE' && keyMatch) {
+      const id = decodeURIComponent(keyMatch[1])
+      if (!apikeys.revokeKey(id)) return sendError(res, 404, 'no such api key')
+      return sendJson(res, 200, { revoked: 1, keys: apikeys.listKeysFull() })
     }
 
     // ---- el agente local: estado y lanzamiento ----------------------------
@@ -1251,35 +1350,10 @@ async function onRequest(req, res) {
       }
     }
 
-    // "Conectar": entrega la credencial y los datos que un cliente EXTERNO
-    // necesita para hablarle a este nodo (OpenClaw/Telegram, Hermes, curl,
-    // Open WebUI). No abre un camino nuevo de inferencia -sigue siendo
-    // /v1/chat/completions-, solo arma la credencial y dice como usarla.
-    const connMatch = pathname.match(/^\/v1\/connection\/([^/]+)$/)
-    if (req.method === 'POST' && connMatch) {
-      const node = store.getNode(decodeURIComponent(connMatch[1]))
-      if (!node) return sendError(res, 404, 'nodo desconocido')
-
-      // La key se ata al nodo: apretar Conectar dos veces sobre la misma
-      // tarjeta devuelve la misma credencial en vez de generar huerfanas.
-      const entry = apikeys.keyForNode(node.id, node.operator)
-
-      // El host lo dice el request, no una constante: si el operador entra por
-      // la IP de la LAN, el comando que copia tiene que apuntar ahi y no a
-      // 127.0.0.1, que en la maquina del cliente es otra cosa.
-      const host = req.headers.host || 'localhost'
-      return sendJson(res, 200, {
-        apiKey: entry.key,
-        baseUrl: `http://${host}/v1`,
-        node: {
-          id: node.id,
-          modelId: node.modelId,
-          displayName: node.displayName,
-          operator: node.operator,
-          kind: node.kind
-        }
-      })
-    }
+    // /v1/connection/:id se elimino: emitia una credencial POR NODO REMOTO,
+    // como si existiera una key "para hablarle a tal proveedor". No es asi --
+    // la key autentica contra ESTE gateway y es el quien despues rutea. Las
+    // credenciales se administran en /v1/keys.
 
     const kickMatch = pathname.match(/^\/v1\/nodes\/([^/]+)\/kick$/)
     if (req.method === 'POST' && kickMatch) {

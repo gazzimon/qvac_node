@@ -230,13 +230,13 @@ function compactAmount(n) {
 // una frase. Reemplazar guiones bajos por espacios daba "per 1m completion
 // tokens": ni ingles ni castellano, y encima repetia el "1m" del monto.
 const UNIDAD_ES = {
-  per_1m_completion_tokens: 'por 1M tokens de salida',
-  per_1m_prompt_tokens: 'por 1M tokens de entrada',
-  per_1k_completion_tokens: 'por 1K tokens de salida',
-  per_1k_prompt_tokens: 'por 1K tokens de entrada',
-  per_request: 'por consulta',
-  per_token: 'por token',
-  per_second: 'por segundo'
+  per_1m_completion_tokens: 'per 1M output tokens',
+  per_1m_prompt_tokens: 'per 1M input tokens',
+  per_1k_completion_tokens: 'per 1K output tokens',
+  per_1k_prompt_tokens: 'per 1K input tokens',
+  per_request: 'per request',
+  per_token: 'per token',
+  per_second: 'per second'
 }
 
 function formatPricing(pricing) {
@@ -377,6 +377,18 @@ export function updateStatus(peerKey, status) {
 //
 // `hard: true` fuerza el borrado real. Lo usa `upsertFromManifest`, donde el
 // par NO se fue: se esta reemplazando su lista de modelos.
+// El nombre con el que se anuncia un par, para poder decir QUIEN nos consumio
+// y no solo una clave publica de 64 caracteres. Si el par nunca se anuncio
+// -o ya se fue del registro- se devuelve un prefijo de la clave, que sigue
+// siendo mas util que "desconocido".
+export function operatorForPeer(peerKey) {
+  if (!peerKey) return 'unknown peer'
+  for (const node of nodes.values()) {
+    if (node.peerKey === peerKey && node.operator) return node.operator
+  }
+  return peerKey.slice(0, 8) + '…'
+}
+
 export function removeByPeer(peerKey, { hard = false } = {}) {
   for (const [id, node] of nodes) {
     if (node.peerKey !== peerKey) continue

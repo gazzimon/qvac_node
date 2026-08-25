@@ -322,6 +322,33 @@ const ESC = `
 // y eso hay que verlo desde donde sea que uno este parado -- no solo en el chat.
 const AGENT_CHIP = `
 <script>
+  // ---------------------------------------------------------------------
+  // La credencial del panel.
+  //
+  // El gate del gateway dejo de aceptar requests sin Authorization, y la
+  // pagina no esta exenta: pide la suya y la manda como cualquier otro
+  // cliente. Un solo camino de autenticacion, sin puerta trasera para el
+  // navegador.
+  // ---------------------------------------------------------------------
+  window.__panelKey = null
+
+  async function panelKey() {
+    if (window.__panelKey) return window.__panelKey
+    try {
+      const r = await fetch('/v1/keys/panel')
+      const d = await r.json()
+      window.__panelKey = d.key
+    } catch (e) { /* sin key el gate responde 401 y se ve el motivo */ }
+    return window.__panelKey
+  }
+
+  window.authFetch = async function (url, opts) {
+    const k = await panelKey()
+    const o = Object.assign({}, opts || {})
+    o.headers = Object.assign({}, o.headers || {}, k ? { Authorization: 'Bearer ' + k } : {})
+    return fetch(url, o)
+  }
+
   window.__agent = null
   async function pollAgent() {
     try {
@@ -357,225 +384,17 @@ function page(title, body, bodyClass) {
 </head>
 <body class="${bodyClass || ''}">
   ${NAV}
-  <main>${body}</main>
   ${AGENT_CHIP}
+  <main>${body}</main>
 </body>
 </html>`
 }
 
-export const NETWORK_HTML = page(
-  'PyrusLLM · Network',
-  `
-  <h1>Marketplace de inferencias</h1>
-  <p class="sub">Elegí un proveedor y chateá acá mismo, o conectate desde Telegram, WhatsApp, tu terminal o cualquier cliente OpenAI-compatible. La inferencia corre en su nodo, no en un datacenter central.</p>
-  <p class="hint" id="buscando" style="display:none"></p>
-  <div id="grid" class="grid"></div>
-  <div id="modal"></div>
-
-  <div id="chat" class="chat" style="display:none">
-    <h3>Chat con <span id="chat-target"></span></h3>
-    <textarea id="prompt" placeholder="Escribí tu prompt..."></textarea>
-    <button id="send">Enviar</button>
-    <pre id="out" class="response"></pre>
-    <div id="meta" class="meta" style="display:none"></div>
-  </div>
-
-  <script>
-    let selected = null
-    let nodesById = {}
-
-    // Tres clases de nodo, y la diferencia importa demasiado para taparla con
-    // un booleano: 'peer' es un nodo REMOTO de verdad, descubierto por el
-    // swarm y con su manifiesto firmado verificado. Antes caia en el mismo
-    // 'simulado' que los mocks -- justo al revés de lo que pasa.
-    const KIND_LABEL = {
-      real: 'nodo real (este equipo)',
-      peer: 'par P2P verificado',
-      mock: 'simulado',
-      // Sale del directorio Hyperbee: su manifiesto verifico alguna vez, pero
-      // ahora no hay socket. Nunca es candidato de ruteo (ver store.mjs).
-      known: 'conocido · desconectado'
-    }
-${ESC}
-
-    function barColor(pct) {
-      return pct < 50 ? '#4ade80' : pct < 80 ? '#fbbf24' : '#f87171'
-    }
-
-    // El grid se ARMA una vez y despues solo se actualizan los numeros.
-    //
-    // Antes se hacia innerHTML del grid entero en cada poll (cada 3s): las
-    // tarjetas se destruian y se volvian a crear sin parar, asi que un click
-    // que cayera justo en ese momento se perdia -Playwright no pudo ni
-    // clickear una tarjeta: "element was detached from the DOM"-. Ademas
-    // reiniciaba la transicion CSS de las barras en cada vuelta.
-    let gridKey = null
-
-    function buildGrid(nodes) {
-      document.getElementById('grid').innerHTML = nodes.map(n => \`
-        <div class="card" data-id="\${esc(n.id)}">
-          <span class="badge \${esc(n.kind)}">\${KIND_LABEL[n.kind] || esc(n.kind)}</span>
-          <h3>\${esc(n.operator)}</h3>
-          <div class="model">\${esc(n.displayName)}</div>
-          <div class="tags">\${n.tags.map(t => \`<span class="tag">\${esc(t)}</span>\`).join('')}</div>
-          <div class="price" data-price></div>
-          <span class="badge offline" data-offline style="display:none">fuera de línea</span>
-          <div class="state" data-state></div>
-          <div class="bar-row" data-load style="display:none"><div class="bar"><div data-fill></div></div><span class="pct"></span></div>
-          <div class="actions">
-            <button data-chat="\${esc(n.id)}">Chatear acá</button>
-            <button class="ghost" data-conn="\${esc(n.id)}">Conectar…</button>
-            <button class="ghost" data-files="\${esc(n.id)}">Archivos</button>
-          </div>
-        </div>
-      \`).join('')
-      document.querySelectorAll('.card').forEach(el => {
-        el.addEventListener('click', () => selectNode(el.dataset.id))
-      })
-      // stopPropagation en los dos: sin esto el click sube a la tarjeta y
-      // "Conectar" ademas seleccionaba el nodo y scrolleaba al chat.
-      document.querySelectorAll('[data-chat]').forEach(el => {
-        el.addEventListener('click', ev => {
-          ev.stopPropagation()
-          selectNode(el.dataset.chat)
-          document.getElementById('chat').scrollIntoView({ behavior: 'smooth', block: 'start' })
-        })
-      })
-      document.querySelectorAll('[data-conn]').forEach(el => {
-        el.addEventListener('click', ev => {
-          ev.stopPropagation()
-          abrirConexion(el.dataset.conn)
-        })
-      })
-      document.querySelectorAll('[data-files]').forEach(el => {
-        el.addEventListener('click', ev => {
-          ev.stopPropagation()
-          abrirArchivos(el.dataset.files)
-        })
-      })
-    }
-
-    // Estado de carga del descubrimiento. Medido: el primer par tarda ~17s en
-    // aparecer por la DHT. Sin esto son 17 segundos de grilla vacia delante
-    // del jurado, que no se leen como "buscando" sino como "esta roto".
-    const abiertoEn = Date.now()
-    let buscando = false
-
-    function renderBuscando() {
-      if (buscando) return
-      buscando = true
-      const seg = () => Math.round((Date.now() - abiertoEn) / 1000)
-      document.getElementById('grid').innerHTML = \`
-        <div class="skel"><div style="width:60%"></div><div style="width:85%"></div><div style="width:40%"></div></div>
-        <div class="skel"><div style="width:70%"></div><div style="width:50%"></div><div style="width:65%"></div></div>
-      \`
-      const hint = document.getElementById('buscando')
-      hint.style.display = ''
-      hint.innerHTML = 'Buscando proveedores en la DHT… <b><span id="seg"></span>s</b>'
-      document.getElementById('seg').textContent = seg()
-      clearInterval(window.__segTimer)
-      window.__segTimer = setInterval(() => {
-        const el = document.getElementById('seg')
-        if (el) el.textContent = seg()
-      }, 1000)
-    }
-
-    function render(nodes) {
-      if (!nodes.length) {
-        gridKey = null
-        nodesById = {}
-        return renderBuscando()
-      }
-      if (buscando) {
-        buscando = false
-        clearInterval(window.__segTimer)
-        document.getElementById('buscando').style.display = 'none'
-      }
-
-      nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
-
-      // Solo la identidad de los nodos justifica rearmar el DOM; el precio y
-      // la carga cambian seguido y se actualizan en el lugar.
-      const key = nodes.map(n => n.id + '|' + n.displayName + '|' + n.operator + '|' + n.tags.join('/')).join(',')
-      if (key !== gridKey) {
-        gridKey = key
-        buildGrid(nodes)
-      }
-
-      for (const n of nodes) {
-        const card = document.querySelector('.card[data-id="' + CSS.escape(n.id) + '"]')
-        if (!card) continue
-        card.classList.toggle('selected', selected === n.id)
-
-        // El precio se parte en monto (grande) y unidad (chica). Se arma con
-        // nodos y textContent y NO con innerHTML: el precio lo escribe el
-        // proveedor desde su panel, y ya se probo que un <img src=x onerror>
-        // ahi adentro ejecuta al abrir la pagina.
-        const precio = card.querySelector('[data-price]')
-        precio.textContent = ''
-        const corte = String(n.pricing).indexOf(' / ')
-        const monto = document.createElement('b')
-        const unidad = document.createElement('span')
-        monto.textContent = corte === -1 ? n.pricing : String(n.pricing).slice(0, corte)
-        unidad.textContent = corte === -1 ? '' : String(n.pricing).slice(corte + 3)
-        precio.appendChild(monto)
-        precio.appendChild(unidad)
-
-        // Se muestra uno u otro, sin recrear nodos: asi la transicion CSS de
-        // la barra anima de verdad en vez de reiniciarse en cada poll.
-        const load = card.querySelector('[data-load]')
-        const offline = card.querySelector('[data-offline]')
-        const estado = card.querySelector('[data-state]')
-        const caido = n.loadPct === null
-        offline.style.display = caido ? '' : 'none'
-        estado.style.display = caido ? 'none' : ''
-
-        // La barra solo aparece cuando hay carga de verdad. Al 0% era una
-        // barra vacia con un "0%" al lado que no distinguia "libre" de
-        // "colgado"; el estado ahora se dice con palabras.
-        load.style.display = !caido && n.loadPct > 0 ? '' : 'none'
-        if (!caido) {
-          // Tres estados, no dos: un nodo con 1 de 4 slots tomados NO esta
-          // "ocupado" -acepta trabajo-, y decirlo asi desalienta al comprador
-          // en la unica pantalla donde elige. "Ocupado" se reserva para el que
-          // de verdad no tiene lugar.
-          const activos = n.activeRequests
-          const tope = n.maxConcurrentRequests
-          const lleno = activos >= tope
-          const ocupado = activos > 0
-          estado.className = 'state ' + (lleno ? 'full' : ocupado ? 'busy' : 'libre')
-          estado.textContent = lleno
-            ? 'Ocupado · ' + activos + '/' + tope
-            : ocupado
-              ? 'Atendiendo · ' + activos + '/' + tope
-              : 'Disponible'
-          if (ocupado) {
-            const fill = load.querySelector('[data-fill]')
-            fill.style.width = n.loadPct + '%'
-            fill.style.background = barColor(n.loadPct)
-            load.querySelector('.pct').textContent = n.loadPct + '%'
-          }
-        }
-      }
-    }
-
-    function selectNode(id) {
-      selected = id
-      const n = nodesById[id]
-      if (!n) return
-      document.getElementById('chat').style.display = 'block'
-      document.getElementById('chat-target').textContent = n.operator + ' · ' + n.displayName
-      render(Object.values(nodesById))
-    }
-
-    // -----------------------------------------------------------------------
-    // "Conectar": el mismo nodo, consumido desde afuera del panel.
-    //
-    // Es la prueba de que esto es un gateway OpenAI-compatible de verdad y no
-    // un chat con nuestro protocolo adentro: el comando que se copia aca es el
-    // que usaria cualquier cliente de terceros, sin camino privilegiado.
-    // -----------------------------------------------------------------------
-
+// Piezas del modal, compartidas por /network (archivos) y /node (conectar).
+// Viven aca y no adentro de una pagina porque "Conectar" se mudo a My Node
+// -- la credencial autentica contra TU gateway, no contra el nodo ajeno --
+// y copiar/cerrar/formatear las siguen necesitando las dos.
+const MODAL_JS = `
     // navigator.clipboard NO existe fuera de un contexto seguro. El panel se
     // abre por http://localhost (seguro) pero tambien por http://192.168.x.x
     // desde otra maquina de la LAN, donde la API no esta y el boton "Copiar"
@@ -603,6 +422,29 @@ ${ESC}
       setTimeout(() => { btn.textContent = antes }, 1600)
     }
 
+    let estadoPoll = null
+
+    function cerrarModal() {
+      clearInterval(estadoPoll)
+      estadoPoll = null
+      document.getElementById('modal').innerHTML = ''
+      document.removeEventListener('keydown', onEsc)
+    }
+
+    function onEsc(ev) { if (ev.key === 'Escape') cerrarModal() }
+
+    function formatBytes(n) {
+      if (!n) return '0 B'
+      if (n < 1024) return n + ' B'
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+      return (n / 1024 / 1024).toFixed(1) + ' MB'
+    }
+`
+
+// Las recetas de "Conectar": el mismo nodo, consumido desde afuera del panel.
+// Es la prueba de que esto es un gateway OpenAI-compatible de verdad y no un
+// chat con nuestro protocolo adentro.
+const CONNECT_JS = `
     function recetas(c) {
       const modelo = c.node.modelId
 
@@ -705,17 +547,6 @@ ${ESC}
       }
     }
 
-    let estadoPoll = null
-
-    function cerrarModal() {
-      clearInterval(estadoPoll)
-      estadoPoll = null
-      document.getElementById('modal').innerHTML = ''
-      document.removeEventListener('keydown', onEsc)
-    }
-
-    function onEsc(ev) { if (ev.key === 'Escape') cerrarModal() }
-
     // El servicio corre en OTRO origen, asi que un fetch normal da CORS aunque
     // este arriba. Con mode:no-cors la respuesta es opaca -no se puede leer-
     // pero la promesa resuelve si el puerto contesta y rechaza si no: alcanza
@@ -775,12 +606,246 @@ ${ESC}
       }
     }
 
-    function formatBytes(n) {
-      if (!n) return '0 B'
-      if (n < 1024) return n + ' B'
-      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
-      return (n / 1024 / 1024).toFixed(1) + ' MB'
+    // Recibe TU nodo local, no un id de nodo ajeno.
+    //
+    // Antes esto pegaba a /v1/connection/:id y emitia una credencial "para
+    // hablarle a tal proveedor", que era una idea equivocada: la key autentica
+    // contra tu propio gateway, y es el quien despues decide a que nodo rutear.
+    // Una key por nodo remoto sugeria un camino privilegiado que no existe.
+    async function abrirConexion(nodo, apiKey) {
+      let c
+      try {
+        c = {
+          apiKey: apiKey,
+          // El host lo dice el browser, no una constante: si entraste por la IP
+          // de la LAN, el comando que copiaas tiene que apuntar ahi y no a
+          // 127.0.0.1, que en la maquina del cliente es otra cosa.
+          baseUrl: 'http://' + location.host + '/v1',
+          node: nodo
+        }
+      } catch (err) {
+        alert('Could not build the connection: ' + (err && err.message ? err.message : err))
+        return
+      }
+
+      const rs = recetas(c)
+      document.getElementById('modal').innerHTML = \`
+        <div class="modal-overlay" id="modal-overlay">
+          <div class="modal">
+            <h3>Use your node from anywhere</h3>
+            <p class="sub">
+              Your gateway, spoken to from outside this panel &mdash; same
+              <code>/v1/chat/completions</code>, no privileged path.
+              API key: <code>\${esc(c.apiKey)}</code>
+            </p>
+            <div class="tabs">
+              <button data-tab="telegram">Telegram</button>
+              <button data-tab="whatsapp">WhatsApp</button>
+              <button data-tab="terminal">Terminal</button>
+              <button data-tab="hermes">Hermes Agent</button>
+              <button data-tab="webui">Open WebUI</button>
+            </div>
+            <div id="tab-body"></div>
+            <button class="ghost" id="cerrar-modal">Cerrar</button>
+          </div>
+        </div>\`
+
+      document.querySelectorAll('.tabs button').forEach(b => {
+        b.addEventListener('click', () => pintarTab(rs, b.dataset.tab))
+      })
+      document.getElementById('cerrar-modal').addEventListener('click', cerrarModal)
+      // Cerrar clickeando el fondo, pero NO cuando el click nace adentro del
+      // panel: sin el chequeo de target, seleccionar texto de un comando y
+      // soltar el mouse afuera cerraba el modal.
+      document.getElementById('modal-overlay').addEventListener('click', ev => {
+        if (ev.target.id === 'modal-overlay') cerrarModal()
+      })
+      document.addEventListener('keydown', onEsc)
+
+      pintarTab(rs, 'telegram')
     }
+`
+
+export const NETWORK_HTML = page(
+  'PyrusLLM · Network',
+  `
+  <h1>The network</h1>
+  <p class="sub">Every node this machine knows about: what it serves, what it charges and how loaded it is. To ask any of them something, use the <a href="/">chat</a>; to let your own machine answer, see <a href="/node">my node</a>.</p>
+  <p class="hint" id="buscando" style="display:none"></p>
+  <div id="grid" class="grid"></div>
+  <div id="modal"></div>
+
+
+  <script>
+    let nodesById = {}
+
+    // Tres clases de nodo, y la diferencia importa demasiado para taparla con
+    // un booleano: 'peer' es un nodo REMOTO de verdad, descubierto por el
+    // swarm y con su manifiesto firmado verificado. Antes caia en el mismo
+    // 'simulado' que los mocks -- justo al revés de lo que pasa.
+    const KIND_LABEL = {
+      real: 'this machine',
+      peer: 'verified P2P peer',
+      mock: 'simulated',
+      // Sale del directorio Hyperbee: su manifiesto verifico alguna vez, pero
+      // ahora no hay socket. Nunca es candidato de ruteo (ver store.mjs).
+      known: 'known · disconnected'
+    }
+${ESC}
+
+    function barColor(pct) {
+      return pct < 50 ? '#4ade80' : pct < 80 ? '#fbbf24' : '#f87171'
+    }
+
+    // El grid se ARMA una vez y despues solo se actualizan los numeros.
+    //
+    // Antes se hacia innerHTML del grid entero en cada poll (cada 3s): las
+    // tarjetas se destruian y se volvian a crear sin parar, asi que un click
+    // que cayera justo en ese momento se perdia -Playwright no pudo ni
+    // clickear una tarjeta: "element was detached from the DOM"-. Ademas
+    // reiniciaba la transicion CSS de las barras en cada vuelta.
+    let gridKey = null
+
+    function buildGrid(nodes) {
+      document.getElementById('grid').innerHTML = nodes.map(n => \`
+        <div class="card" data-id="\${esc(n.id)}">
+          <span class="badge \${esc(n.kind)}">\${KIND_LABEL[n.kind] || esc(n.kind)}</span>
+          <h3>\${esc(n.operator)}</h3>
+          <div class="model">\${esc(n.displayName)}</div>
+          <div class="tags">\${n.tags.map(t => \`<span class="tag">\${esc(t)}</span>\`).join('')}</div>
+          <div class="price" data-price></div>
+          <span class="badge offline" data-offline style="display:none">offline</span>
+          <div class="state" data-state></div>
+          <div class="bar-row" data-load style="display:none"><div class="bar"><div data-fill></div></div><span class="pct"></span></div>
+          <div class="actions">
+            <button class="ghost" data-files="\${esc(n.id)}">Files</button>
+          </div>
+        </div>
+      \`).join('')
+      // La tarjeta ya no selecciona nada: esta pagina es de lectura. Chatear
+      // vive en /, y "Conectar" se mudo a /node porque la credencial autentica
+      // contra TU gateway y no contra el nodo ajeno que muestra la tarjeta.
+      document.querySelectorAll('[data-files]').forEach(el => {
+        el.addEventListener('click', ev => {
+          ev.stopPropagation()
+          abrirArchivos(el.dataset.files)
+        })
+      })
+    }
+
+    // Estado de carga del descubrimiento. Medido: el primer par tarda ~17s en
+    // aparecer por la DHT. Sin esto son 17 segundos de grilla vacia delante
+    // del jurado, que no se leen como "buscando" sino como "esta roto".
+    const abiertoEn = Date.now()
+    let buscando = false
+
+    function renderBuscando() {
+      if (buscando) return
+      buscando = true
+      const seg = () => Math.round((Date.now() - abiertoEn) / 1000)
+      document.getElementById('grid').innerHTML = \`
+        <div class="skel"><div style="width:60%"></div><div style="width:85%"></div><div style="width:40%"></div></div>
+        <div class="skel"><div style="width:70%"></div><div style="width:50%"></div><div style="width:65%"></div></div>
+      \`
+      const hint = document.getElementById('buscando')
+      hint.style.display = ''
+      hint.innerHTML = 'Looking for nodes on the DHT… <b><span id="seg"></span>s</b>'
+      document.getElementById('seg').textContent = seg()
+      clearInterval(window.__segTimer)
+      window.__segTimer = setInterval(() => {
+        const el = document.getElementById('seg')
+        if (el) el.textContent = seg()
+      }, 1000)
+    }
+
+    function render(nodes) {
+      if (!nodes.length) {
+        gridKey = null
+        nodesById = {}
+        return renderBuscando()
+      }
+      if (buscando) {
+        buscando = false
+        clearInterval(window.__segTimer)
+        document.getElementById('buscando').style.display = 'none'
+      }
+
+      nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
+
+      // Solo la identidad de los nodos justifica rearmar el DOM; el precio y
+      // la carga cambian seguido y se actualizan en el lugar.
+      const key = nodes.map(n => n.id + '|' + n.displayName + '|' + n.operator + '|' + n.tags.join('/')).join(',')
+      if (key !== gridKey) {
+        gridKey = key
+        buildGrid(nodes)
+      }
+
+      for (const n of nodes) {
+        const card = document.querySelector('.card[data-id="' + CSS.escape(n.id) + '"]')
+        if (!card) continue
+
+        // El precio se parte en monto (grande) y unidad (chica). Se arma con
+        // nodos y textContent y NO con innerHTML: el precio lo escribe el
+        // proveedor desde su panel, y ya se probo que un <img src=x onerror>
+        // ahi adentro ejecuta al abrir la pagina.
+        const precio = card.querySelector('[data-price]')
+        precio.textContent = ''
+        const corte = String(n.pricing).indexOf(' / ')
+        const monto = document.createElement('b')
+        const unidad = document.createElement('span')
+        monto.textContent = corte === -1 ? n.pricing : String(n.pricing).slice(0, corte)
+        unidad.textContent = corte === -1 ? '' : String(n.pricing).slice(corte + 3)
+        precio.appendChild(monto)
+        precio.appendChild(unidad)
+
+        // Se muestra uno u otro, sin recrear nodos: asi la transicion CSS de
+        // la barra anima de verdad en vez de reiniciarse en cada poll.
+        const load = card.querySelector('[data-load]')
+        const offline = card.querySelector('[data-offline]')
+        const estado = card.querySelector('[data-state]')
+        const caido = n.loadPct === null
+        offline.style.display = caido ? '' : 'none'
+        estado.style.display = caido ? 'none' : ''
+
+        // La barra solo aparece cuando hay carga de verdad. Al 0% era una
+        // barra vacia con un "0%" al lado que no distinguia "libre" de
+        // "colgado"; el estado ahora se dice con palabras.
+        load.style.display = !caido && n.loadPct > 0 ? '' : 'none'
+        if (!caido) {
+          // Tres estados, no dos: un nodo con 1 de 4 slots tomados NO esta
+          // "ocupado" -acepta trabajo-, y decirlo asi desalienta al comprador
+          // en la unica pantalla donde elige. "Ocupado" se reserva para el que
+          // de verdad no tiene lugar.
+          const activos = n.activeRequests
+          const tope = n.maxConcurrentRequests
+          const lleno = activos >= tope
+          const ocupado = activos > 0
+          estado.className = 'state ' + (lleno ? 'full' : ocupado ? 'busy' : 'libre')
+          estado.textContent = lleno
+            ? 'At capacity · ' + activos + '/' + tope
+            : ocupado
+              ? 'Serving · ' + activos + '/' + tope
+              : 'Available'
+          if (ocupado) {
+            const fill = load.querySelector('[data-fill]')
+            fill.style.width = n.loadPct + '%'
+            fill.style.background = barColor(n.loadPct)
+            load.querySelector('.pct').textContent = n.loadPct + '%'
+          }
+        }
+      }
+    }
+
+
+    // -----------------------------------------------------------------------
+    // "Conectar": el mismo nodo, consumido desde afuera del panel.
+    //
+    // Es la prueba de que esto es un gateway OpenAI-compatible de verdad y no
+    // un chat con nuestro protocolo adentro: el comando que se copia aca es el
+    // que usaria cualquier cliente de terceros, sin camino privilegiado.
+    // -----------------------------------------------------------------------
+
+${MODAL_JS}
 
     async function abrirArchivos(id) {
       try {
@@ -828,55 +893,8 @@ ${ESC}
         })
         document.addEventListener('keydown', onEsc)
       } catch (err) {
-        alert('No se pudo leer los archivos: ' + (err && err.message ? err.message : err))
+        alert('Could not read the files: ' + (err && err.message ? err.message : err))
       }
-    }
-
-    async function abrirConexion(id) {
-      let c
-      try {
-        const r = await fetch('/v1/connection/' + encodeURIComponent(id), { method: 'POST' })
-        if (!r.ok) throw new Error('HTTP ' + r.status)
-        c = await r.json()
-      } catch (err) {
-        alert('No se pudo generar la conexión: ' + (err && err.message ? err.message : err))
-        return
-      }
-
-      const rs = recetas(c)
-      document.getElementById('modal').innerHTML = \`
-        <div class="modal-overlay" id="modal-overlay">
-          <div class="modal">
-            <h3>Conectar con \${esc(c.node.operator)}</h3>
-            <p class="sub">
-              Mismo nodo, consumido desde afuera del panel.
-              Tu API key: <code>\${esc(c.apiKey)}</code>
-            </p>
-            <div class="tabs">
-              <button data-tab="telegram">Telegram</button>
-              <button data-tab="whatsapp">WhatsApp</button>
-              <button data-tab="terminal">Terminal</button>
-              <button data-tab="hermes">Hermes Agent</button>
-              <button data-tab="webui">Open WebUI</button>
-            </div>
-            <div id="tab-body"></div>
-            <button class="ghost" id="cerrar-modal">Cerrar</button>
-          </div>
-        </div>\`
-
-      document.querySelectorAll('.tabs button').forEach(b => {
-        b.addEventListener('click', () => pintarTab(rs, b.dataset.tab))
-      })
-      document.getElementById('cerrar-modal').addEventListener('click', cerrarModal)
-      // Cerrar clickeando el fondo, pero NO cuando el click nace adentro del
-      // panel: sin el chequeo de target, seleccionar texto de un comando y
-      // soltar el mouse afuera cerraba el modal.
-      document.getElementById('modal-overlay').addEventListener('click', ev => {
-        if (ev.target.id === 'modal-overlay') cerrarModal()
-      })
-      document.addEventListener('keydown', onEsc)
-
-      pintarTab(rs, 'telegram')
     }
 
     async function refresh() {
@@ -885,131 +903,7 @@ ${ESC}
       render(nodes)
     }
 
-    async function send() {
-      if (!selected) return
-      const prompt = document.getElementById('prompt').value.trim()
-      if (!prompt) return
-      const out = document.getElementById('out')
 
-      // El nodo elegido pudo desaparecer entre el click y el Enviar: si el par
-      // se desconecta, el poll lo saca de la grilla y esto quedaba undefined.
-      const nodo = nodesById[selected]
-      if (!nodo) {
-        out.textContent = '[error] el proveedor que elegiste ya no está conectado'
-        return
-      }
-
-      out.textContent = ''
-      const btn = document.getElementById('send')
-      btn.disabled = true
-
-      // D7 del lado del cliente. Sin estos numeros la respuesta aparece y nada
-      // prueba que se genero en otra maquina: la linea de abajo es la
-      // evidencia de la demo, no un adorno.
-      const t0 = Date.now()
-      let primerTokenMs = null
-      let tokens = 0
-      const metaEl = document.getElementById('meta')
-      metaEl.style.display = 'none'
-      metaEl.textContent = ''
-
-      const pintarMeta = () => {
-        const total = ((Date.now() - t0) / 1000).toFixed(1)
-        const partes = [
-          (nodo.kind === 'peer' ? 'respondió ' : 'local · ') + nodo.operator,
-          tokens + ' tokens',
-          primerTokenMs === null ? 'sin respuesta' : 'primer token ' + primerTokenMs + 'ms',
-          total + 's total'
-        ]
-        metaEl.textContent = ''
-        partes.forEach((p, i) => {
-          const el = document.createElement(i === 0 && nodo.kind === 'peer' ? 'b' : 'span')
-          el.textContent = p
-          metaEl.appendChild(el)
-        })
-        metaEl.style.display = ''
-      }
-
-      try {
-        const resp = await fetch('/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          // Forma OpenAI, igual que la que manda cualquier cliente de terceros.
-          // El panel no tiene un camino privilegiado: si esto anda, un curl con
-          // el mismo body tambien anda.
-          body: JSON.stringify({
-            model: nodesById[selected].modelId,
-            messages: [{ role: 'user', content: prompt }],
-            stream: true
-          })
-        })
-
-        // Un error del gateway NO viene en formato SSE, viene como JSON con el
-        // status HTTP correspondiente. Sin este chequeo, el parser de abajo
-        // descarta cada linea que no empiece con "data: " y el usuario ve la
-        // pantalla vacia: apretar Enviar contra un nodo caido no mostraba nada.
-        if (!resp.ok) {
-          let msg = 'HTTP ' + resp.status
-          try {
-            const body = await resp.json()
-            // Forma OpenAI: { error: { message, type, code } }. Antes esto leia
-            // error como string y mostraba "[object Object]".
-            // (Ojo: nada de backticks en estos comentarios, viven adentro de
-            // un template literal y lo cierran en el medio.)
-            if (body && body.error && body.error.message) msg = body.error.message
-          } catch { /* el cuerpo no era JSON: queda el status */ }
-          out.textContent = '[error] ' + msg
-          return
-        }
-        if (!resp.body) {
-          out.textContent = '[error] el gateway no devolvio cuerpo de respuesta'
-          return
-        }
-
-        const reader = resp.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const lines = buf.split('\\n\\n')
-          buf = lines.pop()
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            const payload = line.slice(6)
-            if (payload === '[DONE]') continue
-            const ev = JSON.parse(payload)
-            // Un error a mitad de stream viaja por el mismo canal SSE: ya se
-            // mandaron los headers 200, no hay status HTTP que corregir.
-            if (ev.error) {
-              out.textContent += '\\n[error] ' + (ev.error.message || ev.error)
-              continue
-            }
-            // chat.completion.chunk: el primer chunk trae solo {role} y el
-            // ultimo solo {finish_reason}. Ninguno de los dos tiene content.
-            const delta = ev.choices && ev.choices[0] && ev.choices[0].delta
-            const trozo = (delta && delta.content) || ''
-            if (trozo) {
-              if (primerTokenMs === null) primerTokenMs = Date.now() - t0
-              tokens++
-            }
-            out.textContent += trozo
-          }
-        }
-      } catch (err) {
-        // Si el gateway se cae a mitad de stream, esto es lo unico que separa
-        // "hubo un error" de "la respuesta se corto sola y nadie avisa".
-        out.textContent += '\\n[error] ' + (err && err.message ? err.message : String(err))
-      } finally {
-        btn.disabled = false
-        // Se pinta aun si hubo error: "0 tokens / sin respuesta" es informacion
-        // util cuando el nodo se cae a mitad de stream (D3/D4 de Fase 5).
-        pintarMeta()
-      }
-    }
-
-    document.getElementById('send').addEventListener('click', send)
     // El poll pisa el grid entero, asi que si falla no puede tumbar el panel.
     refresh().catch(() => {})
     setInterval(() => refresh().catch(() => {}), 3000)
@@ -1033,7 +927,35 @@ export const NODE_HTML = page(
   <p class="hint" id="no-node" style="display:none">This gateway is not serving any model yet.</p>
 
   <div id="detail"></div>
+
+  <div class="card" style="cursor:default; margin-top:1.5rem">
+    <h3>Using your node from outside</h3>
+    <p class="sub">Any OpenAI-compatible client &mdash; Telegram, WhatsApp, your terminal,
+      Open WebUI &mdash; can talk to this gateway. It routes to the network exactly like
+      the chat does, with no privileged path.</p>
+
+    <div id="keys"></div>
+
+    <button id="new-key">New key</button>
+    <button class="danger" id="revoke-all">Revoke all</button>
+    <p class="hint" style="margin:.8rem 0 0">One key per client, so you can cut off a single
+      bot without touching the rest. Revoking takes effect immediately, and keys live in this
+      process&rsquo;s memory &mdash; restarting the node revokes every one of them anyway.</p>
+  </div>
+
+  <div class="card" style="cursor:default; margin-top:1.5rem">
+    <h3>Traffic</h3>
+    <p class="sub">The two halves of the exchange: what this machine answered for others,
+      and what it asked of them.</p>
+    <div class="tabs" id="flow-tabs">
+      <button data-flow="in" class="on">Served to others</button>
+      <button data-flow="out">Asked of others</button>
+    </div>
+    <div id="flow-body"></div>
+  </div>
+
   <div id="model-modal"></div>
+  <div id="modal"></div>
 
   <script>
     let nodesById = {}
@@ -1043,6 +965,8 @@ export const NODE_HTML = page(
     let swarmActive = false
     let catalogById = {} // alias -> {displayName, sizeGB, fits}, de /v1/swarm/manifest
 ${ESC}
+${MODAL_JS}
+${CONNECT_JS}
 
     // -------------------------------------------------------------------
     // Onboarding: aparece solo si este gateway no se unio al swarm todavia.
@@ -1307,7 +1231,7 @@ ${ESC}
       // recortado, y no se veria que quedo guardado de verdad.
       document.activeElement && document.activeElement.blur && document.activeElement.blur()
 
-      await fetch('/v1/nodes/' + encodeURIComponent(current), {
+      await authFetch('/v1/nodes/' + encodeURIComponent(current), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pricing: patch.pricing })
@@ -1330,7 +1254,7 @@ ${ESC}
 
     async function toggleStatus() {
       const status = nodesById[current].status === 'online' ? 'offline' : 'online'
-      await fetch('/v1/nodes/' + encodeURIComponent(current), {
+      await authFetch('/v1/nodes/' + encodeURIComponent(current), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
@@ -1342,6 +1266,187 @@ ${ESC}
       current = e.target.value
       renderDetail()
     })
+
+
+    // ------------------------------------------------------------------
+    // Credenciales. Varias a proposito: una por cliente, para poder cortar a
+    // un bot sin tocar a los demas y para que el rastro sepa cual pidio que.
+    // ------------------------------------------------------------------
+    let keys = []
+
+    function edad(ts) {
+      if (!ts) return 'never'
+      const s = Math.round((Date.now() - ts) / 1000)
+      if (s < 60) return s + 's ago'
+      if (s < 3600) return Math.round(s / 60) + 'm ago'
+      if (s < 86400) return Math.round(s / 3600) + 'h ago'
+      return Math.round(s / 86400) + 'd ago'
+    }
+
+    function pintarKeys() {
+      const box = document.getElementById('keys')
+      if (!keys.length) {
+        box.innerHTML = '<p class="hint">No keys issued yet.</p>'
+        return
+      }
+      box.innerHTML =
+        '<table><thead><tr><th>Client</th><th>Key</th><th>Last used</th><th></th></tr></thead><tbody>' +
+        keys.map(function (k) {
+          return '<tr>' +
+            '<td>' + esc(k.label) + '</td>' +
+            '<td class="muted" style="font-family:ui-monospace,monospace;font-size:.75rem;overflow-wrap:anywhere">' +
+              esc(k.key) + '</td>' +
+            '<td class="muted">' + edad(k.lastUsedAt) + '</td>' +
+            '<td style="white-space:nowrap">' +
+              '<button class="ghost" data-copy-key="' + esc(k.key) + '" style="font-size:.75rem;margin:0">Copy</button> ' +
+              '<button class="ghost" data-connect-key="' + esc(k.key) + '" style="font-size:.75rem;margin:0">Connect</button> ' +
+              '<button class="danger" data-revoke="' + esc(k.id) + '" style="font-size:.75rem;margin:0">Revoke</button>' +
+            '</td></tr>'
+        }).join('') + '</tbody></table>'
+
+      box.querySelectorAll('[data-copy-key]').forEach(function (b) {
+        b.addEventListener('click', function () { copiar(b.dataset.copyKey, b) })
+      })
+      box.querySelectorAll('[data-connect-key]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          const n = nodesById[current]
+          if (!n) return alert('This gateway is not serving any model yet.')
+          abrirConexion(n, b.dataset.connectKey)
+        })
+      })
+      box.querySelectorAll('[data-revoke]').forEach(function (b) {
+        b.addEventListener('click', async function () {
+          if (!confirm('Revoke this key? Whatever is using it stops working immediately.')) return
+          b.disabled = true
+          try {
+            const r = await authFetch('/v1/keys/' + encodeURIComponent(b.dataset.revoke), { method: 'DELETE' })
+            const d = await r.json()
+            keys = d.keys || []
+            pintarKeys()
+          } catch (err) {
+            alert('Could not revoke: ' + ((err && err.message) || err))
+            b.disabled = false
+          }
+        })
+      })
+    }
+
+    async function cargarKeys() {
+      try {
+        const r = await authFetch('/v1/keys')
+        const d = await r.json()
+        keys = d.keys || []
+        pintarKeys()
+      } catch (e) {
+        document.getElementById('keys').innerHTML = '<p class="hint">Could not read the keys.</p>'
+      }
+    }
+
+    document.getElementById('new-key').addEventListener('click', async function () {
+      const label = prompt('What is this key for? (e.g. "telegram bot")')
+      if (label === null) return
+      try {
+        const r = await authFetch('/v1/keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label: label })
+        })
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        await cargarKeys()
+      } catch (err) {
+        alert('Could not create the key: ' + ((err && err.message) || err))
+      }
+    })
+
+    document.getElementById('revoke-all').addEventListener('click', async function (e) {
+      // El numero va en la pregunta: decir "se revoca la key actual" cuando hay
+      // cinco emitidas es mentirle a quien esta por apretar.
+      const n = keys.length
+      if (!confirm('Revoke all ' + n + (n === 1 ? ' key' : ' keys') +
+        '? Every client using them stops working immediately.')) return
+      const btn = e.target
+      btn.disabled = true
+      try {
+        const r = await authFetch('/v1/keys/revoke-all', { method: 'POST' })
+        const d = await r.json()
+        keys = d.keys || []
+        // El panel se re-credencia solo: su key vieja acaba de morir con el
+        // resto, y sin esto la pagina quedaria sin poder hablarle al gateway.
+        window.__panelKey = null
+        pintarKeys()
+      } catch (err) {
+        alert('Could not revoke: ' + ((err && err.message) || err))
+      }
+      btn.disabled = false
+    })
+
+    // ------------------------------------------------------------------
+    // Trafico. Las dos direcciones salen del MISMO rastro, separadas por
+    // kind: 'served' es lo que este nodo produjo para un par (lo escribe
+    // provider.mjs) y 'route' es lo que este nodo le pidio a alguien.
+    // ------------------------------------------------------------------
+    let flow = 'in'
+
+    function filaFlujo(e) {
+      const hora = esc(new Date(e.ts).toLocaleTimeString())
+      const quien = esc(e.operator || 'unknown')
+      const bits = []
+      if (e.tokens) bits.push(e.tokens + ' tok')
+      if (e.ttftMs !== null && e.ttftMs !== undefined) bits.push('ttft ' + e.ttftMs + 'ms')
+      if (e.tokensPerSec) bits.push(e.tokensPerSec + ' tok/s')
+      bits.push(e.ms + 'ms')
+      const fallo = e.ok === false ? ' <b style="color:#f87171">FAILED</b>' : ''
+      return '<tr><td class="muted">' + hora + '</td><td>' + quien + '</td>' +
+        '<td class="muted">' + esc(e.modelId || '') + '</td>' +
+        '<td class="muted">' + esc(bits.join(' \u00b7 ')) + fallo + '</td></tr>'
+    }
+
+    function pintarFlujo(log) {
+      const entradas = flow === 'in'
+        ? log.filter(e => e.kind === 'served')
+        // Lo ruteado al propio equipo no es una transaccion con nadie: sin este
+        // filtro, "lo que le pedimos a otros" se llenaba de nuestro propio nodo.
+        : log.filter(e => e.kind === 'route' && e.target && e.target !== 'local')
+
+      const box = document.getElementById('flow-body')
+      if (!entradas.length) {
+        box.innerHTML = '<p class="hint" style="margin:1rem 0 0">' + (flow === 'in'
+          ? 'Nobody has asked this machine for inference yet.'
+          : 'This machine has not consumed another node yet.') + '</p>'
+        return
+      }
+
+      const tokens = entradas.reduce((a, e) => a + (e.tokens || 0), 0)
+      box.innerHTML =
+        '<p class="hint" style="margin:.9rem 0 .2rem">' + entradas.length +
+        (entradas.length === 1 ? ' request' : ' requests') + ' \u00b7 ' + tokens + ' tokens</p>' +
+        '<table><thead><tr><th>Time</th><th>' +
+        (flow === 'in' ? 'Asked by' : 'Answered by') +
+        '</th><th>Model</th><th></th></tr></thead><tbody>' +
+        entradas.map(filaFlujo).join('') + '</tbody></table>'
+    }
+
+    document.querySelectorAll('#flow-tabs button').forEach(b => {
+      b.addEventListener('click', () => {
+        flow = b.dataset.flow
+        document.querySelectorAll('#flow-tabs button').forEach(x => {
+          x.classList.toggle('on', x.dataset.flow === flow)
+        })
+        refrescarFlujo()
+      })
+    })
+
+    async function refrescarFlujo() {
+      try {
+        const r = await fetch('/v1/routing-log')
+        const { log } = await r.json()
+        pintarFlujo(log || [])
+      } catch (e) { /* el poll siguiente reintenta */ }
+    }
+
+    cargarKeys()
+    refrescarFlujo()
+    setInterval(refrescarFlujo, 3000)
 
     refresh().catch(() => {})
     setInterval(() => refresh().catch(() => {}), 2500)
@@ -1388,7 +1493,7 @@ ${ESC}
           const action = btn.dataset.action
           btn.disabled = true // el poll repinta la tabla: evita doble click
           if (action === 'kick') {
-            await fetch('/v1/nodes/' + id + '/kick', { method: 'POST' })
+            await authFetch('/v1/nodes/' + id + '/kick', { method: 'POST' })
           } else {
             await fetch('/v1/nodes/' + id, {
               method: 'POST',
@@ -1688,7 +1793,7 @@ const CHAT_JS = String.raw`
           return { role: m.role, content: m.content }
         })
 
-        var resp = await fetch('/v1/chat/completions', {
+        var resp = await authFetch('/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: ctrl.signal,

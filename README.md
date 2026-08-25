@@ -96,7 +96,9 @@ POST /v1/chat/completions       { model, messages[], stream } -> SSE o JSON
 GET  /v1/agent                  estado del agente local (offline|launching|live|error)
 POST /v1/agent/launch           unirse al swarm en caliente
 GET  /v1/nodes                  vista rica del marketplace
-POST /v1/connection/:id         credencial para un cliente externo
+GET  /v1/keys/panel             credencial del panel (unica ruta sin gate)
+GET  /v1/keys · POST · DELETE   administrar credenciales, una por cliente
+POST /v1/keys/revoke-all        revocar todas
 GET  /v1/files · POST /upload · POST /fetch     archivos entre nodos (Hyperdrive)
 ```
 
@@ -109,9 +111,29 @@ OpenAI manda y que omitidas no cambian nada:
   campo propio adentro de un `chat.completion.chunk` ensuciaría el formato de
   OpenAI, que es justo lo que este gateway promete respetar.
 
-El botón **Conectar** de cada nodo en `/network` emite una API key y muestra los
-pasos para Telegram, WhatsApp, terminal, Hermes Agent u Open WebUI — el mismo
-nodo, hablado desde afuera del panel, sin camino privilegiado.
+### Credenciales
+
+**Todo request de inferencia exige `Authorization: Bearer <api-key>`.** No hay
+excepción: el panel pide la suya a `/v1/keys/panel` y la manda como cualquier
+otro cliente, así hay un solo camino de autenticación y no una puerta trasera
+para el navegador.
+
+Las keys se administran en `/node`, **una por cliente**: con una sola, cada bot
+nuevo obligaría a compartir la misma credencial y revocar por uno sería revocar
+por todos. Cada fila tiene **Connect**, que muestra los pasos para Telegram,
+WhatsApp, terminal, Hermes Agent u Open WebUI con *esa* key, y **Revoke**, que
+la corta sin tocar a las demás.
+
+Alcance de la revocación, para que nadie lo descubra solo: el registro vive en
+la memoria de **tu** proceso. Revocar no puede afectar a otros nodos —no hay
+registro compartido, y el protocolo P2P no transporta API keys—, pero sí borra
+todas las que emitió este gateway. Y como no hay persistencia, **reiniciar el
+nodo revoca todo igual**.
+
+Límite honesto del gate: el gateway escucha solo en `127.0.0.1`, así que esto no
+defiende de otro proceso de la misma máquina, que puede pedirle una credencial
+al bootstrap igual que el panel. Defiende del resto de la red si el bind alguna
+vez deja de ser loopback, y hace el consumo atribuible por cliente.
 
 El botón **Archivos** de cada nodo abre un modal de **solo lectura**: lista lo
 que ese nodo publica y deja copiar el link `qvac://`. La carga y la descarga
@@ -159,7 +181,10 @@ El plan por fases, en [ROADMAP_FASE2-6.md](ROADMAP_FASE2-6.md).
   que ninguno.
 - Las API keys viven en memoria del proceso: no persisten, sin scopes.
 - El login por rol (`qvac/auth.mjs`) **no está conectado a ninguna ruta**: es
-  código muerto, no un gate.
+  código muerto, no un gate. El gate real son las API keys (ver arriba).
+- Las transacciones muestran tokens, latencia y quién — **no muestran plata**.
+  El precio lo llena una constante y todos los nodos anuncian el mismo número;
+  un monto ahí sería inventado.
 - Los instaladores están verificados en Windows; los caminos de macOS y Linux
   están escritos pero no ejecutados end-to-end.
 - El nodo que infiere ve el prompt en texto plano. El claim es "ninguna
