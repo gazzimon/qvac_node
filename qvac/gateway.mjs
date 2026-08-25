@@ -32,6 +32,8 @@
 import http from 'bare-http1'
 import * as store from './store.mjs'
 import * as apikeys from './apikeys.mjs'
+import * as budget from './budget.mjs'
+import * as costs from './costs.mjs'
 
 const MOCK_REPLIES = {
   'facturas-ar': (prompt) =>
@@ -295,6 +297,13 @@ export function normalizeRequest(body) {
   // cliente de OpenAI la manda, y omitirla deja el comportamiento de siempre.
   const local = body.local === true
 
+  // `max_tokens` de OpenAI. Se lee para la estimacion de costo de la Fase 6.5:
+  // la reserva es la COTA SUPERIOR del gasto, y sin un tope de salida no hay
+  // cota superior que calcular. Cero significa "no lo mando", no "cero
+  // tokens" -- el gateway no lo impone todavia, solo lo mira.
+  const pedido = Number(body.max_tokens)
+  const maxTokens = Number.isFinite(pedido) && pedido > 0 ? Math.floor(pedido) : 0
+
   // Forma corta propia: { modelId, prompt }
   if (body.model === undefined && body.modelId !== undefined) {
     if (typeof body.prompt !== 'string' || body.prompt.trim() === '') {
@@ -304,7 +313,8 @@ export function normalizeRequest(body) {
       model: body.modelId,
       messages: [{ role: 'user', content: body.prompt }],
       stream,
-      local
+      local,
+      maxTokens
     }
   }
 
@@ -337,7 +347,7 @@ export function normalizeRequest(body) {
     messages.push({ role: m.role, content })
   }
 
-  return { model: body.model, messages, stream }
+  return { model: body.model, messages, stream, maxTokens }
 }
 
 // ---------------------------------------------------------------------------
@@ -489,7 +499,19 @@ function streamFromPeer({ node, model, messages, onChunk, onStart }) {
   })
 }
 
-async function handleRemoteChat({ req, res, node, candidatos, model, messages, stream }) {
+async function handleRemoteChat({
+  req,
+  res,
+  node,
+  candidatos,
+  model,
+  messages,
+  stream,
+  // La reserva la abre handleChat, porque es el que sabe a que cuenta imputar.
+  // Aca solo se liquida. Default para los tests, que llaman a esta funcion
+  // directo sin pasar por el ledger.
+  reserva = { id: null }
+}) {
   const id = completionId()
   const created = Math.floor(Date.now() / 1000)
   const pares = candidatos.filter((n) => n.kind === 'peer')
@@ -641,9 +663,16 @@ async function handleRemoteChat({ req, res, node, candidatos, model, messages, s
     const ms = Date.now() - startedAt
     const ok = !!(ultimo && ultimo.ok)
 
+    // Misma liquidacion que en el camino local. Hoy da cero: los tokens de un
+    // par se pagaran en USD₮ contra su wallet (Fase 9), no contra este tope,
+    // que es para el gasto en dolares del asistente externo.
+    const costoReal = costs.real({ model, completionTokens: tokens })
+    budget.settle(reserva.id, costoReal)
+
     store.pushLog({
       modelId: model,
       target: 'peer',
+      costMicros: costoReal,
       nodeId: elegido ? elegido.id : null,
       operator: elegido ? elegido.operator : null,
       candidatos: candidatos.length,
@@ -720,6 +749,37 @@ function keyLabelDe(req) {
   return entry ? entry.label : null
 }
 
+// A QUE CUENTA se le imputa el consumo (Fase 6.5). Es el id de la API key, no
+// su texto: el id es estable y se puede escribir en un archivo sin que el
+// ledger termine guardando credenciales en claro.
+//
+// La cuenta ES la key. No hay un modelo de usuarios aparte porque no hace
+// falta todavia: cada cliente externo -- un bot de Telegram, una terminal, el
+// panel -- ya tiene la suya, y esa es exactamente la granularidad a la que se
+// quiere cortar.
+function cuentaDe(req) {
+  const header = req.headers['authorization'] || req.headers['Authorization']
+  if (!header || !header.startsWith('Bearer ')) return null
+  const entry = apikeys.verifyKey(header.slice(7).trim())
+  return entry ? entry.id : null
+}
+
+// La COTA SUPERIOR de lo que va a costar este request, en micro-dolares.
+//
+// Hoy da cero para todo, y eso no es un placeholder: es el precio real. La
+// inferencia local no cuesta dolares y la de un par tampoco -- el pago P2P es
+// la Fase 9, en USD₮ y contra la wallet del proveedor, no contra este tope.
+// Lo unico que cuesta dolares es el asistente externo, que es la Fase 8.5.
+//
+// La funcion existe igual, y el gateway la llama en el camino comun, para que
+// la reserva y la liquidacion esten EJERCITADAS antes de que haya plata de por
+// medio. Un mecanismo de corte que se estrena el dia que empieza a cobrar es
+// un mecanismo de corte sin probar.
+function estimarRequest({ node, maxTokens = 0, promptTokens = 0 }) {
+  if (!node || !costs.conocido(node.modelId)) return 0
+  return costs.estimar({ model: node.modelId, promptTokens, maxTokens })
+}
+
 async function handleChat(req, res) {
   const motivo = rechazoPorKey(req)
   if (motivo) return sendError(res, 401, motivo)
@@ -764,6 +824,25 @@ async function handleChat(req, res) {
     })
   }
 
+  // FASE 6.5 — la reserva va ACA: despues de saber a quien se le va a pedir
+  // (porque el precio depende del nodo) y ANTES de pedirselo. Ese orden es
+  // toda la fase: un tope que se evalua despues del gasto es un descuento.
+  const cuenta = cuentaDe(req)
+  const estimado = estimarRequest({ node, maxTokens: norm.maxTokens || 0 })
+  const reserva = budget.reserve(cuenta, estimado)
+
+  if (!reserva.ok) {
+    // Este camino todavia no se alcanza -- hoy todo estima cero -- y se
+    // completa en la Fase 8.5, donde el corte degrada a inferencia local en vez
+    // de negar el servicio. Queda escrito el error correcto y no un TODO.
+    return sendError(
+      res,
+      402,
+      `presupuesto agotado: quedan ${costs.formatUSD(reserva.remaining)} de un tope de ${costs.formatUSD(reserva.cap)}`,
+      { type: 'insufficient_quota', code: 'budget_exhausted' }
+    )
+  }
+
   // Un par del swarm: los tokens vienen de OTRA maquina por el FramedStream
   // que el swarm ya tiene abierto. Sin swarm conectado no hay a quien
   // preguntarle, y decirlo asi es mejor que un 500 generico.
@@ -772,6 +851,11 @@ async function handleChat(req, res) {
       // La puerta del producto: sin agente lanzado no se llega a la red. El
       // modelo local sigue disponible, y el mensaje lo dice -- un 503 que solo
       // niega deja al que lo lee sin siguiente paso.
+      //
+      // Se libera la reserva: este request no gasto nada. Toda salida
+      // temprana que ya paso por reserve() tiene que liberar, o el saldo queda
+      // comprometido para siempre por un request que nunca existio.
+      budget.release(reserva.id)
       return sendError(
         res,
         503,
@@ -779,7 +863,16 @@ async function handleChat(req, res) {
         { type: 'service_unavailable', code: 'agent_offline' }
       )
     }
-    return await handleRemoteChat({ req, res, node, candidatos, model, messages, stream })
+    return await handleRemoteChat({
+      req,
+      res,
+      node,
+      candidatos,
+      model,
+      messages,
+      stream,
+      reserva
+    })
   }
 
   const prompt = lastUserText(messages)
@@ -880,6 +973,17 @@ async function handleChat(req, res) {
   } finally {
     store.endRequest(node.id)
     if (!responded) res.end()
+
+    // Se liquida con los tokens que REALMENTE se generaron, y la diferencia
+    // contra la reserva vuelve al saldo. Va en el `finally` a proposito: un
+    // request que revienta a mitad de stream igual gasto lo que gasto, y una
+    // reserva que no se liquida queda comprometiendo saldo hasta que reinicie
+    // el proceso.
+    const costoReal = costs.real({
+      model: node.modelId,
+      completionTokens: tokens
+    })
+    budget.settle(reserva.id, costoReal)
     // El motivo dice lo que REALMENTE pasó. Antes decía "menor carga relativa
     // (simulado)", que era falso: cada nodo tiene un modelId único, así que
     // `findByModelId` nunca elige entre dos candidatos. Elegir por carga es
@@ -901,6 +1005,11 @@ async function handleChat(req, res) {
           : `primero de ${candidatos.length} candidatos para "${model}" — elegir por carga es D6, sin implementar`,
       ok: fallo === null,
       code: fallo === null ? null : 'server_error',
+      // Lo que costo esta respuesta. Hoy es 0 en el camino local y es la
+      // verdad, no un relleno: la inferencia propia no cuesta dolares. El
+      // campo existe desde ahora para que el rastro de la Fase 8.5 no tenga
+      // un agujero en las entradas anteriores.
+      costMicros: costoReal,
       tokens,
       ttftMs,
       tokensPerSec: tokensPerSec({ tokens, ttftMs, ms }),
@@ -992,7 +1101,9 @@ async function onRequest(req, res) {
         let body = {}
         try {
           body = await readJsonBody(req)
-        } catch { /* sin body: queda el label por defecto */ }
+        } catch {
+          /* sin body: queda el label por defecto */
+        }
         const raw = typeof body.label === 'string' ? body.label.trim() : ''
         const entry = apikeys.createKey({ label: raw ? raw.slice(0, 40) : 'unnamed client' })
         return sendJson(res, 201, {
@@ -1069,6 +1180,53 @@ async function onRequest(req, res) {
     }
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
       return sendJson(res, 200, { log: store.getLog() })
+    }
+
+    // FASE 6.5 — cuanto lleva gastado esta cuenta y cuanto le queda.
+    //
+    // Pide credencial igual que /v1/chat/completions: el saldo es de UNA
+    // cuenta, y sin key no hay cuenta a la cual responderle. Devolver el saldo
+    // de cualquiera a quien llegue al puerto seria decirle a un tercero cuanto
+    // consume el dueno.
+    if (req.method === 'GET' && pathname === '/v1/budget') {
+      const motivo = rechazoPorKey(req)
+      if (motivo) return sendError(res, 401, motivo)
+
+      const uso = budget.usage(cuentaDe(req))
+      return sendJson(res, 200, {
+        period: uso.period,
+        // Los micros son la verdad; los strings son para que el panel no tenga
+        // que saber de la unidad. Van los dos y no uno solo: un cliente que
+        // quiera comparar o sumar necesita el entero, no "USD 0,0135".
+        spent_micros: uso.spent,
+        reserved_micros: uso.reserved,
+        cap_micros: uso.cap,
+        remaining_micros: uso.remaining,
+        spent: costs.formatUSD(uso.spent),
+        reserved: costs.formatUSD(uso.reserved),
+        cap: costs.formatUSD(uso.cap),
+        remaining: costs.formatUSD(uso.remaining)
+      })
+    }
+
+    // El reparto del mes: cuanto consumio cada cuenta. Es lo que se factura.
+    if (req.method === 'GET' && pathname === '/v1/budget/report') {
+      const motivo = rechazoPorKey(req)
+      if (motivo) return sendError(res, 401, motivo)
+
+      const periodo = new URLSearchParams(req.url.split('?')[1] || '').get('period')
+      const rep = budget.report({ period: periodo || null })
+      return sendJson(res, 200, {
+        period: rep.period,
+        found: rep.found,
+        total_micros: rep.total,
+        total: costs.formatUSD(rep.total),
+        accounts: rep.accounts.map((a) => ({
+          account: a.account,
+          spent_micros: a.spent,
+          spent: costs.formatUSD(a.spent)
+        }))
+      })
     }
 
     // La serie COMPLETA, desde el Hyperbee. `/v1/routing-log` devuelve el ring
@@ -1466,5 +1624,8 @@ export function createGateway({ port = 8787, gpuLayers: gpu, demo = false } = {}
 
 export async function shutdownGateway() {
   store.stopFluctuation()
+  // Se cierra el ledger antes que el motor: un apagado ordenado tiene que
+  // dejar el gasto del ultimo request en disco, y el motor puede tardar.
+  budget.close()
   if (engineMod && realModelId) await engineMod.shutdown(realModelId)
 }

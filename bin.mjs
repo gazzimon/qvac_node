@@ -306,6 +306,20 @@ async function startGateway(opts = {}) {
   const useSwarm = opts.swarm === true
   const withStore = opts.store !== false
 
+  // FASE 6.5 — el ledger de consumo se abre ANTES del gateway. Si se abriera
+  // despues, los primeros requests correrian sin contador: pocos, pero
+  // justamente los del arranque, que es cuando un loop recien lanzado gasta
+  // mas rapido. Un tope con una ventana ciega no es un tope.
+  const budget = await import('./qvac/budget.mjs')
+  const budgetDir = swarmStorageDir()
+  try {
+    const fs = await import('bare-fs')
+    fs.default.mkdirSync(budgetDir, { recursive: true })
+  } catch {
+    // Si no se puede crear, budget.open avisa y sigue en memoria.
+  }
+  budget.open(budgetDir)
+
   const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
   const server = createGateway({ port, gpuLayers, demo })
 
@@ -394,7 +408,7 @@ async function startGateway(opts = {}) {
     // a un par y publicar los que se suben.
     gw.setSwarm(nodeSwarm)
     if (data && data.files) gw.setFiles(data.files)
-  
+
     return nodeSwarm
   }
 
