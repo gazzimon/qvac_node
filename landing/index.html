@@ -515,7 +515,7 @@
     <div class="stats">
       <div class="stat"><b>0</b><span>central servers</span></div>
       <div class="stat"><b>~10s</b><span>OTA update over P2P</span></div>
-      <div class="stat"><b>3</b><span>panels: buy, sell, administer</span></div>
+      <div class="stat"><b>1</b><span>command to install and run</span></div>
     </div>
   </div>
 </section>
@@ -562,27 +562,32 @@
 <section class="roles">
   <div class="wrap">
     <div class="head">
-      <p class="eyebrow reveal">The marketplace</p>
-      <h2 class="reveal" style="margin-top:.9rem">Three panels, one and the same node.</h2>
+      <p class="eyebrow reveal">The app</p>
+      <h2 class="reveal" style="margin-top:.9rem">It opens on a chat. The network is what answers.</h2>
+      <p class="lede reveal" style="margin-top:1.1rem">Your node starts switched off, and the
+        first thing you see is a single button. Launching it puts your machine on the network —
+        and that is what gets you access to everyone else’s. Until then your own model
+        still answers; the network does not.</p>
     </div>
     <div class="cards reveal">
       <div class="role">
         <span class="path mono">/</span>
-        <h3>Client</h3>
-        <p>Pick a provider by price, tags and availability, chat right there or
-          hit <em>Connect</em> to use it from your own OpenAI client.</p>
+        <h3>Chat</h3>
+        <p>Ask, and every answer names the machine that produced it — who served it,
+          time to first token, tokens per second. Or tick <em>local only</em> and nothing
+          leaves your machine.</p>
       </div>
       <div class="role">
-        <span class="path mono">/proveedor</span>
-        <h3>Provider</h3>
-        <p>Publish what your machine offers: price, capacity, files —
-          and join the network with a single command.</p>
+        <span class="path mono">/node</span>
+        <h3>My Node</h3>
+        <p>Your own machine as a provider: what it publishes, what it charges, how loaded
+          it is, which model it serves.</p>
       </div>
       <div class="role">
-        <span class="path mono">/admin</span>
-        <h3>Admin</h3>
-        <p>See the network’s full registry, the log of why each node was chosen,
-          and drop any of them from the registry.</p>
+        <span class="path mono">/network</span>
+        <h3>Network</h3>
+        <p>Everyone else. Price, tags and availability per node, and <em>Connect</em> to
+          use any of them from your own OpenAI client.</p>
       </div>
     </div>
   </div>
@@ -812,6 +817,11 @@
           <pre id="cmd"></pre>
           <button class="copy" id="copyBtn">copy command</button>
         </div>
+        <p class="alt" style="margin-top:1.1rem;padding-top:0;border:none">
+          Rather download it by hand? Every platform&rsquo;s binary is on the
+          <a href="https://github.com/gazzimon/qvac_node/releases/latest" target="_blank" rel="noopener">latest release &nearr;</a>,
+          with checksums.
+        </p>
       </div>
     </div>
   </div>
