@@ -144,9 +144,9 @@ function sendError(res, statusCode, message, { type = 'invalid_request_error', c
   res.end(payload)
 }
 
-function sendJson(res, statusCode, body) {
+function sendJson(res, statusCode, body, extraHeaders = null) {
   const payload = JSON.stringify(body)
-  res.writeHead(statusCode, { 'Content-Type': 'application/json' })
+  res.writeHead(statusCode, { 'Content-Type': 'application/json', ...(extraHeaders || {}) })
   res.end(payload)
 }
 
@@ -653,15 +653,25 @@ async function handleRemoteChat({
   try {
     if (ultimo && ultimo.ok) {
       if (!stream) {
-        return sendJson(res, 200, {
-          id,
-          object: 'chat.completion',
-          created,
-          model,
-          choices: [
-            { index: 0, message: { role: 'assistant', content: contenido }, finish_reason: 'stop' }
-          ]
-        })
+        // Los mismos headers de procedencia que el camino con stream. Sin
+        // esto, quien pide sin `stream:true` -- un curl, Open WebUI, cualquier
+        // cliente OpenAI con el default -- nunca se entera de que maquina
+        // contesto. La garantia no puede valer en una de las dos formas de
+        // respuesta y en la otra no.
+        return sendJson(
+          res,
+          200,
+          {
+            id,
+            object: 'chat.completion',
+            created,
+            model,
+            choices: [
+              { index: 0, message: { role: 'assistant', content: contenido }, finish_reason: 'stop' }
+            ]
+          },
+          provenanceHeaders(elegido || node)
+        )
       }
       if (!headersSent) {
         // El par contesto OK pero sin un solo token. Es raro y hay que decirlo,
@@ -983,13 +993,18 @@ async function handleChat(req, res) {
       // escribio ni un byte de la respuesta.
       let content = ''
       for await (const delta of deltas()) content += delta
-      sendJson(res, 200, {
-        id,
-        object: 'chat.completion',
-        created,
-        model,
-        choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }]
-      })
+      sendJson(
+        res,
+        200,
+        {
+          id,
+          object: 'chat.completion',
+          created,
+          model,
+          choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }]
+        },
+        provenanceHeaders(node)
+      )
       responded = true
     } else {
       res.writeHead(200, {
