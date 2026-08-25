@@ -96,6 +96,19 @@ const STYLE = `
   .bar { flex: 1; height: 6px; background: #262b36; border-radius: 999px; overflow: hidden; }
   .bar > div { height: 100%; border-radius: 999px; transition: width .4s ease; }
   .pct { font-size: .75rem; color: #a9b4cc; min-width: 3ch; text-align: right; }
+  /* Los dos medidores de My Node (Fase 6.5 y 6.6). Se apilan en pantalla
+     angosta: son dos lecturas independientes, no una comparacion lado a lado
+     que se rompa al perder el ancho. */
+  .econ-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem; }
+  @media (max-width: 700px) { .econ-grid { grid-template-columns: 1fr; } }
+  .econ-grid h4 { margin: 0 0 .3rem; font-size: .95rem; }
+  .econ-big { font-size: 1.5rem; font-weight: 600; margin: .4rem 0 .5rem; color: #e8ecf5; }
+  .bar-fill { height: 100%; border-radius: 999px; background: #5fa8ff; transition: width .4s ease; }
+  .econ-row {
+    display: flex; justify-content: space-between; gap: .8rem;
+    font-size: .82rem; color: #a9b4cc; padding: .35rem 0; border-top: 1px solid #262b36;
+  }
+  .econ-row code { color: #8b93a7; }
   .badge {
     font-size: .7rem; padding: .1rem .5rem; border-radius: 999px; font-weight: 600;
   }
@@ -954,6 +967,33 @@ export const NODE_HTML = page(
     <div id="flow-body"></div>
   </div>
 
+  <div class="card" style="cursor:default; margin-top:1.5rem">
+    <h3>Free tier and spend cap</h3>
+    <p class="sub">The two meters, and they point in opposite directions: one counts what you
+      give away, the other what you spend. Inference on your own machine is in neither &mdash;
+      it costs nobody anything but your electricity, so it is free and uncapped.</p>
+
+    <div class="econ-grid">
+      <div>
+        <h4>What you give</h4>
+        <p class="hint">Every peer gets a free allowance from this node. It is enforced here,
+          by the machine that pays the electricity &mdash; not by whoever is asking.</p>
+        <p class="econ-big" id="q-given">&mdash;</p>
+        <p class="hint" id="q-window">&mdash;</p>
+        <div id="q-peers"></div>
+      </div>
+
+      <div>
+        <h4>What you spend</h4>
+        <p class="hint">Only the external assistant costs dollars. When this runs out the node
+          does not stop: it falls back to local inference, which stays free.</p>
+        <p class="econ-big" id="b-remaining">&mdash;</p>
+        <div class="bar"><div class="bar-fill" id="b-bar"></div></div>
+        <p class="hint" id="b-detail">&mdash;</p>
+      </div>
+    </div>
+  </div>
+
   <div id="model-modal"></div>
   <div id="modal"></div>
 
@@ -1444,9 +1484,76 @@ ${CONNECT_JS}
       } catch (e) { /* el poll siguiente reintenta */ }
     }
 
+    // -------------------------------------------------------------------
+    // Los dos medidores (Fase 6.5 y 6.6). Se piden juntos porque son la misma
+    // pregunta vista de los dos lados, pero vienen de endpoints distintos a
+    // proposito: /v1/quota lo lleva el proveedor y /v1/budget el gateway.
+    //
+    // Cada uno falla por su cuenta. Si el nodo no esta sirviendo todavia no
+    // hay cuota que mostrar, y eso no tiene por que borrar el gasto.
+    // -------------------------------------------------------------------
+    function miles(n) {
+      return Number(n || 0).toLocaleString('en-US')
+    }
+
+    async function refrescarCuota() {
+      try {
+        const r = await authFetch('/v1/quota')
+        if (!r.ok) return
+        const q = await r.json()
+
+        document.getElementById('q-given').textContent = miles(q.given_tokens) + ' tokens'
+        document.getElementById('q-window').textContent =
+          miles(q.quota_tokens) + ' output tokens per peer, per ' + q.window_hours + ' h — ' +
+          'a sliding window, so it tops back up on its own'
+
+        const box = document.getElementById('q-peers')
+        if (!q.peers.length) {
+          box.innerHTML = '<p class="hint">No peer has asked this node for anything yet.</p>'
+          return
+        }
+        box.innerHTML = q.peers.map((p) => \`
+          <div class="econ-row">
+            <code>\${esc(p.peer)}</code>
+            <span>\${miles(p.used)} used · \${miles(p.remaining)} left</span>
+          </div>
+        \`).join('')
+      } catch (e) { /* el poll siguiente reintenta */ }
+    }
+
+    async function refrescarGasto() {
+      try {
+        const r = await authFetch('/v1/budget')
+        if (!r.ok) return
+        const b = await r.json()
+
+        document.getElementById('b-remaining').textContent = b.remaining + ' left'
+
+        // El porcentaje se calcula sobre el tope, no sobre lo que queda: con
+        // el tope en cero no hay division por cero ni una barra al 100%.
+        const usado = b.cap_micros > 0 ? (b.spent_micros / b.cap_micros) * 100 : 0
+        document.getElementById('b-bar').style.width = Math.min(100, usado).toFixed(1) + '%'
+
+        document.getElementById('b-detail').textContent =
+          b.spent + ' spent of ' + b.cap + ' this period (' + b.period + ')' +
+          (b.reserved_micros > 0 ? ' · ' + b.reserved + ' committed to requests in flight' : '')
+      } catch (e) { /* el poll siguiente reintenta */ }
+    }
+
+    function refrescarEconomia() {
+      refrescarCuota()
+      refrescarGasto()
+    }
+
     cargarKeys()
     refrescarFlujo()
     setInterval(refrescarFlujo, 3000)
+
+    // Mas lento que el resto: estos dos numeros se mueven de a un request, no
+    // de a un token. Pollear cada 2,5 s seria pedirle al gateway que recorra
+    // el ledger para decir lo mismo cuatro veces seguidas.
+    refrescarEconomia()
+    setInterval(refrescarEconomia, 8000)
 
     refresh().catch(() => {})
     setInterval(() => refresh().catch(() => {}), 2500)
