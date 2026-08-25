@@ -1,1 +1,7 @@
 * text=auto eol=lf
+
+# Los .bat los interpreta cmd.exe, que es de la epoca de DOS y espera CRLF.
+# Con LF funciona casi siempre, pero rompe de formas raras en `goto` y en
+# algunos `for`. No vale la pena descubrirlo en la maquina de otro.
+*.bat text eol=crlf
+*.cmd text eol=crlf
