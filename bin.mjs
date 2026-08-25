@@ -396,11 +396,17 @@ async function startGateway(opts = {}) {
       })
     }
 
+    // S2 de NOTES-SATURACION.md: la capacidad HONRADA sale de la misma lista
+    // que la ANUNCIADA. Antes eran dos literales `3` escritos aparte, y el
+    // comentario de swarmModels() ya declaraba la intencion de que fuera una
+    // sola fuente -- pero el Provider no la leia. Con el manifiesto editable
+    // desde el panel eso deja de ser teorico: subir la capacidad anunciada no
+    // subia la que se cumple, y el nodo pasaba a anunciar lo que no sirve.
     provider = new Provider({
       engineLoader: () => import('./qvac/engine.mjs'),
       store,
       models,
-      maxConcurrent: 3
+      maxConcurrent: capacidadDeclarada(models)
     })
     nodeSwarm.setProvider(provider)
 
@@ -514,6 +520,17 @@ function swarmModels() {
       pricing: [{ unit: 'per_1m_completion_tokens', amount: '1000000', currency: 'QVAC' }]
     }
   ]
+}
+
+// La suma de los slots que este nodo declara en su manifiesto. El Provider
+// cuenta requests en vuelo sin importar el modelo, asi que el limite que hace
+// cumplir tiene que ser el total declarado -- no el de un modelo suelto.
+function capacidadDeclarada(models) {
+  const total = models.reduce(
+    (n, m) => n + (Number.isFinite(m.maxConcurrentRequests) ? m.maxConcurrentRequests : 0),
+    0
+  )
+  return total > 0 ? total : 1
 }
 
 function swarmStorageDir() {

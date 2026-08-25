@@ -29,9 +29,9 @@ provider.active                       provider.mjs:51,177,223
   ▼
 store.beginRequest / endRequest        store.mjs:176-186
   │  Contador por fila del registro. Lo llama el provider (:184,:224)
-  │  y también el gateway en los dos caminos HTTP (gateway.mjs:594,789).
+  │  y también el gateway en los dos caminos HTTP (gateway.mjs:594,887).
   ▼
-store.localLoad()                      store.mjs:410-419
+store.localLoad()                      store.mjs:428-437
   │  Suma activeRequests y maxConcurrentRequests de las filas kind==='real'.
   │  Los mocks del modo --demo quedan afuera a propósito: anunciar capacidad
   │  que no existe sería mentirle a la red.
@@ -41,14 +41,14 @@ node:status  cada 2000 ms              swarm.mjs:48,310-324,485-493
   │  Sin gateway (comando `peers`) manda 0 activos pero la capacidad declarada
   │  del manifiesto, no 0/0 (swarm.mjs:311-322).
   ▼
-store.updateStatus(peerKey, status)    store.mjs:356-368
+store.updateStatus(peerKey, status)    store.mjs:374-386
   │  Lo que este nodo cree del otro. Pisa también maxConcurrentRequests: el par
   │  pudo haber cargado otro modelo desde que firmó el manifiesto.
   ▼
-toPublic().loadPct                     store.mjs:147-160
+toPublic().loadPct                     store.mjs:152-170
   │  Sale por GET /v1/nodes y lo pinta el panel /network.
   ▼
-findAllByModelId()                     store.mjs:425-446
+findAllByModelId()                     store.mjs:443-464
      ✗ NO mira activeRequests. NO mira loadPct. Ordena por `kind`.
 ```
 
@@ -64,12 +64,12 @@ nodo", y no hay nada que los mantenga sincronizados:
 
 | # | Dónde | Qué es | Quién lo usa |
 |---|---|---|---|
-| 1 | `bin.mjs:389` — `maxConcurrent: 3` en el constructor del `Provider` | la capacidad **honrada** | `provider.mjs:169`, el único que rechaza |
-| 2 | `bin.mjs:497` — `maxConcurrentRequests: 3` en `swarmModels()` | la capacidad **anunciada** | va al manifiesto firmado (`manifest.mjs:184-188`) |
-| 3 | `POST /v1/swarm/manifest` (`gateway.mjs:1129`) | la capacidad **editada desde el panel** | re-firma el manifiesto |
+| 1 | `bin.mjs:403` — `maxConcurrent: 3` en el constructor del `Provider` | la capacidad **honrada** | `provider.mjs:169`, el único que rechaza |
+| 2 | `bin.mjs:513` — `maxConcurrentRequests: 3` en `swarmModels()` | la capacidad **anunciada** | va al manifiesto firmado (`manifest.mjs:185-187`) |
+| 3 | `POST /v1/swarm/manifest` (`gateway.mjs:1275`) | la capacidad **editada desde el panel** | re-firma el manifiesto |
 
 Coinciden hoy porque son dos literales iguales escritos a mano. El comentario de
-`bin.mjs:485-488` dice que `swarmModels()` es *"UNA sola fuente: la usa el manifiesto
+`bin.mjs:498-502` dice que `swarmModels()` es *"UNA sola fuente: la usa el manifiesto
 que se firma Y el Provider"* — es la intención, pero el `3` del Provider no sale de
 ahí, está escrito aparte.
 
@@ -83,10 +83,10 @@ anunciar lo que no se sirve, y esta es la grieta.
 
 ### S1 — el ruteo ignora la carga
 
-`gateway.mjs:750` toma `candidatos[0]`. El orden lo fija `findAllByModelId`
-(`store.mjs:444`) con un rank fijo `{ peer: 0, real: 1, mock: 2 }`.
+`gateway.mjs:815` toma `candidatos[0]`. El orden lo fija `findAllByModelId`
+(`store.mjs:462`) con un rank fijo `{ peer: 0, real: 1, mock: 2 }`.
 
-El comentario de `store.mjs:435-443` es explícito sobre por qué: los pares van primero
+El comentario de `store.mjs:453-461` es explícito sobre por qué: los pares van primero
 **por una razón de demo**, para que con `--demo --swarm` el camino P2P se ejercite en
 vez de que conteste la máquina local. No es una decisión de performance y el código lo
 dice.
@@ -106,12 +106,12 @@ Todas las demás rutas que mutan estado están detrás de `rechazoPorKey`:
 
 | ruta | gate |
 |---|---|
-| `POST /v1/chat/completions` | sí — `gateway.mjs:1103` |
-| `POST /v1/files/upload` | sí — `:1300` |
-| `POST /v1/files/fetch` | sí — `:1323` |
-| `POST /v1/nodes/:id/kick` | sí — `:1358` |
-| `POST /v1/nodes/:id` | sí — `:1370` |
-| **`POST /v1/swarm/manifest`** | **no — `:1112-1229`** |
+| `POST /v1/chat/completions` | sí — `gateway.mjs:789` |
+| `POST /v1/files/upload` | sí — `:1467` |
+| `POST /v1/files/fetch` | sí — `:1487` |
+| `POST /v1/nodes/:id/kick` | sí — `:1525` |
+| `POST /v1/nodes/:id` | sí — `:1534` |
+| **`POST /v1/swarm/manifest`** | **no — `:1275-1462`** |
 
 Cualquier cosa corriendo en localhost puede cambiar el modelo anunciado, los tags, el
 displayName y la capacidad de este nodo, y el nodo lo re-firma con su identidad. Es la
@@ -186,8 +186,8 @@ decisión:
 
 | Dato | Dónde se escribe | Quién lo lee hoy |
 |---|---|---|
-| `tokens`, `ttftMs`, `tokensPerSec`, `ms`, `ok` por request | `store.pushLog` (`store.mjs:452-465`) → ring de 30 + Hyperbee | el panel `/admin` y `GET /v1/audit` |
-| `requests`, `errors`, `tokens`, `lastMs` acumulados por par | `directory.recordStat` (`directory.mjs:233`) vía `store.recordPeerResult` (`store.mjs:469`) | **nadie** |
+| `tokens`, `ttftMs`, `tokensPerSec`, `ms`, `ok` por request | `store.pushLog` (`store.mjs:470-483`) → ring de 30 + Hyperbee | el panel `/admin` y `GET /v1/audit` |
+| `requests`, `errors`, `tokens`, `lastMs` acumulados por par | `directory.recordStat` (`directory.mjs:233`) vía `store.recordPeerResult` (`store.mjs:495`) | **nadie** |
 
 El histórico por par es exactamente el desempate que necesita un ruteo por latencia, y
 ya está en disco. `store.recordPeerResult` se llama en cada cierre de request remoto
@@ -203,11 +203,11 @@ cuando sirvió 400 no tiene hoy quién lo contradiga.
 
 Para que no se confundan al leer el panel:
 
-- `store.startFluctuation()` (`store.mjs:488-501`) mueve al azar el `activeRequests`
+- `store.startFluctuation()` (`store.mjs:531-544`) mueve al azar el `activeRequests`
   de las filas `kind==='mock'` cada 2,2 s. Es teatro para el video. **Nunca toca las
   filas `real`** (`:492`), y `localLoad()` las excluye igual (`:414`), así que no
   contamina lo que se anuncia a la red.
-- `capacidad()` (`store.mjs:259-266`) clampea lo que llega en un manifiesto ajeno
+- `capacidad()` (`store.mjs:277-285`) clampea lo que llega en un manifiesto ajeno
   entre 1 y 1024. Es anti-mentira, no medición: un par que anuncia 10⁹ slots no
   envenena el registro.
 

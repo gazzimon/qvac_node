@@ -725,3 +725,302 @@ test('local:true sobrevive a normalizeRequest en la forma estandar de OpenAI', a
   })
   t.is(sinFlag.local, false)
 })
+
+// ---------------------------------------------------------------------------
+// Fase 6.6 — cuota gratuita del proveedor (qvac/quota.mjs)
+// ---------------------------------------------------------------------------
+
+test('la cuota corta al agotarse y dice cuando se repone', async (t) => {
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+
+  const PAR = 'aa'.repeat(32)
+  const T0 = Date.UTC(2026, 7, 25, 10, 0, 0)
+
+  t.ok(quota.check(PAR, { now: T0 }).ok, 'un par nuevo entra')
+  t.is(quota.restante(PAR, { now: T0 }), 100_000)
+
+  quota.registrar(PAR, 100_000, { now: T0 })
+
+  const cortado = quota.check(PAR, { now: T0 })
+  t.absent(cortado.ok, 'agotada la cuota, corta')
+  t.is(cortado.remaining, 0)
+  // El dato accionable: sin esto el consumidor sabe que no puede, pero no
+  // cuando podria.
+  t.ok(cortado.resetsInMs > 0, 'dice en cuanto se repone')
+})
+
+test('la ventana es deslizante: se repone sola con las horas', async (t) => {
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+
+  const PAR = 'bb'.repeat(32)
+  const T0 = Date.UTC(2026, 7, 25, 10, 0, 0)
+  const hora = (n) => T0 + n * 60 * 60 * 1000
+
+  // Se gasta la cuota entera repartida en dos horas distintas.
+  quota.registrar(PAR, 60_000, { now: hora(0) })
+  quota.registrar(PAR, 40_000, { now: hora(1) })
+  t.absent(quota.check(PAR, { now: hora(2) }).ok, 'agotada')
+
+  // A las 24 horas exactas el balde de la hora 0 sale de la ventana y vuelven
+  // sus 60.000; los 40.000 de la hora 1 siguen adentro. Esto es lo que hace
+  // que la cuota se reponga de a poco y no haya un pico a medianoche.
+  //
+  // El borde importa y es facil equivocarse: un balde vale mientras
+  // `hora > ahora - ventana`. A las 24 h eso deja afuera al balde 0 y adentro
+  // al 1; a las 25 h ya salieron los dos.
+  t.is(quota.usado(PAR, { now: hora(24) }), 40_000, 'la hora mas vieja salio de la ventana')
+  t.ok(quota.check(PAR, { now: hora(24) }).ok, 'y se puede volver a pedir')
+
+  t.is(quota.usado(PAR, { now: hora(25) }), 0, 'una hora mas y la ventana se vacio entera')
+})
+
+test('cada par tiene su propia cuota', async (t) => {
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+
+  const A = 'aa'.repeat(32)
+  const B = 'bb'.repeat(32)
+  const T0 = Date.UTC(2026, 7, 25, 10, 0, 0)
+
+  quota.registrar(A, 100_000, { now: T0 })
+
+  t.absent(quota.check(A, { now: T0 }).ok, 'A se quedo sin cuota')
+  t.ok(quota.check(B, { now: T0 }).ok, 'y B no se entera')
+  t.is(quota.restante(B, { now: T0 }), 100_000)
+
+  // El panel del proveedor ve las dos filas, ordenadas por consumo.
+  const filas = quota.listar({ now: T0 })
+  t.is(filas.length, 1, 'B no aparece porque no consumio nada')
+  t.is(filas[0].peerKey, A)
+  t.is(filas[0].used, 100_000)
+})
+
+test('la cuota es configurable y el registro ignora basura', async (t) => {
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+
+  const PAR = 'cc'.repeat(32)
+  const T0 = Date.UTC(2026, 7, 25, 10, 0, 0)
+
+  quota.configurar({ tokens: 500, horas: 1 })
+  t.is(quota.config().tokens, 500)
+
+  t.is(quota.registrar(PAR, -20, { now: T0 }), 0, 'un negativo no descuenta cuota ajena')
+  t.is(quota.registrar(PAR, 'ocho', { now: T0 }), 0, 'ni un string cuenta')
+  t.is(quota.usado(PAR, { now: T0 }), 0)
+
+  quota.registrar(PAR, 500, { now: T0 })
+  t.absent(quota.check(PAR, { now: T0 }).ok, 'con la cuota chica corta antes')
+  quota.reset()
+})
+
+// ---------------------------------------------------------------------------
+// Fase 8 / D6 — elegir candidato por carga (qvac/routing.mjs)
+// ---------------------------------------------------------------------------
+
+// Un candidato como lo devuelve store.findAllByModelId, con lo minimo que mira
+// el ruteo.
+function cand (id, kind, activeRequests, maxConcurrentRequests, extra = {}) {
+  return {
+    id,
+    kind,
+    modelId: 'llama1b',
+    operator: id,
+    status: 'online',
+    activeRequests,
+    maxConcurrentRequests,
+    peerKey: kind === 'peer' ? id + 'key' : null,
+    ...extra
+  }
+}
+
+// random fijo: con todos los jitter iguales el sort de V8 es estable, asi que
+// el orden de entrada sobrevive a los empates y el test es determinista.
+const SIN_AZAR = () => 0.5
+
+test('D6: entre dos pares gana el que tiene menos carga', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const cargado = cand('cargado', 'peer', 9, 10)   // 90%
+  const libre = cand('libre', 'peer', 1, 10)       // 10%
+
+  // Se lo pasa en el orden "malo" a proposito: antes ganaba el primero de la
+  // lista y esto habria pasado igual sin mirar la carga.
+  const r = pickCandidate([cargado, libre], { random: SIN_AZAR })
+
+  t.is(r.node.id, 'libre', 'elige el descargado, no el primero de la lista')
+  t.is(r.decision.loadPct, 10)
+  t.ok(r.reason.includes('menor carga'), 'y el motivo lo dice: ' + r.reason)
+  t.alike(r.orden.map((n) => n.id), ['libre', 'cargado'], 'el reintento tambien va ordenado')
+})
+
+test('D6: un candidato saturado queda ultimo, no afuera', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const lleno = cand('lleno', 'peer', 3, 3)
+  const libre = cand('libre', 'real', 0, 3)
+
+  const r = pickCandidate([lleno, libre], { random: SIN_AZAR })
+
+  t.is(r.node.id, 'libre', 'gana el que puede atender aunque sea el local')
+  // Sigue en la lista: si el libre falla antes del primer token, D4 reintenta,
+  // y un par lleno es mejor candidato que ninguno.
+  t.is(r.orden.length, 2, 'el saturado sigue disponible para el reintento')
+  t.is(r.orden[1].id, 'lleno')
+})
+
+test('D6: con todos saturados no se inventa un ganador, se dice', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const r = pickCandidate([cand('a', 'peer', 3, 3), cand('b', 'peer', 5, 5)], {
+    random: SIN_AZAR
+  })
+
+  t.ok(r.node, 'igual devuelve uno: rechazar de entrada seria peor que intentar')
+  t.ok(r.reason.includes('saturados'), 'pero el motivo no finge una decision: ' + r.reason)
+})
+
+test('D6: con carga pareja se conserva el orden del modo --demo', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  // Una red ociosa: todos en 0. Es el caso normal, no el raro.
+  const local = cand('local', 'real', 0, 3)
+  const par = cand('par', 'peer', 0, 3)
+
+  const r = pickCandidate([local, par], { random: SIN_AZAR })
+
+  // La preferencia por el par es de demo (store.mjs:453-461) y sobrevive como
+  // desempate: sin esto, `--demo --swarm` deja de ejercitar el camino P2P.
+  t.is(r.node.id, 'par', 'empatados en carga, el par sigue primero')
+})
+
+test('D6: un mock nunca le gana a un candidato real', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  // El mock fluctua al azar (store.startFluctuation) y puede quedar en 0
+  // mientras el par real esta a la mitad. Su carga es teatro: compararla
+  // contra carga real es comparar un numero con una ficcion.
+  const mock = cand('mock', 'mock', 0, 4)
+  const par = cand('par', 'peer', 2, 4)
+
+  const r = pickCandidate([mock, par], { random: SIN_AZAR })
+
+  t.is(r.node.id, 'par', 'el mock queda atras aunque marque menos carga')
+})
+
+test('D6: el historico desempata cuando la carga empata', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const bueno = cand('bueno', 'peer', 1, 10)
+  const malo = cand('malo', 'peer', 1, 10)
+
+  const statsFor = (n) =>
+    n.id === 'malo'
+      ? { requests: 10, errors: 5, lastMs: 100 }
+      : { requests: 10, errors: 0, lastMs: 900 }
+
+  const r = pickCandidate([malo, bueno], { statsFor, random: SIN_AZAR })
+
+  t.is(r.node.id, 'bueno', 'menos errores gana, aunque sea mas lento')
+  t.ok(r.reason.includes('errores'), r.reason)
+})
+
+test('D6: un historico roto no puede tumbar el ruteo', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const statsFor = () => {
+    throw new Error('el bee exploto')
+  }
+
+  const r = pickCandidate([cand('a', 'peer', 0, 3)], { statsFor, random: SIN_AZAR })
+  t.is(r.node.id, 'a', 'se rutea igual, sin el desempate historico')
+})
+
+test('pin: fijar una maquina la elige, y si no esta NO cae a otra', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const a = cand('a', 'peer', 0, 3)
+  const b = cand('b', 'peer', 0, 3)
+
+  const fijado = pickCandidate([a, b], { pin: 'b', random: SIN_AZAR })
+  t.is(fijado.node.id, 'b', 'respeta la maquina elegida')
+  t.is(fijado.decision.pin, true)
+  t.is(fijado.orden.length, 1, 'sin alternativas: pin es pin')
+
+  // El nodo elegido se fue de la red entre que se pinto el selector y se mando
+  // el prompt. Contestar con OTRA maquina sin avisar vaciaria de sentido a la
+  // funcion: el que fija una maquina quiere esa.
+  const ausente = pickCandidate([a, b], { pin: 'fantasma', random: SIN_AZAR })
+  t.absent(ausente.node, 'no elige un reemplazo')
+  t.ok(ausente.reason.includes('fantasma'), ausente.reason)
+})
+
+test('pin: una maquina fijada y saturada se devuelve, con el aviso', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const lleno = cand('lleno', 'peer', 3, 3)
+  const r = pickCandidate([lleno, cand('libre', 'peer', 0, 3)], {
+    pin: 'lleno',
+    random: SIN_AZAR
+  })
+
+  t.is(r.node.id, 'lleno')
+  t.is(r.decision.saturado, true)
+  t.ok(r.reason.includes('saturado'), r.reason)
+})
+
+test('S5: markSaturated deja al par lleno hasta el proximo node:status', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const { estaSaturado } = await import('../qvac/routing.mjs')
+
+  // Un modelId propio de este test: el registro es estado de modulo y lo
+  // comparten todos los tests del archivo.
+  store.registerLocal({
+    modelId: 'test-saturacion',
+    displayName: 'T',
+    operator: 'test',
+    maxConcurrentRequests: 3
+  })
+  const fila = store.listNodes().find((n) => n.modelId === 'test-saturacion')
+
+  t.absent(estaSaturado(fila), 'arranca con lugar')
+
+  store.markSaturated(fila.id)
+  t.ok(
+    estaSaturado(store.getNode(fila.id)),
+    'tras un at_capacity queda lleno sin esperar los 2s del status'
+  )
+
+  // Y no hay marca que recordar ni que expirar: el proximo node:status escribe
+  // activeRequests sin mirar lo que habia (store.mjs:374-386), asi que la
+  // verdad del par pisa esto solo.
+  store.kick(fila.id)
+})
+
+test('normalizeRequest acepta fijar la maquina, no solo el modelo', async (t) => {
+  const { normalizeRequest } = await import('../qvac/gateway.mjs')
+
+  const conPin = normalizeRequest({
+    model: 'llama1b',
+    messages: [{ role: 'user', content: 'hola' }],
+    node: 'abc123:llama1b'
+  })
+  t.is(conPin.pin, 'abc123:llama1b', 'el id del nodo llega hasta el ruteo')
+
+  // Sin el campo es null y no undefined: el contrato del normalizador es
+  // devolver algo comparable, igual que con `local`.
+  const sinPin = normalizeRequest({
+    model: 'llama1b',
+    messages: [{ role: 'user', content: 'hola' }]
+  })
+  t.is(sinPin.pin, null)
+
+  // Un string vacio o de espacios es "no elegi ninguna", no una maquina
+  // llamada "". Sin esto el ruteo buscaria un nodo con id vacio y daria 404.
+  t.is(normalizeRequest({ model: 'l', messages: [{ role: 'user', content: 'h' }], node: '   ' }).pin, null)
+
+  // Y la forma corta propia tambien, como con local.
+  t.is(normalizeRequest({ modelId: 'llama1b', prompt: 'hola', node: 'x:y' }).pin, 'x:y')
+})

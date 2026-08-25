@@ -34,6 +34,7 @@ import * as store from './store.mjs'
 import * as apikeys from './apikeys.mjs'
 import * as budget from './budget.mjs'
 import * as costs from './costs.mjs'
+import { pickCandidate } from './routing.mjs'
 
 const MOCK_REPLIES = {
   'facturas-ar': (prompt) =>
@@ -297,6 +298,15 @@ export function normalizeRequest(body) {
   // cliente de OpenAI la manda, y omitirla deja el comportamiento de siempre.
   const local = body.local === true
 
+  // Extension propia: fijar la MAQUINA, no solo el modelo. `model` dice QUE se
+  // quiere; `node` dice A QUIEN se le pide. Son dos preguntas distintas y hasta
+  // ahora solo se podia contestar la primera: con dos pares sirviendo el mismo
+  // modelId no habia forma de elegir uno.
+  //
+  // El valor es el `id` de la fila del registro, que es lo que /v1/nodes ya
+  // devuelve, asi que el panel no necesita nada nuevo del backend.
+  const pin = typeof body.node === 'string' && body.node.trim() !== '' ? body.node.trim() : null
+
   // `max_tokens` de OpenAI. Se lee para la estimacion de costo de la Fase 6.5:
   // la reserva es la COTA SUPERIOR del gasto, y sin un tope de salida no hay
   // cota superior que calcular. Cero significa "no lo mando", no "cero
@@ -314,6 +324,7 @@ export function normalizeRequest(body) {
       messages: [{ role: 'user', content: body.prompt }],
       stream,
       local,
+      pin,
       maxTokens
     }
   }
@@ -352,7 +363,7 @@ export function normalizeRequest(body) {
   // only" del chat -- que manda la forma estandar, ver pages.mjs -- llegaba
   // como undefined y el filtro de handleChat nunca se aplicaba. El prompt
   // podia salir a un par con el candado puesto en la pantalla.
-  return { model: body.model, messages, stream, local, maxTokens }
+  return { model: body.model, messages, stream, local, pin, maxTokens }
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +526,12 @@ async function handleRemoteChat({
   // La reserva la abre handleChat, porque es el que sabe a que cuenta imputar.
   // Aca solo se liquida. Default para los tests, que llaman a esta funcion
   // directo sin pasar por el ledger.
-  reserva = { id: null }
+  reserva = { id: null },
+  // La maquina que el cliente fijo, si fijo alguna: corta el reintento.
+  pin = null,
+  // Por que se eligio a este candidato y no a otro. Va al log de ruteo.
+  decision = null,
+  motivo = null
 }) {
   const id = completionId()
   const created = Math.floor(Date.now() / 1000)
@@ -613,6 +629,18 @@ async function handleRemoteChat({
       // D4: si ya se le mando aunque sea un token al cliente, NO se reintenta.
       // El contexto de una respuesta a medias no se puede retomar en otro nodo.
       if (r.started) break
+
+      // El par dijo que esta lleno. Es informacion mas fresca que el ultimo
+      // `node:status`, que puede tener hasta 2s de atraso (swarm.mjs:48): sin
+      // esto, los requests que entren en esa ventana lo vuelven a elegir y se
+      // comen el mismo rechazo. S5 de NOTES-SATURACION.md.
+      if (r.code === 'at_capacity') store.markSaturated(cand.id)
+
+      // Con la maquina fijada por el cliente no hay a quien reintentarle: pedir
+      // un nodo concreto y recibir la respuesta de otro es exactamente lo que
+      // el pin existe para impedir.
+      if (pin) break
+
       console.log(
         `[gateway] ${cand.operator} fallo antes del primer token (${r.code}), pruebo otro`
       )
@@ -683,7 +711,11 @@ async function handleRemoteChat({
       candidatos: candidatos.length,
       reason:
         `par P2P${pares.length > 1 ? ` (${intentos.length} de ${pares.length} intentados)` : ''}` +
-        ` — ${candidatos.length} candidato(s) para "${model}"; elegir por carga es D6, sin implementar`,
+        ` — ${motivo || `${candidatos.length} candidato(s) para "${model}"`}`,
+      // POR QUE se eligio a este y no a otro: la carga del elegido y la de los
+      // que quedaron atras. Es el DoD de la Fase 8 -- antes el log solo podia
+      // decir "el primero", que no es un motivo.
+      decision: decision || undefined,
       intentos: intentos.length > 1 ? intentos : undefined,
       ok,
       code: ok ? null : (ultimo && ultimo.code) || 'no_peer',
@@ -799,12 +831,13 @@ async function handleChat(req, res) {
   const norm = normalizeRequest(body)
   if (norm.error) return sendError(res, 400, norm.error)
 
-  const { model, messages, stream, local } = norm
+  const { model, messages, stream, local, pin } = norm
 
   // Con pares del swarm puede haber DOS nodos sirviendo el mismo modelId, algo
   // que no pasaba con el registro simulado. Se traen todos para poder loguear
-  // cuantos habia; elegir por carga entre ellos es D6 y sigue sin implementar,
-  // asi que se toma el primero -- pero el log lo dice, no finge una decision.
+  // cuantos habia. Elegir entre ellos ya NO es tomar el primero: lo decide
+  // pickCandidate por carga (D6, cerrado en la Fase 8) y el motivo queda en el
+  // log, asi que la decision se audita en vez de adivinarse.
   let candidatos = store.findAllByModelId(model)
 
   // "local only": el prompt no sale de esta maquina. Se filtra ANTES de elegir
@@ -812,7 +845,22 @@ async function handleChat(req, res) {
   // hay nadie local, y no rutear a la red igual.
   if (local) candidatos = candidatos.filter((n) => n.kind !== 'peer')
 
-  const node = candidatos[0] || null
+  const eleccion = pickCandidate(candidatos, { statsFor: store.statsFor, pin })
+
+  // El cliente fijo una maquina que ya no esta entre los candidatos. NO se
+  // rutea a otra: el que elige una maquina quiere esa, y contestarle con otra
+  // sin avisar vacia de sentido a la funcion. El 404 dice cual pidio.
+  if (pin && !eleccion.node) {
+    return sendError(res, 404, eleccion.reason, { code: 'node_not_found' })
+  }
+
+  const node = eleccion.node
+  // El orden puntuado, no el de llegada: si el mejor falla antes del primer
+  // token, D4 reintenta en el segundo MEJOR, no en el siguiente de la lista.
+  candidatos = eleccion.orden
+  // `motivo` a secas ya lo usa el rechazo por API key mas arriba.
+  const motivoRuteo = eleccion.reason
+  const decision = eleccion.decision
   if (!node) {
     // D5: nunca un cuelgue silencioso. El mensaje dice que modelos SI hay
     // ahora mismo, que es lo unico accionable para quien lo recibe -- y es el
@@ -871,6 +919,9 @@ async function handleChat(req, res) {
     return await handleRemoteChat({
       req,
       res,
+      pin,
+      decision,
+      motivo: motivoRuteo,
       node,
       candidatos,
       model,
@@ -989,11 +1040,11 @@ async function handleChat(req, res) {
       completionTokens: tokens
     })
     budget.settle(reserva.id, costoReal)
-    // El motivo dice lo que REALMENTE pasó. Antes decía "menor carga relativa
-    // (simulado)", que era falso: cada nodo tiene un modelId único, así que
-    // `findByModelId` nunca elige entre dos candidatos. Elegir por carga es
-    // D6 del ROADMAP y todavía no está implementado; el log no puede afirmar
-    // una decisión que no ocurrió.
+    // El motivo dice lo que REALMENTE pasó, y desde la Fase 8 eso incluye por
+    // que se eligio este candidato: lo arma pickCandidate mirando la carga de
+    // todos. Antes decía "menor carga relativa (simulado)", que era falso, y
+    // despues "elegir por carga es D6, sin implementar", que era cierto pero
+    // ya no lo es.
     const ms = Date.now() - startedAt
     store.pushLog({
       modelId: model,
@@ -1004,10 +1055,8 @@ async function handleChat(req, res) {
       nodeId: node.id,
       operator: node.operator,
       candidatos: candidatos.length,
-      reason:
-        candidatos.length === 1
-          ? `único candidato para "${model}"`
-          : `primero de ${candidatos.length} candidatos para "${model}" — elegir por carga es D6, sin implementar`,
+      reason: motivoRuteo || `único candidato para "${model}"`,
+      decision: decision || undefined,
       ok: fallo === null,
       code: fallo === null ? null : 'server_error',
       // Lo que costo esta respuesta. Hoy es 0 en el camino local y es la
@@ -1290,6 +1339,15 @@ async function onRequest(req, res) {
       }
 
       if (req.method === 'POST') {
+        // S3 de NOTES-SATURACION.md: esta era la UNICA ruta que muta estado sin
+        // puerta. Chat, upload, fetch, kick y el patch de un nodo ya pedian la
+        // key; esta dejaba que cualquier cosa corriendo en localhost cambiara
+        // el modelo anunciado, los tags y la capacidad de este nodo -- y el
+        // nodo lo re-firmaba con su identidad. Anunciar en nombre de uno es al
+        // menos tan sensible como gastarle un token.
+        const motivoManifiesto = rechazoPorKey(req)
+        if (motivoManifiesto) return sendError(res, 401, motivoManifiesto)
+
         let body
         try {
           body = await readJsonBody(req)
@@ -1373,6 +1431,25 @@ async function onRequest(req, res) {
         }
         const updated = [patched]
         swarmRef.provider.models = updated
+
+        // La otra mitad de S2: cambiar el numero en el manifiesto tiene que
+        // cambiar el limite que el Provider hace cumplir. `provider.models` ya
+        // se actualizaba aca, pero `maxConcurrent` -- el unico numero que
+        // rechaza requests, provider.mjs:169 -- quedaba en el valor del
+        // arranque. El nodo terminaba anunciando una capacidad que no honraba,
+        // que es exactamente lo que el manifiesto firmado existe para impedir.
+        swarmRef.provider.maxConcurrent = updated.reduce(
+          (n, m) => n + (Number.isFinite(m.maxConcurrentRequests) ? m.maxConcurrentRequests : 0),
+          0
+        ) || 1
+
+        // Y la fila del registro, que es de donde sale el `node:status` que ven
+        // los pares: sin esto la red seguiria viendo la capacidad vieja.
+        const filaLocal = store.localNodeIdFor(patched.modelId)
+        if (filaLocal) {
+          const fila = store.getNode(filaLocal)
+          if (fila) fila.maxConcurrentRequests = patched.maxConcurrentRequests
+        }
 
         const tags = Array.isArray(body.tags)
           ? body.tags.map((t) => String(t).slice(0, 24)).slice(0, 10)
