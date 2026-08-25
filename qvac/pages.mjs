@@ -8,10 +8,11 @@
 
 const NAV = `
 <nav class="nav">
-  <span class="brand">QVAC · marketplace</span>
-  <a href="/">Cliente</a>
-  <a href="/proveedor">Proveedor</a>
-  <a href="/admin">Admin</a>
+  <span class="brand">PyrusLLM</span>
+  <a href="/">Chat</a>
+  <a href="/node">My Node</a>
+  <a href="/network">Network</a>
+  <span class="agent offline" id="agent-chip"><i></i><b data-agent-label>checking…</b></span>
 </nav>`
 
 const STYLE = `
@@ -204,6 +205,102 @@ const STYLE = `
   .log { font-family: ui-monospace, monospace; font-size: .78rem; color: #a9b4cc; }
   .log div { padding: .25rem 0; border-bottom: 1px solid #1a1e28; }
   .muted { color: #6b7386; }
+
+  /* Estado del agente, visible en las tres paginas: es la condicion que decide
+     si se llega a la red o no, asi que no puede vivir solo en una pantalla. */
+  .nav .agent { margin-left: auto; display: inline-flex; align-items: center; gap: .45rem; font-size: .8rem; }
+  .nav .agent i { width: .5rem; height: .5rem; border-radius: 999px; background: #6b7386; display: block; flex: none; }
+  .nav .agent b { font-weight: 600; }
+  .nav .agent.offline { color: #8b93a7 }
+  .nav .agent.launching { color: #fbbf24 } .nav .agent.launching i { background: #fbbf24 }
+  .nav .agent.live { color: #4ade80 } .nav .agent.live i { background: #4ade80 }
+  .nav .agent.error { color: #f87171 } .nav .agent.error i { background: #f87171 }
+
+  /* ---------------------------------------------------------------- chat */
+  /* 'chatpage' y no 'chat': ya existe una clase .chat en el panel Network
+     (el bloque de chat viejo) con margin-top, y el body la heredaba. */
+  body.chatpage { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  body.chatpage main {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    max-width: 780px; width: 100%; padding: 0 1.25rem;
+  }
+  /* El JS le pone display:flex al mostrarlo; la direccion y el flex-1 tienen
+     que estar aca, o el hilo y el composer quedan uno al lado del otro. */
+  #chat { flex: 1; min-height: 0; flex-direction: column; }
+  #thread { flex: 1; min-height: 0; overflow-y: auto; padding: 1.5rem 0 1rem; }
+
+  /* La puerta. Es lo primero que se ve mientras el agente esta apagado. */
+  .gate { max-width: 30rem; margin: auto; padding: 3rem 0; text-align: center; }
+  .gate h1 { font-size: 1.5rem; margin-bottom: .6rem; }
+  .gate p { color: #8b93a7; font-size: .92rem; line-height: 1.6; margin: 0 0 1.5rem; }
+  .gate button { font-size: .95rem; padding: .7rem 1.5rem; }
+  .gate .alt {
+    display: inline-block; margin-top: 1.1rem; font-size: .84rem;
+    color: #8b93a7; background: none; border: none; cursor: pointer; text-decoration: underline;
+  }
+  .gate .alt:hover { color: #cfd6e4; }
+  .gate .err { color: #f87171; font-size: .84rem; margin-top: .9rem; }
+
+  .msg { margin-bottom: 1.4rem; }
+  .msg .who {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
+    color: #8b93a7; margin-bottom: .35rem;
+  }
+  .msg.user .body {
+    background: #171a21; border: 1px solid #262b36; border-radius: 10px;
+    padding: .7rem .9rem;
+  }
+  .msg .body { font-size: .95rem; line-height: 1.65; overflow-wrap: anywhere; }
+  .msg .body p { margin: 0 0 .7rem; }
+  .msg .body p:last-child { margin-bottom: 0; }
+  .msg .body h3, .msg .body h4 { margin: 1rem 0 .5rem; font-size: 1rem; }
+  .msg .body ul, .msg .body ol { margin: 0 0 .7rem; padding-left: 1.3rem; }
+  .msg .body li { margin-bottom: .25rem; }
+  .msg .body code {
+    font-family: ui-monospace, monospace; font-size: .85em;
+    background: #10131a; border: 1px solid #262b36; border-radius: 4px; padding: .05rem .3rem;
+  }
+  .msg .body pre {
+    background: #0c0f15; border: 1px solid #262b36; border-radius: 8px;
+    padding: .8rem; overflow-x: auto; margin: 0 0 .7rem;
+  }
+  .msg .body pre code { background: none; border: none; padding: 0; font-size: .8rem; }
+  .msg .caret::after {
+    content: ''; display: inline-block; width: .5rem; height: 1em;
+    background: #4a7dfc; vertical-align: text-bottom; animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0 } }
+  @media (prefers-reduced-motion: reduce) { .msg .caret::after { animation: none } }
+
+  /* La linea de procedencia: quien contesto, cuanto tardo. Sin esto el chat es
+     indistinguible de cualquier otro y la red deja de ser visible. */
+  .prov {
+    display: flex; flex-wrap: wrap; gap: .25rem .7rem; margin-top: .5rem;
+    font-size: .74rem; color: #8b93a7; font-family: ui-monospace, monospace;
+    align-items: center;
+  }
+  .prov .peer { color: #4ade80; font-weight: 600; }
+  .prov .local { color: #7db8ff; font-weight: 600; }
+
+  .composer { border-top: 1px solid #262b36; padding: .9rem 0 1.1rem; }
+  .composer .row { display: flex; gap: .5rem; align-items: flex-end; }
+  .composer textarea {
+    flex: 1; min-height: 2.6rem; max-height: 11rem; resize: none;
+    padding: .65rem .75rem;
+  }
+  .composer button { margin-top: 0; flex: none; }
+  .composer .opts {
+    display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
+    margin-bottom: .55rem; font-size: .8rem; color: #8b93a7;
+  }
+  .composer select {
+    background: #10131a; border: 1px solid #262b36; color: #e6e6e6;
+    border-radius: 6px; padding: .3rem .45rem; font-family: inherit; font-size: .8rem;
+  }
+  .composer select:disabled { opacity: .55; }
+  .composer label.chk { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+  .composer .note { margin-left: auto; font-size: .76rem; }
+  .composer .note a { color: #9fd6ff; }
 </style>`
 
 // Escapado de HTML, inyectado en el script de los 3 paneles.
@@ -220,24 +317,54 @@ const ESC = `
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
     }`
 
-function page(title, body) {
+// El chip del nav vive en las TRES paginas y se pinta solo. Es el unico estado
+// compartido, y tiene que serlo: si el agente esta apagado la red no contesta,
+// y eso hay que verlo desde donde sea que uno este parado -- no solo en el chat.
+const AGENT_CHIP = `
+<script>
+  window.__agent = null
+  async function pollAgent() {
+    try {
+      const r = await fetch('/v1/agent')
+      const a = await r.json()
+      window.__agent = a
+      const chip = document.getElementById('agent-chip')
+      if (chip) {
+        chip.className = 'agent ' + a.status
+        const label = {
+          live: 'Live · serving',
+          launching: 'Launching…',
+          offline: 'Node offline',
+          error: 'Launch failed'
+        }
+        chip.querySelector('[data-agent-label]').textContent = label[a.status] || a.status
+      }
+      if (typeof window.onAgent === 'function') window.onAgent(a)
+    } catch (err) { /* el gateway se cayo: el chip se queda como estaba */ }
+  }
+  pollAgent()
+  setInterval(pollAgent, 2500)
+</script>`
+
+function page(title, body, bodyClass) {
   return `<!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   ${STYLE}
 </head>
-<body>
+<body class="${bodyClass || ''}">
   ${NAV}
   <main>${body}</main>
+  ${AGENT_CHIP}
 </body>
 </html>`
 }
 
-export const CLIENTE_HTML = page(
-  'QVAC Marketplace · Cliente',
+export const NETWORK_HTML = page(
+  'PyrusLLM · Network',
   `
   <h1>Marketplace de inferencias</h1>
   <p class="sub">Elegí un proveedor y chateá acá mismo, o conectate desde Telegram, WhatsApp, tu terminal o cualquier cliente OpenAI-compatible. La inferencia corre en su nodo, no en un datacenter central.</p>
@@ -890,18 +1017,20 @@ ${ESC}
   `
 )
 
-export const PROVEEDOR_HTML = page(
-  'QVAC Marketplace · Proveedor',
+export const NODE_HTML = page(
+  'PyrusLLM · My Node',
   `
-  <h1>Panel de proveedor</h1>
-  <p class="sub">Así ve su propio nodo quien ofrece la inferencia: estado, carga y precio.</p>
+  <h1>My node</h1>
+  <p class="sub">Your own machine as a provider: status, load and the rate it publishes.</p>
 
   <div id="onboarding"></div>
 
-  <div class="field">
-    <label>Tu nodo</label>
+  <div class="field" id="node-picker" style="display:none">
+    <label>Which of your nodes</label>
     <select id="node-select"></select>
   </div>
+
+  <p class="hint" id="no-node" style="display:none">This gateway is not serving any model yet.</p>
 
   <div id="detail"></div>
   <div id="model-modal"></div>
@@ -925,7 +1054,7 @@ ${ESC}
         box.innerHTML = ''
         return
       }
-      const cmd = 'qvac-node serve --swarm --operator "tu nombre"'
+      const cmd = 'pyrusllm serve --swarm --operator "your name"'
       box.innerHTML = \`
         <div class="card" style="margin-bottom:1.5rem; cursor:default">
           <h3>Este panel todavía no está anunciado en la red P2P</h3>
@@ -950,14 +1079,14 @@ ${ESC}
           <h3 id="d-name"></h3>
           <div class="op" id="d-op"></div>
           <div class="tags" id="d-tags"></div>
-          <p>Carga actual: <b id="d-pct"></b> <span id="d-req"></span></p>
+          <p>Current load: <b id="d-pct"></b> <span id="d-req"></span></p>
         </div>
         <div class="field">
-          <label>Precio publicado</label>
+          <label>Published rate</label>
           <input type="text" id="pricing">
         </div>
         <div id="mine-fields"></div>
-        <button id="save-pricing">Guardar cambios</button>
+        <button id="save-pricing">Save changes</button>
         <button id="toggle" class="ghost"></button>
       \`
       document.getElementById('save-pricing').addEventListener('click', saveFields)
@@ -1114,9 +1243,27 @@ ${ESC}
 
     async function refresh() {
       const r = await fetch('/v1/nodes')
-      const { nodes, swarm } = await r.json()
+      const { nodes: todos, swarm } = await r.json()
+
+      // Esta pagina es SOLO sobre tu maquina. Antes listaba la red entera y
+      // arrancaba en todos[0], que suele ser un par remoto: el panel decia
+      // "Tu nodo" y mostraba el de otra persona, con un campo de precio y un
+      // boton de guardar al lado que no podian hacer nada sobre el manifiesto
+      // firmado de un tercero. Los nodos ajenos se miran en /network.
+      const nodes = todos.filter(n => n.kind === 'real')
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
-      if (!current) current = nodes[0]?.id
+      if (!current || !nodesById[current]) current = nodes[0]?.id
+
+      // Un desplegable con una sola opcion es ruido: casi siempre hay un unico
+      // nodo local, y solo se muestra el selector si de verdad hay que elegir.
+      document.getElementById('node-picker').style.display = nodes.length > 1 ? '' : 'none'
+      document.getElementById('no-node').style.display = nodes.length ? 'none' : ''
+      if (!nodes.length) {
+        document.getElementById('detail').innerHTML = ''
+        shellFor = null
+        renderOnboarding(swarm)
+        return
+      }
 
       renderOnboarding(swarm)
       isMine = !!swarm && !!nodesById[current] &&
@@ -1203,7 +1350,7 @@ ${ESC}
 )
 
 export const ADMIN_HTML = page(
-  'QVAC Marketplace · Admin',
+  'PyrusLLM · Admin',
   `
   <h1>Panel de administración</h1>
   <p class="sub">Todos los nodos de la red y el log de ruteo del gateway.</p>
@@ -1295,4 +1442,414 @@ ${ESC}
     setInterval(() => refreshLog().catch(() => {}), 2500)
   </script>
   `
+)
+
+// ---------------------------------------------------------------------------
+// El chat. Es la pantalla que abre la app: preguntar primero, y la topologia
+// de la red -que nodo, que precio- como algo que se mira despues y no como el
+// paso previo obligatorio a poder escribir un prompt.
+// ---------------------------------------------------------------------------
+
+// String.raw: adentro viven regex con backslashes y, sin esto, el template
+// literal se los come al evaluar pages.mjs -- /\*\*/ llegaria al browser
+// como /**/. No lleva backticks ni interpolaciones justamente por eso.
+const CHAT_JS = String.raw`
+    var msgs = []
+    var nodes = []
+    var streaming = false
+    var ctrl = null
+    var userPicked = false
+    var skipped = sessionStorage.getItem('pyrus.skipGate') === '1'
+
+    // Backticks y sentinelas armados en runtime: este script viaja adentro de
+    // un template literal de pages.mjs, y un backtick suelto lo cierra al medio.
+    var BT = String.fromCharCode(96)
+    var S = String.fromCharCode(1)
+    var fenceRe = new RegExp(BT + BT + BT + '(\w*)\n?([\s\S]*?)' + BT + BT + BT, 'g')
+    var codeRe = new RegExp(BT + '([^' + BT + '\n]+)' + BT, 'g')
+    var slotRe = new RegExp(S + 'C(\d+)' + S, 'g')
+
+    // Markdown minimo, a mano. Sin CDN a proposito: estas paginas viajan como
+    // string adentro del binario standalone -- ver la nota de arriba del
+    // archivo-, y una dependencia externa no viaja con ellas.
+    //
+    // Se escapa PRIMERO y se marca despues: al reves, cualquier respuesta del
+    // modelo con un "<script>" adentro seria HTML de verdad en la pagina.
+    function md(src) {
+      var blocks = []
+      var t = esc(src)
+      t = t.replace(fenceRe, function (m, lang, code) {
+        blocks.push(code.replace(/\n$/, ''))
+        return S + 'C' + (blocks.length - 1) + S
+      })
+      t = t.replace(codeRe, '<code>$1</code>')
+      t = t.replace(/^#{3,} (.+)$/gm, '<h4>$1</h4>')
+      t = t.replace(/^#{1,2} (.+)$/gm, '<h3>$1</h3>')
+      t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+      t = t.replace(/(?:^[-*] .+(?:\n|$))+/gm, function (m) {
+        return '<ul>' + m.trim().split('\n').map(function (l) {
+          return '<li>' + l.replace(/^[-*] /, '') + '</li>'
+        }).join('') + '</ul>'
+      })
+      t = t.replace(/(?:^\d+\. .+(?:\n|$))+/gm, function (m) {
+        return '<ol>' + m.trim().split('\n').map(function (l) {
+          return '<li>' + l.replace(/^\d+\. /, '') + '</li>'
+        }).join('') + '</ol>'
+      })
+      t = t.split(/\n{2,}/).map(function (p) {
+        var x = p.trim()
+        if (!x) return ''
+        if (/^<(h3|h4|ul|ol)/.test(x)) return x
+        return '<p>' + x.replace(/\n/g, '<br>') + '</p>'
+      }).join('')
+      return t.replace(slotRe, function (m, i) {
+        return '<pre><code>' + blocks[+i] + '</code></pre>'
+      })
+    }
+
+    function agentLive() {
+      return window.__agent && window.__agent.status === 'live'
+    }
+
+    function peersOnline() {
+      return nodes.filter(function (n) { return n.kind === 'peer' && n.status === 'online' })
+    }
+
+    function localNode() {
+      return nodes.filter(function (n) { return n.kind === 'real' })[0] || null
+    }
+
+    // "Auto" = el mejor disponible. El gateway ya prefiere el par remoto sobre
+    // el local para un mismo modelId (findAllByModelId), asi que alcanza con
+    // nombrar el modelo: si hay un par sirviendolo, gana el.
+    function autoModelId() {
+      var p = peersOnline()[0]
+      var l = localNode()
+      return (p && p.modelId) || (l && l.modelId) || 'llama1b'
+    }
+
+    // -------------------------------------------------------------- la puerta
+    window.onAgent = function (a) {
+      var gate = document.getElementById('gate')
+      var chat = document.getElementById('chat')
+      var mostrarGate = a.status !== 'live' && !skipped
+
+      gate.style.display = mostrarGate ? 'block' : 'none'
+      chat.style.display = mostrarGate ? 'none' : 'flex'
+
+      var btn = document.getElementById('launch')
+      btn.disabled = a.status === 'launching'
+      btn.textContent = a.status === 'launching' ? 'Joining the network...' : 'Launch local agent'
+
+      var err = document.getElementById('gate-err')
+      if (!a.canLaunch && a.status !== 'live') {
+        err.style.display = ''
+        err.textContent = 'This gateway was started without launch support. Restart it with: pyrusllm serve --swarm'
+      } else if (a.status === 'error') {
+        err.style.display = ''
+        err.textContent = a.message || 'could not launch the agent'
+      } else {
+        err.style.display = 'none'
+      }
+      paintOptions()
+    }
+
+    document.getElementById('launch').addEventListener('click', async function () {
+      var btn = this
+      btn.disabled = true
+      btn.textContent = 'Joining the network...'
+      try {
+        await fetch('/v1/agent/launch', { method: 'POST' })
+      } catch (e) { /* el poll del chip repinta el estado real */ }
+      pollAgent()
+    })
+
+    // Sigue existiendo una salida: el modelo propio no depende de la red, y un
+    // primer arranque que no deja producir un solo token contra la maquina que
+    // ya tenes adelante es una pared sin nada atras.
+    document.getElementById('skip').addEventListener('click', function () {
+      skipped = true
+      sessionStorage.setItem('pyrus.skipGate', '1')
+      if (window.__agent) window.onAgent(window.__agent)
+      document.getElementById('prompt').focus()
+    })
+
+    // ------------------------------------------------------------- opciones
+    function paintOptions() {
+      var sel = document.getElementById('model')
+      var vivo = agentLive()
+      var pares = peersOnline()
+      var loc = localNode()
+      var elegido = sel.value
+
+      var opts = ['<option value="auto"' + (vivo ? '' : ' disabled') + '>Auto - best available node</option>']
+      if (loc) {
+        opts.push('<option value="' + esc(loc.modelId) + '">' + esc(loc.displayName) + ' - this machine</option>')
+      }
+      var vistos = {}
+      pares.forEach(function (n) {
+        if (vistos[n.modelId]) return
+        vistos[n.modelId] = 1
+        opts.push('<option value="' + esc(n.modelId) + '">' + esc(n.displayName) + ' - ' + esc(n.operator) + '</option>')
+      })
+      sel.innerHTML = opts.join('')
+
+      var sigue = false
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === elegido && !sel.options[i].disabled) sigue = true
+      }
+      // Si nadie eligio a mano, Auto gana apenas queda disponible: antes el
+      // nodo se ponia vivo y el selector seguia clavado en el modelo local
+      // porque era la unica opcion valida cuando se pinto la primera vez.
+      if (!userPicked && vivo) sel.value = 'auto'
+      else sel.value = sigue ? elegido : (vivo ? 'auto' : (loc ? loc.modelId : 'auto'))
+
+      var nota = document.getElementById('routing')
+      var soloLocal = document.getElementById('localonly').checked
+      if (soloLocal) {
+        nota.textContent = 'Nothing leaves this machine.'
+      } else if (!vivo) {
+        nota.textContent = 'Node offline - the network is out of reach.'
+      } else {
+        nota.textContent = pares.length + (pares.length === 1 ? ' node' : ' nodes') + ' reachable'
+      }
+    }
+
+    // --------------------------------------------------------------- el hilo
+    function render() {
+      var el = document.getElementById('thread')
+      if (!msgs.length) {
+        el.innerHTML = '<div class="hint" style="margin-top:2rem">Ask your node anything. ' +
+          'Every answer says which machine produced it.</div>'
+        return
+      }
+      el.innerHTML = msgs.map(function (m) {
+        var quien = m.role === 'user' ? 'You' : 'Assistant'
+        var cuerpo = m.role === 'user' ? '<p>' + esc(m.content).replace(/\n/g, '<br>') + '</p>' : md(m.content)
+        var clase = 'body' + (m.streaming && !m.content ? ' caret' : '')
+        return '<div class="msg ' + m.role + '">' +
+          '<div class="who">' + quien + '</div>' +
+          '<div class="' + clase + '">' + cuerpo + '</div>' +
+          (m.meta ? prov(m.meta) : '') +
+          '</div>'
+      }).join('')
+      el.scrollTop = el.scrollHeight
+    }
+
+    // La linea de procedencia. Es lo que separa a esto de cualquier otro chat:
+    // el nodo que contesto sale nombrado, no supuesto.
+    function prov(m) {
+      var clase = m.kind === 'peer' ? 'peer' : 'local'
+      var quien = m.kind === 'peer' ? m.operator : m.operator + ' (this machine)'
+      // Cada parte en su propio span: unidas en un solo nodo de texto, el gap
+      // del flex no aplica y se leia "18150ms1 tok/s20.2s".
+      var partes = ['<span class="' + clase + '">' + esc(quien) + '</span>']
+      if (m.ttft !== null) partes.push('<span>first token ' + m.ttft + 'ms</span>')
+      if (m.tps) partes.push('<span>' + m.tps + ' tok/s</span>')
+      partes.push('<span>' + m.secs + 's total</span>')
+      return '<div class="prov">' + partes.join('') + '</div>'
+    }
+
+    function toggleButtons() {
+      document.getElementById('send').style.display = streaming ? 'none' : ''
+      document.getElementById('stop').style.display = streaming ? '' : 'none'
+      document.getElementById('prompt').disabled = streaming
+    }
+
+    async function send() {
+      if (streaming) return
+      var ta = document.getElementById('prompt')
+      var texto = ta.value.trim()
+      if (!texto) return
+
+      var sel = document.getElementById('model')
+      var soloLocal = document.getElementById('localonly').checked
+      var modelo = sel.value === 'auto' ? autoModelId() : sel.value
+
+      msgs.push({ role: 'user', content: texto })
+      var slot = { role: 'assistant', content: '', meta: null, streaming: true }
+      msgs.push(slot)
+      ta.value = ''
+      ta.style.height = 'auto'
+      streaming = true
+      toggleButtons()
+      render()
+
+      var t0 = Date.now()
+      var ttft = null
+      var toks = 0
+      ctrl = new AbortController()
+
+      try {
+        // El historial COMPLETO, menos el slot vacio que se esta llenando. Sin
+        // esto cada turno arrancaba de cero y el modelo no recordaba nada.
+        var historial = msgs.filter(function (m) { return !m.streaming }).map(function (m) {
+          return { role: m.role, content: m.content }
+        })
+
+        var resp = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: ctrl.signal,
+          body: JSON.stringify({ model: modelo, messages: historial, stream: true, local: soloLocal })
+        })
+
+        if (!resp.ok) {
+          var msj = 'HTTP ' + resp.status
+          try {
+            var b = await resp.json()
+            if (b && b.error && b.error.message) msj = b.error.message
+          } catch (e) { /* el cuerpo no era JSON: queda el status */ }
+          slot.content = '[error] ' + msj
+          return
+        }
+
+        // Quien contesto viaja en headers, no en el cuerpo: ver
+        // provenanceHeaders() en gateway.mjs.
+        var operador = decodeURIComponent(resp.headers.get('X-Pyrus-Operator') || '') || 'unknown node'
+        var tipo = resp.headers.get('X-Pyrus-Kind') || 'real'
+
+        var reader = resp.body.getReader()
+        var dec = new TextDecoder()
+        var buf = ''
+        while (true) {
+          var r = await reader.read()
+          if (r.done) break
+          buf += dec.decode(r.value, { stream: true })
+          var trozos = buf.split('\n\n')
+          buf = trozos.pop()
+          for (var i = 0; i < trozos.length; i++) {
+            var linea = trozos[i]
+            if (linea.indexOf('data: ') !== 0) continue
+            var carga = linea.slice(6)
+            if (carga === '[DONE]') continue
+            var ev = JSON.parse(carga)
+            if (ev.error) {
+              slot.content += '\n[error] ' + (ev.error.message || ev.error)
+              continue
+            }
+            var d = ev.choices && ev.choices[0] && ev.choices[0].delta
+            var pedazo = (d && d.content) || ''
+            if (pedazo) {
+              if (ttft === null) ttft = Date.now() - t0
+              toks++
+              slot.content += pedazo
+              render()
+            }
+          }
+        }
+
+        var total = (Date.now() - t0) / 1000
+        slot.meta = {
+          operator: operador,
+          kind: tipo,
+          ttft: ttft,
+          tps: ttft !== null && total > 0 ? Math.round(toks / total) : 0,
+          secs: total.toFixed(1)
+        }
+      } catch (err) {
+        if (err && err.name === 'AbortError') slot.content += '\n[stopped]'
+        else slot.content += '\n[error] ' + ((err && err.message) || err)
+      } finally {
+        slot.streaming = false
+        streaming = false
+        ctrl = null
+        toggleButtons()
+        render()
+        save()
+      }
+    }
+
+    function save() {
+      try {
+        sessionStorage.setItem('pyrus.chat', JSON.stringify(msgs.slice(-40)))
+      } catch (e) { /* sin storage el chat anda igual, solo no sobrevive al reload */ }
+    }
+
+    function load() {
+      try {
+        var raw = sessionStorage.getItem('pyrus.chat')
+        if (raw) msgs = JSON.parse(raw).filter(function (m) { return m && m.content })
+      } catch (e) { msgs = [] }
+    }
+
+    document.getElementById('send').addEventListener('click', send)
+    document.getElementById('stop').addEventListener('click', function () {
+      if (ctrl) ctrl.abort()
+    })
+    document.getElementById('localonly').addEventListener('change', paintOptions)
+    document.getElementById('model').addEventListener('change', function () {
+      userPicked = true
+    })
+    document.getElementById('new').addEventListener('click', function () {
+      msgs = []
+      save()
+      render()
+    })
+
+    var ta = document.getElementById('prompt')
+    ta.addEventListener('input', function () {
+      ta.style.height = 'auto'
+      ta.style.height = Math.min(ta.scrollHeight, 176) + 'px'
+    })
+    ta.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault()
+        send()
+      }
+    })
+
+    async function refreshNodes() {
+      try {
+        var r = await fetch('/v1/nodes')
+        var j = await r.json()
+        nodes = j.nodes || []
+        paintOptions()
+      } catch (e) { /* el poll siguiente reintenta */ }
+    }
+
+    load()
+    render()
+    refreshNodes()
+    setInterval(refreshNodes, 3000)
+`
+
+export const CHAT_HTML = page(
+  'PyrusLLM \u00b7 Chat',
+  `
+  <div id="gate" class="gate" style="display:none">
+    <h1>Put your machine on the network</h1>
+    <p>Launching your local agent joins this machine to the P2P network: it starts
+      serving your model to other nodes, and that is what gets you access to
+      theirs. Until it is live the network stays out of reach \u2014 your own
+      model still answers.</p>
+    <button id="launch">Launch local agent</button>
+    <div class="err" id="gate-err" style="display:none"></div>
+    <div><button class="alt" id="skip">Just use my local model</button></div>
+  </div>
+
+  <div id="chat" style="display:none">
+    <div id="thread"></div>
+    <div class="composer">
+      <div class="opts">
+        <select id="model"></select>
+        <label class="chk"><input type="checkbox" id="localonly"> Local only</label>
+        <button class="ghost" id="new" style="margin:0;padding:.25rem .6rem;font-size:.78rem">New chat</button>
+        <span class="note" id="routing"></span>
+      </div>
+      <div class="row">
+        <textarea id="prompt" rows="1" placeholder="Ask anything..."></textarea>
+        <button id="send">Send</button>
+        <button id="stop" class="ghost" style="display:none">Stop</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+${ESC}
+${CHAT_JS}
+  </script>
+  `,
+  'chatpage'
 )

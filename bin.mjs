@@ -156,6 +156,9 @@ const cmd = command(
   flag('--version|-v', 'Print the current version'),
   flag('--storage <dir>', 'custom storage directory'),
   flag('--no-updates', 'disable OTA updates for this run'),
+  flag('--port <n>', 'puerto HTTP de la app (default 8787)'),
+  flag('--no-serve', 'solo el updater OTA, sin levantar la app'),
+  flag('--no-open', 'no abrir el navegador al arrancar'),
   flag('--update-delay <ms>', 'ventana de jitter del OTA en ms (default 10000)'),
   promptCmd,
   serveCmd,
@@ -291,32 +294,62 @@ async function readStdin() {
 // pyrusllm serve
 // ---------------------------------------------------------------------------
 
-async function runServe() {
-  const port = Number.isFinite(+serveCmd.flags.port) ? +serveCmd.flags.port : 8787
-  const gpuLayers = Number.isFinite(+serveCmd.flags.gpuLayers)
-    ? +serveCmd.flags.gpuLayers
-    : undefined
+// Levanta el gateway y los paneles. La usan DOS caminos: `pyrusllm serve` con
+// sus flags, y `pyrusllm` a secas -- que ademas corre el updater OTA. Recibe
+// opciones en vez de leer serveCmd.flags porque en el segundo camino ese
+// subcomando nunca se parseo y todos sus flags son undefined.
+async function startGateway(opts = {}) {
+  const port = Number.isFinite(+opts.port) ? +opts.port : 8787
+  const gpuLayers = Number.isFinite(+opts.gpuLayers) ? +opts.gpuLayers : undefined
 
-  const demo = serveCmd.flags.demo === true
-  const useSwarm = serveCmd.flags.swarm === true
+  const demo = opts.demo === true
+  const useSwarm = opts.swarm === true
+  const withStore = opts.store !== false
 
   const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
   const server = createGateway({ port, gpuLayers, demo })
 
+  const gw = await import('./qvac/gateway.mjs')
+  const store = await import('./qvac/store.mjs')
+  const operator = opts.operator || `Node on ${os.hostname()}`
+
+  // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
+  // registro tiene que decirlo desde el arranque. Si la fila local recien
+  // apareciera con --swarm, un gateway sin agente lanzado no tendria NINGUN
+  // nodo y el chat contestaria "no hay nodos sirviendo ese modelo" -- cuando
+  // la maquina puede contestar sola. Es la mitad local de la puerta: a la red
+  // se entra lanzando el agente, al modelo propio se llega siempre.
+  for (const m of swarmModels()) {
+    store.registerLocal({
+      modelId: m.modelId,
+      displayName: m.displayName,
+      operator,
+      tags: ['general', 'chat'],
+      pricing: '1000000 QVAC / per 1m completion tokens',
+      maxConcurrentRequests: m.maxConcurrentRequests
+    })
+  }
+
   let nodeSwarm = null
   let provider = null
   let data = null
-  if (useSwarm) {
+
+  // Lo que antes corria una sola vez al arrancar con --swarm es ahora una
+  // funcion: el boton "Launch local agent" del chat la llama por HTTP, asi
+  // nadie tiene que volver a la terminal a reiniciar el proceso con otro flag.
+  async function launchAgent() {
+    if (nodeSwarm) return nodeSwarm
+
     // El swarm escribe en el MISMO registro que lee el gateway: un manifiesto
     // verificado se vuelve una fila del marketplace, y los paneles la dibujan
-    // sin saber que vino de un par. Esa es la costura de Fase 2-c.
-    const store = await import('./qvac/store.mjs')
-    const operator = serveCmd.flags.operator || `Nodo de ${os.hostname()}`
+    // sin saber que vino de un par. Esa es la costura de Fase 2-c. `store` y
+    // `operator` son los de runServe: declararlos de nuevo aca los sombreaba
+    // con OTRO default de nombre.
 
     // El Hyperbee y el Hyperdrive se abren ANTES del join: el manifiesto que
     // se firma al conectarse lleva la clave del directorio adentro, y firmarlo
     // sin ella significaria anunciar el mock de D2 durante toda la sesion.
-    if (serveCmd.flags.store !== false) {
+    if (withStore) {
       data = await openData(swarmStorageDir())
       store.attachDirectory(data.directory)
 
@@ -359,10 +392,14 @@ async function runServe() {
 
     // El gateway necesita el swarm y los archivos para poder mandar chat:request
     // a un par y publicar los que se suben.
-    const gw = await import('./qvac/gateway.mjs')
     gw.setSwarm(nodeSwarm)
     if (data && data.files) gw.setFiles(data.files)
+  
+    return nodeSwarm
   }
+
+  gw.setLauncher(launchAgent)
+  if (useSwarm) await launchAgent()
 
   let closing = false
   const shutdown = async (code) => {
@@ -403,6 +440,39 @@ async function runServe() {
   process.on('SIGTERM', () => shutdown(143))
 
   console.log('Ctrl+C para salir.\n')
+  return server
+}
+
+async function runServe() {
+  await startGateway({
+    port: serveCmd.flags.port,
+    gpuLayers: serveCmd.flags.gpuLayers,
+    demo: serveCmd.flags.demo === true,
+    swarm: serveCmd.flags.swarm === true,
+    operator: serveCmd.flags.operator,
+    store: serveCmd.flags.store
+  })
+}
+
+// Abrir el navegador es lo que convierte "corri un comando" en "se abrio la
+// app". Es best-effort a proposito: si falla -- sin entorno grafico, por SSH,
+// con el navegador sin registrar -- se imprime la URL y listo.
+async function openBrowser(url) {
+  try {
+    const { spawn } = await import('bare-subprocess')
+    const [file, args] =
+      process.platform === 'win32'
+        ? ['cmd', ['/c', 'start', '', url]]
+        : process.platform === 'darwin'
+          ? ['open', [url]]
+          : ['xdg-open', [url]]
+    const child = spawn(file, args, { stdio: 'ignore' })
+    child.on('error', () => {})
+    if (child.unref) child.unref()
+    return true
+  } catch {
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -880,8 +950,27 @@ async function runNode() {
 
   try {
     await app.ready()
-    console.log(`CLI listo. Proba:  ${appName} prompt "hola"`)
-    console.log('Ctrl+C para salir.\n')
+
+    // `pyrusllm` a secas ABRE LA APP. El updater OTA sigue corriendo abajo:
+    // esto es ademas, no en vez de. Con --no-serve queda el comportamiento
+    // viejo, que era supervisar la version y nada mas.
+    if (cmd.flags.serve === false) {
+      console.log(`CLI listo. Proba:  ${appName} prompt "hola"`)
+      console.log('Ctrl+C para salir.\n')
+      return
+    }
+
+    const port = Number.isFinite(+cmd.flags.port) ? +cmd.flags.port : 8787
+
+    // Arranca SIN unirse al swarm a proposito: entrar a la red es lo que hace
+    // el boton "Launch local agent" de la pagina, y esa puerta es el producto.
+    // Un arranque que ya se unio solo se la saltea.
+    await startGateway({ port })
+
+    const url = `http://localhost:${port}`
+    const abierto = cmd.flags.open === false ? false : await openBrowser(url)
+    console.log(abierto ? `  abriendo ${url}` : `  abri ${url} en el navegador`)
+    console.log('')
   } catch (err) {
     console.error('[app:error]', err)
     await app.close().finally(() => Bare.exit(1))

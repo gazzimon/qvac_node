@@ -146,6 +146,23 @@ function sendJson(res, statusCode, body) {
   res.end(payload)
 }
 
+// Quien contesto, en la respuesta misma.
+//
+// Va en headers y no en el cuerpo a proposito: meter un campo propio adentro
+// de un `chat.completion.chunk` ensuciaria el formato de OpenAI, que es
+// justamente lo que este gateway promete respetar. Un header extra no lo ve
+// ningun cliente de terceros y el chat propio lo lee con headers.get().
+//
+// encodeURIComponent porque un header no puede llevar bytes fuera de latin-1 y
+// el nombre del operador lo elige una persona ("Nodo de Ramón").
+function provenanceHeaders(node) {
+  return {
+    'X-Pyrus-Operator': encodeURIComponent((node && node.operator) || ''),
+    'X-Pyrus-Kind': (node && node.kind) || 'unknown',
+    'X-Pyrus-Model': encodeURIComponent((node && node.modelId) || '')
+  }
+}
+
 function sendHtml(res, html) {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
   res.end(html)
@@ -274,6 +291,10 @@ export function normalizeRequest(body) {
   // entender. Los paneles y el curl de la demo mandan stream:true explicito.
   const stream = body.stream === true
 
+  // Extension propia: "que este prompt no salga de esta maquina". Ningun
+  // cliente de OpenAI la manda, y omitirla deja el comportamiento de siempre.
+  const local = body.local === true
+
   // Forma corta propia: { modelId, prompt }
   if (body.model === undefined && body.modelId !== undefined) {
     if (typeof body.prompt !== 'string' || body.prompt.trim() === '') {
@@ -282,7 +303,8 @@ export function normalizeRequest(body) {
     return {
       model: body.modelId,
       messages: [{ role: 'user', content: body.prompt }],
-      stream
+      stream,
+      local
     }
   }
 
@@ -349,6 +371,43 @@ export function setFiles(f) {
 
 export function setSwarm(swarm) {
   swarmRef = swarm
+}
+
+// ---------------------------------------------------------------------------
+// Lanzar el agente local desde la pagina.
+//
+// El gateway no sabe COMO se arma un swarm -- eso vive en bin.mjs, que es el
+// unico dueño del Corestore-. Solo sabe que hay algo que lo arma y que tarda.
+// Sin esto, "poner tu maquina a producir" significaba volver a la terminal y
+// reiniciar el proceso con otro flag, que es justo lo que un boton no puede
+// pedirle a nadie.
+// ---------------------------------------------------------------------------
+let launcher = null
+let launchState = { status: 'offline', message: null }
+
+export function setLauncher(fn) {
+  launcher = fn
+}
+
+export function agentStatus() {
+  if (swarmRef) {
+    return {
+      status: 'live',
+      operator: swarmRef.operator,
+      publicKey: swarmRef.identity.publicKey.toString('hex'),
+      verifiedPeers: swarmRef.verifiedPeers().length,
+      canLaunch: launcher !== null,
+      message: null
+    }
+  }
+  return {
+    status: launchState.status,
+    operator: null,
+    publicKey: null,
+    verifiedPeers: 0,
+    canLaunch: launcher !== null,
+    message: launchState.message
+  }
 }
 
 // Estado del ultimo cambio de modelo pedido desde el panel Proveedor.
@@ -466,7 +525,8 @@ async function handleRemoteChat({ req, res, node, candidatos, model, messages, s
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive'
+        Connection: 'keep-alive',
+        ...provenanceHeaders(node)
       })
       const open = chunkEvent({ id, created, model, delta: { role: 'assistant' } })
       res.write(`data: ${JSON.stringify(open)}\n\n`)
@@ -647,13 +707,19 @@ async function handleChat(req, res) {
   const norm = normalizeRequest(body)
   if (norm.error) return sendError(res, 400, norm.error)
 
-  const { model, messages, stream } = norm
+  const { model, messages, stream, local } = norm
 
   // Con pares del swarm puede haber DOS nodos sirviendo el mismo modelId, algo
   // que no pasaba con el registro simulado. Se traen todos para poder loguear
   // cuantos habia; elegir por carga entre ellos es D6 y sigue sin implementar,
   // asi que se toma el primero -- pero el log lo dice, no finge una decision.
-  const candidatos = store.findAllByModelId(model)
+  let candidatos = store.findAllByModelId(model)
+
+  // "local only": el prompt no sale de esta maquina. Se filtra ANTES de elegir
+  // -- si el unico candidato era remoto, el 404 de abajo tiene que decir que no
+  // hay nadie local, y no rutear a la red igual.
+  if (local) candidatos = candidatos.filter((n) => n.kind !== 'peer')
+
   const node = candidatos[0] || null
   if (!node) {
     // D5: nunca un cuelgue silencioso. El mensaje dice que modelos SI hay
@@ -676,10 +742,15 @@ async function handleChat(req, res) {
   // preguntarle, y decirlo asi es mejor que un 500 generico.
   if (node.kind === 'peer') {
     if (!swarmRef) {
-      return sendError(res, 503, 'el gateway no esta unido al swarm; arranca con serve --swarm', {
-        type: 'server_error',
-        code: 'swarm_not_joined'
-      })
+      // La puerta del producto: sin agente lanzado no se llega a la red. El
+      // modelo local sigue disponible, y el mensaje lo dice -- un 503 que solo
+      // niega deja al que lo lee sin siguiente paso.
+      return sendError(
+        res,
+        503,
+        'your node is offline, so the network is out of reach — launch your local agent to use it. Your own local model still answers.',
+        { type: 'service_unavailable', code: 'agent_offline' }
+      )
     }
     return await handleRemoteChat({ req, res, node, candidatos, model, messages, stream })
   }
@@ -747,7 +818,8 @@ async function handleChat(req, res) {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive'
+        Connection: 'keep-alive',
+        ...provenanceHeaders(node)
       })
 
       // OpenAI abre con un chunk que solo anuncia el rol. Hay clientes que lo
@@ -814,17 +886,63 @@ async function onRequest(req, res) {
   const pathname = req.url.split('?')[0]
 
   try {
+    // `/` es el chat. Lo que habia antes -la grilla del marketplace- vive en
+    // /network: elegir un nodo a mano dejo de ser el paso previo a preguntar
+    // algo y paso a ser lo que se mira cuando uno quiere ver la red.
     if (req.method === 'GET' && pathname === '/') {
-      const { CLIENTE_HTML } = await import('./pages.mjs')
-      return sendHtml(res, CLIENTE_HTML)
+      const { CHAT_HTML } = await import('./pages.mjs')
+      return sendHtml(res, CHAT_HTML)
     }
-    if (req.method === 'GET' && pathname === '/proveedor') {
-      const { PROVEEDOR_HTML } = await import('./pages.mjs')
-      return sendHtml(res, PROVEEDOR_HTML)
+    if (req.method === 'GET' && pathname === '/network') {
+      const { NETWORK_HTML } = await import('./pages.mjs')
+      return sendHtml(res, NETWORK_HTML)
+    }
+    if (req.method === 'GET' && pathname === '/node') {
+      const { NODE_HTML } = await import('./pages.mjs')
+      return sendHtml(res, NODE_HTML)
     }
     if (req.method === 'GET' && pathname === '/admin') {
       const { ADMIN_HTML } = await import('./pages.mjs')
       return sendHtml(res, ADMIN_HTML)
+    }
+    // Las rutas viejas siguen resolviendo: hay comandos, capturas y un README
+    // que las nombran, y un 404 despues de un rename es una regresion para
+    // quien tenia el link guardado.
+    if (req.method === 'GET' && (pathname === '/proveedor' || pathname === '/cliente')) {
+      res.writeHead(302, { Location: pathname === '/proveedor' ? '/node' : '/' })
+      return res.end()
+    }
+
+    // ---- el agente local: estado y lanzamiento ----------------------------
+    if (req.method === 'GET' && pathname === '/v1/agent') {
+      return sendJson(res, 200, agentStatus())
+    }
+    if (req.method === 'POST' && pathname === '/v1/agent/launch') {
+      if (swarmRef) return sendJson(res, 200, agentStatus())
+      if (!launcher) {
+        return sendError(
+          res,
+          503,
+          'this gateway cannot launch an agent by itself — restart it with "pyrusllm serve --swarm"',
+          { type: 'service_unavailable', code: 'no_launcher' }
+        )
+      }
+      if (launchState.status === 'launching') return sendJson(res, 200, agentStatus())
+
+      // Se responde ANTES de que termine: unirse al topic es rapido, pero el
+      // primer par tarda ~17s en aparecer por la DHT y dejar el POST colgado
+      // ese rato se lee como que el boton no anduvo.
+      launchState = { status: 'launching', message: null }
+      sendJson(res, 202, agentStatus())
+      ;(async () => {
+        try {
+          await launcher()
+          launchState = { status: 'live', message: null }
+        } catch (err) {
+          launchState = { status: 'error', message: (err && err.message) || String(err) }
+        }
+      })()
+      return
     }
     // Formato OpenAI estricto: es lo que lee un cliente de terceros.
     if (req.method === 'GET' && pathname === '/v1/models') {
@@ -1256,10 +1374,10 @@ export function createGateway({ port = 8787, gpuLayers: gpu, demo = false } = {}
   // gateway -incluidas las rutas de archivos y admin, sin credencial-.
   server.listen(port, '127.0.0.1', () => {
     console.log('')
-    console.log(`  [gateway] escuchando en http://localhost:${port}`)
-    console.log(`  [gateway] cliente:   http://localhost:${port}/`)
-    console.log(`  [gateway] proveedor: http://localhost:${port}/proveedor`)
-    console.log(`  [gateway] admin:     http://localhost:${port}/admin`)
+    console.log(`  [gateway] listening on http://localhost:${port}`)
+    console.log(`  [gateway] chat:    http://localhost:${port}/`)
+    console.log(`  [gateway] my node: http://localhost:${port}/node`)
+    console.log(`  [gateway] network: http://localhost:${port}/network`)
     if (gpuLayers !== undefined) console.log(`  [gateway] gpu_layers: ${gpuLayers}`)
     if (demo) {
       console.log('  [gateway] modo --demo: nodos SIMULADOS en el registro (ver README)')

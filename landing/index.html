@@ -1072,23 +1072,41 @@
       const v = $('c-verdict')
       const why = $('c-why')
 
+      // "Pays for itself" has to mean something: past 20 years it does not,
+      // even though the arithmetic still returns a finite number.
+      const viable = (r) => r.fits && isFinite(r.payback) && r.payback <= 240
+
+      // Why a machine failed, in its own terms -- blaming the power bill when
+      // the real problem is that the model does not fit sends people off to
+      // tune the wrong number.
+      const failed = (r, m) =>
+        !r.fits
+          ? '<b>' + m.name + '</b> cannot hold ' + model.name + ' at all: it needs about ' +
+            model.resident + ' GB resident and the machine has ' + m.mem + ' GB.'
+          : !isFinite(r.payback)
+            ? '<b>' + m.name + '</b> never clears its own power bill here — it draws ' +
+              m.w + ' W to produce ' + Math.round(r.tps) + ' tok/s.'
+            : '<b>' + m.name + '</b> takes over twenty years, which is not a payback.'
+
       if (!ra.fits && !rb.fits) {
         v.textContent = 'Neither machine can hold this model.'
-        why.innerHTML = 'Pick a smaller model, or give one of them more memory. ' +
-          '<b>' + model.name + '</b> needs about ' + model.resident + ' GB resident.'
-      } else if (!isFinite(ra.payback) && !isFinite(rb.payback)) {
+        why.innerHTML = '<b>' + model.name + '</b> needs about ' + model.resident +
+          ' GB resident. Pick a smaller model, or give one of them more memory.'
+      } else if (!viable(ra) && !viable(rb)) {
         v.textContent = 'Neither machine pays for itself.'
-        why.innerHTML = 'At <b>USD ' + price + ' / MTok</b> and <b>' + hours + ' h a day</b>, ' +
-          'the tokens are worth less than the power to make them. This is the commodity trap: ' +
-          'selling generic tokens cheap never returns the capital.'
+        why.innerHTML = ra.fits && rb.fits
+          ? 'At <b>USD ' + price + ' / MTok</b> and <b>' + hours + ' h a day</b>, the tokens are ' +
+            'worth less than the capital tied up making them. This is the commodity trap: ' +
+            'selling generic tokens cheap never returns the machine.'
+          : failed(ra, ma) + ' ' + failed(rb, mb)
       } else {
-        const win = (isFinite(ra.payback) ? ra.payback : Infinity) <= (isFinite(rb.payback) ? rb.payback : Infinity) ? 0 : 1
+        const win = viable(ra) && (!viable(rb) || ra.payback <= rb.payback) ? 0 : 1
         const lose = 1 - win
         const rw = results[win], rl = results[lose], mw = specs[win], ml = specs[lose]
-        if (!isFinite(rl.payback)) {
+        if (!viable(rl)) {
           v.textContent = mw.name + ' is the only one that pays for itself.'
-          why.innerHTML = '<b>' + ml.name + '</b> never clears its own power bill at this utilisation — ' +
-            'it draws ' + ml.w + ' W to produce ' + Math.round(rl.tps) + ' tok/s.'
+          why.innerHTML = failed(rl, ml) + ' <b>' + mw.name + '</b> clears in ' +
+            months(rw.payback) + '.'
         } else {
           const ratio = rl.payback / rw.payback
           v.textContent = mw.name + ' pays back ' + ratio.toFixed(1) + '× sooner.'

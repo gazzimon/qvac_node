@@ -40,6 +40,7 @@
   },
   "scripts": {
     "start": "bare bin.mjs --no-updates",
+    "serve": "bare bin.mjs --no-updates serve --swarm",
     "format": "prettier . --write",
     "lint": "prettier . --check && lunte",
     "test": "brittle-bare test/index.js",
@@ -66,6 +67,7 @@
     "bare-process": "^4.5.1",
     "bare-runtime": "^1.31.0",
     "bare-storage": "^1.1.0",
+    "bare-subprocess": "^5.2.3",
     "compact-encoding": "^3.3.2",
     "corestore": "^7.9.2",
     "framed-stream": "^1.0.1",
