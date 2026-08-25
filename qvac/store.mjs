@@ -185,6 +185,24 @@ export function endRequest(id) {
   node.activeRequests = Math.max(node.activeRequests - 1, 0)
 }
 
+// El par contesto `at_capacity`: sabemos que esta lleno AHORA, y lo sabemos
+// mejor que el ultimo `node:status` que recibimos -- que puede tener hasta
+// 2 segundos de atraso (swarm.mjs:48).
+//
+// Sin esto, el request siguiente vuelve a evaluar a ese par como si tuviera
+// lugar y se come otro rechazo, y el que sigue tambien, hasta que llegue el
+// proximo status. Es S5 de NOTES-SATURACION.md: hasta 2s de requests mandados
+// a alguien que ya dijo que no puede.
+//
+// Se lo marca lleno y listo: el proximo `node:status` trae la verdad y pisa
+// esto (updateStatus escribe activeRequests sin mirar lo que habia). No hace
+// falta recordar que fue una marca ni cuando expira.
+export function markSaturated(id) {
+  const node = nodes.get(id)
+  if (!node) return
+  node.activeRequests = node.maxConcurrentRequests
+}
+
 export function setPricing(id, pricing) {
   const node = nodes.get(id)
   if (!node) return null
@@ -464,10 +482,35 @@ export function pushLog(entry) {
   if (directory) directory.pushLog(full)
 }
 
-// Contadores por par para el directorio. Se llama al terminar un request
-// ruteado a un par remoto; sin directorio no hace nada.
+// Contadores por par. El directorio los persiste (es la materia prima de la
+// reputacion) y ademas se acumulan en memoria, porque el ruteo los necesita
+// SINCRONOS: `directory.stats()` es un get contra el Hyperbee, y meter un await
+// en el camino de cada request para desempatar candidatos que probablemente
+// esten empatados en carga sale mas caro que lo que decide.
+//
+// La copia en memoria arranca vacia en cada boot. Eso esta bien: sin datos, el
+// desempate historico simplemente no participa y ordena la carga sola.
+const peerStats = new Map()
+
 export function recordPeerResult(peerKey, { ok = true, ms = null, tokens = 0 } = {}) {
-  if (directory && peerKey) directory.recordStat(peerKey, { ok, ms, tokens })
+  if (!peerKey) return
+  if (directory) directory.recordStat(peerKey, { ok, ms, tokens })
+
+  const prev = peerStats.get(peerKey) || { requests: 0, errors: 0, tokens: 0, lastMs: null }
+  peerStats.set(peerKey, {
+    requests: prev.requests + 1,
+    errors: prev.errors + (ok ? 0 : 1),
+    tokens: prev.tokens + (Number.isFinite(tokens) ? tokens : 0),
+    lastMs: Number.isFinite(ms) ? ms : prev.lastMs
+  })
+}
+
+// Lo que `routing.pickCandidate` recibe inyectado para desempatar. Devuelve
+// null si de ese nodo no sabemos nada todavia -- que es lo honesto: un par
+// nuevo no tiene historial, no tiene historial "perfecto".
+export function statsFor(node) {
+  if (!node || !node.peerKey) return null
+  return peerStats.get(node.peerKey) || null
 }
 
 // El log largo, desde el Hyperbee. El panel puede pedir mas de 30 entradas sin

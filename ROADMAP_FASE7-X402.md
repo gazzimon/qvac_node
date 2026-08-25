@@ -521,6 +521,96 @@ tan seguido hace lo que le pide el documento en vez de lo que le pide el dueño.
 
 ---
 
+### D22. Política de precios (negocio)
+
+**Problema:** el manifiesto anuncia `1000000 QVAC / per 1m completion tokens`,
+que es una constante de relleno. Hay que reemplazarla por un número defendible
+antes de la Fase 8, que hace que el precio participe del ruteo.
+
+**El dato que decide, y es del propio repo.**
+[EVALUACION-DGX-SPARK.md:109](EVALUACION-DGX-SPARK.md#L109):
+
+| Escenario | USD/MTok | Payback | VAN 12% |
+| --- | ---: | ---: | ---: |
+| Vender commodity 24/7 | 0,30 | **181 meses** | **−3.995** |
+| Nodo privacidad (clínica) | 15 | **7 meses** | **+15.716** |
+
+Mismo equipo, utilización parecida. **Vender barato no es ganar menos: es no
+recuperar nunca el hardware.**
+
+**El dato del mercado, al 2026-08-25:** DeepInfra vende Llama 3.2 **3B** —más
+grande que el `LLAMA_3_2_1B_INST_Q4_0` de este repo— a **USD 0,02 por millón**.
+La misma evaluación dice que a 20 tok/s la electricidad sola cuesta USD
+0,176/MTok: el datacenter vende **nueve veces por debajo de nuestra luz**.
+Competir por token no es difícil, está perdido. Referencias: DeepSeek V4 Flash
+USD 0,22/0,66 (off-peak), V4 Pro 0,66/1,98; Groq Llama 3.3 70B 0,59/0,79;
+Sonnet 5 3/15.
+
+**Decisión: cuatro reglas.**
+
+1. **La referencia no es el token más barato del mercado, es el modelo que el
+   comprador no puede usar.** Quien compra acá no elige entre este nodo y
+   DeepInfra: elige entre este nodo y no poder mandar la historia clínica a
+   ninguna API. Ese comprador no compara contra USD 0,02.
+2. **Tres precios, porque hay tres pagadores** (ver también D16 y D19):
+   inferencia local **gratis y sin cuota** —racionarle al usuario su propia
+   máquina no tiene sentido—, par P2P al precio de su manifiesto, y asistente
+   externo a costo más margen contra el tope de D18.
+3. **Los modelos chicos (1B–3B) no se cobran: el free tier es el producto.** A
+   cualquier precio compiten contra USD 0,02. Cobrarlos no da plata y mata la
+   adopción. Se cobra en modelos grandes sobre hardware serio, que es el
+   escenario "nodo privacidad" de la tabla.
+4. **Piso duro: nunca por debajo de USD 0,50/MTok de salida.** Debajo de eso la
+   evaluación propia dice que el equipo no se paga nunca. Vender más barato es
+   subsidiar al comprador con hardware propio.
+
+**Impacto si no se decide:** la Fase 8 hace que el precio rutee, y sin política
+el número que rutea es el que quedó escrito en una constante.
+
+---
+
+### D23. La cuota gratuita: dónde se hace cumplir y cuánto (negocio + arquitectura)
+
+**Problema:** la regla 3 de D22 dice que el free tier es el producto. Un free
+tier sin límite es un producto gratis, y uno que no se puede hacer cumplir es
+peor: promete algo que no controla.
+
+**Dónde. Decisión: la hace cumplir el PROVEEDOR, por clave de par.**
+
+El gateway es del consumidor. Pedirle que respete la cuota del proveedor es
+poner al zorro a cuidar el gallinero: cualquiera que edite su propio gateway
+consume gratis sin límite. El proveedor, en cambio, sabe quién le está pidiendo
+—la clave del par viene autenticada por la conexión del swarm, no la elige el
+mensaje— así que puede medir por par y cortar.
+
+Es el mismo principio que ya fijó D18 para el tope en dólares: **el contador
+vive del lado que paga.** Allá el que paga es el que gasta; acá, el que presta
+la GPU.
+
+**Cuánto. Decisión: 100.000 tokens de salida cada 24 h, por par.** Son ~200
+turnos de chat por día: alcanza para probar la red en serio y para uso personal
+liviano, y no alcanza para montar un producto encima sin pagar. Es el punto
+donde el free tier capta sin regalar el negocio que D22 quiere cobrar.
+
+**Ventana deslizante, no calendario.** Un corte a medianoche crea un pico de
+tráfico a las 00:01 y castiga al que empezó 23:50.
+
+**Al agotarse, degrada — no niega.** El consumidor recibe el error ANTES del
+primer chunk, así que D4 aplica: reintenta en otro candidato, y si no hay
+ninguno cae al modelo local, que es gratis. Mismo criterio que la Fase 6.5.
+
+**Lo que queda afuera a propósito:** que cada proveedor declare su cuota en el
+manifiesto. Sería lo más coherente con el marketplace, pero `economic` está
+congelado con `additionalProperties: false` y agregarle un campo obliga a subir
+`schemaVersion` (que es el camino sancionado por el propio schema, no un
+atajo). Se hace cuando haya un segundo implementador que necesite leerlo;
+hasta entonces la cuota es una constante del proveedor y está dicho acá.
+
+**Impacto si no se decide:** se implementa en el gateway porque es más fácil, y
+la cuota es decorativa desde el día uno.
+
+---
+
 ## 2 · Fases
 
 ### Fase 6.5 — Presupuesto, corte y degradación a local (~2 días) ← va primero
@@ -572,6 +662,38 @@ eso la vuelve el mejor primer movimiento aunque x402 después se caiga entero.
 
 **Lo que NO se hace acá:** cobrar. Esta fase mide, atribuye y corta. El cobro es
 la Fase 9 y el prepago con firma es la Fase 10.
+
+---
+
+### Fase 6.6 — La cuota gratuita, del lado del proveedor (~1 día)
+
+Implementa D23. Va acá y no más adelante por dos razones: comparte la forma con
+la Fase 6.5 —un medidor con límite y degradación— y **no depende de D11**, así
+que sigue siendo trabajo útil mientras el spike de la wallet no cierre.
+
+**Dónde entra, exactamente:** [qvac/provider.mjs:167](qvac/provider.mjs#L167) ya
+rechaza por capacidad antes del primer chunk, con el comentario que explica por
+qué se rechaza en vez de encolar. La cuota es un segundo chequeo con la misma
+forma, dos líneas más abajo. No hay que inventar un punto de control: ya existe.
+
+**Qué se construye:**
+
+1. **Medidor por clave de par, con ventana deslizante de 24 h.** Vive en el
+   proveedor, no en el gateway.
+2. **Rechazo antes del primer chunk**, con `code` propio, para que D4 reintente
+   en otro candidato en vez de cortarle el stream al cliente.
+3. **Se cuentan los tokens de SALIDA**, que son los que cuestan GPU. La entrada
+   se procesa una vez y es barata; contarla complicaría el número sin cambiar
+   quién paga qué.
+
+**DoD:**
+
+- Un par que agota la cuota recibe `quota_exceeded` y el consumidor cae a otro
+  candidato o al modelo local, sin cortar un stream empezado.
+- La cuota se repone sola con el correr de las horas, sin reiniciar el nodo:
+  eso está en un test con reloj inyectado, no en una espera de 24 h.
+- Dos pares distintos tienen cuotas independientes: agotar una no toca la otra.
+- El panel del proveedor muestra cuánto regaló y a quién.
 
 ---
 
@@ -885,6 +1007,7 @@ cobro propio sería el invento.
 | 0 | **Aplicar al early access de VELA** | Es lo único que no controlamos. Se dispara y se sigue trabajando |
 | 1 | **Fase 6.5 — presupuesto, corte y degradación** | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza |
 | 1' | **Spike de D11** — *en paralelo con la 6.5* | Define el calendario de todo lo que viene después. No bloquea a la 6.5, por eso van juntas |
+| 1'' | Fase 6.6 — cuota gratuita del proveedor | Misma forma que la 6.5 y tampoco depende de D11. El punto de control ya existe en provider.mjs |
 | 2 | Fase 7 — desmockear `economic` (incluye D13) | Precondición de todo cobro |
 | 3 | Fase 8 — precio comparable y que rutea | Vale sola aunque x402 se caiga |
 | 4 | Fase 8.5 — el asistente externo como candidato | Chica, porque la 8 ya dejó el ruteo listo |
@@ -916,6 +1039,8 @@ arriba). La columna **Tipo** dice por qué.
 | D19 | Tres condiciones para el externo (sin capacidad + opt-in + presupuesto), divulgación en los headers, y qué modelo | **negocio + privacidad** | Fase 8.5 |
 | D20 | Harness: pasos, tokens, timeouts, backoff solo transitorio, `nonce` como clave de idempotencia | arquitectura | Fase 11 |
 | D21 | Cuatro métricas adversariales publicadas con sus fallos + tres controles duros | **seguridad** | Fase 11.5 |
+| D22 | Precio: referencia contra lo que el comprador no puede usar, no contra el token más barato; chicos gratis; piso USD 0,50/MTok | **negocio** | Fase 8 |
+| D23 | Cuota gratuita de 100.000 tokens/24 h, hecha cumplir por el proveedor y por clave de par | **negocio + arquitectura** | Fase 6.6 |
 
 ---
 
@@ -940,4 +1065,9 @@ Es lo único de este roadmap que espera un dato de afuera.
 - Precios, IDs de modelo, prompt caching, Batch API y conteo de tokens de la
   API de Claude: referencia consultada el 2026-08-25. **El precio intro de
   Sonnet 5 vence el 31-ago-2026** — revalidar antes de calibrar el tope.
+- Precios de mercado para D22, consultados el 2026-08-25:
+  [DeepSeek](https://api-docs.deepseek.com/quick_start/pricing) ·
+  [DeepInfra](https://deepinfra.com/llama) ·
+  [comparativa multi-proveedor](https://www.morphllm.com/llm-api-pricing) ·
+  [Groq](https://www.aipricing.guru/groq-pricing/)
 - [Horizen Labs — VELA](https://horizenlabs.io/vela/) · [docs.horizen.io/vela](https://docs.horizen.io/vela/introduction) · [HorizenOfficial/vela](https://github.com/HorizenOfficial/vela)
