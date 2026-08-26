@@ -827,6 +827,56 @@ async function streamFromLocal({
 // mejor candidato falla ANTES del primer token -- este saturado, no tenga
 // credencial, no haya swarm, se quede sin cuota diaria -- se prueba el
 // siguiente, sea de la clase que sea.
+// FASE 9 / D12 — liquidar y dejar el recibo recuperable.
+//
+// Va DESPUES de servir. Si falla, el cliente ya recibio sus tokens y este nodo
+// se queda sin cobrar: es el precio de no poner una transaccion on-chain
+// delante del TTFT, esta aceptado por D12, y es lo que la Fase 10 arregla de
+// verdad acumulando recibos en vez de liquidar de a uno.
+//
+// No tira nunca. Una liquidacion que falla no puede llevarse puesta una
+// respuesta que ya salio bien.
+const recibos = new Map()
+
+// Cuantos recibos se guardan. Es memoria del proceso, no un ledger: el ledger
+// de verdad es la cadena. Esto existe para que un cliente que perdio el evento
+// SSE pueda recuperarlo en los minutos siguientes.
+const MAX_RECIBOS = 200
+
+async function liquidarYRegistrar(pago, id) {
+  const recibo = await x402.liquidar({ pago, requisito: pago.requisito })
+
+  if (recibo.success) {
+    console.log(`[x402] liquidado ${id}: tx ${recibo.transaction} en ${recibo.network}`)
+  } else {
+    // Se dice fuerte: este nodo sirvio y no cobro.
+    console.error(
+      `[x402] NO se pudo cobrar ${id}: ${recibo.errorReason || ''} ${recibo.errorMessage || ''}`
+    )
+  }
+
+  let cabecera = null
+  try {
+    cabecera = await x402.cabeceraDeRecibo(recibo)
+  } catch (err) {
+    console.error(`[x402] no se pudo codificar el recibo: ${(err && err.message) || err}`)
+  }
+
+  recibos.set(id, { recibo, at: Date.now() })
+  // Se poda al escribir y no con un timer: un timer no corre si el proceso
+  // estuvo quieto, y ademas mantendria vivo un Map que a nadie le importa.
+  if (recibos.size > MAX_RECIBOS) {
+    const sobran = recibos.size - MAX_RECIBOS
+    let n = 0
+    for (const k of recibos.keys()) {
+      if (n++ >= sobran) break
+      recibos.delete(k)
+    }
+  }
+
+  return { recibo, cabecera }
+}
+
 async function handleChatConReintentos({
   req,
   res,
@@ -844,7 +894,9 @@ async function handleChatConReintentos({
   pin = null,
   // Por que se eligio a este candidato y no a otro. Va al log de ruteo.
   decision = null,
-  motivo = null
+  motivo = null,
+  // FASE 9 — el pago verificado, si el cliente pago en vez de traer key.
+  pago = null
 }) {
   const id = completionId()
   const created = Math.floor(Date.now() / 1000)
@@ -1112,6 +1164,11 @@ async function handleChatConReintentos({
       }
 
       if (!stream) {
+        // D12 — en el camino SIN stream no hay problema: la respuesta se arma
+        // entera antes de escribir un byte, asi que se liquida ACA y el recibo
+        // viaja en `X-PAYMENT-RESPONSE` como manda el spec, sin desviacion.
+        const recibo = pago ? await liquidarYRegistrar(pago, id) : null
+
         // Los mismos headers de procedencia que el camino con stream. Sin
         // esto, quien pide sin `stream:true` -- un curl, Open WebUI, cualquier
         // cliente OpenAI con el default -- nunca se entera de que maquina
@@ -1133,9 +1190,40 @@ async function handleChatConReintentos({
               }
             ]
           },
-          provenanceHeaders(elegido || node, costoEstimado)
+          {
+            ...provenanceHeaders(elegido || node, costoEstimado),
+            ...(recibo ? { 'X-PAYMENT-RESPONSE': recibo.cabecera } : {})
+          }
         )
       }
+
+      // D12 — con stream los headers ya salieron ANTES del primer token, asi
+      // que el recibo no puede viajar en uno. Va como EVENTO SSE FINAL, y esa
+      // es la desviacion del spec que D12 acepta a cambio de no meter una
+      // transaccion on-chain delante del TTFT.
+      //
+      // La condicion de D12 es que la desviacion se pueda descubrir desde la
+      // respuesta misma: un cliente x402 estandar que busque el header y no lo
+      // encuentre tiene que poder enterarse de POR QUE. De ahi `x402Note` y el
+      // `receiptUrl`, que no son parte del spec y estan a proposito.
+      if (pago) {
+        const recibo = await liquidarYRegistrar(pago, id)
+        res.write(
+          `data: ${JSON.stringify({
+            x402Version: 2,
+            x402Note:
+              'El recibo viaja como evento SSE final y no en X-PAYMENT-RESPONSE: ' +
+              'en streaming los headers salen antes del primer token, asi que liquidar ' +
+              'para poder escribirlo pondria una transaccion on-chain delante del TTFT. ' +
+              'Ver D12 del roadmap. Tambien se puede recuperar por receiptUrl.',
+            paymentResponse: recibo.recibo,
+            receiptUrl: `/v1/receipts/${id}`
+          })}
+
+`
+        )
+      }
+
       const close = chunkEvent({
         id,
         created,
@@ -1436,6 +1524,14 @@ async function verificarCobro(cobro, cabecera) {
   })
 }
 
+// El requisito EXACTO contra el que se firmo, que es contra el que hay que
+// liquidar. Recalcularlo seria liquidar contra numeros distintos de los que el
+// cliente acepto.
+function requisitoDe(cobro, red) {
+  const id = x402.CAIP2[red]
+  return cobro.desafio.accepts.find((a) => a.network === id) || cobro.desafio.accepts[0]
+}
+
 function redDe(caip2) {
   for (const [nombre, id] of Object.entries(x402.CAIP2)) if (id === caip2) return nombre
   return null
@@ -1589,7 +1685,7 @@ async function handleChat(req, res) {
   const node = eleccion.node
 
   // FASE 9 — el pago, recien acá, porque antes no se sabia ni cuanto ni a quien.
-  let pago = null
+  let pagoVerificado = null
   if (sinCredencial) {
     const cobro = await cobroDe({ node, maxTokensPedido: norm.maxTokens || 0, req })
 
@@ -1607,20 +1703,23 @@ async function handleChat(req, res) {
     // D12 — la verificacion es SINCRONICA y no toca la cadena. Es la parte que
     // protege al proveedor de gastar GPU gratis, y va ANTES de generar un solo
     // token: despues seria tarde, que es todo el punto.
-    pago = await verificarCobro(cobro, cabecera)
-    if (!pago.ok) {
+    const verificado = await verificarCobro(cobro, cabecera)
+    if (!verificado.ok) {
       // Se contesta 402 otra vez, con el desafio, y no 400: el cliente puede
       // volver a firmar. Un 400 le diria "tu request esta mal" cuando lo que
       // esta mal es el pago, y no le daria contra que volver a firmar.
-      console.error(`[x402] pago rechazado: ${pago.motivo}`)
+      console.error(`[x402] pago rechazado: ${verificado.motivo}`)
       return sendJson(
         res,
         402,
-        { ...cobro.desafio, error: pago.motivo },
+        { ...cobro.desafio, error: verificado.motivo },
         provenanceHeaders(node, 0)
       )
     }
-    console.log(`[x402] pago verificado de ${pago.payer.slice(0, 10)}… por ${cobro.micros} micros`)
+    console.log(
+      `[x402] pago verificado de ${verificado.payer.slice(0, 10)}… por ${cobro.micros} micros`
+    )
+    pagoVerificado = { ...verificado, requisito: requisitoDe(cobro, verificado.red) }
   }
   // El orden puntuado, no el de llegada: si el mejor falla antes del primer
   // token, D4 reintenta en el segundo MEJOR, no en el siguiente de la lista.
@@ -1674,7 +1773,9 @@ async function handleChat(req, res) {
     maxTokensPedido: norm.maxTokens || 0,
     pin,
     decision,
-    motivo: motivoRuteo
+    motivo: motivoRuteo,
+    // FASE 9 — el pago ya verificado, para liquidarlo DESPUES de servir (D12).
+    pago: pagoVerificado
   })
 }
 
@@ -1910,6 +2011,21 @@ async function onRequest(req, res) {
       const motivoWallet = rechazoPorKey(req)
       if (motivoWallet) return sendError(res, 401, motivoWallet)
       return sendJson(res, 200, walletStatus())
+    }
+    // FASE 9 / D12 — recuperar el recibo de un request que se pago.
+    //
+    // Existe porque con stream el recibo viaja como evento SSE final, y un
+    // cliente que corto la conexion antes del ultimo evento se quedaria sin el.
+    // NO pide credencial: quien pago no tiene ninguna -- ese es todo el punto
+    // del 402 -- y el id de la completion ya es un secreto suficiente para
+    // recuperar un dato que ademas termina siendo publico en la cadena.
+    if (req.method === 'GET' && pathname.startsWith('/v1/receipts/')) {
+      const id = decodeURIComponent(pathname.slice('/v1/receipts/'.length))
+      const guardado = recibos.get(id)
+      if (!guardado) {
+        return sendError(res, 404, 'no hay recibo para ese id', { code: 'receipt_not_found' })
+      }
+      return sendJson(res, 200, { id, ...guardado.recibo })
     }
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
       const motivoLog = rechazoPorKey(req)

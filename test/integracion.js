@@ -2055,6 +2055,212 @@ test('un X-PAYMENT manoseado no compra nada', async (t) => {
   gw.setEconomic(null)
 })
 
+// ---------------------------------------------------------------------------
+// FASE 9 — la liquidacion (D12, D14)
+//
+// El facilitator es falso, igual que el proveedor externo: un bare-http1 local
+// que habla el protocolo de x402. Lo real -- x402.semanticpay.io -- mueve plata
+// contra una wallet fondeada, asi que no puede estar en `npm test`.
+//
+// Lo que SI se ejercita de verdad: que se liquide DESPUES de servir, que el
+// recibo llegue por el camino que corresponde a cada forma de respuesta, y que
+// una liquidacion fallida no se lleve puesta una respuesta que ya salio bien.
+// ---------------------------------------------------------------------------
+
+const PUERTO_FACILITATOR = 8897
+let servidorFacilitator = null
+let ultimoSettle = null
+let facilitatorFalla = false
+
+function levantarFacilitatorFalso() {
+  return new Promise((resolve) => {
+    servidorFacilitator = http.createServer((req, res) => {
+      let crudo = ''
+      req.on('data', (c) => {
+        crudo += c
+      })
+      req.on('end', () => {
+        try {
+          ultimoSettle = JSON.parse(crudo)
+        } catch (e) {
+          ultimoSettle = null
+        }
+        if (facilitatorFalla) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          return res.end(JSON.stringify({ error: 'el facilitator se cayo' }))
+        }
+        const reqs = (ultimoSettle && ultimoSettle.paymentRequirements) || {}
+        const auth =
+          (ultimoSettle &&
+            ultimoSettle.paymentPayload &&
+            ultimoSettle.paymentPayload.payload &&
+            ultimoSettle.paymentPayload.payload.authorization) ||
+          {}
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            success: true,
+            transaction: '0x' + 'fe'.repeat(32),
+            network: reqs.network || 'eip155:988',
+            payer: auth.from || null
+          })
+        )
+      })
+    })
+    servidorFacilitator.listen(PUERTO_FACILITATOR, '127.0.0.1', () => resolve())
+  })
+}
+
+// Decodifica el X-PAYMENT-RESPONSE sin reventar si no esta.
+//
+// Un `Buffer.from(undefined, 'base64')` seguido de JSON.parse tira un
+// SyntaxError que ABORTA la corrida, y entonces el test no dice que se rompio
+// -- es la misma leccion de B18. Devuelve null y que el assert hable.
+function reciboDe(r) {
+  const h = r && r.headers && r.headers['x-payment-response']
+  if (!h) return null
+  try {
+    return JSON.parse(Buffer.from(h, 'base64').toString('utf8'))
+  } catch (e) {
+    return null
+  }
+}
+
+test('el pago se liquida DESPUES de servir, y el recibo llega', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+
+  await levantarFacilitatorFalso()
+  ultimoSettle = null
+  env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+
+  const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  const desafio = (await pedir('POST', '/v1/chat/completions', { body: cuerpo })).json
+  const pago = await firmarPago(desafio)
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+  t.is(r.status, 200)
+
+  // D12 — sin stream la respuesta se arma entera antes de escribir un byte, asi
+  // que el recibo va en el header como manda el spec, SIN desviacion.
+  const recibo = reciboDe(r)
+  t.ok(recibo, 'X-PAYMENT-RESPONSE en el camino sin stream')
+  t.is(recibo && recibo.success, true)
+  t.ok(
+    recibo && String(recibo.transaction).startsWith('0x'),
+    'con el tx hash: ' + (recibo && recibo.transaction)
+  )
+
+  // Se liquido contra EL MISMO requisito que se ofrecio, no contra uno
+  // recalculado: liquidar contra otros numeros seria cobrar algo distinto de lo
+  // que el cliente acepto.
+  t.ok(ultimoSettle, 'el facilitator recibio la liquidacion')
+  const reqs = (ultimoSettle && ultimoSettle.paymentRequirements) || {}
+  t.is(reqs.amount, desafio.accepts[0].amount)
+  t.is(reqs.payTo, desafio.accepts[0].payTo)
+
+  gw.setEconomic(null)
+  delete env[x402.VAR_FACILITATOR]
+})
+
+test('con stream el recibo va como evento SSE, y dice por que no esta en el header', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+
+  env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+
+  const cuerpo = {
+    model: 'facturas-ar',
+    messages: [{ role: 'user', content: 'hola' }],
+    stream: true
+  }
+  const desafio = (await pedir('POST', '/v1/chat/completions', { body: cuerpo })).json
+  const pago = await firmarPago(desafio)
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+  t.is(r.status, 200)
+
+  // En SSE los headers salen ANTES del primer token, asi que ahi no puede ir.
+  t.absent(r.headers['x-payment-response'], 'no esta en el header, y no puede estarlo')
+
+  const evento = r.body
+    .split('\n\n')
+    .map((l) => l.replace(/^data: /, ''))
+    .filter((l) => l.indexOf('paymentResponse') !== -1)
+    .map((l) => JSON.parse(l))[0]
+
+  t.ok(evento, 'el recibo viaja como evento SSE final')
+  t.is(evento && evento.paymentResponse && evento.paymentResponse.success, true)
+  // La condicion de D12: la desviacion se tiene que poder descubrir desde la
+  // respuesta misma. Un cliente que busque el header y no lo encuentre tiene
+  // que enterarse de POR QUE, no quedarse esperando.
+  t.ok(
+    evento && evento.x402Note && evento.x402Note.indexOf('TTFT') !== -1,
+    'y explica la desviacion'
+  )
+  t.ok(evento && evento.receiptUrl, 'con un lugar de donde recuperarlo')
+
+  // Y ese lugar existe, para el cliente que corto antes del ultimo evento.
+  const rec = evento && evento.receiptUrl ? await pedir('GET', evento.receiptUrl) : { status: 0 }
+  t.is(rec.status, 200, 'el recibo se puede recuperar despues')
+  t.is(rec.json && rec.json.transaction, evento && evento.paymentResponse.transaction)
+
+  gw.setEconomic(null)
+  delete env[x402.VAR_FACILITATOR]
+})
+
+test('si la liquidacion falla, la respuesta que ya salio no se cae', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+
+  env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  facilitatorFalla = true
+
+  const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  const desafio = (await pedir('POST', '/v1/chat/completions', { body: cuerpo })).json
+  const pago = await firmarPago(desafio)
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+
+  // El cliente ya recibio sus tokens. Ese es el precio de liquidar despues, y
+  // esta aceptado por D12: la alternativa es una transaccion on-chain delante
+  // del TTFT. Lo que NO puede pasar es que el request se caiga.
+  t.is(r.status, 200, 'la respuesta sale igual: el trabajo ya se hizo')
+  t.ok(r.json.choices[0].message.content.length > 0)
+
+  const recibo = reciboDe(r)
+  t.ok(recibo, 'el recibo llega igual')
+  t.is(recibo && recibo.success, false, 'pero el recibo dice que NO se cobro')
+  t.ok(recibo && (recibo.errorReason || recibo.errorMessage), 'y por que')
+
+  facilitatorFalla = false
+  gw.setEconomic(null)
+  delete env[x402.VAR_FACILITATOR]
+})
+
+test('cierra el facilitator falso', async (t) => {
+  if (servidorFacilitator) servidorFacilitator.close()
+  t.pass('apagado')
+})
+
 test('cierra el proveedor externo de prueba', async (t) => {
   if (servidorExterno) servidorExterno.close()
   t.pass('apagado')

@@ -358,3 +358,70 @@ function montoEnUnidades(micros, activo) {
   const escala = BigInt(10) ** BigInt(Math.max(0, activo.decimals - 6))
   return (enteros * escala).toString()
 }
+
+// -----------------------------------------------------------------------------
+// La liquidación (D12, D14)
+// -----------------------------------------------------------------------------
+
+// D14 — el facilitator. La decisión es el HOSTED de Semantic hasta la Fase 10:
+// el self-hosted está en beta, necesita una wallet adicional con gas nativo, y
+// agrega un componente que no controlamos al camino crítico de la primera demo
+// que cobra de verdad.
+//
+// Y lo que hay que decir en voz alta, que también es de D14: la documentación de
+// WDK aclara que Tether *"does not endorse, operate, or assume legal or
+// financial responsibility for any third-party facilitator"*. Va acá y en el
+// README, no escondido.
+export const FACILITATOR_DEFAULT = 'https://x402.semanticpay.io'
+
+// Se puede apuntar a otro -- un self-hosted, o el falso de los tests -- sin
+// tocar código.
+export const VAR_FACILITATOR = 'PYRUS_X402_FACILITATOR'
+
+export function facilitatorUrl() {
+  return env[VAR_FACILITATOR] || FACILITATOR_DEFAULT
+}
+
+// Liquida un pago ya verificado. Devuelve el `SettleResponse` de x402:
+// `{ success, transaction, network, payer, errorReason?, errorMessage? }`.
+//
+// Esto SÍ toca la cadena, y por eso va DESPUÉS de servir (D12). El precio de esa
+// decisión hay que decirlo: si la liquidación falla, el cliente ya recibió sus
+// tokens. Es deliberado —la alternativa es poner una transacción on-chain
+// delante del TTFT— y es lo que la Fase 10 arregla de verdad, acumulando
+// recibos en vez de liquidar de a uno.
+//
+// No tira nunca: una liquidación que falla no puede llevarse puesta una
+// respuesta que ya salió bien. Devuelve `success: false` con el motivo.
+export async function liquidar({ pago, requisito }) {
+  try {
+    const { HTTPFacilitatorClient } = await import('@x402/core/http')
+    const { core } = await cargar()
+    const cliente = new HTTPFacilitatorClient({ url: facilitatorUrl() })
+
+    const payload = {
+      x402Version: core.x402Version,
+      scheme: 'exact',
+      network: requisito.network,
+      payload: { authorization: pago.autorizacion, signature: pago.firma }
+    }
+    return await cliente.settle(payload, requisito)
+  } catch (err) {
+    const message = (err && err.message) || String(err)
+    console.error(`[x402] la liquidacion fallo: ${message}`)
+    return {
+      success: false,
+      errorReason: 'settlement_failed',
+      errorMessage: message,
+      transaction: '',
+      network: requisito.network,
+      payer: pago.payer
+    }
+  }
+}
+
+// El `X-PAYMENT-RESPONSE`, con el formato que define x402 y no uno nuestro.
+export async function cabeceraDeRecibo(recibo) {
+  const { encodePaymentResponseHeader } = await import('@x402/core/http')
+  return encodePaymentResponseHeader(recibo)
+}
