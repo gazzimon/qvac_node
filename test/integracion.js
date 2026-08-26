@@ -1107,6 +1107,60 @@ test('una respuesta vacia es 502 tambien SIN stream, no un 200 con content ""', 
   sinContenidoModelo = null
 })
 
+// ---------------------------------------------------------------------------
+// B6 — la estimacion del prompt cuenta BYTES, y hasta ahora nadie lo probaba
+//
+// `estimarPromptTokens` divide bytes UTF-8 por 2. La version anterior dividia
+// CARACTERES por 3 y se declaraba cota superior: en ingles es cierto, y en
+// chino, japones, coreano, arabe o hindi es falso -- ahi la relacion se acerca
+// a 1 token por caracter y la reserva quedaba muy por debajo del gasto, justo
+// donde el comentario prometia lo contrario.
+//
+// El arreglo entro con la Fase 6.5 y quedo SIN TEST QUE LO EJERZA, que es por
+// lo que B6 siguio abierto tres auditorias. El unico assert que lo rozaba usa
+// el prompt 'hola': 4 caracteres y 4 bytes, ceil(4/3) = ceil(4/2) = 2. El mismo
+// numero con el bug y sin el.
+//
+// Con 10 caracteres CJK son 30 bytes: 15 tokens contra 4. Esa es la diferencia
+// que el test tiene que ver.
+// ---------------------------------------------------------------------------
+
+test('un prompt en CJK no subestima la reserva: se cuentan bytes, no caracteres', async (t) => {
+  await conUpstreamDePrueba(t, { modelId: 'proveedor/cjk' }, async () => {
+    // 10 caracteres, 30 bytes UTF-8. Reserva = ceil(30/2) tokens de entrada a
+    // USD 1 el millon + 256 de tope de salida a USD 2 el millon:
+    //   15 * 1 + 256 * 2 = 527 micros.
+    // Contando caracteres daria ceil(10/3) = 4 -> 516: casi cuatro veces menos
+    // de entrada, y una reserva corta es un tope que se pasa.
+    const cjk = await pedir('POST', '/v1/chat/completions', {
+      key: KEY,
+      body: {
+        model: 'proveedor/cjk',
+        messages: [{ role: 'user', content: '解释什么是点对点网络' }]
+      }
+    })
+    t.is(cjk.status, 200)
+    t.is(
+      cjk.headers['x-pyrus-cost-estimate-micros'],
+      '527',
+      'bytes/2 sobre CJK; contando caracteres habria estimado 516'
+    )
+
+    // El contraste que explica por que esto no se veia: con ASCII los dos
+    // criterios dan el MISMO numero, asi que el test que ya existia pasaba
+    // igual con el bug puesto.
+    const ascii = await pedir('POST', '/v1/chat/completions', {
+      key: KEY,
+      body: { model: 'proveedor/cjk', messages: [{ role: 'user', content: 'hola' }] }
+    })
+    t.is(
+      ascii.headers['x-pyrus-cost-estimate-micros'],
+      '514',
+      'en ASCII los dos criterios coinciden: por eso el bug sobrevivio'
+    )
+  })
+})
+
 test('un motivo que no conocemos viaja tal cual, no se aplana a stop', async (t) => {
   // Inventarle un final conocido a algo que el proveedor nombro distinto es la
   // misma mentira, mas chica. `content_filter` es el caso real que importa: el
