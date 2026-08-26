@@ -1217,6 +1217,68 @@ test('un upstream sin tope de salida igual tiene uno: la reserva lo necesita', a
   t.is(ups[0].precio, null, 'sin pricePerMTok no se inventa un precio')
 })
 
+// ---------------------------------------------------------------------------
+// Los dos relojes del camino externo (B3), y el numero del primero (B16)
+//
+// Son lo unico que impide que un request al externo quede abierto para siempre
+// y, con el, la reserva de presupuesto que lo autorizo. No tenian ningun test:
+// el de B3 prueba que el reloj DISPARA, con 300ms puestos a mano desde la
+// config, y por eso no habria visto que el default estaba mal calibrado.
+//
+// El numero cambio a 180s porque los 60s anteriores quedaron dos segundos por
+// encima de lo medido -- 58s al primer byte contra NVIDIA el 2026-08-26 -- y
+// los requests estaban por cortarse solos por lentos, no por colgados.
+// ---------------------------------------------------------------------------
+
+test('un upstream sin relojes declarados igual los tiene, y no en cero', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'x',
+        baseUrl: 'https://ejemplo.test/v1',
+        apiKeyEnv: 'X_KEY',
+        models: [
+          { modelId: 'porDefecto' },
+          // Los tres modos de escribirlo mal: cero, negativo y basura. Ninguno
+          // puede terminar en un timeout de cero, que dispararia antes de
+          // empezar y dejaria al externo inservible en vez de protegido.
+          { modelId: 'enCero', timeoutPrimerChunkMs: 0, timeoutIdleMs: 0 },
+          { modelId: 'negativo', timeoutPrimerChunkMs: -5000, timeoutIdleMs: -1 },
+          { modelId: 'basura', timeoutPrimerChunkMs: 'rapido', timeoutIdleMs: null }
+        ]
+      }
+    ]
+  })
+
+  for (const u of ups) {
+    t.ok(u.timeoutPrimerChunkMs > 0, u.model + ': el reloj del primer byte existe')
+    t.ok(u.timeoutIdleMs > 0, u.model + ': el reloj del silencio existe')
+  }
+
+  // El default, fijado a proposito: si alguien lo vuelve a bajar, que sea una
+  // decision y no un descuido. 58s medidos contra NVIDIA el 2026-08-26 es lo
+  // que descarta cualquier numero cerca de 60.
+  t.is(ups[0].timeoutPrimerChunkMs, 180000, 'tres minutos hasta el primer byte')
+  t.is(ups[0].timeoutIdleMs, 30000, 'y treinta segundos de silencio entre tokens')
+
+  // Lo que SI se respeta es un valor valido: un modelo con latencia conocida se
+  // acomoda desde la config sin tocar el codigo.
+  const propio = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'y',
+        baseUrl: 'https://ejemplo.test/v1',
+        apiKeyEnv: 'Y_KEY',
+        models: [{ modelId: 'm', timeoutPrimerChunkMs: 300, timeoutIdleMs: 250 }]
+      }
+    ]
+  })
+  t.is(propio[0].timeoutPrimerChunkMs, 300, 'un valor valido gana, y por eso el test de B3 anda')
+  t.is(propio[0].timeoutIdleMs, 250)
+})
+
 test('el opt-in ausente, roto o a medias significa NO', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
@@ -1592,11 +1654,17 @@ test('los headers de la config no pueden pisar la credencial', async (t) => {
     ]
   })
 
-  t.alike(
-    ups[0].extraHeaders['HTTP-Referer'],
+  // Los nombres se normalizan a MINUSCULA al entrar (B11). Los de HTTP no
+  // distinguen mayusculas pero un objeto de JavaScript si, y esa diferencia
+  // era el agujero: un `authorization` en minuscula en la config no colisionaba
+  // con el `Authorization` que escribe el codigo, sobrevivian los dos y salian
+  // concatenados -- la credencial de un proveedor viajando al endpoint de otro.
+  t.is(
+    ups[0].extraHeaders['http-referer'],
     'https://ejemplo.test',
-    'los headers de atribucion del proveedor llegan'
+    'los headers de atribucion del proveedor llegan, con el nombre normalizado'
   )
+  t.absent(ups[0].extraHeaders['HTTP-Referer'], 'y ya no queda la version sin normalizar')
 
   // El armado real vive en un metodo privado; se ejercita por su efecto: con
   // credencial gana la credencial, sin credencial no queda un Authorization
@@ -1635,4 +1703,90 @@ test('una fila de upstream local se marca como local en el registro', async (t) 
 
   store.clearUpstreams()
   store.seed()
+})
+
+// ---------------------------------------------------------------------------
+// El .env
+//
+// La config de upstreams guarda el NOMBRE de la variable, nunca el secreto. Eso
+// deja la credencial afuera del repo, pero le deja al operador el problema de
+// ponerla en el entorno -- y `bare-env` no lee ningun archivo, es un proxy
+// sobre el entorno del sistema operativo. De ahi este parser.
+// ---------------------------------------------------------------------------
+
+test('el .env tolera lo que la gente escribe de verdad', async (t) => {
+  const { parsear } = await import('../qvac/dotenv.mjs')
+
+  const v = parsear(
+    [
+      '# un comentario',
+      '',
+      'SIMPLE=valor',
+      // Con espacios alrededor del `=`. Asi estaba escrito el .env que motivo
+      // todo esto: un parser estricto habria creado una variable llamada
+      // "CON_ESPACIOS " que no coincide con ninguna que se busque.
+      'CON_ESPACIOS = otro-valor',
+      // Lo que sale de copiar una linea de la documentacion.
+      'export EXPORTADA=tercero',
+      'COMILLAS="entre comillas"',
+      "SIMPLES='tambien'",
+      'VACIA=',
+      'basura sin igual'
+    ].join('\n')
+  )
+
+  t.is(v.SIMPLE, 'valor')
+  t.is(v.CON_ESPACIOS, 'otro-valor', 'el nombre se recorta: si no, no coincide con nada')
+  t.is(v.EXPORTADA, 'tercero')
+  t.is(v.COMILLAS, 'entre comillas', 'las comillas delimitan, no son parte del valor')
+  t.is(v.SIMPLES, 'tambien')
+  t.is(v.VACIA, '')
+  t.absent('basura' in v, 'una linea sin `=` no define nada')
+})
+
+test('una comilla suelta es parte del valor, no un delimitador', async (t) => {
+  const { parsear } = await import('../qvac/dotenv.mjs')
+
+  const v = parsear(['ABIERTA="sin cerrar', 'RARA=xy"z'].join('\n'))
+  t.is(v.ABIERTA, '"sin cerrar', 'solo se sacan si abren Y cierran')
+  t.is(v.RARA, 'xy"z', 'una credencial puede tener cualquier cosa adentro')
+})
+
+test('el .env NO pisa una variable que ya esta en el entorno', async (t) => {
+  const { cargar } = await import('../qvac/dotenv.mjs')
+  const env = (await import('bare-env')).default
+  const fs = await import('bare-fs')
+  const os = await import('bare-os')
+  const path = await import('bare-path')
+
+  const dir = path.default.join(os.default.tmpdir(), 'pyrus-test-env-' + Date.now())
+  fs.default.mkdirSync(dir, { recursive: true })
+  fs.default.writeFileSync(
+    path.default.join(dir, '.env'),
+    'PYRUS_YA_ESTABA=del-archivo\nPYRUS_NUEVA=del-archivo\n'
+  )
+
+  env.PYRUS_YA_ESTABA = 'del-entorno'
+  delete env.PYRUS_NUEVA
+
+  const r = await cargar(dir)
+
+  // Un .env es el default del proyecto, no una orden: quien exporta algo a
+  // mano -- en su terminal, en un CI, en un systemd unit -- esta diciendo algo
+  // mas especifico, y eso gana.
+  t.is(env.PYRUS_YA_ESTABA, 'del-entorno', 'lo que ya estaba no se toca')
+  t.is(env.PYRUS_NUEVA, 'del-archivo', 'lo que faltaba se carga')
+  t.alike(r.cargadas, ['PYRUS_NUEVA'])
+  t.alike(r.yaEstaban, ['PYRUS_YA_ESTABA'], 'y se sabe cual se respeto')
+
+  fs.default.rmSync(dir, { recursive: true, force: true })
+})
+
+test('sin .env no pasa nada: es el caso normal', async (t) => {
+  const { cargar } = await import('../qvac/dotenv.mjs')
+  const os = await import('bare-os')
+  const path = await import('bare-path')
+
+  const r = await cargar(path.default.join(os.default.tmpdir(), 'pyrus-no-existe-' + Date.now()))
+  t.alike(r.cargadas, [], 'la mayoria de los nodos no habla con ninguna API externa')
 })

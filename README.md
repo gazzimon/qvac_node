@@ -40,17 +40,17 @@ lo arranca: la app abre sola en el navegador.
 
 **Descarga directa**, para quien no ejecuta un script bajado de internet sin
 haber visto antes el archivo. Son los mismos archivos que baja el instalador,
-listados uno por uno con su `.sha256` en la sección *Get started* del
+listados uno por uno con su `.sha256` en la sección _Get started_ del
 [landing](landing/index.html) y en la
 [página del release](https://github.com/gazzimon/qvac_node/releases/latest):
 
-| Plataforma | Archivo | Tamaño |
-| --- | --- | --- |
-| macOS Apple silicon | `pyrusllm-darwin-arm64` | ~101 MB |
-| macOS Intel | `pyrusllm-darwin-x64` | ~104 MB |
-| Linux x64 | `pyrusllm-linux-x64` | ~253 MB |
-| Linux arm64 | `pyrusllm-linux-arm64` | ~228 MB |
-| Windows x64 | `pyrusllm-win32-x64.exe` | ~158 MB |
+| Plataforma          | Archivo                  | Tamaño  |
+| ------------------- | ------------------------ | ------- |
+| macOS Apple silicon | `pyrusllm-darwin-arm64`  | ~101 MB |
+| macOS Intel         | `pyrusllm-darwin-x64`    | ~104 MB |
+| Linux x64           | `pyrusllm-linux-x64`     | ~253 MB |
+| Linux arm64         | `pyrusllm-linux-arm64`   | ~228 MB |
+| Windows x64         | `pyrusllm-win32-x64.exe` | ~158 MB |
 
 Bajados a mano, lo que hace el instalador queda de tu lado: verificar el
 checksum (`shasum -a 256` o `Get-FileHash`), dar permiso de ejecución, y —en
@@ -104,14 +104,14 @@ excepción, y existe para que el primer arranque no sea una pared sin nada atrá
 
 Arriba del chat hay **un solo selector con tres modos**, porque son dos preguntas
 distintas —qué modelo y en qué máquina— y antes se contestaban con un combo y un
-checkbox que podían contradecirse (elegir el modelo de un par *y* tildar "local
+checkbox que podían contradecirse (elegir el modelo de un par _y_ tildar "local
 only" daba 404):
 
-| Modo | Qué viaja en el body | Qué significa |
-| --- | --- | --- |
-| `<modelo> — this machine only` | `local: true` | nada sale de esta máquina |
-| `Auto — best available node` | sin `node` | decide el gateway, por carga |
-| `<operador> — <modelo> — N% busy` | `node: "<id>"` | esa máquina y no otra |
+| Modo                              | Qué viaja en el body | Qué significa                |
+| --------------------------------- | -------------------- | ---------------------------- |
+| `<modelo> — this machine only`    | `local: true`        | nada sale de esta máquina    |
+| `Auto — best available node`      | sin `node`           | decide el gateway, por carga |
+| `<operador> — <modelo> — N% busy` | `node: "<id>"`       | esa máquina y no otra        |
 
 `model` dice **qué** se quiere y `node` dice **a quién**: con dos pares sirviendo
 el mismo `modelId` no había forma de elegir uno. En `/network`, cada tarjeta
@@ -122,8 +122,8 @@ nunca un reemplazo silencioso.
 ### El ruteo con reintento
 
 Elegir un candidato **no es casarse con él**. El gateway recorre la lista
-puntuada en orden y prueba el siguiente cada vez que uno falla *antes de que al
-cliente le salga un byte*: un par sin agente lanzado, un motor local que no está
+puntuada en orden y prueba el siguiente cada vez que uno falla _antes de que al
+cliente le salga un byte_: un par sin agente lanzado, un motor local que no está
 levantado, un proveedor que devuelve 429 porque se agotó su cuota del día. Un
 solo recorrido para todas las clases de candidato —par P2P, motor embebido,
 motor local por HTTP, API de un tercero, mock—, con la reserva de presupuesto
@@ -135,7 +135,7 @@ respuesta a medias no se retoma en otra máquina—, pero sin stream el contenid
 se junta y no sale hasta el final, así que reintentar sigue siendo legítimo y se
 descarta lo que alcanzó a generar el que se cayó.
 
-Un `429` se lee como *"está lleno"* y no como *"está roto"*: mismo tratamiento
+Un `429` se lee como _"está lleno"_ y no como _"está roto"_: mismo tratamiento
 que el `at_capacity` de un par, incluido marcarlo saturado para que el request
 siguiente no se coma el mismo rechazo. Es la única forma de reaccionar a una
 cuota diaria agotada, que el ledger no puede ver porque no se mide en dólares.
@@ -156,12 +156,12 @@ gran cosa.
 
 ### Las tres vistas
 
-| Ruta | Qué es |
-| --- | --- |
-| `/` | **Chat.** Multi-turno, markdown, streaming. Cada respuesta dice qué máquina la produjo. |
-| `/node` | **My Node.** Tu propia máquina como proveedor: estado, carga, precio, modelo. |
-| `/network` | **Network.** La grilla del marketplace: todos los nodos, con precio y carga. |
-| `/admin` | Log de ruteo y controles de caos. |
+| Ruta       | Qué es                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------- |
+| `/`        | **Chat.** Multi-turno, markdown, streaming. Cada respuesta dice qué máquina la produjo. |
+| `/node`    | **My Node.** Tu propia máquina como proveedor: estado, carga, precio, modelo.           |
+| `/network` | **Network.** La grilla del marketplace: todos los nodos, con precio y carga.            |
+| `/admin`   | Log de ruteo y controles de caos.                                                       |
 
 `/proveedor` y `/cliente` redirigen a las rutas nuevas.
 
@@ -209,7 +209,7 @@ para el navegador.
 Las keys se administran en `/node`, **una por cliente**: con una sola, cada bot
 nuevo obligaría a compartir la misma credencial y revocar por uno sería revocar
 por todos. Cada fila tiene **Connect**, que muestra los pasos para Telegram,
-WhatsApp, terminal, Hermes Agent u Open WebUI con *esa* key, y **Revoke**, que
+WhatsApp, terminal, Hermes Agent u Open WebUI con _esa_ key, y **Revoke**, que
 la corta sin tocar a las demás.
 
 Alcance de la revocación, para que nadie lo descubra solo: el registro vive en
@@ -235,19 +235,19 @@ Dos contadores que parecen uno solo y no lo son: uno mira hacia adentro y el otr
 hacia afuera. El principio es el mismo —**el contador vive del lado que paga**—,
 la unidad no:
 
-|  | `qvac/budget.mjs` | `qvac/quota.mjs` |
-| --- | --- | --- |
-| Qué mide | dólares | tokens de salida |
-| De quién | la cuenta que consume | el par que pide |
-| Quién lo lleva | el gateway (gasta) | el proveedor (presta la GPU) |
-| Ventana | mes calendario | 24 h deslizantes |
-| Tope por default | USD 20 | 100.000 tokens por par |
+|                  | `qvac/budget.mjs`     | `qvac/quota.mjs`             |
+| ---------------- | --------------------- | ---------------------------- |
+| Qué mide         | dólares               | tokens de salida             |
+| De quién         | la cuenta que consume | el par que pide              |
+| Quién lo lleva   | el gateway (gasta)    | el proveedor (presta la GPU) |
+| Ventana          | mes calendario        | 24 h deslizantes             |
+| Tope por default | USD 20                | 100.000 tokens por par       |
 
 El **ledger** cuenta en micro-dólares enteros (1 USD = 1.000.000 micros): un tope
 acumulado en punto flotante deriva justo en el borde, que es el único lugar donde
 el número importa. Y trabaja en dos tiempos, porque antes del request no se sabe
 lo que va a costar: `reserve()` aparta la **cota superior** —asume que se generan
-todos los `max_tokens`— y la escribe a disco *antes* de que el request salga;
+todos los `max_tokens`— y la escribe a disco _antes_ de que el request salga;
 `settle()` la cambia por el costo real y devuelve la diferencia. Un tope aplicado
 al facturar no es un tope, es un descuento: el gasto ya ocurrió. Si el proceso se
 corta en el medio, la reserva huérfana se cobra entera al estimado —cobra de más
@@ -257,9 +257,9 @@ test: tope de USD 0,10, cien vueltas, y el gasto real nunca lo supera.
 La **cuota** es lo contrario: cuánta GPU regala este nodo a cada par antes de
 decir que no. Ventana deslizante con baldes por hora, porque un corte a
 medianoche hace un pico a las 00:01 y castiga al que empezó 23:50. Se chequea
-*antes* del request —y antes que el límite de capacidad, porque "estoy lleno"
+_antes_ del request —y antes que el límite de capacidad, porque "estoy lleno"
 invita a volver en dos segundos y "te quedaste sin cuota" dice recién cuándo se
-repone— y se registra *después*, con los tokens que se generaron **de verdad**:
+repone— y se registra _después_, con los tokens que se generaron **de verdad**:
 un request cancelado a los tres tokens gasta tres, y uno que falló cargando el
 modelo no gasta nada. El request que cruza el límite se sirve entero, porque
 cortar una generación por la mitad se ve como un bug y regala igual la GPU ya
@@ -277,7 +277,7 @@ aparte: el ruteo lo puntúa, `/v1/models` lo lista, el chat lo ofrece y los
 headers de procedencia lo declaran, sin una sola línea especial en el despacho.
 
 Se configura copiando [`upstreams.example.json`](upstreams.example.json) a
-`<storage>/upstreams.json`. La credencial **no va en el archivo**: va el *nombre*
+`<storage>/upstreams.json`. La credencial **no va en el archivo**: va el _nombre_
 de una variable de entorno, así el secreto no toca el disco del repo ni entra al
 manifiesto firmado que se anuncia a la red.
 
@@ -285,6 +285,11 @@ manifiesto firmado que se anuncia a la red.
 export NVIDIA_API_KEY=...          # el nombre lo dice el campo apiKeyEnv
 pyrusllm serve --swarm
 ```
+
+O un **`.env`** al lado del proyecto —hay un [`.env.example`](.env.example) para
+copiar—, que el nodo lee al arrancar y dice qué cargó, nombrando las variables y
+nunca sus valores. Una variable que ya esté en el entorno le gana al archivo: un
+`.env` es el default del proyecto, no una orden.
 
 Un upstream remoto se registra **offline** si le falta la credencial o el precio,
 y el arranque dice cuál de las dos. Lo del precio no es burocracia: sin él
@@ -294,7 +299,7 @@ deja de cortar justo en el único camino que cuesta dólares.
 El externo es el **último recurso por posición, no por veto**: mientras algún
 candidato de casa pueda atender ahora, los terceros van al fondo de la lista.
 Antes se los filtraba, y eso tenía un agujero que sólo se ve probándolo: la
-capacidad *declarada* de un candidato no prueba que ese candidato funcione. Un
+capacidad _declarada_ de un candidato no prueba que ese candidato funcione. Un
 `llama-server` apagado anuncia 0/2 —o sea "tengo lugar"—, el externo quedaba
 excluido, el local fallaba y no había a quién recurrir. Quedar último **es** la
 condición, medida por lo que pasó y no por lo que se anunció.
@@ -311,7 +316,7 @@ esta máquina —`llama-server`, vLLM, un NIM self-hosted— hablando OpenAI en
 localhost. Entra por HTTP como cualquier upstream, pero el prompt no sale de la
 máquina: no lleva credencial, no lleva precio, no le aplica el opt-in y sobrevive
 al candado de `local: true` del pedido. Lo que decide todo eso es el campo
-`local`, nunca el `kind`, que sólo dice *cómo* se le pide y no *a quién*. La
+`local`, nunca el `kind`, que sólo dice _cómo_ se le pide y no _a quién_. La
 respuesta lo declara en `X-Pyrus-Scope: local|external`, y el chat lo muestra como
 "(this machine)" en vez de "(external API)".
 
@@ -389,7 +394,7 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
 **Qué es simulado**, para que nadie lo descubra solo:
 
 - `serve` arranca con el registro **vacío**. `--demo` lo puebla con 1 nodo real
-  + 3 mocks marcados como `simulado`.
+  - 3 mocks marcados como `simulado`.
 - `economic` del manifiesto es mock (wallet en ceros, con `_mock: true`
   explícito). WDK, recibos y liquidación no están implementados. `directory`
   **no** es mock: ahí se firma la clave real del Hyperbee.
@@ -425,8 +430,8 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
   corporación centralizada agrega tus datos a escala", no "nadie más lo ve":
   el cifrado E2E está fuera de alcance.
 - **El ledger cuenta dólares, y hay límites que no se miden en dólares.** El tier
-  gratuito de NVIDIA se agota por *créditos* y el de OpenRouter por *requests por
-  día*. Para `budget.mjs` los dos son gratis y por lo tanto ilimitados, que es
+  gratuito de NVIDIA se agota por _créditos_ y el de OpenRouter por _requests por
+  día_. Para `budget.mjs` los dos son gratis y por lo tanto ilimitados, que es
   justo lo que no son: el nodo deja de contestar sin que ningún contador lo haya
   visto venir.
 - **El asistente externo manda tu prompt a un tercero.** Es el único camino del

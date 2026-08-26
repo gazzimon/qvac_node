@@ -1051,7 +1051,7 @@ ${MODAL_JS}
     }
 
     async function refresh() {
-      const r = await fetch('/v1/nodes')
+      const r = await authFetch('/v1/nodes')
       const { nodes } = await r.json()
       render(nodes)
     }
@@ -1369,7 +1369,7 @@ ${CONNECT_JS}
     let optionsKey = null
 
     async function refresh() {
-      const r = await fetch('/v1/nodes')
+      const r = await authFetch('/v1/nodes')
       const { nodes: todos, swarm } = await r.json()
 
       // Esta pagina es SOLO sobre tu maquina. Antes listaba la red entera y
@@ -1641,7 +1641,7 @@ ${CONNECT_JS}
 
     async function refrescarFlujo() {
       try {
-        const r = await fetch('/v1/routing-log')
+        const r = await authFetch('/v1/routing-log')
         const { log } = await r.json()
         pintarFlujo(log || [])
       } catch (e) { /* el poll siguiente reintenta */ }
@@ -1816,7 +1816,7 @@ export const ADMIN_HTML = page(
 ${ESC}
 
     async function refreshNodes() {
-      const r = await fetch('/v1/nodes')
+      const r = await authFetch('/v1/nodes')
       const { nodes } = await r.json()
       document.getElementById('rows').innerHTML = nodes.map(n => \`
         <tr>
@@ -1876,7 +1876,7 @@ ${ESC}
     }
 
     async function refreshLog() {
-      const r = await fetch('/v1/routing-log')
+      const r = await authFetch('/v1/routing-log')
       const { log } = await r.json()
       document.getElementById('log').innerHTML = log.length
         ? log.map(linea).join('')
@@ -2358,7 +2358,7 @@ const CHAT_JS = String.raw`
 
     async function refreshNodes() {
       try {
-        var r = await fetch('/v1/nodes')
+        var r = await authFetch('/v1/nodes')
         var j = await r.json()
         nodes = j.nodes || []
         paintOptions()

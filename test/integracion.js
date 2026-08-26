@@ -173,6 +173,50 @@ test('las rutas que gastan o mutan siguen pidiendo la key', async (t) => {
 })
 
 // ---------------------------------------------------------------------------
+// B12 — las rutas que solo LEEN tambien cuentan
+//
+// B7 le puso credencial a GET /v1/upstream porque, sin secretos y todo, decia
+// quien es el proveedor, que modelos se le pagan y si hay cuenta del otro lado.
+// El razonamiento era correcto y estaba incompleto: /v1/nodes devuelve el mismo
+// `operator` y ademas el `pricing`, y /v1/routing-log devuelve `costMicros`
+// -- el gasto en dolares, request por request -- que es MAS de lo que /v1/upstream
+// llega a decir. Cerrar una de las tres puertas y dejar dos abiertas no protege
+// nada.
+//
+// La tercera, /v1/models, NO se cierra: es el catalogo del protocolo de OpenAI
+// y un cliente tiene que poder leerlo antes de tener key. Se le saca el dato en
+// vez de la puerta.
+// ---------------------------------------------------------------------------
+
+test('las rutas que solo leen plata o proveedor tambien piden la key', async (t) => {
+  const nodos = await pedir('GET', '/v1/nodes')
+  t.is(nodos.status, 401, 'el marketplace dice operador y precio: no es publico')
+
+  const log = await pedir('GET', '/v1/routing-log')
+  t.is(log.status, 401, 'y el rastro dice cuanto se gasto, que es peor')
+
+  const conKeyMala = await pedir('GET', '/v1/routing-log', { key: 'qvac_sk_inventada' })
+  t.is(conKeyMala.status, 401, 'una key que no existe tampoco pasa')
+
+  // La contracara: con credencial siguen contestando lo de siempre. Un gate que
+  // rompe al panel no es un gate, es una regresion.
+  const conKey = await pedir('GET', '/v1/nodes', { key: KEY })
+  t.is(conKey.status, 200, 'con key sigue siendo el mismo marketplace')
+  t.ok(Array.isArray(conKey.json.nodes), 'y con la misma forma')
+})
+
+test('/v1/models sigue abierto pero ya no dice quien es el proveedor', async (t) => {
+  const r = await pedir('GET', '/v1/models')
+  t.is(r.status, 200, 'un cliente OpenAI descubre el catalogo antes de tener key')
+  t.ok(r.json.data.length > 0)
+
+  // `owned_by` decia "Proveedor de prueba (externo)" y con eso cualquiera que
+  // llegara al puerto sabia contra que API paga este nodo.
+  const delatores = r.json.data.filter((m) => m.owned_by !== 'pyrusllm')
+  t.is(delatores.length, 0, 'ninguna fila nombra al operador: ' + JSON.stringify(delatores))
+})
+
+// ---------------------------------------------------------------------------
 // Las dos extensiones propias del request. `local` es vieja y `node` entro en
 // la fase 8: lo que se prueba es que no se pisen.
 // ---------------------------------------------------------------------------
@@ -274,6 +318,11 @@ const PUERTO_EXTERNO = 8898
 let servidorExterno = null
 let ultimoPedidoExterno = null
 
+// B11: lo que importa no es el objeto que arma el cliente sino lo que LLEGA al
+// otro lado. Un `authorization` duplicado se ve identico a uno solo hasta que
+// se lo mira desde el servidor, donde aparece concatenado.
+let ultimosHeadersExternos = null
+
 // B2: un proveedor que NO manda `usage` no es un caso raro, es el default del
 // protocolo -- `usage` en streaming hay que pedirlo-. Se apaga desde el test
 // para poder ejercitar el modo de falla y no solo el camino feliz.
@@ -295,12 +344,19 @@ let cortaModelo = null
 // reaccionar al rechazo.
 let cuotaAgotadaModelo = null
 
+// B15: abre con 200, manda un delta, y despues un objeto `error` EN EL CUERPO.
+// Es lo que hace un proveedor cuando se rompe algo despues de haber mandado los
+// headers -- el status ya viajo y no se puede corregir -, y es el modo normal
+// de fallar de OpenRouter cuando el proveedor de atras se cae a mitad.
+let errorEnStreamModelo = null
+
 // Un proveedor compatible con OpenAI en veinte lineas: dos deltas, un `usage`
 // con tokens que NO coinciden con los contados de este lado -- a proposito,
 // para probar que se liquida con los del proveedor -- y el [DONE].
 function levantarProveedorFalso() {
   return new Promise((resolve) => {
     servidorExterno = http.createServer((req, res) => {
+      ultimosHeadersExternos = req.headers
       let crudo = ''
       req.on('data', (c) => {
         crudo += c
@@ -331,6 +387,19 @@ function levantarProveedorFalso() {
           choices: [{ delta: { reasoning_content: 'primero pienso...', content: 'hola ' } }]
         })
         chunk({ choices: [{ delta: { content: 'desde afuera' } }] })
+        // B15: el error llega DESPUES de los headers y despues de algun token,
+        // que es el unico momento en que puede llegar por el cuerpo. El stream
+        // se cierra limpio -- con [DONE] y todo --, asi que nada mas que el
+        // objeto `error` distingue esto de una respuesta que salio bien.
+        if (
+          errorEnStreamModelo &&
+          ultimoPedidoExterno &&
+          ultimoPedidoExterno.model === errorEnStreamModelo
+        ) {
+          chunk({ error: { message: 'upstream provider is down', code: 502 } })
+          res.write('data: [DONE]\n\n')
+          return res.end()
+        }
         if (cortaModelo && ultimoPedidoExterno && ultimoPedidoExterno.model === cortaModelo) {
           return res.destroy()
         }
@@ -394,7 +463,7 @@ test('se configura un asistente externo como una fila mas del registro', async (
     maxConcurrentRequests: 4
   })
 
-  const r = await pedir('GET', '/v1/nodes')
+  const r = await pedir('GET', '/v1/nodes', { key: KEY })
   const fila = r.json.nodes.find((n) => n.kind === 'upstream')
   t.ok(fila, 'aparece en el marketplace sin tocar el panel')
   t.is(fila.modelId, MODELO_EXTERNO)
@@ -477,7 +546,7 @@ test('con opt-in el externo contesta, y la respuesta dice que fue el externo', a
 })
 
 test('el rastro registra el externo con lo que costo de verdad', async (t) => {
-  const r = await pedir('GET', '/v1/routing-log')
+  const r = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = r.json.log.find((e) => e.target === 'upstream')
 
   t.ok(entrada, 'el ruteo al externo queda en el mismo rastro que el resto')
@@ -558,7 +627,7 @@ test('agotado el presupuesto se contesta local, nunca el externo', async (t) => 
   t.is(r.status, 200, 'no se niega el servicio: se degrada')
   t.not(r.headers['x-pyrus-kind'], 'upstream', 'y NO fue el externo')
 
-  const log = await pedir('GET', '/v1/routing-log')
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
   t.ok(entrada.degradado, 'la degradacion queda auditada, no se confunde con una eleccion normal')
   t.ok(
@@ -648,6 +717,93 @@ test('el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el t
   gw.setUpstreamOptIn(false)
 })
 
+// ---------------------------------------------------------------------------
+// B11 — la credencial de un proveedor no puede viajar al endpoint de otro
+//
+// El mismo criterio que el test de arriba, sobre los headers en vez del body, y
+// con una vuelta mas: aca la defensa vieja no estaba ausente, estaba escrita en
+// el case equivocado. `Authorization` no colisiona con `authorization`, asi que
+// la del archivo y la nuestra sobrevivian LAS DOS y salian concatenadas.
+//
+// Por eso el assert mira lo que recibio el SERVIDOR y no el objeto que armo el
+// cliente: del lado de aca las dos versiones se ven bien.
+// ---------------------------------------------------------------------------
+
+test('la config no puede mandarle la credencial de un proveedor a otro', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'headers-hostiles',
+        label: 'Config con headers hostiles',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        extraHeaders: {
+          // En MINUSCULA, que es como los escribe cualquiera que copie una
+          // linea de un curl. Ese detalle era todo el bug.
+          authorization: 'Bearer CREDENCIAL-DE-OTRO-PROVEEDOR',
+          'content-type': 'text/plain',
+          // Y uno legitimo, para probar que la defensa no se come todo: los
+          // headers de atribucion de OpenRouter tienen que seguir llegando.
+          'HTTP-Referer': 'https://ejemplo.test'
+        },
+        models: [
+          {
+            modelId: 'proveedor/headers',
+            maxTokens: 256,
+            pricePerMTok: { input: 1, output: 2 }
+          }
+        ]
+      }
+    ]
+  })
+  costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'proveedor/headers',
+    displayName: 'Headers hostiles',
+    operator: 'Config con headers hostiles (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'proveedor/headers', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(r.status, 200)
+
+  t.is(
+    ultimosHeadersExternos.authorization,
+    'Bearer clave-de-prueba',
+    'llega UNA credencial y es la nuestra: sin el arreglo llegaban las dos concatenadas'
+  )
+  t.absent(
+    String(ultimosHeadersExternos.authorization).includes('OTRO-PROVEEDOR'),
+    'y la del archivo no viaja ni pegada al final'
+  )
+  t.is(
+    ultimosHeadersExternos['content-type'],
+    'application/json',
+    'el cuerpo es JSON aunque el archivo diga otra cosa'
+  )
+  t.is(
+    ultimosHeadersExternos['http-referer'],
+    'https://ejemplo.test',
+    'y un header legitimo del proveedor sigue pasando: extiende, no sobreescribe'
+  )
+
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
 test('un proveedor que no manda usage se liquida por la reserva, no por los deltas', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
@@ -690,7 +846,7 @@ test('un proveedor que no manda usage se liquida por la reserva, no por los delt
   })
   t.is(r.status, 200, 'el request se contesta igual: esto no es un error del usuario')
 
-  const log = await pedir('GET', '/v1/routing-log')
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
   t.is(entrada.target, 'upstream')
 
@@ -772,7 +928,7 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
   t.is(despues.reserved, antes.reserved, 'la reserva se libero: no quedo saldo comprometido')
   t.is(despues.spent, antes.spent, 'y no se cobro nada: no llego un solo token')
 
-  const log = await pedir('GET', '/v1/routing-log')
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
   t.is(entrada.ok, false, 'el fallo queda en el rastro')
   t.is(entrada.costMicros, 0, 'cobrar la cota superior aca seria cobrar un request que no ocurrio')
@@ -785,6 +941,154 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
   costs.olvidarPreciosExternos()
   gw.setUpstreams([])
   gw.setUpstreamOptIn(false)
+})
+
+// ---------------------------------------------------------------------------
+// B15 — un 200 no quiere decir que salio bien
+//
+// El status HTTP viaja con los headers, o sea antes de que el modelo genere un
+// solo token. Todo lo que se rompe DESPUES no puede corregirlo: viaja como un
+// objeto `error` adentro del cuerpo, con el stream cerrandose limpio, [DONE]
+// incluido. Es el modo normal de fallar de OpenRouter cuando el proveedor de
+// atras se cae a mitad.
+//
+// El parser miraba `usage` y `delta.content` y nada mas, asi que el error se
+// descartaba como cualquier evento desconocido. Eso daba la peor falla posible:
+// la que se ve identica a funcionar.
+// ---------------------------------------------------------------------------
+
+test('un error adentro de un stream 200 no se reporta como respuesta exitosa', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  errorEnStreamModelo = 'proveedor/roto-a-mitad'
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'roto',
+        label: 'Proveedor roto a mitad',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [
+          {
+            modelId: 'proveedor/roto-a-mitad',
+            maxTokens: 256,
+            pricePerMTok: { input: 1, output: 2 }
+          }
+        ]
+      }
+    ]
+  })
+  costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'proveedor/roto-a-mitad',
+    displayName: 'Roto a mitad',
+    operator: 'Proveedor roto a mitad (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'proveedor/roto-a-mitad', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  // Lo que pasaba antes: 200, `content: ""`, `finish_reason: "stop"`. Un
+  // cliente no tenia como distinguirlo de un modelo que decidio no decir nada.
+  t.not(r.status, 200, 'un error del proveedor no puede salir como respuesta valida')
+  t.is(r.status, 502, 'y es 502, porque el que fallo fue la maquina de un tercero')
+  t.absent(r.json && r.json.choices, 'no viaja un choices vacio con finish_reason stop')
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  const entrada = log.json.log[0]
+  t.is(entrada.ok, false, 'el fallo queda en el rastro y no como un request exitoso')
+
+  errorEnStreamModelo = null
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
+test('un error adentro del stream deja seguir con el candidato siguiente', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  errorEnStreamModelo = 'r'
+
+  // Dos puertas al mismo modelo. La primera se rompe a mitad del stream; la
+  // segunda contesta bien.
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'roto2',
+        label: 'Se rompe a mitad',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'r', as: 'con-respaldo-2' }]
+      },
+      {
+        id: 'sano',
+        label: 'Contesta bien',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 's', as: 'con-respaldo-2' }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'con-respaldo-2',
+    displayName: 'Roto',
+    operator: 'Se rompe a mitad',
+    local: true,
+    maxConcurrentRequests: 8
+  })
+  store.registerUpstream({
+    id: ups[1].id,
+    modelId: 'con-respaldo-2',
+    displayName: 'Sano',
+    operator: 'Contesta bien',
+    local: true,
+    maxConcurrentRequests: 1
+  })
+  // Mismo motivo que en el test del upstream caido: con la carga empatada el
+  // orden lo decide un `random()`. Ocupandole el unico slot al sano, el roto va
+  // primero de forma deterministica.
+  store.beginRequest('upstream:' + ups[1].id)
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'con-respaldo-2', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  // D4 permite el reintento acá: sin `stream: true` el contenido se junta y no
+  // sale hasta el final, asi que el cliente todavia no vio el pedazo del roto.
+  t.is(r.status, 200, 'el error del primero no es el error del request')
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Contesta bien', 'contesto el segundo')
+  t.is(
+    r.json.choices[0].message.content,
+    'hola desde afuera',
+    'y sin el pedazo que alcanzo a generar el que se rompio'
+  )
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  const e = log.json.log[0]
+  t.is(e.intentos.length, 2, 'los dos intentos quedan en el rastro')
+  t.is(e.intentos[0].ok, false, 'el primero fallo aunque el proveedor dijo 200')
+  t.is(e.intentos[1].ok, true)
+
+  errorEnStreamModelo = null
+  store.clearUpstreams()
+  gw.setUpstreams([])
 })
 
 test('un motor local detras de HTTP contesta sin credencial y sin opt-in', async (t) => {
@@ -1003,8 +1307,24 @@ test('un upstream caido se saltea y contesta el siguiente candidato', async (t) 
   })
   gw.setUpstreams(ups)
 
-  // El caido con MAS capacidad libre, para que pickCandidate lo ponga primero:
-  // sin eso el test podria pasar por casualidad.
+  // El caido tiene que ir PRIMERO o el test no ejercita nada: si contesta el
+  // vivo de entrada, los tres asserts de abajo pasan igual sin que el reintento
+  // haya ocurrido nunca.
+  //
+  // Antes esto se intentaba con "el caido con MAS capacidad libre" (8 contra 1)
+  // y NO ordenaba nada: `cargaDe` es un COCIENTE -- activeRequests sobre
+  // maxConcurrent (store.mjs:150) --, asi que 0/8 y 0/1 son los dos CERO. Con la
+  // carga empatada, empatan tambien errorRate y lastMs -- las dos filas son
+  // nuevas y no tienen historia -- y el orden lo terminaba decidiendo el
+  // `jitter: random()` de routing.mjs:102. O sea una moneda: el test fallaba
+  // ~1 de cada 2 corridas, y el modo de falla era un TypeError sobre
+  // `e.intentos` en vez de un assert, que es peor porque no dice que se rompio.
+  //
+  // Lo que SI ordena es dejar al vivo sin lugar: 1/1 lo manda al fondo por la
+  // regla 1 del sort (los saturados van ultimos), que se evalua antes que
+  // cualquier azar. Sigue siendo elegible -- el loop prueba a los saturados
+  // igual -, que es exactamente lo que se quiere: el caido primero, el vivo
+  // despues.
   store.registerUpstream({
     id: ups[0].id,
     modelId: 'con-respaldo',
@@ -1021,6 +1341,9 @@ test('un upstream caido se saltea y contesta el siguiente candidato', async (t) 
     local: true,
     maxConcurrentRequests: 1
   })
+  // El id de la FILA lleva prefijo: `registerUpstream` lo agrega y es con ese
+  // con el que el gateway cuenta los slots.
+  store.beginRequest('upstream:' + ups[1].id)
 
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
