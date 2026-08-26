@@ -376,6 +376,39 @@ export class Upstream {
             continue
           }
 
+          // B15 -- un 200 NO quiere decir que salio bien.
+          //
+          // El status llega con los headers, o sea antes de que el modelo
+          // genere un solo token. Todo lo que se rompe despues -- el proveedor
+          // de atras que se cae, la cuota que se agota a mitad, un filtro de
+          // contenido -- no puede viajar como status porque ya se mando: viaja
+          // como un objeto `error` adentro del cuerpo. OpenRouter lo hace, y
+          // aca no se miraba.
+          //
+          // Sin esto el error se descartaba como cualquier evento desconocido:
+          // el generador terminaba normal, el gateway lo leia como `ok: true`,
+          // cortaba el recorrido de candidatos SIN probar el siguiente, y el
+          // cliente recibia una respuesta exitosa y vacia. La falla mas cara de
+          // todas: la que se ve igual que funcionar.
+          //
+          // Se tira, que es lo que hace que el gateway lo trate como un
+          // candidato caido y siga con el que sigue. El detalle del proveedor
+          // va al log de ESTE proceso y no al cliente, igual que en la rama de
+          // los status: puede traer el nombre de la cuenta o el id interno.
+          if (ev.error) {
+            const detalle =
+              (ev.error && (ev.error.message || ev.error.code)) || JSON.stringify(ev.error)
+            console.error(
+              '[upstream:' + this.id + '] error EN EL STREAM: ' + String(detalle).slice(0, 300)
+            )
+            // El codigo se conserva en el mensaje porque el gateway lee un 429
+            // de ahi para tratarlo como saturacion en vez de como request roto.
+            const codigo = ev.error && ev.error.code
+            throw new Error(
+              'el proveedor externo corto la respuesta' + (codigo ? ' (' + codigo + ')' : '')
+            )
+          }
+
           // El usage viaja en el ultimo chunk cuando el proveedor lo manda.
           if (ev.usage) usage = ev.usage
 

@@ -344,6 +344,12 @@ let cortaModelo = null
 // reaccionar al rechazo.
 let cuotaAgotadaModelo = null
 
+// B15: abre con 200, manda un delta, y despues un objeto `error` EN EL CUERPO.
+// Es lo que hace un proveedor cuando se rompe algo despues de haber mandado los
+// headers -- el status ya viajo y no se puede corregir -, y es el modo normal
+// de fallar de OpenRouter cuando el proveedor de atras se cae a mitad.
+let errorEnStreamModelo = null
+
 // Un proveedor compatible con OpenAI en veinte lineas: dos deltas, un `usage`
 // con tokens que NO coinciden con los contados de este lado -- a proposito,
 // para probar que se liquida con los del proveedor -- y el [DONE].
@@ -381,6 +387,19 @@ function levantarProveedorFalso() {
           choices: [{ delta: { reasoning_content: 'primero pienso...', content: 'hola ' } }]
         })
         chunk({ choices: [{ delta: { content: 'desde afuera' } }] })
+        // B15: el error llega DESPUES de los headers y despues de algun token,
+        // que es el unico momento en que puede llegar por el cuerpo. El stream
+        // se cierra limpio -- con [DONE] y todo --, asi que nada mas que el
+        // objeto `error` distingue esto de una respuesta que salio bien.
+        if (
+          errorEnStreamModelo &&
+          ultimoPedidoExterno &&
+          ultimoPedidoExterno.model === errorEnStreamModelo
+        ) {
+          chunk({ error: { message: 'upstream provider is down', code: 502 } })
+          res.write('data: [DONE]\n\n')
+          return res.end()
+        }
         if (cortaModelo && ultimoPedidoExterno && ultimoPedidoExterno.model === cortaModelo) {
           return res.destroy()
         }
@@ -922,6 +941,154 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
   costs.olvidarPreciosExternos()
   gw.setUpstreams([])
   gw.setUpstreamOptIn(false)
+})
+
+// ---------------------------------------------------------------------------
+// B15 — un 200 no quiere decir que salio bien
+//
+// El status HTTP viaja con los headers, o sea antes de que el modelo genere un
+// solo token. Todo lo que se rompe DESPUES no puede corregirlo: viaja como un
+// objeto `error` adentro del cuerpo, con el stream cerrandose limpio, [DONE]
+// incluido. Es el modo normal de fallar de OpenRouter cuando el proveedor de
+// atras se cae a mitad.
+//
+// El parser miraba `usage` y `delta.content` y nada mas, asi que el error se
+// descartaba como cualquier evento desconocido. Eso daba la peor falla posible:
+// la que se ve identica a funcionar.
+// ---------------------------------------------------------------------------
+
+test('un error adentro de un stream 200 no se reporta como respuesta exitosa', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  errorEnStreamModelo = 'proveedor/roto-a-mitad'
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'roto',
+        label: 'Proveedor roto a mitad',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [
+          {
+            modelId: 'proveedor/roto-a-mitad',
+            maxTokens: 256,
+            pricePerMTok: { input: 1, output: 2 }
+          }
+        ]
+      }
+    ]
+  })
+  costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'proveedor/roto-a-mitad',
+    displayName: 'Roto a mitad',
+    operator: 'Proveedor roto a mitad (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'proveedor/roto-a-mitad', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  // Lo que pasaba antes: 200, `content: ""`, `finish_reason: "stop"`. Un
+  // cliente no tenia como distinguirlo de un modelo que decidio no decir nada.
+  t.not(r.status, 200, 'un error del proveedor no puede salir como respuesta valida')
+  t.is(r.status, 502, 'y es 502, porque el que fallo fue la maquina de un tercero')
+  t.absent(r.json && r.json.choices, 'no viaja un choices vacio con finish_reason stop')
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  const entrada = log.json.log[0]
+  t.is(entrada.ok, false, 'el fallo queda en el rastro y no como un request exitoso')
+
+  errorEnStreamModelo = null
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
+test('un error adentro del stream deja seguir con el candidato siguiente', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  errorEnStreamModelo = 'r'
+
+  // Dos puertas al mismo modelo. La primera se rompe a mitad del stream; la
+  // segunda contesta bien.
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'roto2',
+        label: 'Se rompe a mitad',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'r', as: 'con-respaldo-2' }]
+      },
+      {
+        id: 'sano',
+        label: 'Contesta bien',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 's', as: 'con-respaldo-2' }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'con-respaldo-2',
+    displayName: 'Roto',
+    operator: 'Se rompe a mitad',
+    local: true,
+    maxConcurrentRequests: 8
+  })
+  store.registerUpstream({
+    id: ups[1].id,
+    modelId: 'con-respaldo-2',
+    displayName: 'Sano',
+    operator: 'Contesta bien',
+    local: true,
+    maxConcurrentRequests: 1
+  })
+  // Mismo motivo que en el test del upstream caido: con la carga empatada el
+  // orden lo decide un `random()`. Ocupandole el unico slot al sano, el roto va
+  // primero de forma deterministica.
+  store.beginRequest('upstream:' + ups[1].id)
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'con-respaldo-2', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  // D4 permite el reintento acá: sin `stream: true` el contenido se junta y no
+  // sale hasta el final, asi que el cliente todavia no vio el pedazo del roto.
+  t.is(r.status, 200, 'el error del primero no es el error del request')
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Contesta bien', 'contesto el segundo')
+  t.is(
+    r.json.choices[0].message.content,
+    'hola desde afuera',
+    'y sin el pedazo que alcanzo a generar el que se rompio'
+  )
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  const e = log.json.log[0]
+  t.is(e.intentos.length, 2, 'los dos intentos quedan en el rastro')
+  t.is(e.intentos[0].ok, false, 'el primero fallo aunque el proveedor dijo 200')
+  t.is(e.intentos[1].ok, true)
+
+  errorEnStreamModelo = null
+  store.clearUpstreams()
+  gw.setUpstreams([])
 })
 
 test('un motor local detras de HTTP contesta sin credencial y sin opt-in', async (t) => {
