@@ -125,8 +125,8 @@ De ahí sale la Fase 6.5 y las decisiones D18 y D19.
 Este documento se escribió **antes** de ejecutar. Esta sección lo corrige: dice
 lo que hay en el árbol, no lo que estaba planeado. Sale de una auditoría del
 código del 2026-08-26, actualizada después del commit `e753e0a` "Nvidia Node" y
-después de cerrar la Fase 6.5 (suite en verde: 75 tests —55 unit + 20
-integración—, 311/311 asserts; sin CI).
+después de cerrar las Fases 6.5 y 8.5 (suite en verde: 76 tests —55 unit + 21
+integración—, 322/322 asserts; sin CI).
 
 **La regla que se rompió, y que esta sección repone:** la tabla de la sección 7
 pone 7 → 8 → 8.5, y se ejecutó 8.5 con la 7 sin empezar y la 8 a medias. Cada
@@ -140,7 +140,7 @@ medio*.
 | 6.6 Cuota gratuita | **Cerrada** | Nada. Es el módulo mejor cubierto del repo (`quota.mjs`, 59 referencias en la suite). No persiste, y eso está declarado |
 | 7 Desmockear `economic` | **NO EMPEZADA** | Todo. `_mock: 'NO IMPLEMENTADO'` sigue en [qvac/manifest.mjs:100](qvac/manifest.mjs#L100), la wallet es `0x000…0`, y WDK **no está en `package.json`** — sólo en el spike. **D13 sin implementar.** Bloquea 9, 10 y 11 |
 | 8 Precio que rutea | **Parcial — sustituida** | D6 (carga) cerrado. El **precio no participa del ruteo en ningún lado**: el orden de [qvac/routing.mjs:105](qvac/routing.mjs#L105) es saturado → mock → carga → errorRate → latencia. El chat no muestra el costo. El commit "fase 8" entregó el selector de máquina del chat, que es otra cosa |
-| 8.5 Asistente externo | **Construida, 1 DoD abierto** | La tesis se sostiene: el upstream entró como una fila del store y el resto funcionó solo. `e753e0a` cerró la línea del README —donde se acota la promesa de privacidad— y sumó 9 tests de integración contra un proveedor falso que cubren los cuatro puntos del DoD. Falta el interruptor del opt-in en el panel: hoy se prende con `curl`. Y quedan abiertos B3, B4 y B7 |
+| 8.5 Asistente externo | **CERRADA 2026-08-26** | La tesis se sostiene: el upstream entró como una fila del store y el resto funcionó solo. `e753e0a` cerró la línea del README y sumó 9 tests de integración contra un proveedor falso. B3, B4 y B7 arreglados, y el interruptor del opt-in está en `/node`, verificado en el navegador. Queda B5, que no es de esta fase |
 | 9–12, 11.5, Track V | No empezadas | 9 y 10 bloqueadas por 7 |
 
 ### Los bugs abiertos, y de qué fase es cada uno
@@ -153,11 +153,11 @@ método de esta sección — el resto del documento ya estaba bien.
 | --- | --- | --- | --- |
 | **B1** | **CERRADO 2026-08-26** — **El tope se resetea en cada reinicio.** La cuenta ES la API key ([gateway.mjs:877](qvac/gateway.mjs#L877)) y las keys viven sólo en memoria ([apikeys.mjs:15](qvac/apikeys.mjs#L15)). `budget.json` persiste `accounts[<id>]`, pero ese id no vuelve nunca: reiniciar el nodo es un tope nuevo, y el archivo acumula cuentas huérfanas que nadie va a reclamar | **6.5** | apikeys.mjs:15 |
 | **B2** | **CERRADO 2026-08-26** — **La liquidación depende de un campo del JSON del operador.** Sin `stream_options.include_usage` el proveedor no manda `usage`, y entonces se liquida con `promptTokens: 0` y con `completionTokens` = cantidad de **deltas SSE** ([gateway.mjs:1161](qvac/gateway.mjs#L1161)), que no son tokens. Sub-factura, en silencio, y el tope deja de cortar donde tiene que cortar. El test de `e753e0a` cubre el camino feliz —su proveedor falso **siempre** manda `usage`—, así que el modo de falla real sigue sin ejercitarse | **6.5** (lo ejerce 8.5) | gateway.mjs:1242 |
-| **B3** | **Sin timeout ni cancelación en el camino externo.** `completar()` acepta `signal` y el gateway no se lo pasa ([gateway.mjs:1148](qvac/gateway.mjs#L1148)); el `req.on('close')` existe sólo en la rama P2P ([gateway.mjs:670](qvac/gateway.mjs#L670)). Se cancela el camino que gasta GPU ajena y no el que gasta dólares propios | **8.5** | gateway.mjs:1148 |
+| **B3** | **CERRADO 2026-08-26** — **Sin timeout ni cancelación en el camino externo.** `completar()` acepta `signal` y el gateway no se lo pasa ([gateway.mjs:1148](qvac/gateway.mjs#L1148)); el `req.on('close')` existe sólo en la rama P2P ([gateway.mjs:670](qvac/gateway.mjs#L670)). Se cancela el camino que gasta GPU ajena y no el que gasta dólares propios | **8.5** | gateway.mjs:1148 |
 | **B4** | **CERRADO 2026-08-26** — `...extraBody` se esparce **después** de `max_tokens` y de `stream` ([upstream.mjs:131](qvac/upstream.mjs#L131)): una config puede pisar el único número que acota la reserva, o poner `stream:false` y romper el parser | **8.5** | upstream.mjs:130 |
-| **B5** | 3 reintentos con backoff sobre un POST sin clave de idempotencia. Es el Riesgo 10 de este mismo documento, que D20 difiere a la Fase 11 — pero **el reintento ya está en producción** | **11** (D20); acotar en 8.5 | upstream.mjs:115 |
+| **B5** | **ACOTADO, no cerrado.** 3 reintentos con backoff sobre un POST sin clave de idempotencia. Desde B3 un corte propio —cliente ido, timeout— ya no se reintenta, y el reintento solo ocurre antes de leer una sola respuesta. Queda el caso real: si la conexión se cae *después* de que el proveedor empezó a generar, `fetch` rechaza y se reintenta mientras el primer intento se sigue facturando. El arreglo de verdad es el `nonce` de D20 | **11** (D20) | upstream.mjs:115 |
 | **B6** | **CERRADO 2026-08-26** — `estimarPromptTokens = chars/3` se documenta como cota superior y no lo es: en CJK y en varios alfabetos no latinos la relación se acerca a 1 token por carácter | **6.5** | [gateway.mjs:466](qvac/gateway.mjs#L466) |
-| **B7** | `GET /v1/upstream` sin auth: expone proveedor, modelos, nombres de variables de entorno y si hay credencial | **8.5** | [gateway.mjs:1457](qvac/gateway.mjs#L1457) |
+| **B7** | **CERRADO 2026-08-26** — `GET /v1/upstream` sin auth: expone proveedor, modelos, nombres de variables de entorno y si hay credencial | **8.5** | [gateway.mjs:1457](qvac/gateway.mjs#L1457) |
 | **B8** | **576 LOC de RAG huérfanas**: `rag.mjs`, `embeddings.mjs` y `rag-corpus.mjs` no las importa nadie, 0 tests, 0 endpoints. Y son exactamente la superficie que D21 mide | fuera de fase — hay que decidir | qvac/rag\*.mjs |
 | **B9** | El instalador —único canal de distribución— baja el `.exe` de `releases/latest` **sin checksum ni firma** | fuera de fase | [installer/PyrusLLM.bat:36](installer/PyrusLLM.bat#L36) |
 | **B10** | Sin CI: 311 asserts que corren sólo si alguien se acuerda de correrlos. Y `prettier --check` falla en 7 archivos ya versionados, así que `npm run lint` no está limpio ni siquiera antes de tocar nada | fuera de fase | — |
@@ -169,14 +169,16 @@ método de esta sección — el resto del documento ya estaba bien.
    proceso; un `usage` ausente se liquida por la reserva y avisa; y la
    estimación del prompt cuenta bytes UTF-8. Los tres tienen test, y el de B1
    **reinicia el nodo en el medio**, que es lo que le faltaba al DoD original.
-2. **Fase 8.5 — cerrar el DoD.** B4 ya cayó junto con B2 (el cuerpo del pedido
-   lo arma el nodo y la config solo extiende). **Quedan B3, B7 y el opt-in en el
-   panel**; la línea del README la cerró `e753e0a`. Ya está construida: dejarla
-   a medias mientras se avanza es exactamente la deuda que esta sección existe
-   para no repetir.
+2. ~~**Fase 8.5 — cerrar el DoD**~~ **HECHO 2026-08-26.** B4 cayó junto con B2;
+   B3 le puso al camino externo la cancelación que el camino P2P ya tenía y dos
+   relojes configurables; B7 le puso credencial a la lectura del estado; y el
+   opt-in dejó de necesitar `curl`. B5 queda acotado y con dueño (D20 / Fase 11).
 3. **Fase 7** — la precondición que se salteó. Bloquea 9, 10 y 11.
 4. **Fase 8 — la mitad que falta**: el precio en el score y el costo en el chat.
 5. **Fase 9** en adelante, como estaba escrito.
+
+**Siguiente:** el punto 3, la Fase 7. Los dos primeros están hechos, así que ya
+no queda nada abierto detrás — que era la condición para poder abrir algo nuevo.
 
 La 8.5 va antes que la 7 y que la 8 **sólo porque ya está escrita y a medias**.
 Cerrar lo abierto antes de abrir lo siguiente es la regla; no es una promoción
@@ -941,7 +943,7 @@ excluir candidatos, y la Fase 6.5 ya sabe cortar.
   que este camino manda el prompt a un tercero — la promesa de privacidad se
   acota ahí, no en una nota al pie.
 
-#### Estado 2026-08-26: CONSTRUIDA, con un DoD abierto y tres bugs
+#### Estado 2026-08-26: CERRADA
 
 La tesis de la fase se sostuvo en la práctica, y vale dejarlo escrito porque era
 la apuesta: el upstream entró como **una fila más** del registro (`kind:
@@ -951,11 +953,12 @@ línea especial en el despacho**. Los cuatro puntos del DoD tienen test de
 integración contra un proveedor falso desde `e753e0a`, y la línea del README
 —que es donde se acota la promesa de privacidad— está escrita.
 
-**Falta del DoD:** el interruptor del opt-in en el panel. Hoy se prende con
-`POST /v1/upstream/opt-in` y `curl`. El caso que motivó el endpoint es "se saturó
-la red en medio de una demo", y en ese momento nadie abre una terminal.
+**El DoD está completo.** El interruptor del opt-in vive en `/node`, con los
+otros dos medidores, y se verificó en el navegador contra un nodo real con dos
+upstreams: renderiza sin errores de consola, el click pega en el endpoint, el
+server lo registra en su log y la tarjeta cambia de estado y de color.
 
-**Bugs de esta fase, que se cierran acá:**
+**Los bugs de esta fase, cerrados:**
 
 - **B3 — no hay timeout ni cancelación en el camino externo.** `completar()`
   acepta un `signal` y el gateway nunca se lo pasa
@@ -966,6 +969,14 @@ la red en medio de una demo", y en ese momento nadie abre una terminal.
   vale más todavía del otro lado: acá lo que sigue corriendo son dólares de la
   cuenta del operador. Y un proveedor que se cuelga sin cerrar el socket deja el
   request abierto y **la reserva comprometida para siempre**.
+  **Cerrado:** el gateway arma un `AbortController` y lo ata al cierre del
+  cliente; `completar()` suma dos relojes propios —60s al primer byte, 30s de
+  silencio entre tokens, los dos configurables— y un corte propio no se
+  reintenta. El test cuelga al proveedor y verifica las cuatro cosas que antes
+  quedaban colgadas con él: el request termina, la reserva se libera, el slot
+  del nodo se libera y no se cobra nada. De ahí salió una regla que faltaba: un
+  request que muere **sin un solo token** liquida cero, porque cobrar la cota
+  superior ahí sería cobrar un request que no ocurrió.
 - **B4 — `extraBody` puede pisar el tope de salida.** Se esparce después de
   `max_tokens` y de `stream` en el cuerpo del pedido
   ([qvac/upstream.mjs:130](qvac/upstream.mjs#L130)). El único número que acota la
@@ -975,12 +986,19 @@ la red en medio de una demo", y en ese momento nadie abre una terminal.
   ([qvac/gateway.mjs:1457](qvac/gateway.mjs#L1457)). El POST sí. La respuesta no
   lleva secretos, pero sí el proveedor, los modelos, los nombres de las
   variables de entorno y si hay credencial cargada.
+  **Cerrado:** la lectura pide credencial igual que el POST, y el test verifica
+  las dos mitades — que sin key da 401, y que con key el secreto sigue sin
+  aparecer en ningún lado de la respuesta.
 - **B5 — el reintento sin idempotencia ya está en producción.** Tres intentos
   con backoff sobre un POST de streaming
   ([qvac/upstream.mjs:115](qvac/upstream.mjs#L115)). Es el Riesgo 10 de este
   documento, cuya mitigación (el `nonce` de D20) está agendada para la Fase 11.
-  Acá alcanza con acotarlo: no reintentar después de que el proveedor haya
-  empezado a contar.
+  **Acotado, no cerrado.** Un corte propio —cliente ido, timeout— ya no se
+  reintenta, y el reintento solo ocurre antes de leer una sola respuesta. Queda
+  el caso real: si la conexión se cae *después* de que el proveedor empezó a
+  generar, `fetch` rechaza y se reintenta mientras el primer intento se sigue
+  facturando. Eso no se arregla con un `if`: se arregla con el `nonce` de D20, y
+  el dueño es la Fase 11.
 
 ---
 
