@@ -179,14 +179,17 @@ export function entradaAccepts({
   // sea que 1 micro-dolar ES una unidad minima; se calcula igual en vez de
   // asumirlo, porque `decimals` viene del activo y no todos los de la tabla de
   // x402 son de 6 (hay de 18).
-  const enteros = BigInt(Math.max(0, Math.ceil(Number(micros) || 0)))
-  const escala = BigInt(10) ** BigInt(Math.max(0, activo.decimals - 6))
-  const amount = (enteros * escala).toString()
+  const amount = montoEnUnidades(micros, activo)
 
   return {
     scheme: 'exact',
     network: activo.network,
-    maxAmountRequired: amount,
+    // `amount`, no `maxAmountRequired`. El segundo es el nombre de x402 v1 y es
+    // el que sale en media documentacion; el cliente de v2 lee `amount`
+    // (`createEIP3009Payload` en @x402/evm), asi que con el nombre viejo el
+    // cliente firma `BigInt(undefined)` y ni siquiera llega a mandarnos nada.
+    // Preguntado al paquete, no adivinado.
+    amount,
     resource: recurso,
     description: descripcion,
     mimeType: 'application/json',
@@ -225,4 +228,133 @@ export async function desafio({ payTo, micros, maxTokens, recurso, descripcion }
   }
   if (accepts.length === 0) return null
   return { x402Version: core.x402Version, error: 'X-PAYMENT header is required', accepts }
+}
+
+// -----------------------------------------------------------------------------
+// La verificación (D12)
+// -----------------------------------------------------------------------------
+
+// D12 decide: VERIFICAR sincrónico, servir, LIQUIDAR después. Esto es la
+// primera parte, y es la que protege al proveedor de gastar GPU gratis.
+//
+// No toca la cadena, y eso no es una optimización: meter una transacción
+// on-chain delante del primer token pondría su latencia delante del TTFT, que
+// es el número que el proyecto mide y publica. Lo que se verifica acá es que la
+// autorización esté BIEN FIRMADA y diga lo que tiene que decir. Que la wallet
+// tenga saldo se sabe al liquidar, y para eso está el facilitator.
+//
+// Lo que esto NO prueba, y hay que decirlo: que el pagador tenga fondos, y que
+// el nonce no se haya usado ya. Un firmante sin saldo pasa esta verificación y
+// falla al liquidar. Es exactamente el riesgo que D12 acepta a cambio del TTFT,
+// y por eso la Fase 10 (recibos en lote) existe.
+export async function verificarPago(cabecera, { payTo, activo, micros, red }) {
+  const no = (motivo) => ({ ok: false, motivo })
+
+  if (!cabecera) return no('falta el header X-PAYMENT')
+  if (!activo) return no('no hay activo para esa red')
+
+  let sobre
+  try {
+    sobre = JSON.parse(Buffer.from(String(cabecera), 'base64').toString('utf8'))
+  } catch {
+    return no('el X-PAYMENT no es base64 de un JSON')
+  }
+
+  const { core } = await cargar()
+  if (sobre.x402Version !== core.x402Version) {
+    return no(`version de x402 no soportada: ${sobre.x402Version}`)
+  }
+  if (sobre.scheme && sobre.scheme !== 'exact') return no(`esquema no soportado: ${sobre.scheme}`)
+  if (sobre.network && sobre.network !== activo.network) {
+    return no(`red equivocada: pago en ${sobre.network}, se pidio ${activo.network}`)
+  }
+
+  const a = sobre.payload && sobre.payload.authorization
+  const firma = sobre.payload && sobre.payload.signature
+  if (!a || !firma) return no('el payload no trae authorization y signature')
+
+  // A QUIEN. Se compara en minuscula porque las direcciones EVM viajan con
+  // checksum de mayusculas y dos formas del MISMO valor no pueden leerse como
+  // dos direcciones distintas.
+  if (String(a.to || '').toLowerCase() !== String(payTo).toLowerCase()) {
+    return no('la autorizacion paga a otra direccion')
+  }
+
+  // CUANTO. Mayor o igual: pagar de mas es del pagador, pagar de menos no.
+  let valor
+  try {
+    valor = BigInt(a.value)
+  } catch {
+    return no('el monto de la autorizacion no es un entero')
+  }
+  const requerido = BigInt(montoEnUnidades(micros, activo))
+  if (valor < requerido) {
+    return no(`el pago es de ${valor} y se pidieron ${requerido}`)
+  }
+
+  // CUANDO. Una autorizacion vencida no se acepta aunque este bien firmada, y
+  // una que todavia no empezó tampoco.
+  const ahora = BigInt(Math.floor(Date.now() / 1000))
+  try {
+    if (BigInt(a.validBefore) <= ahora) return no('la autorizacion ya vencio')
+    if (BigInt(a.validAfter) > ahora) return no('la autorizacion todavia no es valida')
+  } catch {
+    return no('validAfter/validBefore no son enteros')
+  }
+
+  // QUIEN FIRMO. Es lo unico que no se puede falsificar, y por eso es lo ultimo:
+  // si algo de arriba esta mal, no hace falta gastar un ecrecover.
+  const { evm } = await cargar()
+  const viem = await import('viem')
+  const chainId = Number(String(activo.network).split(':')[1])
+  let firmante
+  try {
+    firmante = await viem.recoverTypedDataAddress({
+      domain: {
+        name: activo.name,
+        version: activo.version,
+        chainId,
+        verifyingContract: activo.asset
+      },
+      types: evm.authorizationTypes,
+      primaryType: 'TransferWithAuthorization',
+      message: {
+        from: a.from,
+        to: a.to,
+        value: BigInt(a.value),
+        validAfter: BigInt(a.validAfter),
+        validBefore: BigInt(a.validBefore),
+        nonce: a.nonce
+      },
+      signature: firma
+    })
+  } catch (err) {
+    return no('no se pudo recuperar el firmante: ' + ((err && err.message) || err))
+  }
+
+  if (firmante.toLowerCase() !== String(a.from || '').toLowerCase()) {
+    return no('la firma no corresponde a quien dice pagar')
+  }
+
+  return {
+    ok: true,
+    payer: firmante,
+    // El nonce es la clave de idempotencia del pago (D20): el mismo nonce
+    // liquidado dos veces cobra una sola. Se devuelve para que quien sirve lo
+    // pueda registrar.
+    nonce: a.nonce,
+    valor: valor.toString(),
+    red,
+    autorizacion: a,
+    firma
+  }
+}
+
+// Micro-dolares -> unidades minimas del activo. Vive aparte porque lo usan el
+// que arma el 402 y el que lo verifica, y tienen que dar EXACTAMENTE lo mismo:
+// declarar un monto y verificar contra otro es rechazar pagos correctos.
+function montoEnUnidades(micros, activo) {
+  const enteros = BigInt(Math.max(0, Math.ceil(Number(micros) || 0)))
+  const escala = BigInt(10) ** BigInt(Math.max(0, activo.decimals - 6))
+  return (enteros * escala).toString()
 }

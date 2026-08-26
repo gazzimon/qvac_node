@@ -1367,7 +1367,7 @@ function estimarRequest({ node, maxTokens = 0, promptTokens = 0 }) {
 // Nunca de una constante: D10 decide que se le paga DIRECTO al proveedor, y si
 // el gateway pusiera su propia direccion seria el intermediario que el README
 // promete que no existe.
-async function desafioDePago({ node, maxTokensPedido, req }) {
+async function cobroDe({ node, maxTokensPedido, req }) {
   if (!node) return null
 
   const propio = node.kind !== 'peer'
@@ -1392,19 +1392,53 @@ async function desafioDePago({ node, maxTokensPedido, req }) {
   const proto = 'http'
   const host = req.headers.host || 'localhost'
   try {
-    return await x402.desafio({
+    const desafio = await x402.desafio({
       payTo,
       micros,
       maxTokens,
       recurso: `${proto}://${host}/v1/chat/completions`,
       descripcion: `Inferencia de ${node.modelId} en ${node.operator}, hasta ${maxTokens} tokens de salida`
     })
+    if (!desafio) return null
+    // Se devuelve TODO lo que hizo falta para armarlo, porque verificar tiene
+    // que usar exactamente los mismos numeros. Recalcularlos del otro lado es
+    // la forma mas facil de rechazar un pago correcto.
+    return { desafio, payTo, micros, maxTokens }
   } catch (err) {
     // Un 402 mal armado es peor que ninguno: el cliente firmaria una
     // autorizacion contra datos equivocados. Se avisa y se cae al 401.
     console.error(`[x402] no se pudo armar el 402: ${(err && err.message) || err}`)
     return null
   }
+}
+
+// Verifica el X-PAYMENT contra el cobro que se le ofrecio.
+//
+// El cliente elige UNA de las redes del `accepts[]`, asi que se prueba contra
+// la que dice el pago. Si no dice ninguna, se prueba contra la primera que se
+// ofrecio, que es la preferida de D15.
+async function verificarCobro(cobro, cabecera) {
+  let red = null
+  try {
+    const sobre = JSON.parse(Buffer.from(String(cabecera), 'base64').toString('utf8'))
+    const elegida = cobro.desafio.accepts.find((a) => a.network === sobre.network)
+    red = elegida ? redDe(elegida.network) : null
+  } catch {
+    // Un header ilegible lo rechaza `verificarPago` con su propio motivo.
+  }
+  if (!red) red = redDe(cobro.desafio.accepts[0].network)
+
+  return x402.verificarPago(cabecera, {
+    payTo: cobro.payTo,
+    activo: await x402.activoDe(red),
+    micros: cobro.micros,
+    red
+  })
+}
+
+function redDe(caip2) {
+  for (const [nombre, id] of Object.entries(x402.CAIP2)) if (id === caip2) return nombre
+  return null
 }
 
 async function handleChat(req, res) {
@@ -1554,17 +1588,39 @@ async function handleChat(req, res) {
   // que hablan del que se eligio primero.
   const node = eleccion.node
 
-  // FASE 9 — el 402, recien acá, porque antes no se sabia ni cuanto ni a quien.
+  // FASE 9 — el pago, recien acá, porque antes no se sabia ni cuanto ni a quien.
+  let pago = null
   if (sinCredencial) {
-    const respuesta = await desafioDePago({ node, maxTokensPedido: norm.maxTokens || 0, req })
-    if (respuesta) {
-      // 402 y no 401: no le falta credencial, le falta pagar. Son dos arreglos
-      // distintos del lado del cliente y merecen dos respuestas distintas.
-      return sendJson(res, 402, respuesta, provenanceHeaders(node, 0))
-    }
+    const cobro = await cobroDe({ node, maxTokensPedido: norm.maxTokens || 0, req })
+
     // Este nodo no puede cobrar -- sin wallet, o sin ninguna red usable -- asi
     // que el unico camino que queda es el de siempre: la key.
-    return sendError(res, 401, sinCredencial)
+    if (!cobro) return sendError(res, 401, sinCredencial)
+
+    const cabecera = req.headers['x-payment'] || req.headers['X-PAYMENT']
+    if (!cabecera) {
+      // 402 y no 401: no le falta credencial, le falta pagar. Son dos arreglos
+      // distintos del lado del cliente y merecen dos respuestas distintas.
+      return sendJson(res, 402, cobro.desafio, provenanceHeaders(node, 0))
+    }
+
+    // D12 — la verificacion es SINCRONICA y no toca la cadena. Es la parte que
+    // protege al proveedor de gastar GPU gratis, y va ANTES de generar un solo
+    // token: despues seria tarde, que es todo el punto.
+    pago = await verificarCobro(cobro, cabecera)
+    if (!pago.ok) {
+      // Se contesta 402 otra vez, con el desafio, y no 400: el cliente puede
+      // volver a firmar. Un 400 le diria "tu request esta mal" cuando lo que
+      // esta mal es el pago, y no le daria contra que volver a firmar.
+      console.error(`[x402] pago rechazado: ${pago.motivo}`)
+      return sendJson(
+        res,
+        402,
+        { ...cobro.desafio, error: pago.motivo },
+        provenanceHeaders(node, 0)
+      )
+    }
+    console.log(`[x402] pago verificado de ${pago.payer.slice(0, 10)}… por ${cobro.micros} micros`)
   }
   // El orden puntuado, no el de llegada: si el mejor falla antes del primer
   // token, D4 reintenta en el segundo MEJOR, no en el siguiente de la lista.

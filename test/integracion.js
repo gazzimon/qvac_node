@@ -27,6 +27,7 @@ function pedir(metodo, ruta, opts) {
       headers['Content-Length'] = Buffer.byteLength(payload)
     }
     if (o.key) headers.Authorization = 'Bearer ' + o.key
+    Object.assign(headers, o.headers || {})
 
     const req = http.request(BASE + ruta, { method: metodo, headers }, (res) => {
       let data = ''
@@ -1882,7 +1883,11 @@ test('sin credencial y con wallet, el nodo pide pago en vez de negar acceso', as
   // Los cuatro datos que el DoD pide que el 402 diga.
   t.is(a.payTo, direccion, 'A QUIEN: la wallet de quien va a contestar (D10)')
   t.is(a.network, 'eip155:988', 'EN QUE CADENA: Stable, la unica usable sin verificar Plasma')
-  t.is(a.maxAmountRequired, '1000', 'CUANTO: el minimo de USD 0,001 en unidades de USDT0')
+  // `amount` y no `maxAmountRequired`: el segundo es el nombre de x402 v1 y es
+  // el que sale en media documentacion, pero el cliente de v2 lee `amount`. Con
+  // el nombre viejo el cliente firma BigInt(undefined) y ni llega a mandar nada.
+  t.is(a.amount, '1000', 'CUANTO: el minimo de USD 0,001 en unidades de USDT0')
+  t.absent(a.maxAmountRequired, 'y no se manda el nombre v1, que nadie lee')
   t.ok(a.outputTokenLimit > 0, 'HASTA CUANTOS TOKENS: ' + a.outputTokenLimit + ' (D9)')
 
   t.is(a.scheme, 'exact', 'D9(a): esquema exact')
@@ -1932,6 +1937,121 @@ test('el 402 no promete una red cuyo contrato no verifico nadie', async (t) => {
   )
 
   delete env[x402.VAR_PLASMA_OK]
+  gw.setEconomic(null)
+})
+
+// ---------------------------------------------------------------------------
+// FASE 9 — pagar de verdad: firmar el X-PAYMENT y recibir tokens
+//
+// El cliente es el de x402 (`ExactEvmScheme`) firmando con una wallet WDK real.
+// Lo unico que NO se ejercita es la cadena: D12 decide que la verificacion es
+// sincronica y NO la toca -- se comprueba que la autorizacion este bien firmada
+// y diga lo que tiene que decir. Que haya saldo se sabe al liquidar.
+//
+// Esa es exactamente la propiedad que hace que este test valga sin fondear
+// nada: la mitad que protege al proveedor de gastar GPU gratis es offline.
+// ---------------------------------------------------------------------------
+
+// Un pagador: wallet WDK de prueba, publica y conocida, que nunca se fondea.
+async function pagador() {
+  const wdk = await import('@tetherto/wdk-wallet-evm')
+  const WM = wdk.default || wdk
+  const cuenta = await new WM('test test test test test test test test test test test junk', {
+    provider: 'http://127.0.0.1:1/no-existe'
+  }).getAccount()
+  return {
+    address: await cuenta.getAddress(),
+    signTypedData: (args) => cuenta.signTypedData(args)
+  }
+}
+
+// Firma el `accepts[0]` de un 402 y devuelve el header X-PAYMENT.
+async function firmarPago(desafio, { pisar = {} } = {}) {
+  const x402 = await import('../qvac/x402.mjs')
+  const { evm } = await x402.cargar()
+  const signer = await pagador()
+  const req = desafio.accepts[0]
+  const esquema = new evm.ExactEvmScheme(signer)
+  const p = await esquema.createPaymentPayload(desafio.x402Version, { ...req, ...pisar })
+  const sobre = {
+    x402Version: p.x402Version,
+    scheme: 'exact',
+    network: pisar.network || req.network,
+    payload: p.payload
+  }
+  return Buffer.from(JSON.stringify(sobre), 'utf8').toString('base64')
+}
+
+test('con el X-PAYMENT firmado, el desconocido recibe tokens', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+
+  const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+
+  const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
+  t.is(desafio.status, 402)
+
+  const pago = await firmarPago(desafio.json)
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+
+  t.is(r.status, 200, 'pago verificado -> se sirve, sin API key de por medio')
+  t.ok(r.json.choices[0].message.content.length > 0, 'y contesta algo')
+
+  gw.setEconomic(null)
+})
+
+test('un X-PAYMENT manoseado no compra nada', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+
+  const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  const desafio = (await pedir('POST', '/v1/chat/completions', { body: cuerpo })).json
+
+  // 1. Firmado por menos de lo que se pidio.
+  const barato = await firmarPago(desafio, { pisar: { amount: '1' } })
+  const r1 = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': barato }
+  })
+  t.is(r1.status, 402, 'pagar de menos no alcanza')
+  t.ok(String(r1.json.error).includes('se pidieron'), r1.json.error)
+
+  // 2. Firmado a OTRA direccion. Es el ataque que importa: quien reenvia el 402
+  //    de otro nodo con su propia wallet adentro se estaria cobrando el trabajo
+  //    ajeno -- del lado del pagador, mandar la plata a otro lado.
+  const aOtro = await firmarPago(desafio, { pisar: { payTo: '0x' + 'cd'.repeat(20) } })
+  const r2 = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': aOtro }
+  })
+  t.is(r2.status, 402, 'una autorizacion a otra direccion no paga a esta')
+  t.ok(String(r2.json.error).includes('otra direccion'), r2.json.error)
+
+  // 3. La firma cambiada: el monto de la autorizacion se edita DESPUES de
+  //    firmar. Es lo unico que no se puede falsificar, y es el corazon de D12.
+  const bueno = await firmarPago(desafio)
+  const sobre = JSON.parse(Buffer.from(bueno, 'base64').toString('utf8'))
+  sobre.payload.authorization.value = '999999999'
+  const editado = Buffer.from(JSON.stringify(sobre), 'utf8').toString('base64')
+  const r3 = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': editado }
+  })
+  t.is(r3.status, 402, 'editar la autorizacion despues de firmar la invalida')
+  t.ok(String(r3.json.error).includes('firma no corresponde'), r3.json.error)
+
+  // 4. Basura.
+  const r4 = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': 'no-es-base64-de-nada' }
+  })
+  t.is(r4.status, 402)
+
   gw.setEconomic(null)
 })
 
