@@ -109,6 +109,23 @@ const STYLE = `
     font-size: .82rem; color: #a9b4cc; padding: .35rem 0; border-top: 1px solid #262b36;
   }
   .econ-row code { color: #8b93a7; }
+
+  /* El interruptor del asistente externo (Fase 8.5). Ambar como el badge del
+     upstream: el mismo color en el panel, en la lista de nodos y en la linea de
+     procedencia del chat, para que "esto sale de la red" se aprenda una vez. */
+  .up-switch {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    border: 1px solid #262b36; border-radius: 10px; padding: .9rem 1rem; margin-top: 1rem;
+  }
+  .up-switch button { margin: 0; white-space: nowrap; }
+  .up-switch.on { border-color: #3a2a10; background: #1a1509; }
+  .up-fila {
+    display: flex; justify-content: space-between; gap: 1rem;
+    padding: .45rem 0; border-bottom: 1px solid #1b1f27; font-size: .9rem;
+  }
+  .up-fila:last-child { border-bottom: 0; }
+  .up-fila .off { color: #f87171; }
+  .up-fila .ok { color: #fbbf24; }
   .badge {
     font-size: .7rem; padding: .1rem .5rem; border-radius: 999px; font-weight: 600;
   }
@@ -1063,8 +1080,10 @@ export const NODE_HTML = page(
     <button id="new-key">New key</button>
     <button class="danger" id="revoke-all">Revoke all</button>
     <p class="hint" style="margin:.8rem 0 0">One key per client, so you can cut off a single
-      bot without touching the rest. Revoking takes effect immediately, and keys live in this
-      process&rsquo;s memory &mdash; restarting the node revokes every one of them anyway.</p>
+      bot without touching the rest. Revoking takes effect immediately. Keys are stored on
+      this machine and <b>survive a restart</b> &mdash; they have to: the spend cap is counted
+      per key, so a registry that reset with the process would be a cap you could clear by
+      restarting the node.</p>
   </div>
 
   <div class="card" style="cursor:default; margin-top:1.5rem">
@@ -1103,6 +1122,27 @@ export const NODE_HTML = page(
         <p class="hint" id="b-detail">&mdash;</p>
       </div>
     </div>
+  </div>
+
+  <div class="card" style="cursor:default; margin-top:1.5rem" id="up-card">
+    <h3>External assistant</h3>
+    <p class="sub">The one path where a prompt leaves the P2P network and goes to a company&rsquo;s
+      API, which sees it, may log it, and bills it. Off by default.</p>
+
+    <div id="up-estado"></div>
+
+    <div class="up-switch" id="up-switch" style="display:none">
+      <div>
+        <b id="up-titulo">Sending prompts to a third party</b>
+        <p class="hint" id="up-detalle" style="margin:.25rem 0 0">&mdash;</p>
+      </div>
+      <button id="up-toggle">&mdash;</button>
+    </div>
+
+    <p class="hint" id="up-nota" style="margin:.9rem 0 0">Even switched on, the external
+      assistant only competes when nobody local or on the network has capacity, and never when
+      the request asks to stay on this machine. Turning it on here does not write the config
+      file: on restart it goes back to whatever <code>upstreams.json</code> says.</p>
   </div>
 
   <div id="model-modal"></div>
@@ -1651,9 +1691,81 @@ ${CONNECT_JS}
       } catch (e) { /* el poll siguiente reintenta */ }
     }
 
+    // -------------------------------------------------------------------
+    // El asistente externo y su interruptor (Fase 8.5).
+    //
+    // El endpoint para prenderlo existia desde el principio y solo se podia
+    // usar con curl. El caso que lo motivo es "se saturo la red en medio de una
+    // demo", y en ese momento nadie abre una terminal.
+    //
+    // El boton dice lo que va a PASAR, no el estado en el que esta: "Turn on"
+    // cuando esta apagado. Un boton que dice "On" y ademas esta prendido no se
+    // sabe si es un estado o una accion, y este en particular decide si el
+    // prompt de alguien sale de la maquina.
+    // -------------------------------------------------------------------
+    async function refrescarUpstream() {
+      try {
+        const r = await authFetch('/v1/upstream')
+        if (!r.ok) return
+        const u = await r.json()
+
+        const card = document.getElementById('up-card')
+        const sw = document.getElementById('up-switch')
+        const estado = document.getElementById('up-estado')
+
+        // Sin ningun upstream configurado, el interruptor no tiene nada que
+        // prender: se explica como se configura y no se ofrece un boton que no
+        // haria nada.
+        if (!u.upstreams.length) {
+          sw.style.display = 'none'
+          estado.innerHTML = '<p class="hint">No external assistant is configured. ' +
+            'Copy <code>upstreams.example.json</code> to your storage directory as ' +
+            '<code>upstreams.json</code> and restart the node.</p>'
+          return
+        }
+
+        estado.innerHTML = u.upstreams.map(function (m) {
+          // La credencial es lo unico que puede faltar y verse igual que todo
+          // lo demas: el modelo aparece en la lista, con nombre y precio, y no
+          // contesta nunca. Se dice cual variable de entorno falta, no "error".
+          var cred = m.credencial
+            ? '<span class="ok">ready</span>'
+            : '<span class="off">no credential &mdash; set ' + esc(m.apiKeyEnv) + '</span>'
+          return '<div class="up-fila"><span>' + esc(m.displayName) + ' <code>' +
+            esc(m.label) + '</code></span>' + cred + '</div>'
+        }).join('')
+
+        sw.style.display = 'flex'
+        sw.className = 'up-switch' + (u.optIn ? ' on' : '')
+        document.getElementById('up-detalle').textContent = u.optIn
+          ? 'On. With the network at capacity, a prompt can leave this machine.'
+          : 'Off. No prompt leaves this machine, whatever the load.'
+        var boton = document.getElementById('up-toggle')
+        boton.textContent = u.optIn ? 'Turn off' : 'Turn on'
+        boton.className = u.optIn ? 'danger' : ''
+        boton.dataset.next = u.optIn ? 'false' : 'true'
+      } catch (e) { /* el poll siguiente reintenta */ }
+    }
+
+    document.getElementById('up-toggle').addEventListener('click', async function (ev) {
+      const boton = ev.currentTarget
+      const encender = boton.dataset.next === 'true'
+      boton.disabled = true
+      try {
+        await authFetch('/v1/upstream/opt-in', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: encender })
+        })
+      } catch (e) { /* el refresco de abajo muestra el estado que quedo */ }
+      boton.disabled = false
+      refrescarUpstream()
+    })
+
     function refrescarEconomia() {
       refrescarCuota()
       refrescarGasto()
+      refrescarUpstream()
     }
 
     cargarKeys()
