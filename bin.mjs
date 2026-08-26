@@ -294,6 +294,23 @@ async function readStdin() {
 // pyrusllm serve
 // ---------------------------------------------------------------------------
 
+// Carga el `.env` del directorio de trabajo y el del storage, en ese orden.
+// El primero que defina una variable gana, y una variable YA presente en el
+// entorno le gana a los dos: ver la nota de qvac/dotenv.mjs.
+//
+// Se dice que se cargo, con los NOMBRES y nunca los valores. Sin ese aviso,
+// "el .env no se leyo" y "el .env se leyo pero la variable se llama distinto"
+// se ven exactamente igual desde afuera -- que es como se perdio una tarde.
+async function cargarEnv() {
+  const dotenv = await import('./qvac/dotenv.mjs')
+  const vistos = []
+  for (const dir of [process.cwd(), swarmStorageDir()]) {
+    const { cargadas } = await dotenv.cargar(dir)
+    for (const nombre of cargadas) if (!vistos.includes(nombre)) vistos.push(nombre)
+  }
+  if (vistos.length) console.log(`  [env] .env: ${vistos.join(', ')}`)
+}
+
 // Lee `<storage>/upstreams.json` y convierte cada modelo externo en una fila
 // del registro. Es TODO el cableado de la Fase 8.5 del lado del arranque: a
 // partir de aca /v1/models lo lista, el chat lo ofrece y el ruteo lo puntua.
@@ -415,6 +432,16 @@ async function startGateway(opts = {}) {
   const demo = opts.demo === true
   const useSwarm = opts.swarm === true
   const withStore = opts.store !== false
+
+  // El `.env` va PRIMERO de todo: las credenciales de los upstreams se leen
+  // del entorno, y cargarlo despues de registrarlos dejaria los upstreams
+  // apagados por una variable que estaba ahi todo el tiempo.
+  //
+  // Se busca en el directorio de trabajo y no en el de storage: un `.env` es
+  // del proyecto que se esta corriendo, y el que lo escribe lo pone al lado de
+  // donde ejecuta. Tambien en el storage, para el binario instalado, que no
+  // tiene un "al lado" obvio.
+  await cargarEnv()
 
   // FASE 6.5 — el ledger de consumo se abre ANTES del gateway. Si se abriera
   // despues, los primeros requests correrian sin contador: pocos, pero

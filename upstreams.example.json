@@ -48,7 +48,7 @@
           "tags": ["upstream", "agentic", "fast"],
           "maxConcurrent": 4,
           "maxTokens": 1024,
-          "timeoutPrimerChunkMs": 60000,
+          "timeoutPrimerChunkMs": 180000,
           "timeoutIdleMs": 30000,
           "_timeouts": [
             "Los dos relojes que impiden que un request al externo quede abierto",
@@ -117,6 +117,24 @@
             "",
             "Si algun dia se quiere el razonamiento, se prende A PROPOSITO y con un",
             "max_tokens acorde -- no por default."
+          ],
+          "_timeoutPrimerChunkMs": [
+            "MEDIDO el 2026-08-26 con curl, sin este nodo en el medio:",
+            "",
+            "  integrate.api.nvidia.com  -> 58s al primer byte",
+            "  openrouter (:free)        -> 10s al primer byte, 50s total",
+            "",
+            "El default del codigo son 60s, o sea DOS SEGUNDOS de margen contra lo",
+            "medido: los requests iban a empezar a cortarse solos. 180s da aire.",
+            "",
+            "Ojo con el numero de 430ms que figura mas arriba, del 2026-08-25: no",
+            "reproduce. El propio archivo lo avisaba -- 'son numeros de una cuenta y un",
+            "dia' -- y se cumplio en menos de 24 horas. Un tier gratis es una COLA, y",
+            "cuanto se espera en ella no lo decide uno.",
+            "",
+            "Esto es lo que hace que el externo NO sirva hoy para un chat interactivo,",
+            "y lo que vuelve mas urgente el motor local: 18 GB de RAM contra 58s de",
+            "espera es un intercambio que se hace solo."
           ]
         }
       ],
@@ -157,9 +175,9 @@
       ],
       "models": [
         {
-          "modelId": "nvidia/nemotron-3.5-lightning",
+          "modelId": "nvidia/nemotron-3.5-lightning:free",
           "as": "nemotron-3.5-lightning",
-          "displayName": "Nemotron 3.5 Lightning",
+          "displayName": "Nemotron 3.5 Lightning (free)",
           "tags": ["upstream", "agentic", "fast"],
           "maxConcurrent": 4,
           "maxTokens": 1024,
@@ -168,20 +186,68 @@
             "output": 0.2
           },
           "_pricePerMTok": [
-            "Del catalogo publico de OpenRouter el 2026-08-26: prompt",
-            "0.00000008 y completion 0.0000002 POR TOKEN, que son 0.08 y 0.20",
-            "por millon. Verificar de nuevo antes de confiar en el tope:",
-            "OpenRouter cambia precios sin avisar."
-          ],
-          "_variantesGratis": [
-            "Existe nvidia/nemotron-3.5-lightning:free, a costo cero y con 1M de",
-            "contexto, limitado por REQUESTS y no por tokens (del orden de 20 por",
-            "minuto y 200 por dia).",
+            "MEDIDO contra la cuenta, no elegido: el modelo de pago devuelve HTTP",
+            "402 'Insufficient credits' si la cuenta nunca compro creditos. La",
+            "variante :free contesta igual, con otro limite.",
             "",
-            "Ojo con eso: budget.mjs cuenta DOLARES y no ve un limite medido en",
-            "requests. Para el, un :free es gratis y por lo tanto ilimitado, que",
-            "es exactamente lo que no es. Es el mismo agujero que con los",
-            "creditos del trial de NVIDIA."
+            "El precio de abajo es NOMINAL: la variante :free no cobra nada. Son los",
+            "0.08 / 0.20 por millon que cobra el modelo de pago segun el catalogo",
+            "publico de OpenRouter el 2026-08-26.",
+            "",
+            "Declararlo igual NO es un capricho. Un upstream sin precio se registra",
+            "offline a proposito: costs.estimar() daria cero, la reserva no apartaria",
+            "nada y el tope dejaria de cortar. Con el precio nominal el ledger mide",
+            "lo que ESTO HABRIA COSTADO, que es el numero con el que se decide si",
+            "conviene, y el tope sigue protegiendo de un loop desbocado.",
+            "",
+            "Lo que el ledger NO ve es el limite real del tier gratis, que se cuenta",
+            "en REQUESTS por dia (~20/min, ~200/dia) y no en dolares. Contra eso lo",
+            "unico que hay hoy es la reaccion: un 429 se lee como saturacion y el",
+            "ruteo pasa al siguiente candidato."
+          ],
+          "extraBody": {
+            "reasoning": {
+              "effort": "none"
+            }
+          },
+          "_extraBody": [
+            "Apagar el razonamiento, que es lo MISMO que hace enable_thinking:false",
+            "en la entrada de NVIDIA -- pero por el campo de OpenRouter, porque",
+            "chat_template_kwargs NO se le reenvia al proveedor de atras.",
+            "",
+            "MEDIDO el 2026-08-26, con 'Responde solo: hola' y max_tokens 16:",
+            "",
+            "  sin nada                        -> \"Here's a thinking process: 1.\"",
+            "  chat_template_kwargs (el de NIM)-> \"The user wants me\"",
+            "  reasoning.effort = none         -> contesta",
+            "",
+            "Las dos primeras se comen el max_tokens entero razonando y nunca llegan",
+            "a la respuesta. Y el razonamiento sale por `content`, no por",
+            "`reasoning_content`, asi que el filtro que descarta el pensamiento del",
+            "modelo no lo atrapa: llega al chat y delata al proveedor de atras.",
+            "",
+            "reasoning.exclude=true NO alcanza: deja al modelo razonar y solo oculta",
+            "la salida, o sea se sigue pagando -- y en un tier gratis, gastando la",
+            "cuota del dia -- por tokens que nadie va a leer."
+          ],
+          "timeoutPrimerChunkMs": 180000,
+          "_timeoutPrimerChunkMs": [
+            "MEDIDO el 2026-08-26 con curl, sin este nodo en el medio:",
+            "",
+            "  integrate.api.nvidia.com  -> 58s al primer byte",
+            "  openrouter (:free)        -> 10s al primer byte, 50s total",
+            "",
+            "El default del codigo son 60s, o sea DOS SEGUNDOS de margen contra lo",
+            "medido: los requests iban a empezar a cortarse solos. 180s da aire.",
+            "",
+            "Ojo con el numero de 430ms que figura mas arriba, del 2026-08-25: no",
+            "reproduce. El propio archivo lo avisaba -- 'son numeros de una cuenta y un",
+            "dia' -- y se cumplio en menos de 24 horas. Un tier gratis es una COLA, y",
+            "cuanto se espera en ella no lo decide uno.",
+            "",
+            "Esto es lo que hace que el externo NO sirva hoy para un chat interactivo,",
+            "y lo que vuelve mas urgente el motor local: 18 GB de RAM contra 58s de",
+            "espera es un intercambio que se hace solo."
           ]
         }
       ]

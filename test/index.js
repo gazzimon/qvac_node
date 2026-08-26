@@ -1636,3 +1636,89 @@ test('una fila de upstream local se marca como local en el registro', async (t) 
   store.clearUpstreams()
   store.seed()
 })
+
+// ---------------------------------------------------------------------------
+// El .env
+//
+// La config de upstreams guarda el NOMBRE de la variable, nunca el secreto. Eso
+// deja la credencial afuera del repo, pero le deja al operador el problema de
+// ponerla en el entorno -- y `bare-env` no lee ningun archivo, es un proxy
+// sobre el entorno del sistema operativo. De ahi este parser.
+// ---------------------------------------------------------------------------
+
+test('el .env tolera lo que la gente escribe de verdad', async (t) => {
+  const { parsear } = await import('../qvac/dotenv.mjs')
+
+  const v = parsear(
+    [
+      '# un comentario',
+      '',
+      'SIMPLE=valor',
+      // Con espacios alrededor del `=`. Asi estaba escrito el .env que motivo
+      // todo esto: un parser estricto habria creado una variable llamada
+      // "CON_ESPACIOS " que no coincide con ninguna que se busque.
+      'CON_ESPACIOS = otro-valor',
+      // Lo que sale de copiar una linea de la documentacion.
+      'export EXPORTADA=tercero',
+      'COMILLAS="entre comillas"',
+      "SIMPLES='tambien'",
+      'VACIA=',
+      'basura sin igual'
+    ].join('\n')
+  )
+
+  t.is(v.SIMPLE, 'valor')
+  t.is(v.CON_ESPACIOS, 'otro-valor', 'el nombre se recorta: si no, no coincide con nada')
+  t.is(v.EXPORTADA, 'tercero')
+  t.is(v.COMILLAS, 'entre comillas', 'las comillas delimitan, no son parte del valor')
+  t.is(v.SIMPLES, 'tambien')
+  t.is(v.VACIA, '')
+  t.absent('basura' in v, 'una linea sin `=` no define nada')
+})
+
+test('una comilla suelta es parte del valor, no un delimitador', async (t) => {
+  const { parsear } = await import('../qvac/dotenv.mjs')
+
+  const v = parsear(['ABIERTA="sin cerrar', 'RARA=xy"z'].join('\n'))
+  t.is(v.ABIERTA, '"sin cerrar', 'solo se sacan si abren Y cierran')
+  t.is(v.RARA, 'xy"z', 'una credencial puede tener cualquier cosa adentro')
+})
+
+test('el .env NO pisa una variable que ya esta en el entorno', async (t) => {
+  const { cargar } = await import('../qvac/dotenv.mjs')
+  const env = (await import('bare-env')).default
+  const fs = await import('bare-fs')
+  const os = await import('bare-os')
+  const path = await import('bare-path')
+
+  const dir = path.default.join(os.default.tmpdir(), 'pyrus-test-env-' + Date.now())
+  fs.default.mkdirSync(dir, { recursive: true })
+  fs.default.writeFileSync(
+    path.default.join(dir, '.env'),
+    'PYRUS_YA_ESTABA=del-archivo\nPYRUS_NUEVA=del-archivo\n'
+  )
+
+  env.PYRUS_YA_ESTABA = 'del-entorno'
+  delete env.PYRUS_NUEVA
+
+  const r = await cargar(dir)
+
+  // Un .env es el default del proyecto, no una orden: quien exporta algo a
+  // mano -- en su terminal, en un CI, en un systemd unit -- esta diciendo algo
+  // mas especifico, y eso gana.
+  t.is(env.PYRUS_YA_ESTABA, 'del-entorno', 'lo que ya estaba no se toca')
+  t.is(env.PYRUS_NUEVA, 'del-archivo', 'lo que faltaba se carga')
+  t.alike(r.cargadas, ['PYRUS_NUEVA'])
+  t.alike(r.yaEstaban, ['PYRUS_YA_ESTABA'], 'y se sabe cual se respeto')
+
+  fs.default.rmSync(dir, { recursive: true, force: true })
+})
+
+test('sin .env no pasa nada: es el caso normal', async (t) => {
+  const { cargar } = await import('../qvac/dotenv.mjs')
+  const os = await import('bare-os')
+  const path = await import('bare-path')
+
+  const r = await cargar(path.default.join(os.default.tmpdir(), 'pyrus-no-existe-' + Date.now()))
+  t.alike(r.cargadas, [], 'la mayoria de los nodos no habla con ninguna API externa')
+})
