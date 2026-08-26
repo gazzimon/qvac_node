@@ -1843,6 +1843,98 @@ test('un 429 del proveedor se trata como saturacion, no como error del request',
   gw.setUpstreams([])
 })
 
+// ---------------------------------------------------------------------------
+// FASE 9 — el 402 en el borde (D8, D9, D10, D16)
+//
+// D16 decide tres caminos que no se pisan: `local: true` gratis, una API key
+// del panel, y -- para el desconocido -- 402. El tercero es la fase: es lo que
+// permite que un agente consuma sin registrarse en nada.
+//
+// El 402 se arma DESPUES de elegir candidato, porque tiene que decir cuanto y a
+// quien, y las dos cosas dependen de quien vaya a contestar.
+// ---------------------------------------------------------------------------
+
+test('sin credencial y con wallet, el nodo pide pago en vez de negar acceso', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  // Antes de tener wallet, un request sin key es 401: no hay a quien pagarle,
+  // asi que el unico camino que queda es la credencial.
+  gw.setEconomic(null)
+  const sinWallet = await pedir('POST', '/v1/chat/completions', {
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(sinWallet.status, 401, 'sin wallet no se puede cobrar: sigue siendo 401')
+
+  // Con wallet, el mismo request es un 402.
+  const direccion = '0x' + 'ab'.repeat(20)
+  gw.setEconomic(wallet.economicDe(direccion))
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 402, 'no le falta credencial: le falta pagar, y son cosas distintas')
+  t.is(r.json.x402Version, 2)
+  t.ok(Array.isArray(r.json.accepts) && r.json.accepts.length > 0, 'trae al menos una opcion')
+
+  const a = r.json.accepts[0]
+  // Los cuatro datos que el DoD pide que el 402 diga.
+  t.is(a.payTo, direccion, 'A QUIEN: la wallet de quien va a contestar (D10)')
+  t.is(a.network, 'eip155:988', 'EN QUE CADENA: Stable, la unica usable sin verificar Plasma')
+  t.is(a.maxAmountRequired, '1000', 'CUANTO: el minimo de USD 0,001 en unidades de USDT0')
+  t.ok(a.outputTokenLimit > 0, 'HASTA CUANTOS TOKENS: ' + a.outputTokenLimit + ' (D9)')
+
+  t.is(a.scheme, 'exact', 'D9(a): esquema exact')
+  t.ok(a.resource.includes('/v1/chat/completions'), 'y sobre que recurso')
+  t.ok(a.extra && a.extra.name, 'con el dominio EIP-712 que el cliente necesita para firmar')
+
+  // La key sigue funcionando: el 402 CONVIVE, no reemplaza (D16).
+  const conKey = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(conKey.status, 200, 'quien ya tiene key no se entera de nada de esto')
+
+  gw.setEconomic(null)
+})
+
+test('el 402 no promete una red cuyo contrato no verifico nadie', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+
+  gw.setEconomic(wallet.economicDe('0x' + 'cd'.repeat(20)))
+
+  // D15 puso Plasma de default, pero x402 no la trae y su direccion de contrato
+  // la declaramos nosotros, sin verificar. Sin la confirmacion explicita del
+  // operador NO se ofrece: el cliente firmaria una autorizacion contra un
+  // contrato que nadie miro.
+  delete env[x402.VAR_PLASMA_OK]
+  const sinPlasma = await pedir('POST', '/v1/chat/completions', {
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.alike(
+    sinPlasma.json.accepts.map((a) => a.network),
+    ['eip155:988'],
+    'solo Stable, que es la que x402 conoce de fabrica'
+  )
+
+  env[x402.VAR_PLASMA_OK] = '1'
+  const conPlasma = await pedir('POST', '/v1/chat/completions', {
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.alike(
+    conPlasma.json.accepts.map((a) => a.network),
+    ['eip155:9745', 'eip155:988'],
+    'con la confirmacion entra, y va primera como dice D15'
+  )
+
+  delete env[x402.VAR_PLASMA_OK]
+  gw.setEconomic(null)
+})
+
 test('cierra el proveedor externo de prueba', async (t) => {
   if (servidorExterno) servidorExterno.close()
   t.pass('apagado')

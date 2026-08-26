@@ -304,13 +304,30 @@ test('la seed de la wallet no queda en claro, y la passphrase equivocada no abre
   // guardar la direccion dejaria que alguien sin la passphrase leyera igual a
   // donde cobra este nodo, y eso solo lo tiene que decir el manifiesto firmado.
   const crudo = fs.default.readFileSync(path.default.join(tmp.dir, 'wallet.json'), 'utf8')
-  for (const palabra of creada.frase.split(' ')) {
-    t.absent(
-      crudo.includes(palabra),
-      'la palabra "' + palabra + '" no esta en claro en el keystore'
-    )
-  }
+  const palabras = creada.frase.split(' ')
+
+  t.absent(crudo.includes(creada.frase), 'la frase entera no esta en el archivo')
   t.absent(crudo.includes(creada.address), 'la direccion tampoco se guarda')
+
+  // Las palabras se buscan en los BYTES del cifrado, no en el texto hex del
+  // archivo, y la diferencia no es cosmetica: la primera version buscaba cada
+  // palabra dentro del hex, y OCHO palabras de BIP-39 son enteramente
+  // hexadecimales -- add, beef, dad, decade, face, fade, fee, feed --, asi que
+  // aparecian por coincidencia. El test fallaba ~1 de cada 3 corridas
+  // comprobando una coincidencia de letras en vez de una propiedad de
+  // seguridad, y en el archivo mas sensible del proyecto.
+  const sobre = JSON.parse(crudo)
+  const bytes = Buffer.from(sobre.sealed, 'hex').toString('utf8')
+  for (const palabra of palabras) {
+    t.absent(bytes.includes(palabra), 'la palabra "' + palabra + '" no esta en el cifrado')
+  }
+
+  // Y ningun par de palabras contiguas en el archivo crudo: una fuga real deja
+  // palabras SEGUIDAS, y dos seguidas ya no salen por casualidad.
+  for (let i = 0; i < palabras.length - 1; i++) {
+    const par = palabras[i] + ' ' + palabras[i + 1]
+    t.absent(crudo.includes(par), 'ningun par contiguo: "' + par + '"')
+  }
 
   // Fallar CERRADO. Si abriera con basura derivaria otra direccion, y el nodo
   // anunciaria en un manifiesto firmado una wallet que no controla -- o sea

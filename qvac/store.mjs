@@ -169,7 +169,11 @@ function toPublic(node) {
     // Sin esto el panel no tiene con que pedirle el drive AL PAR CORRECTO: sin
     // peerKey, /v1/files siempre cae al drive local, sin importar que tarjeta
     // se haya clickeado.
-    peerKey: node.peerKey || null
+    peerKey: node.peerKey || null,
+    // FASE 9 / D10 — a donde cobra este candidato, si declara algo. Va al
+    // publico porque es exactamente lo que el 402 le tiene que decir al
+    // cliente, y porque ya viaja en un manifiesto que se anuncia a toda la red.
+    economic: node.economic || null
   }
 }
 
@@ -287,6 +291,27 @@ function capacidad(v) {
   return Math.min(n, 1024)
 }
 
+// La direccion de cobro de un manifiesto YA VERIFICADO, o null.
+//
+// Devuelve null para todo lo que no sea una direccion usable: el bloque mock
+// (que trae `_mock` y la direccion cero), una direccion mal formada, o la
+// ausencia del bloque. Null significa "este par no declara donde cobrar", que
+// es un estado legitimo -- un nodo que solo consume -- y distinto de tener una.
+function economicVerificado(manifest) {
+  const e = manifest && manifest.economic
+  if (!e || e._mock) return null
+  const addr = String(e.walletAddress || '')
+  const evm = /^0x[a-fA-F0-9]{40}$/.test(addr)
+  const tron = /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)
+  if (!evm && !tron) return null
+  if (/^0x0{40}$/.test(addr)) return null
+  return {
+    walletAddress: addr,
+    chains: Array.isArray(e.chains) ? [...e.chains] : [],
+    settlement: typeof e.settlement === 'string' ? e.settlement : null
+  }
+}
+
 function peerNodeId(peerKey, modelId) {
   return `${peerKey.slice(0, 12)}:${modelId}`
 }
@@ -297,6 +322,19 @@ function peerNodeId(peerKey, modelId) {
 export function upsertFromManifest(peerKey, manifest, { online = true } = {}) {
   const operator = (manifest.metadata && manifest.metadata.operator) || 'Nodo remoto'
   const tags = (manifest.metadata && manifest.metadata.tags) || []
+  // FASE 9 / D10 — a donde se le paga a este par.
+  //
+  // Sale del manifiesto que ACABA de verificar la firma (swarm.mjs), y esa es
+  // toda la garantia que hace posible el `payTo` directo: la firma Ed25519 ata
+  // la clave de red del par -- la del socket -- con la direccion de cobro que
+  // declara. Sin eso, cualquiera podria reenviar el manifiesto de otro con su
+  // propia wallet adentro y cobrar el trabajo ajeno.
+  //
+  // El bloque mock trae `_mock` y la direccion cero: eso NO es una direccion de
+  // cobro, es un par que no declara ninguna, y se guarda como null. Un par sin
+  // wallet no se puede cobrar, y confundirlo con uno que sí la tiene mandaria
+  // la plata a un pozo.
+  const economic = economicVerificado(manifest)
 
   // Se borran las filas viejas de ESTE par antes de insertar: si reanuncia con
   // menos modelos, los que ya no sirve tienen que desaparecer del marketplace.
@@ -317,7 +355,8 @@ export function upsertFromManifest(peerKey, manifest, { online = true } = {}) {
       operator,
       maxConcurrentRequests: capacidad(m.qos && m.qos.maxConcurrentRequests),
       activeRequests: 0,
-      status: online ? 'online' : 'offline'
+      status: online ? 'online' : 'offline',
+      economic
     })
   }
 }

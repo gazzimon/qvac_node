@@ -147,3 +147,82 @@ export async function redesDisponibles() {
   }
   return out
 }
+
+// -----------------------------------------------------------------------------
+// El 402
+// -----------------------------------------------------------------------------
+
+// Una entrada de `accepts[]`: qué se acepta, cuánto, a quién y en qué red.
+//
+// D9(a) — esquema `exact`: un monto FIJO declarado antes de generar. Un LLM no
+// sabe cuántos tokens va a producir, así que lo honesto es lo que el DoD pide
+// textualmente: que el 402 declare el tope. El `accepts[]` dice "hasta N tokens
+// de salida por $X" y el gateway aplica ese `max_tokens` aunque el cliente no
+// lo mande. Cobrar un precio fijo sin declarar el tope sería cobrar por algo
+// que el cliente no puede acotar.
+//
+// `maxTimeoutSeconds` es cuánto vale la autorización firmada: pasado eso, el
+// cliente puede volver a firmar sin riesgo de que la vieja se cobre tarde.
+export function entradaAccepts({
+  payTo,
+  activo,
+  micros,
+  maxTokens,
+  recurso,
+  descripcion,
+  maxTimeoutSeconds = 300
+}) {
+  if (!payTo) throw new Error('x402: no hay a quien pagarle')
+  if (!activo) throw new Error('x402: no hay activo para esa red')
+
+  // Micro-dolares -> unidades minimas del activo. USD₮0 tiene 6 decimales, o
+  // sea que 1 micro-dolar ES una unidad minima; se calcula igual en vez de
+  // asumirlo, porque `decimals` viene del activo y no todos los de la tabla de
+  // x402 son de 6 (hay de 18).
+  const enteros = BigInt(Math.max(0, Math.ceil(Number(micros) || 0)))
+  const escala = BigInt(10) ** BigInt(Math.max(0, activo.decimals - 6))
+  const amount = (enteros * escala).toString()
+
+  return {
+    scheme: 'exact',
+    network: activo.network,
+    maxAmountRequired: amount,
+    resource: recurso,
+    description: descripcion,
+    mimeType: 'application/json',
+    payTo,
+    maxTimeoutSeconds,
+    asset: activo.asset,
+    // `extra` es donde el esquema `exact` de EVM espera el dominio EIP-712 del
+    // token, que es lo que el cliente necesita para firmar la autorizacion.
+    extra: { name: activo.name, version: activo.version },
+    // NO es parte del spec de x402: es nuestro, y es la mitad honesta de D9(a).
+    // El cliente tiene que poder saber por cuanto trabajo esta pagando ese
+    // monto fijo, y "hasta N tokens de salida" es ese numero.
+    outputTokenLimit: maxTokens
+  }
+}
+
+// El cuerpo entero de un 402, con una entrada por red disponible.
+//
+// Se ordena por la preferencia de D15 y el cliente elige. Si no queda ninguna
+// red usable, devuelve null: el llamador tiene que poder distinguir "hay que
+// pagar" de "este nodo no puede cobrar", que terminan en respuestas distintas.
+export async function desafio({ payTo, micros, maxTokens, recurso, descripcion }) {
+  const { core } = await cargar()
+  const accepts = []
+  for (const red of await redesDisponibles()) {
+    accepts.push(
+      entradaAccepts({
+        payTo,
+        activo: await activoDe(red),
+        micros,
+        maxTokens,
+        recurso,
+        descripcion
+      })
+    )
+  }
+  if (accepts.length === 0) return null
+  return { x402Version: core.x402Version, error: 'X-PAYMENT header is required', accepts }
+}

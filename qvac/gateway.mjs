@@ -33,6 +33,7 @@ import http from 'bare-http1'
 import * as store from './store.mjs'
 import * as apikeys from './apikeys.mjs'
 import * as budget from './budget.mjs'
+import * as x402 from './x402.mjs'
 import * as costs from './costs.mjs'
 import * as quota from './quota.mjs'
 import { pickCandidate, estaSaturado } from './routing.mjs'
@@ -534,6 +535,29 @@ function topeDeSalida(node, pedido) {
   const up = upstreams.get(node && node.id)
   if (!up) return pedido
   return pedido > 0 ? Math.min(pedido, up.maxTokens) : up.maxTokens
+}
+
+// FASE 9 / D9(a) — el tope de salida cuando el request SE COBRA a precio fijo.
+//
+// `topeDeSalida` devuelve el del upstream, y CERO para todo lo demas: hoy un
+// par y el motor local no tienen techo, y esta bien, porque no cobran nada.
+//
+// Con un 402 de por medio eso deja de servir. D9(a) es "hasta N tokens de
+// salida por $X", y el DoD pide que el 402 declare esa N: un precio fijo por
+// trabajo sin acotar es exactamente lo que la decision advierte que no hay que
+// hacer. Asi que cuando hay cobro SIEMPRE hay techo, incluso donde el camino
+// gratis no lo necesita.
+//
+// El numero se declara ANTES de generar y se aplica DESPUES: son el mismo, y
+// tienen que serlo -- declarar uno y recortar con otro es cobrar por un trabajo
+// distinto del que se acordo.
+const MAX_TOKENS_COBRADO = 2048
+
+function topeDeSalidaCobrado(node, pedido) {
+  const propio = topeDeSalida(node, pedido)
+  if (propio > 0) return propio
+  // Un cliente puede pedir MENOS que el techo; no puede pedir mas, ni no pedir.
+  return pedido > 0 ? Math.min(pedido, MAX_TOKENS_COBRADO) : MAX_TOKENS_COBRADO
 }
 
 // Tokens del prompt, estimados por caracteres, SOLO para la reserva.
@@ -1316,15 +1340,92 @@ function claveDePrecio(node) {
   return node.kind === 'upstream' ? node.id : node.modelId
 }
 
+// FASE 9 — el piso de un cobro por x402, en micro-dolares.
+//
+// La inferencia P2P vale CERO para el ledger, y eso es correcto: ese contador
+// mide dolares que este nodo le paga a un tercero, y a un par no se le paga en
+// dolares. Pero un 402 que pide cero no es un cobro. Este es el numero que
+// convierte "no me cuesta nada" en "esto es lo que sale", y es de negocio:
+// USD 0,001, que es el monto con el que el roadmap dice empezar (riesgo #2).
+const PRECIO_MINIMO_MICROS = 1000
+
 function estimarRequest({ node, maxTokens = 0, promptTokens = 0 }) {
   const clave = claveDePrecio(node)
   if (!clave || !costs.conocido(clave)) return 0
   return costs.estimar({ model: clave, promptTokens, maxTokens })
 }
 
+// FASE 9 / D10 — el 402 de un candidato concreto.
+//
+// Devuelve el cuerpo del desafio, o null si a este candidato no se le puede
+// cobrar. Null NO es un error: un par que no declara wallet, o un nodo sin
+// ninguna red usable, son estados legitimos -- y el llamador tiene que poder
+// distinguirlos de "hay que pagar" para no contestar 402 sin decir a quien.
+//
+// El `payTo` sale del manifiesto FIRMADO del candidato (store.mjs lo guarda al
+// verificarlo), o de la wallet propia si el que va a contestar es este nodo.
+// Nunca de una constante: D10 decide que se le paga DIRECTO al proveedor, y si
+// el gateway pusiera su propia direccion seria el intermediario que el README
+// promete que no existe.
+async function desafioDePago({ node, maxTokensPedido, req }) {
+  if (!node) return null
+
+  const propio = node.kind !== 'peer'
+  const payTo = propio
+    ? economicPropio && economicPropio.walletAddress
+    : node.economic && node.economic.walletAddress
+  if (!payTo) return null
+
+  // El tope de salida que se va a aplicar, que es el numero que hace honesto
+  // al precio fijo de D9(a): "hasta N tokens por $X". Se declara el MISMO que
+  // el gateway impone despues.
+  const maxTokens = topeDeSalidaCobrado(node, maxTokensPedido)
+
+  // Lo que costaria servirlo. Para el camino P2P y el local hoy da cero -- el
+  // precio del ledger es cero porque el pago P2P es justamente esta fase --,
+  // asi que se cobra un minimo declarado en vez de cero: un 402 que pide cero
+  // no es un cobro, y regalarlo tampoco es lo que el nodo acepto al declarar
+  // una wallet.
+  const estimado = estimarRequest({ node, maxTokens, promptTokens: 0 })
+  const micros = Math.max(estimado, PRECIO_MINIMO_MICROS)
+
+  const proto = 'http'
+  const host = req.headers.host || 'localhost'
+  try {
+    return await x402.desafio({
+      payTo,
+      micros,
+      maxTokens,
+      recurso: `${proto}://${host}/v1/chat/completions`,
+      descripcion: `Inferencia de ${node.modelId} en ${node.operator}, hasta ${maxTokens} tokens de salida`
+    })
+  } catch (err) {
+    // Un 402 mal armado es peor que ninguno: el cliente firmaria una
+    // autorizacion contra datos equivocados. Se avisa y se cae al 401.
+    console.error(`[x402] no se pudo armar el 402: ${(err && err.message) || err}`)
+    return null
+  }
+}
+
 async function handleChat(req, res) {
-  const motivo = rechazoPorKey(req)
-  if (motivo) return sendError(res, 401, motivo)
+  // FASE 9 / D16 — TRES caminos de acceso que no se pisan:
+  //
+  //   local: true                 gratis, sin red, sin pago. La excepcion del
+  //                               README se mantiene.
+  //   Authorization: Bearer …     la key emitida por el panel. Es el camino del
+  //                               humano que ya configuro un bot.
+  //   ni key ni pago              402.
+  //
+  // El 402 como DEFAULT PARA DESCONOCIDOS es la fase entera: es lo que permite
+  // que un agente consuma sin registrarse en nada. Y no reemplaza a las keys --
+  // convive, que es lo que D16 decide.
+  //
+  // El rechazo por falta de key ya no puede ser un 401 seco: si este nodo puede
+  // cobrar, el que no trae credencial no esta mal autenticado, esta sin pagar,
+  // y esas dos cosas son respuestas distintas. Se decide DESPUES de elegir
+  // candidato, porque el 402 tiene que decir cuanto y a quien, y las dos cosas
+  // dependen de quien vaya a contestar.
+  const sinCredencial = rechazoPorKey(req)
 
   let body
   try {
@@ -1452,6 +1553,19 @@ async function handleChat(req, res) {
   // handleChatConReintentos. Aca solo se usa para los errores de mas abajo,
   // que hablan del que se eligio primero.
   const node = eleccion.node
+
+  // FASE 9 — el 402, recien acá, porque antes no se sabia ni cuanto ni a quien.
+  if (sinCredencial) {
+    const respuesta = await desafioDePago({ node, maxTokensPedido: norm.maxTokens || 0, req })
+    if (respuesta) {
+      // 402 y no 401: no le falta credencial, le falta pagar. Son dos arreglos
+      // distintos del lado del cliente y merecen dos respuestas distintas.
+      return sendJson(res, 402, respuesta, provenanceHeaders(node, 0))
+    }
+    // Este nodo no puede cobrar -- sin wallet, o sin ninguna red usable -- asi
+    // que el unico camino que queda es el de siempre: la key.
+    return sendError(res, 401, sinCredencial)
+  }
   // El orden puntuado, no el de llegada: si el mejor falla antes del primer
   // token, D4 reintenta en el segundo MEJOR, no en el siguiente de la lista.
   //
