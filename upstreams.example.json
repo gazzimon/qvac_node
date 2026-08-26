@@ -38,6 +38,25 @@
 
           "maxTokens": 1024,
 
+          "timeoutPrimerChunkMs": 60000,
+          "timeoutIdleMs": 30000,
+
+          "_timeouts": [
+            "Los dos relojes que impiden que un request al externo quede abierto",
+            "para siempre -- y con el, la reserva del presupuesto que lo autorizo.",
+            "",
+            "timeoutPrimerChunkMs: hasta el primer byte. 60s por lo MEDIDO en este",
+            "mismo archivo: llama-3.3-70b tardo 43,4s y se descarto por inservible,",
+            "asi que 60s deja pasar hasta lo que ya sabemos que es demasiado lento",
+            "y corta lo que directamente no viene.",
+            "",
+            "timeoutIdleMs: silencio ENTRE tokens, no duracion total. Una respuesta",
+            "larga que fluye es legitima; 30 segundos sin nada, no.",
+            "",
+            "Subirlos es razonable con un modelo lento. Bajarlos a cero no: un valor",
+            "invalido cae al default en vez de desactivar el corte."
+          ],
+
           "pricePerMTok": { "input": 0.20, "output": 0.60 },
 
           "_pricePerMTok": [

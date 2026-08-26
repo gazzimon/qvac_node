@@ -273,6 +273,11 @@ let ultimoPedidoExterno = null
 // para poder ejercitar el modo de falla y no solo el camino feliz.
 let mandaUsage = true
 
+// B3: un proveedor que acepta la conexion y despues no manda nada. Es el caso
+// que dejaba el request abierto para siempre -- y con el, la reserva del
+// presupuesto que lo autorizo.
+let seCuelga = false
+
 // Un proveedor compatible con OpenAI en veinte lineas: dos deltas, un `usage`
 // con tokens que NO coinciden con los contados de este lado -- a proposito,
 // para probar que se liquida con los del proveedor -- y el [DONE].
@@ -285,6 +290,9 @@ function levantarProveedorFalso () {
         try { ultimoPedidoExterno = JSON.parse(crudo) } catch (e) { ultimoPedidoExterno = null }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         const chunk = (d) => res.write('data: ' + JSON.stringify(d) + '\n\n')
+        // Cabecera mandada y despues silencio: el socket sigue vivo, asi que
+        // nadie del otro lado se entera solo. Es lo que tiene que cortar el reloj.
+        if (seCuelga) return
         chunk({ choices: [{ delta: { role: 'assistant' } }] })
         // `reasoning_content` en el MISMO delta que el contenido: si el cliente
         // lo leyera, el pensamiento del modelo saldria al chat.
@@ -648,6 +656,83 @@ test('un proveedor que no manda usage se liquida por la reserva, no por los delt
   t.is(entrada.costMicros, 514, 'se cobra la cota superior con la que se autorizo el gasto')
 
   mandaUsage = true
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
+// ---------------------------------------------------------------------------
+// B3 — el gasto no puede sobrevivir al silencio del proveedor
+// ---------------------------------------------------------------------------
+
+test('un proveedor que se cuelga no deja el request colgado', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const budget = await import('../qvac/budget.mjs')
+  const apikeys = await import('../qvac/apikeys.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  seCuelga = true
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'colgado',
+        label: 'Proveedor colgado',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [
+          {
+            modelId: 'proveedor/colgado',
+            maxTokens: 256,
+            pricePerMTok: { input: 1, output: 2 },
+            // 300ms en vez de 60s: el reloj es el mismo, lo unico que cambia es
+            // cuanto hay que esperar para verlo funcionar.
+            timeoutPrimerChunkMs: 300
+          }
+        ]
+      }
+    ]
+  })
+  costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'proveedor/colgado',
+    displayName: 'Colgado',
+    operator: 'Proveedor colgado (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  const cuenta = apikeys.keyForNode('panel', 'web panel').id
+  const antes = budget.usage(cuenta)
+
+  const arranco = Date.now()
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'proveedor/colgado', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  const tardo = Date.now() - arranco
+
+  t.ok(tardo < 5000, 'corta por el reloj, no por el fin del universo: ' + tardo + 'ms')
+  t.is(r.status, 502, 'y el request TERMINA, con el error del proveedor')
+
+  const despues = budget.usage(cuenta)
+  t.is(despues.reserved, antes.reserved, 'la reserva se libero: no quedo saldo comprometido')
+  t.is(despues.spent, antes.spent, 'y no se cobro nada: no llego un solo token')
+
+  const log = await pedir('GET', '/v1/routing-log')
+  const entrada = log.json.log[0]
+  t.is(entrada.ok, false, 'el fallo queda en el rastro')
+  t.is(entrada.costMicros, 0, 'cobrar la cota superior aca seria cobrar un request que no ocurrio')
+
+  const nodo = store.listNodes().find((n) => n.id === 'upstream:' + ups[0].id)
+  t.is(nodo.activeRequests, 0, 'y el slot del nodo tampoco quedo tomado')
+
+  seCuelga = false
   store.clearUpstreams()
   costs.olvidarPreciosExternos()
   gw.setUpstreams([])

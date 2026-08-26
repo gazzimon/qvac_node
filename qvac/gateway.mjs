@@ -36,6 +36,8 @@ import * as budget from './budget.mjs'
 import * as costs from './costs.mjs'
 import * as quota from './quota.mjs'
 import { pickCandidate, estaSaturado } from './routing.mjs'
+// Ver la nota de upstream.mjs: bajo Bare esto no es un global.
+import AbortController from 'bare-abort-controller'
 
 const MOCK_REPLIES = {
   'facturas-ar': (prompt) =>
@@ -1128,6 +1130,28 @@ async function handleChat(req, res) {
   store.beginRequest(node.id)
   const startedAt = Date.now()
 
+  // B3 -- el cliente se fue y el gasto tiene que irse con el.
+  //
+  // El camino P2P ya cancelaba: hay un `req.on('close')` mas arriba que le
+  // avisa al par para que deje de generar, con el comentario que dice que
+  // dejarlo trabajando para nadie es CPU que alguien esta pagando. El argumento
+  // vale MAS de este lado -- lo que sigue corriendo son dolares de la cuenta
+  // del operador -- y era justamente el camino que no lo tenia.
+  //
+  // Se arma para todos los kinds y no solo para el externo: el generador local
+  // no lo mira todavia, pero el flag es el mismo que corta el `for await` de
+  // abajo, asi que un cliente que se va deja de hacer trabajar a esta maquina
+  // igual.
+  const cancelacion = new AbortController()
+  let terminado = false
+  const alIrse = () => {
+    // Despues de terminar, el 'close' del response es el cierre normal. Abortar
+    // ahi seria disparar un error sobre un request que salio bien.
+    if (!terminado) cancelacion.abort()
+  }
+  req.on('close', alIrse)
+  res.on('close', alIrse)
+
   // Mismos tres numeros que en el camino P2P, para que el rastro compare peras
   // con peras: sin esto el panel podia decir "40 tok/s" de un par y nada del
   // nodo local, que es exactamente la comparacion que la demo quiere mostrar.
@@ -1169,6 +1193,7 @@ async function handleChat(req, res) {
       crudos = up.completar({
         messages,
         maxTokens: maxSalida,
+        signal: cancelacion.signal,
         onUsage: (u) => {
           usoExterno = u
         }
@@ -1178,6 +1203,10 @@ async function handleChat(req, res) {
     }
 
     for await (const delta of crudos) {
+      // Cortar el `for await` cierra el generador de arriba, y el `finally` de
+      // `completar` aborta el fetch. Por eso alcanza con salir: no hace falta
+      // propagar la cancelacion a mano hasta el socket del proveedor.
+      if (cancelacion.signal.aborted) break
       if (ttftMs === null) ttftMs = Date.now() - startedAt
       tokens++
       yield delta
@@ -1256,6 +1285,7 @@ async function handleChat(req, res) {
       res.write('data: [DONE]\n\n')
     }
   } finally {
+    terminado = true
     store.endRequest(node.id)
     if (!responded) res.end()
 
@@ -1277,7 +1307,17 @@ async function handleChat(req, res) {
     // una diferencia silenciosa entre este ledger y la factura que le llega a
     // fin de mes.
     let costoReal
-    if (node.kind === 'upstream' && !usoExterno) {
+    if (node.kind === 'upstream' && !usoExterno && tokens === 0) {
+      // No llego un solo token: el proveedor no genero nada y no nos va a
+      // facturar nada. Cobrar la cota superior acá seria cobrar por un request
+      // que no ocurrio -- que es el error simetrico al de B2 y igual de malo-.
+      // Es el caso del proveedor colgado y el del que rechaza antes de empezar.
+      costoReal = 0
+    } else if (node.kind === 'upstream' && !usoExterno) {
+      // Llegaron tokens pero no el `usage` que los cuenta. Acá SI hubo gasto y
+      // no sabemos cuanto, asi que se cobra la reserva entera: la cota superior
+      // con la que se autorizo. Se equivoca para arriba, que es el unico lado
+      // que no se pasa del tope.
       costoReal = reserva.micros || 0
       console.error(
         `[${node.id}] el proveedor no mando "usage": se liquida por la reserva ` +

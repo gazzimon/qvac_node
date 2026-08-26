@@ -62,6 +62,7 @@
     "@qvac/bare-sdk": "^0.17.1",
     "@qvac/llm-llamacpp": "^0.46.0",
     "bare-env": "^3.0.0",
+    "bare-abort-controller": "^1.1.2",
     "bare-fetch": "^3.2.0",
     "bare-fs": "^4.5.1",
     "bare-http1": "^4.5.8",

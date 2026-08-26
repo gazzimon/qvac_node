@@ -39,14 +39,36 @@
 // -----------------------------------------------------------------------------
 
 import env from 'bare-env'
+// Bare no tiene AbortController global -- no es el navegador ni Node-. El
+// paquete es el mismo que usa bare-fetch por dentro para su `signal`, asi que
+// esto no suma una dependencia nueva al arbol: la vuelve explicita.
+import AbortController from 'bare-abort-controller'
 
 const REINTENTOS = 3
 const ESPERA_BASE_MS = 400
+
+// Hasta el primer byte del proveedor. No es el mismo numero que el del camino
+// P2P (120s): un par puede estar cargando 807 MB de pesos por primera vez, una
+// API de internet no. El techo sale de lo medido contra integrate.api.nvidia.com
+// el 2026-08-25 -- llama-3.3-70b tardo 43,4 segundos al primer byte y se
+// descarto por inservible-, asi que 60s deja pasar hasta lo que ya sabemos que
+// es demasiado lento y corta lo que directamente no viene.
+const PRIMER_CHUNK_TIMEOUT_MS = 60000
+
+// Ya venian tokens y se cortaron sin cerrar el stream. Un socket TCP colgado no
+// avisa: sin esto el request queda abierto para siempre y, con el, la reserva
+// del presupuesto que lo autorizo.
+const IDLE_TIMEOUT_MS = 30000
 
 // Techo de salida cuando ni la config ni el cliente dicen otra cosa. 1024 son
 // ~4 parrafos: alcanza para una respuesta de chat y acota el peor caso de la
 // reserva a un numero que se puede mirar sin susto.
 const MAX_TOKENS_DEFAULT = 1024
+
+function enteroPositivo(v, porDefecto) {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : porDefecto
+}
 
 function esReintentable(status) {
   return status === 429 || (status >= 500 && status < 600)
@@ -68,6 +90,8 @@ export class Upstream {
     maxConcurrent = 4,
     maxTokens = MAX_TOKENS_DEFAULT,
     precio = null,
+    timeoutPrimerChunkMs = PRIMER_CHUNK_TIMEOUT_MS,
+    timeoutIdleMs = IDLE_TIMEOUT_MS,
     extraBody = null
   }) {
     this.id = id
@@ -90,6 +114,12 @@ export class Upstream {
     // operador no lo declaro. Sin precio no hay reserva posible: quien
     // registra decide si eso deja al upstream afuera (bin.mjs lo deja).
     this.precio = precio
+    // Los dos relojes salen de la config para que un modelo lento se pueda
+    // acomodar sin tocar el codigo -- y para que los tests los puedan ejercitar
+    // sin esperar un minuto. Un valor invalido cae al default: nunca a cero,
+    // que seria un timeout que dispara antes de empezar.
+    this.timeoutPrimerChunkMs = enteroPositivo(timeoutPrimerChunkMs, PRIMER_CHUNK_TIMEOUT_MS)
+    this.timeoutIdleMs = enteroPositivo(timeoutIdleMs, IDLE_TIMEOUT_MS)
     // Algunos modelos piden campos fuera del estandar de OpenAI (por ejemplo
     // chat_template_kwargs.enable_thinking). Viven en la config y no en el
     // codigo: son del modelo, no nuestros.
@@ -111,7 +141,49 @@ export class Upstream {
   // el provider y el gateway consumen los dos con el mismo `for await`, asi
   // que cancelacion, timeouts y conteo de tokens siguen funcionando sin
   // cambios.
+  // `signal` lo manda el gateway cuando el cliente se va. Los timeouts son de
+  // acá: son del protocolo con el proveedor, no del cliente, y el gateway no
+  // tiene por que saber cuanto tarda una API que no eligio.
   async * completar({ messages, maxTokens = 0, signal = null, onUsage = null }) {
+    // Un solo controlador para las tres formas de cortar -- el cliente se fue,
+    // el proveedor no arranco, el proveedor se colgo a mitad-: la que dispare
+    // primero aborta el fetch, y el `motivo` dice cual fue. Sin esto el error
+    // que ve el operador es un AbortError pelado, que no distingue "cerraste la
+    // pestana" de "la API se murio".
+    const ctl = new AbortController()
+    let motivo = null
+    let temporizador = null
+
+    const cortar = (porque) => {
+      if (motivo) return
+      motivo = porque
+      ctl.abort()
+    }
+
+    const armar = (ms, porque) => {
+      clearTimeout(temporizador)
+      temporizador = setTimeout(() => cortar(porque), ms)
+      temporizador.unref?.()
+    }
+
+    if (signal) {
+      if (signal.aborted) cortar('el cliente cerro la conexion')
+      else signal.addEventListener('abort', () => cortar('el cliente cerro la conexion'), { once: true })
+    }
+
+    try {
+      yield* this.#completar({ messages, maxTokens, onUsage, ctl, armar, motivoDe: () => motivo })
+    } finally {
+      clearTimeout(temporizador)
+      // Si el consumidor corta el `for await` -- un `break`, o una excepcion mas
+      // arriba-, el generador se cierra por acá y el fetch tiene que morir con
+      // el. Sin este abort el proveedor sigue generando y facturando para un
+      // stream que ya no lee nadie.
+      cortar('el consumidor dejo de leer')
+    }
+  }
+
+  async * #completar({ messages, maxTokens, onUsage, ctl, armar, motivoDe }) {
     // El menor entre lo que pidio el cliente y lo que este nodo permite. Un
     // cliente puede pedir MENOS que el tope; no puede pedir mas.
     const tope = maxTokens > 0 ? Math.min(maxTokens, this.maxTokens) : this.maxTokens
@@ -150,6 +222,11 @@ export class Upstream {
     }
 
     let res = null
+    armar(
+      this.timeoutPrimerChunkMs,
+      `el proveedor no contesto en ${this.timeoutPrimerChunkMs / 1000}s`
+    )
+
     for (let intento = 0; intento < REINTENTOS; intento++) {
       if (intento > 0) {
         const espera = ESPERA_BASE_MS * Math.pow(2, intento - 1) * (0.5 + Math.random())
@@ -160,10 +237,14 @@ export class Upstream {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
           body: JSON.stringify(body),
-          signal
+          signal: ctl.signal
         })
       } catch (err) {
         res = null
+        // Un corte nuestro NO es un fallo de red: reintentar seria volver a
+        // pedirle al proveedor algo que ya decidimos no querer -- y pagarlo.
+        const porque = motivoDe()
+        if (porque) throw new Error('se corto el pedido al proveedor: ' + porque)
         if (intento === REINTENTOS - 1) {
           throw new Error('no se pudo llegar al proveedor: ' + ((err && err.message) || err))
         }
@@ -190,6 +271,9 @@ export class Upstream {
     let usage = null
 
     for await (const chunk of res.body) {
+      const porque = motivoDe()
+      if (porque) throw new Error('se corto el stream del proveedor: ' + porque)
+
       buffer += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')
 
       let corte
@@ -218,6 +302,14 @@ export class Upstream {
           // SOLO content. `reasoning_content` se ignora sin excepcion: es el
           // pensamiento del modelo y delata al proveedor.
           if (typeof delta.content === 'string' && delta.content !== '') {
+            // Cada token que llega prueba que el proveedor sigue vivo, asi que
+            // el reloj se corre. Lo que se acota de acá en mas es el SILENCIO
+            // entre tokens, no cuanto dura la respuesta entera: una respuesta
+            // larga que fluye es legitima, treinta segundos sin nada no.
+            armar(
+              this.timeoutIdleMs,
+              `el proveedor dejo de mandar tokens por ${this.timeoutIdleMs / 1000}s`
+            )
             yield delta.content
           }
         }
@@ -253,6 +345,8 @@ export function cargarDesde(objeto) {
           maxConcurrent: Number.isFinite(m.maxConcurrent) ? m.maxConcurrent : 4,
           maxTokens: Number(m.maxTokens),
           precio: precioDe(m),
+          timeoutPrimerChunkMs: m.timeoutPrimerChunkMs,
+          timeoutIdleMs: m.timeoutIdleMs,
           extraBody: m.extraBody || null
         })
       )
