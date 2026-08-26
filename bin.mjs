@@ -495,6 +495,19 @@ async function startGateway(opts = {}) {
   const store = await import('./qvac/store.mjs')
   const operator = opts.operator || `Node on ${os.hostname()}`
 
+  // FASE 9 — la wallet se abre en el ARRANQUE, no al unirse al swarm.
+  //
+  // Estaba adentro de `launchAgent`, y eso tenia dos consecuencias que no se
+  // veian: un nodo con wallet corriendo `serve` SIN `--swarm` nunca podia
+  // cobrar -- el gateway no se enteraba de que existia --, y con `--swarm` los
+  // requests que llegaban durante los segundos que tarda el join recibian 401
+  // en vez de 402. Las dos salieron probando el curl del DoD contra el nodo de
+  // verdad, no en los tests.
+  //
+  // La wallet no depende del swarm: es de esta maquina. `joinSwarm` la vuelve a
+  // leer para el manifiesto, que es otra cosa -- ahi va FIRMADA.
+  gw.setEconomic(await economicDelNodo(budgetDir))
+
   // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
   // registro tiene que decirlo desde el arranque. Si la fila local recien
   // apareciera con --swarm, un gateway sin agente lanzado no tendria NINGUN
@@ -588,10 +601,6 @@ async function startGateway(opts = {}) {
     // a un par y publicar los que se suben.
     gw.setSwarm(nodeSwarm)
     if (data && data.files) gw.setFiles(data.files)
-    // FASE 7 — para que /node pueda mostrar a donde cobra este nodo. Se toma
-    // del swarm y no del keystore: el gateway nunca abre la wallet ni ve la
-    // seed, solo repite lo que ya viaja publico en el manifiesto firmado.
-    gw.setEconomic(nodeSwarm.economic)
 
     return nodeSwarm
   }
