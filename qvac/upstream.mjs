@@ -78,6 +78,30 @@ function esperar(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+// Los nombres de header de HTTP NO distinguen mayusculas; un objeto de
+// JavaScript SI. Esa diferencia era un agujero (B11): un `authorization` en
+// minuscula escrito en la config no colisionaba con el `Authorization` que
+// escribe el codigo, asi que sobrevivian LOS DOS y bare-fetch los mandaba
+// concatenados --
+//
+//     authorization = Bearer <la-de-otro-proveedor>, Bearer <la-nuestra>
+//
+// --, o sea la credencial de un proveedor viajando al endpoint de otro. Con
+// `content-type` pasaba lo mismo y el cuerpo JSON salia anunciado como
+// text/plain.
+//
+// Se normaliza todo a minuscula al ENTRAR, y entonces la colision la resuelve
+// el objeto: lo que escribe el codigo pisa lo que diga el archivo porque son la
+// misma clave. No hay lista de nombres reservados, que es lo que despues hay
+// que acordarse de mantener.
+function enMinuscula(crudos) {
+  const out = {}
+  for (const [nombre, valor] of Object.entries(crudos || {})) {
+    out[String(nombre).toLowerCase()] = valor
+  }
+  return out
+}
+
 export class Upstream {
   constructor({
     id,
@@ -154,9 +178,11 @@ export class Upstream {
     // Headers extra del proveedor. OpenRouter, por ejemplo, usa HTTP-Referer y
     // X-Title para atribuir el trafico a una app. Van en la config y no en el
     // codigo por la misma razon que extraBody: son del proveedor, no nuestros.
-    // `Authorization` y `Content-Type` NO se pueden pisar desde aca -- ver el
-    // armado de headers en #completar.
-    this.extraHeaders = extraHeaders
+    //
+    // Se guardan YA normalizados a minuscula, y eso es lo que hace cierta la
+    // garantia de abajo: `authorization` y `content-type` no se pueden pisar
+    // desde el archivo ESCRIBANSE COMO SE ESCRIBAN. Ver #headers.
+    this.extraHeaders = extraHeaders ? enMinuscula(extraHeaders) : null
   }
 
   // La credencial se lee de una VARIABLE DE ENTORNO cuyo NOMBRE esta en la
@@ -222,15 +248,21 @@ export class Upstream {
     }
   }
 
-  // Los de la config PRIMERO y los nuestros despues: `Authorization` no se
+  // Los de la config PRIMERO y los nuestros despues: `authorization` no se
   // puede pisar desde un archivo -- seria mandarle la credencial de un
-  // proveedor a otro-- y `Content-Type` tampoco, porque el cuerpo es JSON
+  // proveedor a otro-- y `content-type` tampoco, porque el cuerpo es JSON
   // aunque alguien escriba otra cosa.
+  //
+  // Todo en minuscula, de los dos lados. Ese detalle es el arreglo entero de
+  // B11: el constructor ya bajo a minuscula lo que vino del archivo, asi que
+  // estas tres lineas colisionan con el nombre que sea que alguien haya escrito
+  // y lo pisan. Escritas en `Content-Type`/`Authorization` NO pisaban nada --
+  // convivian con la version en minuscula y viajaban las dos.
   #headers(key) {
     const h = { ...(this.extraHeaders || {}) }
-    h['Content-Type'] = 'application/json'
-    if (key) h.Authorization = 'Bearer ' + key
-    else delete h.Authorization
+    h['content-type'] = 'application/json'
+    if (key) h.authorization = 'Bearer ' + key
+    else delete h.authorization
     return h
   }
 

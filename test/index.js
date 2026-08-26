@@ -1592,11 +1592,17 @@ test('los headers de la config no pueden pisar la credencial', async (t) => {
     ]
   })
 
-  t.alike(
-    ups[0].extraHeaders['HTTP-Referer'],
+  // Los nombres se normalizan a MINUSCULA al entrar (B11). Los de HTTP no
+  // distinguen mayusculas pero un objeto de JavaScript si, y esa diferencia
+  // era el agujero: un `authorization` en minuscula en la config no colisionaba
+  // con el `Authorization` que escribe el codigo, sobrevivian los dos y salian
+  // concatenados -- la credencial de un proveedor viajando al endpoint de otro.
+  t.is(
+    ups[0].extraHeaders['http-referer'],
     'https://ejemplo.test',
-    'los headers de atribucion del proveedor llegan'
+    'los headers de atribucion del proveedor llegan, con el nombre normalizado'
   )
+  t.absent(ups[0].extraHeaders['HTTP-Referer'], 'y ya no queda la version sin normalizar')
 
   // El armado real vive en un metodo privado; se ejercita por su efecto: con
   // credencial gana la credencial, sin credencial no queda un Authorization

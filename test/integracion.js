@@ -274,6 +274,11 @@ const PUERTO_EXTERNO = 8898
 let servidorExterno = null
 let ultimoPedidoExterno = null
 
+// B11: lo que importa no es el objeto que arma el cliente sino lo que LLEGA al
+// otro lado. Un `authorization` duplicado se ve identico a uno solo hasta que
+// se lo mira desde el servidor, donde aparece concatenado.
+let ultimosHeadersExternos = null
+
 // B2: un proveedor que NO manda `usage` no es un caso raro, es el default del
 // protocolo -- `usage` en streaming hay que pedirlo-. Se apaga desde el test
 // para poder ejercitar el modo de falla y no solo el camino feliz.
@@ -301,6 +306,7 @@ let cuotaAgotadaModelo = null
 function levantarProveedorFalso() {
   return new Promise((resolve) => {
     servidorExterno = http.createServer((req, res) => {
+      ultimosHeadersExternos = req.headers
       let crudo = ''
       req.on('data', (c) => {
         crudo += c
@@ -640,6 +646,93 @@ test('el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el t
     ultimoPedidoExterno.chat_template_kwargs,
     { enable_thinking: false },
     'y lo demas de la config sigue pasando: extiende, no sobreescribe'
+  )
+
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
+// ---------------------------------------------------------------------------
+// B11 — la credencial de un proveedor no puede viajar al endpoint de otro
+//
+// El mismo criterio que el test de arriba, sobre los headers en vez del body, y
+// con una vuelta mas: aca la defensa vieja no estaba ausente, estaba escrita en
+// el case equivocado. `Authorization` no colisiona con `authorization`, asi que
+// la del archivo y la nuestra sobrevivian LAS DOS y salian concatenadas.
+//
+// Por eso el assert mira lo que recibio el SERVIDOR y no el objeto que armo el
+// cliente: del lado de aca las dos versiones se ven bien.
+// ---------------------------------------------------------------------------
+
+test('la config no puede mandarle la credencial de un proveedor a otro', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'headers-hostiles',
+        label: 'Config con headers hostiles',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        extraHeaders: {
+          // En MINUSCULA, que es como los escribe cualquiera que copie una
+          // linea de un curl. Ese detalle era todo el bug.
+          authorization: 'Bearer CREDENCIAL-DE-OTRO-PROVEEDOR',
+          'content-type': 'text/plain',
+          // Y uno legitimo, para probar que la defensa no se come todo: los
+          // headers de atribucion de OpenRouter tienen que seguir llegando.
+          'HTTP-Referer': 'https://ejemplo.test'
+        },
+        models: [
+          {
+            modelId: 'proveedor/headers',
+            maxTokens: 256,
+            pricePerMTok: { input: 1, output: 2 }
+          }
+        ]
+      }
+    ]
+  })
+  costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'proveedor/headers',
+    displayName: 'Headers hostiles',
+    operator: 'Config con headers hostiles (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'proveedor/headers', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(r.status, 200)
+
+  t.is(
+    ultimosHeadersExternos.authorization,
+    'Bearer clave-de-prueba',
+    'llega UNA credencial y es la nuestra: sin el arreglo llegaban las dos concatenadas'
+  )
+  t.absent(
+    String(ultimosHeadersExternos.authorization).includes('OTRO-PROVEEDOR'),
+    'y la del archivo no viaja ni pegada al final'
+  )
+  t.is(
+    ultimosHeadersExternos['content-type'],
+    'application/json',
+    'el cuerpo es JSON aunque el archivo diga otra cosa'
+  )
+  t.is(
+    ultimosHeadersExternos['http-referer'],
+    'https://ejemplo.test',
+    'y un header legitimo del proveedor sigue pasando: extiende, no sobreescribe'
   )
 
   store.clearUpstreams()
@@ -1003,8 +1096,24 @@ test('un upstream caido se saltea y contesta el siguiente candidato', async (t) 
   })
   gw.setUpstreams(ups)
 
-  // El caido con MAS capacidad libre, para que pickCandidate lo ponga primero:
-  // sin eso el test podria pasar por casualidad.
+  // El caido tiene que ir PRIMERO o el test no ejercita nada: si contesta el
+  // vivo de entrada, los tres asserts de abajo pasan igual sin que el reintento
+  // haya ocurrido nunca.
+  //
+  // Antes esto se intentaba con "el caido con MAS capacidad libre" (8 contra 1)
+  // y NO ordenaba nada: `cargaDe` es un COCIENTE -- activeRequests sobre
+  // maxConcurrent (store.mjs:150) --, asi que 0/8 y 0/1 son los dos CERO. Con la
+  // carga empatada, empatan tambien errorRate y lastMs -- las dos filas son
+  // nuevas y no tienen historia -- y el orden lo terminaba decidiendo el
+  // `jitter: random()` de routing.mjs:102. O sea una moneda: el test fallaba
+  // ~1 de cada 2 corridas, y el modo de falla era un TypeError sobre
+  // `e.intentos` en vez de un assert, que es peor porque no dice que se rompio.
+  //
+  // Lo que SI ordena es dejar al vivo sin lugar: 1/1 lo manda al fondo por la
+  // regla 1 del sort (los saturados van ultimos), que se evalua antes que
+  // cualquier azar. Sigue siendo elegible -- el loop prueba a los saturados
+  // igual -, que es exactamente lo que se quiere: el caido primero, el vivo
+  // despues.
   store.registerUpstream({
     id: ups[0].id,
     modelId: 'con-respaldo',
@@ -1021,6 +1130,9 @@ test('un upstream caido se saltea y contesta el siguiente candidato', async (t) 
     local: true,
     maxConcurrentRequests: 1
   })
+  // El id de la FILA lleva prefijo: `registerUpstream` lo agrega y es con ese
+  // con el que el gateway cuenta los slots.
+  store.beginRequest('upstream:' + ups[1].id)
 
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
