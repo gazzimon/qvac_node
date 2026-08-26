@@ -791,10 +791,17 @@ entero.
 
 ### Lo que sigue sin implementarse
 
-**Autobase.** Es lo que hace falta para el ledger multi-escritor (recibos,
-reputación agregada, liquidación en QVAC), y no entra por complejidad de código
-sino por gobernanza: hay que decidir quién es el primer escritor, cómo entra el
-segundo, y quiénes firman la vista como indexers. La `apply` además tiene que
-ser determinista y pura, e idempotente bajo re-ejecución, porque Autobase trunca
-y re-aplica la vista cuando llega un mensaje viejo de un par que estuvo offline.
-Sigue siendo Fase 6.
+**Autobase.** Era lo que hacía falta para el ledger multi-escritor (recibos,
+reputación agregada, liquidación en QVAC), y no entraba por complejidad de
+código sino por gobernanza: había que decidir quién es el primer escritor, cómo
+entra el segundo, y quiénes firman la vista como indexers. La `apply` además
+tenía que ser determinista y pura, e idempotente bajo re-ejecución, porque
+Autobase trunca y re-aplica la vista cuando llega un mensaje viejo de un par que
+estuvo offline.
+
+**Ya no está en el roadmap, y esa es la buena noticia.** La Fase 10 lo vuelve
+innecesario: la liquidación es on-chain y la firma EIP-3009 ya es el recibo, así
+que no hace falta un ledger multi-escritor propio. Queda escrito en
+[ROADMAP_FASE7-X402.md](ROADMAP_FASE7-X402.md), sección "Lo que sale del
+alcance". Si algún día vuelve, va a ser por un estado compartido que no sea
+plata —reputación agregada, metering verificable— y no por los pagos.

@@ -1,22 +1,119 @@
 # PyrusLLM
 
-**Un marketplace de inferencia de IA sin datacenter en el medio.**
+**El Airbnb del cómputo de IA.** Instalás un binario y tu máquina —una PC o un
+datacenter— entra a un mercado vivo de inferencia: se anuncia con un manifiesto
+firmado, dice qué modelo corre y con cuánta capacidad, y atiende los pedidos que
+la red le rutea.
 
-PyrusLLM convierte cualquier computadora en un proveedor de inferencia: instala
-un CLI que se actualiza solo por OTA P2P, y al instalarse hace que la máquina
-entre a una red viva de nodos. Cada nodo corre un LLM local con QVAC y se
-anuncia con un manifiesto firmado; un gateway compatible con la API de OpenAI
-enruta cada request hacia el proveedor disponible, y cualquier cliente OpenAI
-—tu terminal, un bot de Telegram, Open WebUI— le habla sin modificar una línea.
+Hoy el acceso a inferencia de calidad depende de un puñado de corporaciones que
+fijan el precio y capturan el margen de un cómputo que millones ya tienen en
+casa. Usarlas es un acto de fe: si cambian las reglas, no hay a dónde ir.
+PyrusLLM lo reemplaza por un protocolo **sin dueño y verificable**: cualquier
+computadora con cómputo ocioso se vuelve proveedora, firma criptográficamente su
+manifiesto, y un gateway compatible con la API de OpenAI enruta cada request al
+proveedor disponible. Cualquier cliente OpenAI —tu terminal, un bot de Telegram,
+Open WebUI— le habla sin modificar una línea.
 
 Para quien compra inferencia, es una factura más baja y sin intermediario
-centralizado. Para quien la vende, es monetizar cómputo que hoy está ocioso.
-El protocolo es el mismo de un lado y del otro: no hay servidor propietario en
-el medio, ni un tercero que se quede con el margen.
+centralizado. Para quien la vende, es convertir cómputo ocioso en un activo
+productivo. El protocolo es el mismo de los dos lados: no hay servidor
+propietario en el medio ni un tercero que se quede con el margen.
 
-Hackathon CRECIMIENTO / Aleph 2026 — Pears Track.
+**Dicho en una línea para quien ya conoce el terreno: es un OpenRouter P2P.** El
+mismo catálogo unificado y el mismo ruteo entre proveedores, pero sin la empresa
+en el medio —el que rutea no se queda con el margen, y no hay una compañía que
+pueda ver todos los prompts de todos sus clientes. La comparación no es
+retórica: OpenRouter es hoy uno de los proveedores externos que este nodo sabe
+usar cuando la red propia no tiene capacidad, y entra al ruteo como **un
+candidato más**, compitiendo por precio con las máquinas de la red.
+
+|                          | Qué hay hoy, y se puede correr                                                                         | Lo que falta, y es el pedido a Vela                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| **Distribución**         | Un comando instala y une la máquina a la red. Verificado entre máquinas distintas.                     | —                                                                                                          |
+| **Inferencia**           | LLM local con QVAC, gateway OpenAI-compatible, ruteo por carga y precio con el motivo registrado.      | —                                                                                                          |
+| **Identidad del nodo**   | Manifiesto firmado, verificado contra la clave de la conexión, con la dirección de cobro real adentro. | —                                                                                                          |
+| **Contabilidad**         | Ledger local con reserva y tope que corta, y rastro auditable atribuido a una clave pública.           | Que corra como **job confidencial**, no en la máquina del que cobra.                                       |
+| **Pagos**                | La wallet existe y firma EIP-3009 offline; el manifiesto ya dice a quién pagarle.                      | **Liquidación en lote on-chain** en $QVAC, por request atendida.                                           |
+| **Reputación y calidad** | El histórico por par desempata el ruteo.                                                               | **Benchmark de ingreso** y reputación que se actualice por desempeño real, no autodeclarada.               |
+| **Privacidad**           | El prompt no pasa por ninguna corporación central.                                                     | Que el matching no pueda vincular quién pidió con quién contestó — y, más adelante, inferencia en enclave. |
+
+Nacido en el hackathon **CRECIMIENTO / Aleph 2026 — Pears Track**. Este README
+documenta lo que el código hace hoy, incluida una sección de
+[qué está simulado](#qué-es-simulado) que existe para que nadie lo descubra
+solo.
+
+> **Recorrido rápido:** [5 minutos con el producto](#recorrido-de-5-minutos) ·
+> [qué es real y qué no](#estado) ·
+> [la capa económica en el enclave](#la-capa-económica-en-el-enclave) ·
+> [la application completa](PyrusLLM-application.md)
+
+<details>
+<summary><strong>English summary</strong> — for the Horizen · Vela jury</summary>
+
+**PyrusLLM is the Airbnb of AI compute** — or, for anyone who knows the space,
+**a peer-to-peer OpenRouter**. You install one binary and your machine —a PC or a
+datacenter— starts serving inference requests for the network. Each node signs
+its own manifest, announces the model it runs and how much capacity it has, and
+an OpenAI-compatible gateway routes each request to an available provider. Any
+existing OpenAI client points at it without changing a line. The difference from
+an aggregator is that no company sits in the middle taking the margin or seeing
+every prompt.
+
+**What already works, and can be run from this repo:** one-command install and
+P2P distribution verified across separate machines; local LLM inference through
+QVAC; signed manifests verified against the connection key; load- and
+price-based routing with the reason recorded for every decision; a local ledger
+with write-ahead reservations and a spending cap that actually cuts; and an
+audit trail attributable to a public key.
+
+**What is missing, and is exactly what we want to build on Vela:** the economic
+layer — metering, batched onchain settlement in $QVAC, and reputation — running
+as a confidential job instead of on the machine that gets paid. That is the
+piece that would otherwise force the network to trust us.
+
+Full application, including the open question about matching on the latency
+critical path: [PyrusLLM-application.md](PyrusLLM-application.md).
+
+</details>
 
 ---
+
+## Recorrido de 5 minutos
+
+Para ver el producto funcionando sin leer el código. Nada de esto necesita Node,
+npm ni Pear: el binario trae el motor de inferencia adentro.
+
+```bash
+# 1. Instalar (macOS/Linux; para Windows, el irm de más abajo)
+curl -fsSL https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.sh | sh
+
+# 2. Un token real, 100% local, sin abrir nada
+pyrusllm prompt "¿Qué es una red peer-to-peer?"
+
+# 3. La app: chat, tu nodo como proveedor, y la grilla del mercado
+pyrusllm                      # abre http://localhost:8787
+
+# 4. Que hable el protocolo de OpenAI de verdad
+curl -s http://localhost:8787/v1/keys/panel        # la credencial del panel
+curl -s -H "Authorization: Bearer <key>" http://localhost:8787/v1/models
+
+# 5. La evidencia: el rastro auditable, con la clave pública del nodo al lado
+node scripts/auditoria.js --out logs/demo.jsonl
+```
+
+El paso 5 no es decorativo: si en el rastro no hay ningún request que haya
+generado tokens de verdad, el script **sale con error**. Una auditoría que
+siempre dice que sí no audita nada.
+
+**Dónde mirar en el código**, si el jurado quiere ir al grano:
+
+| Qué                                            | Dónde                                                                       |
+| ---------------------------------------------- | --------------------------------------------------------------------------- |
+| La decisión de ruteo, pura y testeable         | [qvac/routing.mjs](qvac/routing.mjs)                                        |
+| El ledger en micro-dólares, con reserva y tope | [qvac/budget.mjs](qvac/budget.mjs)                                          |
+| El manifiesto firmado y su verificación        | [qvac/manifest.mjs](qvac/manifest.mjs)                                      |
+| La wallet de cobro, con la seed cifrada        | [qvac/wallet.mjs](qvac/wallet.mjs)                                          |
+| Qué se probó y con qué                         | [test/index.js](test/index.js) · [test/integracion.js](test/integracion.js) |
 
 ## Instalación
 
@@ -363,6 +460,48 @@ El plan por fases, en [ROADMAP_FASE2-6.md](ROADMAP_FASE2-6.md) y
 [ROADMAP_FASE7-X402.md](ROADMAP_FASE7-X402.md); los defectos de saturación que
 cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
 
+## La capa económica en el enclave
+
+Lo que el protocolo P2P **no** puede resolver solo es el centro del mercado.
+Alguien tiene que aparear cada pedido con un nodo, y al hacerlo ve las dos
+puntas: quién pidió y quién contestó. Alguien tiene que medir el consumo,
+aplicar el precio y decidir cuánto cobra cada proveedor. Eso obliga a que exista
+un coordinador —uno que reconstruye la actividad entera de la red y controla la
+plata—. Cifrar el tráfico no lo evita, porque el coordinador necesita leer los
+dos lados para hacer su trabajo. **No hay mercado sin dueño si la pieza que
+decide y cobra le pertenece a alguien.**
+
+Hoy esa pieza corre en la máquina del operador, y este README lo dice sin
+adornos: el ledger de [qvac/budget.mjs](qvac/budget.mjs) es local, y el nodo
+que factura es el mismo que ejecuta. Funciona, corta por tope y deja rastro
+auditable, pero descansa en confiar en el operador — que es exactamente lo que
+el proyecto dice no querer.
+
+Lo que queremos mover adentro del enclave son tres trabajos deterministas y
+asíncronos:
+
+| Job            | Qué resuelve                                                              | Hoy                                   |
+| -------------- | ------------------------------------------------------------------------- | ------------------------------------- |
+| **metering**   | recomputa el consumo desde el transcripto, no desde lo que el nodo afirma | no existe: se le cree al nodo         |
+| **settlement** | agrega recibos por proveedor y liquida en lote, on-chain, en $QVAC        | el manifiesto dice a quién pagarle    |
+| **reputation** | puntaje desde recibos firmados y spot-checks, en vez de autodeclaración   | histórico local, solo para desempatar |
+
+Los tres encajan en la forma nativa de un job WASM con liquidación on-chain. Con
+el enclave, dejamos de **prometer** que no miramos: no podemos —y con el código
+del job publicado, cualquiera lo verifica.
+
+**Una pieza que preferimos plantear como pregunta abierta antes que prometerla:**
+el matching. Es donde la privacidad se gana o se pierde, pero también está en el
+camino crítico de la latencia, y un viaje de ida y vuelta al enclave por request
+puede no ser viable. Hay diseños plausibles —agrupar matches, precomputar
+asignaciones, mover al enclave solo la parte que revela el vínculo— y es
+justamente el tipo de problema donde seis semanas con el equipo de Vela valen
+más que seis meses por nuestra cuenta.
+
+El detalle completo, con las fases y los riesgos medidos, está en
+[ROADMAP_FASE7-X402.md](ROADMAP_FASE7-X402.md) y en la
+[application](PyrusLLM-application.md).
+
 ## Estado
 
 - **Fases 0–3 (distribución, inferencia local, gateway, manifiesto firmado,
@@ -396,10 +535,18 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
   firma sale **byte a byte idéntica bajo Node y bajo Bare**, que descarta la
   pregunta de si dos máquinas del swarm con runtimes distintos firmarían
   autorizaciones distintas. Desbloquea las fases 7–12.
-- **La liquidación (pagos reales sobre esa base): sigue fuera de alcance** de
-  este track — necesita Autobase y decisiones de gobernanza, no solo código.
+- **La liquidación (pagos reales sobre esa base): sigue sin implementar**, y es
+  la Fase 10. Ya no necesita Autobase: la firma EIP-3009 **es** el recibo, así
+  que verificar sincrónico → servir → liquidar en lote on-chain es el mismo
+  flujo con el settlement diferido, y no un mecanismo nuevo. **El ledger
+  multi-escritor propio salió del alcance** por esa razón — alcance que se
+  borra, no que se agrega ([ROADMAP_FASE7-X402.md](ROADMAP_FASE7-X402.md)).
 
-**Qué es simulado**, para que nadie lo descubra solo:
+### Qué es simulado
+
+Esta sección existe para que nadie lo descubra solo. Es la parte del README que
+más nos cuesta escribir y la que más rápido leeríamos si estuviéramos del otro
+lado de la mesa:
 
 - `serve` arranca con el registro **vacío**. `--demo` lo puebla con 1 nodo real
   - 3 mocks marcados como `simulado`.
