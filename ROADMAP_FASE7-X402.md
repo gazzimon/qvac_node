@@ -155,7 +155,7 @@ falla con el bug puesto.
 | 6.5 Presupuesto         | **CONGELADA 2026-08-26**             | Por decisión del dueño, no se trabaja por ahora. B1 y B2 cerrados y con test; quedan abiertos **B6**, **B13** y **B14**. Congelada no es cerrada: el mecanismo de corte es lo que heredan la 9, la 10 y la 11, así que los tres se heredan con él — B14 es la condición no negociable de D9 y la Fase 9 la va a necesitar. La forma de B13 ya está decidida |
 | 6.6 Cuota gratuita      | **Cerrada**                          | Nada. `quota.mjs` no lo tocó ninguno de los commits nuevos. No persiste, y eso está declarado                                                                                                                                                                                                                                                               |
 | 7 Desmockear `economic` | **CERRADA 2026-08-26**               | El manifiesto firmado lleva la dirección de cobro real que genera WDK. D13 implementado: seed propia, nunca derivada de la de red, cifrada con Argon2id + secretbox. El `_mock` queda sólo para un nodo SIN wallet, y ahí significa "no declara dirección de cobro", no "no implementado". Desbloquea 9, 10 y 11                                            |
-| 8 Precio que rutea      | **Parcial**                          | `anunciadoComo` ([upstream.mjs:159](qvac/upstream.mjs#L159)) hizo que NVIDIA y OpenRouter entren al catálogo con el mismo nombre y por primera vez compitan de verdad. Pero el precio **sigue sin participar del score** —no hay ninguna mención de precio en `qvac/routing.mjs`— y el costo **sigue sin aparecer en el chat**, tampoco en `qvac/pages.mjs` |
+| 8 Precio que rutea      | **CERRADA 2026-08-26**               | El precio entra al score en el paso 4: después de la carga, antes del histórico. El log dice "mas barato" con los dos números, y el chat muestra el techo por respuesta (`up to USD …` / `no charge`). Los tests están verificados contra el criterio desactivado                                                                                           |
 | 8.5 Asistente externo   | **CERRADA 2026-08-26 (segunda vez)** | B11, B12, B15 y B16 arreglados, los cuatro con test verificado contra el bug puesto. B5 sigue acotado y con dueño (D20 / Fase 11), que es de otra fase                                                                                                                                                                                                      |
 | 9–12, 11.5, Track V     | No empezadas                         | 9 y 10 siguen bloqueadas por 7                                                                                                                                                                                                                                                                                                                              |
 
@@ -201,10 +201,13 @@ falla con el bug puesto.
    **HECHA 2026-08-26.** Con ella cae B17, que cambió de dueño: era "fuera de
    fase" mientras el `.env` sólo tenía credenciales de API, y pasó a ser de D13
    cuando empezó a tener la passphrase de la wallet.
-4. **Fase 8 — la mitad que falta**: el precio en el score y el costo en el chat.
+4. ~~**Fase 8 — la mitad que falta**: el precio en el score y el costo en el chat.~~
+   **HECHA 2026-08-26.**
 5. **Fase 9** en adelante, como estaba escrito.
 
-**Siguiente:** el punto 4, la Fase 8 — con el 2 congelado y el 3 hecho. Y una regla nueva, que sale de B18 y no de ninguna
+**Siguiente:** el punto 5, la Fase 9 — con el 2 congelado, y el 3 y el 4 hechos.
+Ojo con lo que la 9 hereda del punto congelado: D9 exige `finish_reason: length`
+al recortar por el tope, y eso es **B14**. Y una regla nueva, que sale de B18 y no de ninguna
 fase: **una corrida verde no es evidencia de nada si el test no falla cuando se
 quita el arreglo, y una suite no está verde hasta que lo esté varias veces
 seguidas.** Las dos pasadas anteriores de esta sección afirmaron "suite en
@@ -958,30 +961,42 @@ anterior, que sigue pendiente.
 **Esta fase vale sola.** Si x402 se cae entero por D11, la 7 y la 8 siguen
 siendo trabajo bueno que cierra deudas declaradas.
 
-#### Estado 2026-08-26: PARCIAL — se entregó la mitad que no era
+#### Estado 2026-08-26: CERRADA
 
-Lo que sí se hizo, y está bien hecho: `qvac/routing.mjs` existe como decisión
-pura y testeable, ordena por carga real, penaliza al que viene fallando y al
-lento, mantiene a los mocks del modo `--demo` siempre detrás de cualquier
-candidato real, y el log de ruteo **dice por qué** eligió. **D6 está cerrado.**
+La primera mitad ya estaba y estaba bien: `qvac/routing.mjs` como decisión pura
+y testeable, orden por carga real, penalización al que falla y al lento, mocks
+del modo `--demo` siempre detrás de cualquier candidato real, y el log diciendo
+por qué. **D6 cerrado.**
 
-Lo que no se hizo: **el precio no participa del ruteo en ningún lado.** El orden
-de [qvac/routing.mjs:105](qvac/routing.mjs#L105) es saturado → mock → carga →
-`errorRate` → latencia → rank → jitter. No hay un término de precio, ni derivado
-del benchmark de `provider.mjs:243` ni de ninguna otra parte. Y el chat no
-muestra el costo estimado de cada respuesta.
+La segunda entró ahora. **El precio que rutea es el del ledger, en
+micro-dólares**, y por eso es comparable entre clases distintas de candidato:
+para un asistente externo es el que declaró el operador en su config, y para un
+par o el motor local es **cero** — que no es un placeholder sino la verdad de
+hoy, porque el pago P2P es la Fase 9.
 
-Las dos líneas del README que esta fase decía borrar siguen ahí, y siguen siendo
-ciertas — que es la parte tranquilizadora: el README no miente, la fase no está
-hecha.
+Va en el **paso 4** del orden, y las dos fronteras son el contenido de la fase:
 
-**Lo que falta para cerrarla:**
+- **Después de la carga**, porque la opción barata que está llena no es barata:
+  la respuesta que no llega no es más económica, es ninguna.
+- **Antes del histórico y de la latencia**, que es lo que pide el DoD. Cuesta
+  menos de lo que parece: hoy esa comparación sólo separa gratis de pago, y
+  entre pares —donde el histórico importa— siguen empatados y decide él.
 
-- El precio entra al score, después de la carga y antes de la latencia (con
-  carga pareja, el más barato gana; nunca por encima de "puede atender ahora").
-- El chat muestra el costo estimado por respuesta. Ya existe todo lo necesario:
-  `costs.estimar` y el `costMicros` que `pushLog` viene guardando por request.
-- Se borran las dos líneas del README, recién ahí.
+Y reemplaza un accidente por un criterio: que "la de casa le gane a la que
+cobra" ya pasaba, pero lo producía el desempate por `kind` del paso 7, que el
+propio archivo declara _"preferencia del modo demo, ya no criterio"_.
+
+**Dos cosas aparecieron al escribirlo, y las dos eran del código nuevo.**
+`motivoDe` afirmaba "más barato" comparando con `!==`, o sea **asumiendo** que
+el sort ya había ordenado por precio: al desactivar el criterio para verificar
+que los tests lo cazaran, el log seguía diciendo "más barato" y nombraba como
+ganador al más caro. Y el costo en el chat salía con cuatro decimales, así que
+un turno de menos de 50 micros se mostraba `USD 0.0000` — idéntico a gratis, que
+es la única distinción que esa línea existe para hacer.
+
+**Lo que sigue sin ser cierto**, para que nadie lo lea de más: el string
+`pricing` del manifiesto ("0.002 QVAC / 1K tok") sigue siendo decorativo y no
+participa de ninguna decisión. Lo que rutea es el ledger, no el manifiesto.
 
 ---
 
@@ -1325,7 +1340,7 @@ sección 0-ter, y manda esa.
 | 1'    | ~~Spike de D11~~ **HECHO**                      | cerrado                                                           | Pasó: WDK y x402 corren directo bajo Bare, con firma idéntica a Node                                                                                 |
 | 1''   | Fase 6.6 — cuota gratuita del proveedor         | **cerrada**                                                       | Misma forma que la 6.5 y tampoco depende de D11. El punto de control ya existe en provider.mjs                                                       |
 | 2     | Fase 7 — desmockear `economic` (incluye D13)    | **CERRADA 2026-08-26**                                            | Precondición de todo cobro. Desbloquea 9, 10 y 11                                                                                                    |
-| 3     | Fase 8 — precio comparable y que rutea          | **parcial**: D6 cerrado, el precio no rutea                       | Vale sola aunque x402 se caiga                                                                                                                       |
+| 3     | Fase 8 — precio comparable y que rutea          | **CERRADA 2026-08-26**                                            | Vale sola aunque x402 se caiga                                                                                                                       |
 | 4     | Fase 8.5 — el asistente externo como candidato  | **CERRADA 2026-08-26** (B3, B4, B7, y después B11, B12, B15, B16) | Chica, porque la 8 ya dejó el ruteo listo                                                                                                            |
 | 5     | Fase 9 — x402 en el borde                       | **desbloqueada** (la 7 cerró)                                     | El hito técnico. Ojo: D9 exige `finish_reason: length` al recortar, y eso es B14, congelado con la 6.5                                               |
 | 6     | Fase 10 — recibos y lote                        | **desbloqueada** (la 7 cerró)                                     | Mata la Fase 6                                                                                                                                       |
