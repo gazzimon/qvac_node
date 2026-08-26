@@ -98,3 +98,41 @@ await paso(4, 'import @x402/core y @x402/evm', async () => {
   const evm = await import('@x402/evm')
   return `core:${Object.keys(core).length} exports, evm:${Object.keys(evm).length}`
 })
+
+// -----------------------------------------------------------------------------
+// El paso 5 existe porque el 4 PASABA POR EL MOTIVO EQUIVOCADO (2026-08-26).
+//
+// El 4 corre despues de los pasos 1-3, que ya importaron WDK. Y resulta que eso
+// no es incidental: `@x402/evm` NO importa bajo Bare por su cuenta.
+//
+//     @x402/evm -> @noble/hashes/crypto
+//
+// y `@noble/hashes` exporta ese subpath CONDICIONALMENTE:
+//
+//     "./crypto": { "node": { "import": "./esm/cryptoNode.js" }, ... }
+//
+// Bare matchea la condicion `node`, cae en `cryptoNode.js`, y ese archivo
+// importa `node:crypto`, que bajo Bare no existe. Es R1 otra vez, escondido dos
+// niveles abajo en el arbol de dependencias.
+//
+// Con WDK importado antes -- alcanza con IMPORTARLO, sin derivar ninguna cuenta
+// -- el import de `@x402/evm` funciona. El mecanismo exacto NO esta
+// diagnosticado, y por eso este paso existe: mide la propiedad de la que
+// depende la Fase 9 en vez de darla por sentada.
+//
+// Si el paso 5 falla y el 4 pasa, la conclusion NO es "anda": es que anda solo
+// mientras alguien cargue WDK primero, y eso hay que garantizarlo en el codigo.
+// -----------------------------------------------------------------------------
+await paso(5, '@x402/evm importa SOLO, sin WDK cargado antes', async () => {
+  const { spawnSync } = await import('bare-subprocess')
+  const r = spawnSync(
+    Bare.argv[0],
+    ['-e', "import('@x402/evm').then(m => console.log('OK ' + Object.keys(m).length))"],
+    { encoding: 'utf8' }
+  )
+  const salida = ((r.stdout || '') + (r.stderr || '')).trim()
+  if (!salida.startsWith('OK')) {
+    throw new Error('no importa aislado: ' + salida.split('\n')[0].slice(0, 120))
+  }
+  return salida
+})
