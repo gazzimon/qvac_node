@@ -49,11 +49,28 @@ const ESPERA_BASE_MS = 400
 
 // Hasta el primer byte del proveedor. No es el mismo numero que el del camino
 // P2P (120s): un par puede estar cargando 807 MB de pesos por primera vez, una
-// API de internet no. El techo sale de lo medido contra integrate.api.nvidia.com
-// el 2026-08-25 -- llama-3.3-70b tardo 43,4 segundos al primer byte y se
-// descarto por inservible-, asi que 60s deja pasar hasta lo que ya sabemos que
-// es demasiado lento y corta lo que directamente no viene.
-const PRIMER_CHUNK_TIMEOUT_MS = 60000
+// API de internet no.
+//
+// 180s, y el numero cambio (B16). La version anterior eran 60s y salian de lo
+// medido el 2026-08-25 contra integrate.api.nvidia.com: llama-3.3-70b tardaba
+// 43,4 segundos al primer byte y se descarto por inservible, asi que 60 parecia
+// dejar pasar hasta lo que ya sabiamos que era demasiado lento.
+//
+// Al dia siguiente el MISMO endpoint tardo 58 segundos, y OpenRouter en su tier
+// gratis 10 al primer byte y 50 en total. O sea que el techo tenia dos segundos
+// de margen contra lo medido y los requests estaban por empezar a cortarse
+// solos -- no por un proveedor colgado, que es lo que este reloj existe para
+// atrapar, sino por uno lento contestando bien.
+//
+// La leccion no es el numero sino de donde sale: un tier gratis es una COLA, y
+// cuanto se espera en ella no lo decide uno. Un techo calibrado al ras de una
+// sola medicion no es un techo, es la proxima falla. Estos 180s dan aire para
+// eso; lo que NO cambia es que un proveedor que no contesta nunca tiene que
+// cortarse, y para eso 180 alcanza igual.
+//
+// Se puede pisar por modelo desde la config (`timeoutPrimerChunkMs`), que es lo
+// que hay que hacer con un modelo del que se conozca la latencia real.
+const PRIMER_CHUNK_TIMEOUT_MS = 180000
 
 // Ya venian tokens y se cortaron sin cerrar el stream. Un socket TCP colgado no
 // avisa: sin esto el request queda abierto para siempre y, con el, la reserva

@@ -1217,6 +1217,68 @@ test('un upstream sin tope de salida igual tiene uno: la reserva lo necesita', a
   t.is(ups[0].precio, null, 'sin pricePerMTok no se inventa un precio')
 })
 
+// ---------------------------------------------------------------------------
+// Los dos relojes del camino externo (B3), y el numero del primero (B16)
+//
+// Son lo unico que impide que un request al externo quede abierto para siempre
+// y, con el, la reserva de presupuesto que lo autorizo. No tenian ningun test:
+// el de B3 prueba que el reloj DISPARA, con 300ms puestos a mano desde la
+// config, y por eso no habria visto que el default estaba mal calibrado.
+//
+// El numero cambio a 180s porque los 60s anteriores quedaron dos segundos por
+// encima de lo medido -- 58s al primer byte contra NVIDIA el 2026-08-26 -- y
+// los requests estaban por cortarse solos por lentos, no por colgados.
+// ---------------------------------------------------------------------------
+
+test('un upstream sin relojes declarados igual los tiene, y no en cero', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'x',
+        baseUrl: 'https://ejemplo.test/v1',
+        apiKeyEnv: 'X_KEY',
+        models: [
+          { modelId: 'porDefecto' },
+          // Los tres modos de escribirlo mal: cero, negativo y basura. Ninguno
+          // puede terminar en un timeout de cero, que dispararia antes de
+          // empezar y dejaria al externo inservible en vez de protegido.
+          { modelId: 'enCero', timeoutPrimerChunkMs: 0, timeoutIdleMs: 0 },
+          { modelId: 'negativo', timeoutPrimerChunkMs: -5000, timeoutIdleMs: -1 },
+          { modelId: 'basura', timeoutPrimerChunkMs: 'rapido', timeoutIdleMs: null }
+        ]
+      }
+    ]
+  })
+
+  for (const u of ups) {
+    t.ok(u.timeoutPrimerChunkMs > 0, u.model + ': el reloj del primer byte existe')
+    t.ok(u.timeoutIdleMs > 0, u.model + ': el reloj del silencio existe')
+  }
+
+  // El default, fijado a proposito: si alguien lo vuelve a bajar, que sea una
+  // decision y no un descuido. 58s medidos contra NVIDIA el 2026-08-26 es lo
+  // que descarta cualquier numero cerca de 60.
+  t.is(ups[0].timeoutPrimerChunkMs, 180000, 'tres minutos hasta el primer byte')
+  t.is(ups[0].timeoutIdleMs, 30000, 'y treinta segundos de silencio entre tokens')
+
+  // Lo que SI se respeta es un valor valido: un modelo con latencia conocida se
+  // acomoda desde la config sin tocar el codigo.
+  const propio = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'y',
+        baseUrl: 'https://ejemplo.test/v1',
+        apiKeyEnv: 'Y_KEY',
+        models: [{ modelId: 'm', timeoutPrimerChunkMs: 300, timeoutIdleMs: 250 }]
+      }
+    ]
+  })
+  t.is(propio[0].timeoutPrimerChunkMs, 300, 'un valor valido gana, y por eso el test de B3 anda')
+  t.is(propio[0].timeoutIdleMs, 250)
+})
+
 test('el opt-in ausente, roto o a medias significa NO', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
