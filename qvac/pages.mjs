@@ -807,13 +807,25 @@ export const NETWORK_HTML = page(
     // un booleano: 'peer' es un nodo REMOTO de verdad, descubierto por el
     // swarm y con su manifiesto firmado verificado. Antes caia en el mismo
     // 'simulado' que los mocks -- justo al revés de lo que pasa.
+    // Un upstream local se nombra por lo que es -- un motor de esta maquina al
+    // que se le habla por HTTP -- y no por como se le pide.
+    function etiquetaDe (n) {
+      if (n.local) return 'local engine · this machine'
+      return KIND_LABEL[n.kind] || esc(n.kind)
+    }
+
     const KIND_LABEL = {
       real: 'this machine',
       peer: 'verified P2P peer',
       mock: 'simulated',
-      // El unico kind que manda el prompt FUERA de la red: a una API de un
-      // tercero, con la cuenta del operador. La etiqueta lo dice sin
-      // eufemismos porque es la unica que acota la promesa de privacidad.
+      // El kind que manda el prompt FUERA de la red: a una API de un tercero,
+      // con la cuenta del operador. La etiqueta lo dice sin eufemismos porque
+      // es la unica que acota la promesa de privacidad.
+      //
+      // OJO: no todo upstream es un tercero. Un llama-server o un NIM en
+      // localhost tambien entra por HTTP y tambien es kind 'upstream', pero el
+      // prompt no sale de la maquina. Ese caso lo separa n.local en
+      // etiquetaDe(); esta entrada es solo el default.
       upstream: 'external API · third party',
       // Sale del directorio Hyperbee: su manifiesto verifico alguna vez, pero
       // ahora no hay socket. Nunca es candidato de ruteo (ver store.mjs).
@@ -837,7 +849,7 @@ ${ESC}
     function buildGrid(nodes) {
       document.getElementById('grid').innerHTML = nodes.map(n => \`
         <div class="card" data-id="\${esc(n.id)}">
-          <span class="badge \${esc(n.kind)}">\${KIND_LABEL[n.kind] || esc(n.kind)}</span>
+          <span class="badge \${n.local ? 'real' : esc(n.kind)}">\${etiquetaDe(n)}</span>
           <h3>\${esc(n.operator)}</h3>
           <div class="model">\${esc(n.displayName)}</div>
           <div class="tags">\${n.tags.map(t => \`<span class="tag">\${esc(t)}</span>\`).join('')}</div>
@@ -2158,14 +2170,19 @@ const CHAT_JS = String.raw`
     // La linea de procedencia. Es lo que separa a esto de cualquier otro chat:
     // el nodo que contesto sale nombrado, no supuesto.
     function prov(m) {
-      var clase = m.kind === 'peer' ? 'peer' : m.kind === 'upstream' ? 'upstream' : 'local'
-      // "(this machine)" es una afirmacion, no un adorno: colgarsela a un
-      // upstream diria que el prompt no salio de aca cuando salio a la API de
-      // un tercero. Cada kind se nombra por lo que es.
+      // El que decide es scope (header X-Pyrus-Scope), no el kind: un
+      // upstream puede ser un tercero o un motor propio detras de HTTP, y la
+      // diferencia es justamente la que esta linea existe para declarar.
+      var afuera = m.scope === 'external'
+      var clase = m.kind === 'peer' ? 'peer' : afuera ? 'upstream' : 'local'
+      // "(this machine)" es una afirmacion, no un adorno: colgarsela a una API
+      // de terceros diria que el prompt no salio de aca cuando salio. Y al
+      // reves, ponerle "(external API)" a un llama-server de localhost seria
+      // acusar de una fuga que no hubo.
       var quien =
         m.kind === 'peer'
           ? m.operator
-          : m.kind === 'upstream'
+          : afuera
             ? m.operator + ' (external API)'
             : m.operator + ' (this machine)'
       // Cada parte en su propio span: unidas en un solo nodo de texto, el gap
@@ -2242,6 +2259,7 @@ const CHAT_JS = String.raw`
         // provenanceHeaders() en gateway.mjs.
         var operador = decodeURIComponent(resp.headers.get('X-Pyrus-Operator') || '') || 'unknown node'
         var tipo = resp.headers.get('X-Pyrus-Kind') || 'real'
+        var alcance = resp.headers.get('X-Pyrus-Scope') || 'local'
 
         var reader = resp.body.getReader()
         var dec = new TextDecoder()
@@ -2277,6 +2295,7 @@ const CHAT_JS = String.raw`
         slot.meta = {
           operator: operador,
           kind: tipo,
+          scope: alcance,
           ttft: ttft,
           tps: ttft !== null && total > 0 ? Math.round(toks / total) : 0,
           secs: total.toFixed(1)

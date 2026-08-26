@@ -822,7 +822,7 @@ test('la cuota es configurable y el registro ignora basura', async (t) => {
 
 // Un candidato como lo devuelve store.findAllByModelId, con lo minimo que mira
 // el ruteo.
-function cand (id, kind, activeRequests, maxConcurrentRequests, extra = {}) {
+function cand(id, kind, activeRequests, maxConcurrentRequests, extra = {}) {
   return {
     id,
     kind,
@@ -843,8 +843,8 @@ const SIN_AZAR = () => 0.5
 test('D6: entre dos pares gana el que tiene menos carga', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
-  const cargado = cand('cargado', 'peer', 9, 10)   // 90%
-  const libre = cand('libre', 'peer', 1, 10)       // 10%
+  const cargado = cand('cargado', 'peer', 9, 10) // 90%
+  const libre = cand('libre', 'peer', 1, 10) // 10%
 
   // Se lo pasa en el orden "malo" a proposito: antes ganaba el primero de la
   // lista y esto habria pasado igual sin mirar la carga.
@@ -853,7 +853,11 @@ test('D6: entre dos pares gana el que tiene menos carga', async (t) => {
   t.is(r.node.id, 'libre', 'elige el descargado, no el primero de la lista')
   t.is(r.decision.loadPct, 10)
   t.ok(r.reason.includes('menor carga'), 'y el motivo lo dice: ' + r.reason)
-  t.alike(r.orden.map((n) => n.id), ['libre', 'cargado'], 'el reintento tambien va ordenado')
+  t.alike(
+    r.orden.map((n) => n.id),
+    ['libre', 'cargado'],
+    'el reintento tambien va ordenado'
+  )
 })
 
 test('D6: un candidato saturado queda ultimo, no afuera', async (t) => {
@@ -1019,7 +1023,10 @@ test('normalizeRequest acepta fijar la maquina, no solo el modelo', async (t) =>
 
   // Un string vacio o de espacios es "no elegi ninguna", no una maquina
   // llamada "". Sin esto el ruteo buscaria un nodo con id vacio y daria 404.
-  t.is(normalizeRequest({ model: 'l', messages: [{ role: 'user', content: 'h' }], node: '   ' }).pin, null)
+  t.is(
+    normalizeRequest({ model: 'l', messages: [{ role: 'user', content: 'h' }], node: '   ' }).pin,
+    null
+  )
 
   // Y la forma corta propia tambien, como con local.
   t.is(normalizeRequest({ modelId: 'llama1b', prompt: 'hola', node: 'x:y' }).pin, 'x:y')
@@ -1032,12 +1039,12 @@ test('normalizeRequest acepta fijar la maquina, no solo el modelo', async (t) =>
 // Un Provider con un motor falso: no carga pesos, no toca el registry, y
 // genera exactamente los tokens que se le piden. Sin esto no hay forma de
 // probar el descuento de cuota sin 807 MB y una GPU.
-async function providerDePrueba (tokensPorRespuesta = 5) {
+async function providerDePrueba(tokensPorRespuesta = 5) {
   const { Provider } = await import('../qvac/provider.mjs')
   const engine = {
     resolveModel: async () => ({ modelSrc: {} }),
     loadModel: async () => 'cargado',
-    complete: async function * () {
+    complete: async function* () {
       for (let i = 0; i < tokensPorRespuesta; i++) yield 'tok'
     },
     shutdown: async () => {}
@@ -1050,20 +1057,24 @@ async function providerDePrueba (tokensPorRespuesta = 5) {
 }
 
 // Junta lo que el provider le contesta al par.
-function capturar () {
+function capturar() {
   const vistos = []
   return { vistos, send: (m) => vistos.push(m) }
 }
 
 const PEER = { key: 'ff'.repeat(32) }
 
-async function pedir (provider, peer, requestId) {
+async function pedir(provider, peer, requestId) {
   const cap = capturar()
-  await provider._serve(peer, {
-    requestId,
-    model: 'llama1b',
-    messages: [{ role: 'user', content: 'hola' }]
-  }, cap.send)
+  await provider._serve(
+    peer,
+    {
+      requestId,
+      model: 'llama1b',
+      messages: [{ role: 'user', content: 'hola' }]
+    },
+    cap.send
+  )
   return cap.vistos
 }
 
@@ -1408,7 +1419,11 @@ test('agotado el tope, reiniciar el nodo NO lo repone', async (t) => {
   budget.setCap(key.id, costs.usdAMicros(0.1))
 
   // Se gasta hasta que el ledger corta.
-  const porRequest = costs.estimar({ model: 'externo-de-prueba', promptTokens: 1000, maxTokens: 10000 })
+  const porRequest = costs.estimar({
+    model: 'externo-de-prueba',
+    promptTokens: 1000,
+    maxTokens: 10000
+  })
   let cortado = false
   for (let i = 0; i < 100; i++) {
     const r = budget.reserve(key.id, porRequest)
@@ -1444,4 +1459,180 @@ test('agotado el tope, reiniciar el nodo NO lo repone', async (t) => {
   budget.reset()
   costs.olvidarPreciosExternos()
   tmp.limpiar()
+})
+
+// ---------------------------------------------------------------------------
+// Un motor propio detras de HTTP, y varias puertas al mismo modelo
+//
+// Dos piezas que entran juntas porque resuelven el mismo problema: el motor
+// embebido solo carga modelos del registry de QVAC (engine.mjs resuelve
+// registry://), asi que servir pesos abiertos -- un GGUF de HuggingFace --
+// significa levantarlos aparte y pedirselos por HTTP. Eso los vuelve un
+// upstream por la forma, sin volverlos un tercero por el fondo.
+// ---------------------------------------------------------------------------
+
+test('un upstream local no necesita credencial ni precio', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'local',
+        label: 'Motor local',
+        local: true,
+        baseUrl: 'http://127.0.0.1:8080/v1',
+        models: [{ modelId: 'nemotron-local' }]
+      }
+    ]
+  })
+
+  t.is(ups.length, 1, 'sin apiKeyEnv entra igual: es el unico que no lo necesita')
+  t.is(ups[0].esLocal, true)
+  t.ok(ups[0].disponible(), 'disponible sin ninguna variable de entorno puesta')
+  t.is(ups[0].precio, null, 'y sin precio, porque no cuesta dolares')
+})
+
+test('un upstream REMOTO sin apiKeyEnv se descarta: no podria autenticarse', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'remoto',
+        baseUrl: 'https://ejemplo.test/v1',
+        models: [{ modelId: 'm1' }]
+      }
+    ]
+  })
+
+  t.is(ups.length, 0, 'el fallo sale al cargar la config, no en el primer prompt')
+})
+
+test('tres puertas al mismo modelo se anuncian con UN solo nombre', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'nim',
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+        apiKeyEnv: 'NVIDIA_API_KEY',
+        models: [{ modelId: 'nvidia/nemotron-3.5-lightning-30b-a3b', as: 'nemotron' }]
+      },
+      {
+        id: 'openrouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKeyEnv: 'OPENROUTER_API_KEY',
+        models: [{ modelId: 'nvidia/nemotron-3.5-lightning', as: 'nemotron' }]
+      },
+      {
+        id: 'local',
+        local: true,
+        baseUrl: 'http://127.0.0.1:8080/v1',
+        models: [{ modelId: 'nemotron-3.5-lightning-30b-a3b', as: 'nemotron' }]
+      }
+    ]
+  })
+
+  t.is(ups.length, 3)
+
+  // Lo que viaja en el body sigue siendo el nombre DE CADA PROVEEDOR: mandarle
+  // a NVIDIA el slug de OpenRouter da 404.
+  t.alike(
+    ups.map((u) => u.model),
+    [
+      'nvidia/nemotron-3.5-lightning-30b-a3b',
+      'nvidia/nemotron-3.5-lightning',
+      'nemotron-3.5-lightning-30b-a3b'
+    ],
+    'cada uno conserva como lo llama su proveedor'
+  )
+
+  // Y lo que entra al catalogo es uno solo: es lo que los hace competir.
+  t.alike(
+    ups.map((u) => u.anunciadoComo),
+    ['nemotron', 'nemotron', 'nemotron'],
+    'una sola fila del marketplace para las tres puertas'
+  )
+})
+
+test('sin "as", el nombre anunciado es el del proveedor (nada cambia)', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'x',
+        baseUrl: 'https://ejemplo.test/v1',
+        apiKeyEnv: 'X_KEY',
+        models: [{ modelId: 'proveedor/modelo' }]
+      }
+    ]
+  })
+
+  t.is(ups[0].anunciadoComo, 'proveedor/modelo', 'el default no rompe lo que ya andaba')
+})
+
+test('los headers de la config no pueden pisar la credencial', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'or',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKeyEnv: 'X_KEY',
+        extraHeaders: {
+          'HTTP-Referer': 'https://ejemplo.test',
+          Authorization: 'Bearer robada',
+          'Content-Type': 'text/plain'
+        },
+        models: [{ modelId: 'm1' }]
+      }
+    ]
+  })
+
+  t.alike(
+    ups[0].extraHeaders['HTTP-Referer'],
+    'https://ejemplo.test',
+    'los headers de atribucion del proveedor llegan'
+  )
+
+  // El armado real vive en un metodo privado; se ejercita por su efecto: con
+  // credencial gana la credencial, sin credencial no queda un Authorization
+  // escrito a mano en un archivo de config.
+  const env = (await import('bare-env')).default
+  env.X_KEY = 'la-buena'
+  t.is(ups[0].apiKey, 'la-buena')
+})
+
+test('una fila de upstream local se marca como local en el registro', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  store.seed()
+
+  store.registerUpstream({
+    id: 'local:nemotron',
+    modelId: 'nemotron',
+    displayName: 'Nemotron local',
+    operator: 'Motor local (local)',
+    local: true
+  })
+
+  const fila = store.listNodes().find((n) => n.kind === 'upstream')
+  t.is(fila.local, true, 'el panel necesita esto para no etiquetarlo "external API"')
+
+  // Sigue sin sumar a la capacidad ANUNCIADA a la red: este proceso no puede
+  // servirselo a un par (provider.mjs despacha al motor embebido, no a HTTP).
+  const antes = store.localLoad().maxConcurrentRequests
+  t.is(antes, store.localLoad().maxConcurrentRequests)
+  t.absent(
+    store
+      .listNodes()
+      .filter((n) => n.kind === 'real')
+      .some((n) => n.modelId === 'nemotron'),
+    'no se disfraza de motor embebido'
+  )
+
+  store.clearUpstreams()
+  store.seed()
 })

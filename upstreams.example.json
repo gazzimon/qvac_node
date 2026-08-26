@@ -15,32 +15,41 @@
     "Se puede prender en caliente con POST /v1/upstream/opt-in, pero eso NO",
     "escribe el archivo: al reiniciar vuelve a valer lo que diga aca.",
     "",
-    "Todo lo medido abajo es contra integrate.api.nvidia.com el 2026-08-25.",
+    "as: el nombre con el que la fila entra al catalogo de ESTA red, que puede",
+    "no ser el que usa el proveedor. Tres puertas al mismo Nemotron -NVIDIA lo",
+    "llama nvidia/nemotron-3.5-lightning-30b-a3b, OpenRouter",
+    "nvidia/nemotron-3.5-lightning, y tu llama-server como se te ocurra- se",
+    "anuncian con el MISMO 'as' y recien ahi compiten entre si: findAllByModelId",
+    "filtra por nombre exacto, asi que sin esto no se cruzan nunca.",
+    "",
+    "local: true marca un endpoint que corre en ESTA maquina (llama-server,",
+    "vLLM, un NIM self-hosted). No lleva credencial ni precio, no le aplica el",
+    "opt-in y sobrevive a 'local: true' en el pedido, porque el prompt no sale",
+    "de la maquina. Es la forma de servir pesos abiertos que el motor embebido",
+    "no puede cargar: engine.mjs solo resuelve el registry de QVAC.",
+    "",
+    "Lo medido contra integrate.api.nvidia.com es del 2026-08-25; los precios",
+    "de OpenRouter salen de su catalogo publico (GET /api/v1/models) el 2026-08-26.",
     "Volver a medir antes de confiar: son numeros de una cuenta y un dia."
   ],
-
   "brokerEnabled": false,
   "optIn": false,
-
   "upstreams": [
     {
       "id": "nim",
       "label": "NVIDIA NIM",
       "baseUrl": "https://integrate.api.nvidia.com/v1",
       "apiKeyEnv": "NVIDIA_API_KEY",
-
       "models": [
         {
           "modelId": "nvidia/nemotron-3.5-lightning-30b-a3b",
+          "as": "nemotron-3.5-lightning",
           "displayName": "Nemotron 3.5 Lightning 30B",
           "tags": ["upstream", "agentic", "fast"],
           "maxConcurrent": 4,
-
           "maxTokens": 1024,
-
           "timeoutPrimerChunkMs": 60000,
           "timeoutIdleMs": 30000,
-
           "_timeouts": [
             "Los dos relojes que impiden que un request al externo quede abierto",
             "para siempre -- y con el, la reserva del presupuesto que lo autorizo.",
@@ -56,9 +65,10 @@
             "Subirlos es razonable con un modelo lento. Bajarlos a cero no: un valor",
             "invalido cae al default en vez de desactivar el corte."
           ],
-
-          "pricePerMTok": { "input": 0.20, "output": 0.60 },
-
+          "pricePerMTok": {
+            "input": 0.2,
+            "output": 0.6
+          },
           "_pricePerMTok": [
             "USD por 1M de tokens. NO ESTA MEDIDO: son los unicos dos numeros",
             "de este archivo que no salieron de una corrida. Ponele el de TU",
@@ -78,17 +88,18 @@
             "cliente no manda max_tokens -que son casi todos los clientes de",
             "OpenAI-. Sin un techo no hay cota superior que reservar."
           ],
-
           "_medido": {
             "ttftMs": 430,
             "nota": "El mas rapido de los probados. Es el default por eso."
           },
-
           "extraBody": {
-            "stream_options": { "include_usage": true },
-            "chat_template_kwargs": { "enable_thinking": false }
+            "stream_options": {
+              "include_usage": true
+            },
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            }
           },
-
           "_porQueEsosCampos": [
             "include_usage: sin esto el proveedor NO manda `usage` en streaming y",
             "la liquidacion del budget se queda sin los tokens reales de entrada.",
@@ -109,20 +120,111 @@
           ]
         }
       ],
-
       "_modelosDescartados": {
         "meta/llama-3.3-70b-instruct": [
           "MEDIDO 43.4 segundos al primer byte, con curl y con el cliente propio.",
           "No es arranque en frio: se repite. Inservible para un chat.",
           "El mismo endpoint sirve nemotron-3.5-lightning en 0.73s."
         ],
-        "nvidia/llama-3.2-nv-embedqa-1b-v1": [
-          "404 para esta cuenta aunque figure en /v1/models."
-        ]
+        "nvidia/llama-3.2-nv-embedqa-1b-v1": ["404 para esta cuenta aunque figure en /v1/models."]
       }
+    },
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "extraHeaders": {
+        "HTTP-Referer": "https://github.com/gazzimon/qvac_node",
+        "X-Title": "PyrusLLM"
+      },
+      "_porQueOpenRouter": [
+        "Sirve el MISMO Nemotron que NVIDIA, y esa es la mitad del punto: con el",
+        "mismo 'as' que la entrada de arriba, por primera vez hay DOS candidatos",
+        "para un modelo. El ruteo por carga, el desempate y la degradacion por",
+        "presupuesto se ejercen de verdad en vez de existir solo en los tests.",
+        "",
+        "La otra mitad es legal. Los terminos del trial de NVIDIA (4.2) prohiben",
+        "'make available to others' el servicio, y la 1.4 lo limita a testing",
+        "interno salvo que tengas una Subscription de NVIDIA o de un Service",
+        "Provider. OpenRouter ES uno de esos Service Providers, y sus terminos",
+        "si contemplan integrarlo en un producto. El dia que se cablee",
+        "brokerEnabled, se brokea esto y no el trial.",
+        "",
+        "extraHeaders: OpenRouter los usa para atribuir el trafico a una app.",
+        "Son opcionales. Authorization y Content-Type NO se pueden pisar desde",
+        "aca, por si a alguien se le ocurre."
+      ],
+      "models": [
+        {
+          "modelId": "nvidia/nemotron-3.5-lightning",
+          "as": "nemotron-3.5-lightning",
+          "displayName": "Nemotron 3.5 Lightning",
+          "tags": ["upstream", "agentic", "fast"],
+          "maxConcurrent": 4,
+          "maxTokens": 1024,
+          "pricePerMTok": {
+            "input": 0.08,
+            "output": 0.2
+          },
+          "_pricePerMTok": [
+            "Del catalogo publico de OpenRouter el 2026-08-26: prompt",
+            "0.00000008 y completion 0.0000002 POR TOKEN, que son 0.08 y 0.20",
+            "por millon. Verificar de nuevo antes de confiar en el tope:",
+            "OpenRouter cambia precios sin avisar."
+          ],
+          "_variantesGratis": [
+            "Existe nvidia/nemotron-3.5-lightning:free, a costo cero y con 1M de",
+            "contexto, limitado por REQUESTS y no por tokens (del orden de 20 por",
+            "minuto y 200 por dia).",
+            "",
+            "Ojo con eso: budget.mjs cuenta DOLARES y no ve un limite medido en",
+            "requests. Para el, un :free es gratis y por lo tanto ilimitado, que",
+            "es exactamente lo que no es. Es el mismo agujero que con los",
+            "creditos del trial de NVIDIA."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "local",
+      "label": "Motor local",
+      "local": true,
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "_comoLevantarlo": [
+        "Este es el camino para servir pesos que el motor embebido NO puede",
+        "cargar: engine.mjs solo resuelve nombres del registry de QVAC, con",
+        "esquema registry://, asi que un .gguf de HuggingFace no entra por ahi.",
+        "",
+        "Nemotron 3.5 Lightning es open weights (OpenMDW-1.1, uso comercial",
+        "permitido) y hay GGUF de la comunidad. Se levanta aparte:",
+        "",
+        "  llama-server -hf unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF \\",
+        "               --port 8080 --ctx-size 8192",
+        "",
+        "y este nodo se lo pide por HTTP como a cualquier otro upstream. Son",
+        "~18 GB en Q4: 30B totales aunque solo 3B esten activos por token.",
+        "",
+        "Sin credencial y sin precio a proposito: no cuesta dolares y el prompt",
+        "no sale de la maquina. Por eso no le aplica el opt-in y sobrevive al",
+        "candado de 'local: true' del pedido."
+      ],
+      "models": [
+        {
+          "modelId": "nemotron-3.5-lightning-30b-a3b",
+          "as": "nemotron-3.5-lightning",
+          "displayName": "Nemotron 3.5 Lightning",
+          "tags": ["general", "chat", "agentic"],
+          "maxConcurrent": 2,
+          "maxTokens": 2048,
+          "_maxConcurrent": [
+            "Dos y no tres: un 30B ocupa la maquina de otra manera que el 1B del",
+            "motor embebido. Es un numero para MEDIR, no para creer."
+          ]
+        }
+      ]
     }
   ],
-
   "_embeddings": {
     "_nota": "Lo usa el RAG (qvac/embeddings.mjs), no el ruteo de chat.",
     "model": "nvidia/nemotron-3-embed-1b",

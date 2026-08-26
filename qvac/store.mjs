@@ -162,6 +162,10 @@ function toPublic(node) {
     activeRequests: node.activeRequests,
     maxConcurrentRequests: node.maxConcurrentRequests,
     loadPct: loadPct(node),
+    // Que un upstream sea local cambia lo que el panel puede decir de el: no
+    // se lo puede etiquetar "external API" ni avisar que el prompt sale de la
+    // maquina, porque no sale.
+    local: node.local === true,
     // Sin esto el panel no tiene con que pedirle el drive AL PAR CORRECTO: sin
     // peerKey, /v1/files siempre cae al drive local, sin importar que tarjeta
     // se haya clickeado.
@@ -391,7 +395,8 @@ export function registerUpstream({
   pricing = 'sin precio declarado',
   tags = [],
   maxConcurrentRequests = 4,
-  status = 'online'
+  status = 'online',
+  local = false
 }) {
   const rowId = `upstream:${id}`
   nodes.set(rowId, {
@@ -404,7 +409,12 @@ export function registerUpstream({
     operator: operator || 'Asistente externo',
     maxConcurrentRequests,
     activeRequests: 0,
-    status: status === 'offline' ? 'offline' : 'online'
+    status: status === 'offline' ? 'offline' : 'online',
+    // Un upstream que corre en ESTA maquina (llama-server, vLLM, un NIM
+    // self-hosted). Sigue siendo kind 'upstream' porque se le pide por HTTP y
+    // no por el motor embebido, pero NO es un tercero: el prompt no sale de
+    // aca. Todo lo que decide privacidad y gasto mira este campo, no el kind.
+    local: local === true
   })
   return rowId
 }

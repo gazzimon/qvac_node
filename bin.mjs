@@ -339,41 +339,69 @@ async function registrarUpstreams({ gw, store, dir }) {
     const filaId = `upstream:${u.id}`
     const conPrecio = u.precio ? costs.registrarPrecio(filaId, u.precio) : false
 
+    // Que le falta a este upstream para poder contestar. Las dos exigencias
+    // valen para un proveedor REMOTO y ninguna para uno local:
+    //
+    //   - credencial: un endpoint en localhost no lleva ninguna;
+    //   - precio: un endpoint propio no cuesta dolares, asi que cero no es un
+    //     agujero en el contador -- es la verdad. Exigirselo dejaria apagado
+    //     al unico upstream que nunca puede pasarse de un tope.
     const falta = []
     if (!u.disponible()) falta.push(`falta la variable de entorno ${u.apiKeyEnv}`)
-    if (!conPrecio) falta.push('falta "pricePerMTok" en la config')
+    if (!conPrecio && !u.esLocal) falta.push('falta "pricePerMTok" en la config')
 
     store.registerUpstream({
       id: u.id,
-      modelId: u.model,
+      // El nombre con el que entra al marketplace, que puede no ser el que usa
+      // el proveedor: dos puertas al mismo modelo tienen que caer en la misma
+      // fila del catalogo para poder competir entre si.
+      modelId: u.anunciadoComo,
       displayName: u.displayName,
       // El operador que se muestra en el panel y viaja en los headers de
-      // procedencia. Dice el proveedor Y que es externo: la promesa de
+      // procedencia. Dice el proveedor Y de que lado esta: la promesa de
       // privacidad se acota en el nombre mismo de quien contesto.
-      operator: `${u.label} (externo)`,
+      operator: u.esLocal ? `${u.label} (local)` : `${u.label} (externo)`,
       pricing: conPrecio
         ? `${costs.formatUSD(u.precio.salida)} / per 1m completion tokens`
-        : 'sin precio declarado',
+        : u.esLocal
+          ? 'sin costo: corre en esta maquina'
+          : 'sin precio declarado',
       tags: u.tags,
       maxConcurrentRequests: u.maxConcurrent,
-      status: falta.length ? 'offline' : 'online'
+      status: falta.length ? 'offline' : 'online',
+      local: u.esLocal
     })
+
+    const comoSeLlama =
+      u.anunciadoComo === u.model
+        ? u.model
+        : `${u.anunciadoComo} (el proveedor lo llama ${u.model})`
 
     if (falta.length) {
       console.log(`  [upstream] ${u.displayName} (${u.label}) DESACTIVADO: ${falta.join('; ')}`)
+    } else if (u.esLocal) {
+      console.log(
+        `  [upstream] ${u.displayName} (${u.label}) listo en ${u.baseUrl} — local, sin costo — ${comoSeLlama}`
+      )
     } else {
       console.log(
         `  [upstream] ${u.displayName} (${u.label}) listo — hasta ${u.maxTokens} tokens de salida, ` +
-          `${costs.formatUSD(u.precio.salida)}/1M`
+          `${costs.formatUSD(u.precio.salida)}/1M — ${comoSeLlama}`
       )
     }
   }
 
-  console.log(
-    cfg.optIn
-      ? '  [upstream] opt-in PRENDIDO: con la red sin capacidad, el prompt puede salir a un tercero'
-      : '  [upstream] opt-in apagado: ningun prompt sale a un tercero (POST /v1/upstream/opt-in para prenderlo)'
-  )
+  // El opt-in habla de TERCEROS. Un nodo cuyos upstreams son todos locales no
+  // tiene por que leer un aviso sobre prompts que salen de la maquina, porque
+  // ninguno sale: decirselo igual entrena a ignorar el aviso el dia que sea
+  // cierto.
+  if (cfg.upstreams.some((u) => !u.esLocal)) {
+    console.log(
+      cfg.optIn
+        ? '  [upstream] opt-in PRENDIDO: con la red sin capacidad, el prompt puede salir a un tercero'
+        : '  [upstream] opt-in apagado: ningun prompt sale a un tercero (se prende en /node)'
+    )
+  }
 }
 
 // Levanta el gateway y los paneles. La usan DOS caminos: `pyrusllm serve` con

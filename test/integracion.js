@@ -16,7 +16,7 @@ const http = require('bare-http1')
 const PORT = 8899
 const BASE = 'http://127.0.0.1:' + PORT
 
-function pedir (metodo, ruta, opts) {
+function pedir(metodo, ruta, opts) {
   const o = opts || {}
   return new Promise((resolve, reject) => {
     const headers = {}
@@ -30,10 +30,16 @@ function pedir (metodo, ruta, opts) {
 
     const req = http.request(BASE + ruta, { method: metodo, headers }, (res) => {
       let data = ''
-      res.on('data', (c) => { data += c })
+      res.on('data', (c) => {
+        data += c
+      })
       res.on('end', () => {
         let json = null
-        try { json = JSON.parse(data) } catch (e) { /* HTML o SSE */ }
+        try {
+          json = JSON.parse(data)
+        } catch (e) {
+          /* HTML o SSE */
+        }
         resolve({ status: res.statusCode, headers: res.headers, body: data, json })
       })
     })
@@ -43,7 +49,7 @@ function pedir (metodo, ruta, opts) {
   })
 }
 
-function esperar (ms) {
+function esperar(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
@@ -115,7 +121,7 @@ test('un chat deja rastro de ruteo y liquida el presupuesto', async (t) => {
 
   // Fase 8: la decision quedo escrita, con el motivo.
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
-  const entradas = Array.isArray(log.json) ? log.json : (log.json.log || log.json.entries)
+  const entradas = Array.isArray(log.json) ? log.json : log.json.log || log.json.entries
   const ultima = entradas[0]
   t.ok(ultima.reason, 'el log dice POR QUE se eligio: ' + ultima.reason)
   t.ok(ultima.decision, 'y con que carga lo decidio')
@@ -281,13 +287,19 @@ let seCuelga = false
 // Un proveedor compatible con OpenAI en veinte lineas: dos deltas, un `usage`
 // con tokens que NO coinciden con los contados de este lado -- a proposito,
 // para probar que se liquida con los del proveedor -- y el [DONE].
-function levantarProveedorFalso () {
+function levantarProveedorFalso() {
   return new Promise((resolve) => {
     servidorExterno = http.createServer((req, res) => {
       let crudo = ''
-      req.on('data', (c) => { crudo += c })
+      req.on('data', (c) => {
+        crudo += c
+      })
       req.on('end', () => {
-        try { ultimoPedidoExterno = JSON.parse(crudo) } catch (e) { ultimoPedidoExterno = null }
+        try {
+          ultimoPedidoExterno = JSON.parse(crudo)
+        } catch (e) {
+          ultimoPedidoExterno = null
+        }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         const chunk = (d) => res.write('data: ' + JSON.stringify(d) + '\n\n')
         // Cabecera mandada y despues silencio: el socket sigue vivo, asi que
@@ -296,10 +308,15 @@ function levantarProveedorFalso () {
         chunk({ choices: [{ delta: { role: 'assistant' } }] })
         // `reasoning_content` en el MISMO delta que el contenido: si el cliente
         // lo leyera, el pensamiento del modelo saldria al chat.
-        chunk({ choices: [{ delta: { reasoning_content: 'primero pienso...', content: 'hola ' } }] })
+        chunk({
+          choices: [{ delta: { reasoning_content: 'primero pienso...', content: 'hola ' } }]
+        })
         chunk({ choices: [{ delta: { content: 'desde afuera' } }] })
         if (mandaUsage) {
-          chunk({ choices: [{ delta: {} }], usage: { prompt_tokens: 1000, completion_tokens: 500 } })
+          chunk({
+            choices: [{ delta: {} }],
+            usage: { prompt_tokens: 1000, completion_tokens: 500 }
+          })
         }
         res.write('data: [DONE]\n\n')
         res.end()
@@ -394,10 +411,7 @@ test('el opt-in se prende por HTTP y pide credencial', async (t) => {
   const leerConKey = await pedir('GET', '/v1/upstream', { key: KEY })
   t.is(leerConKey.status, 200)
   t.ok(leerConKey.json.upstreams[0].apiKeyEnv, 'va el NOMBRE de la variable...')
-  t.absent(
-    JSON.stringify(leerConKey.json).indexOf('clave-de-prueba') !== -1,
-    '...y nunca su valor'
-  )
+  t.absent(JSON.stringify(leerConKey.json).indexOf('clave-de-prueba') !== -1, '...y nunca su valor')
 
   const sinKey = await pedir('POST', '/v1/upstream/opt-in', { body: { enabled: true } })
   t.is(sinKey.status, 401, 'autorizar gasto no puede quedar abierto al puerto')
@@ -497,9 +511,7 @@ test('agotado el presupuesto se contesta local, nunca el externo', async (t) => 
   })
 
   // Se satura el candidato local: sin esto el externo ni compite (D19).
-  const propios = store
-    .listNodes()
-    .filter((n) => n.modelId === compartido && n.kind !== 'upstream')
+  const propios = store.listNodes().filter((n) => n.modelId === compartido && n.kind !== 'upstream')
   for (const n of propios) {
     for (let i = 0; i < n.maxConcurrentRequests; i++) store.beginRequest(n.id)
   }
@@ -747,6 +759,125 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
   t.is(nodo.activeRequests, 0, 'y el slot del nodo tampoco quedo tomado')
 
   seCuelga = false
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
+test('un motor local detras de HTTP contesta sin credencial y sin opt-in', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  // Se apaga el opt-in a proposito: si le aplicara, este test no pasaria. Es
+  // toda la diferencia entre "upstream" y "tercero".
+  gw.setUpstreamOptIn(false)
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'motor',
+        label: 'Motor local',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'pesos-abiertos', as: 'modelo-compartido', maxTokens: 128 }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: ups[0].anunciadoComo,
+    displayName: 'Pesos abiertos',
+    operator: 'Motor local (local)',
+    local: true
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'modelo-compartido', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 200, 'contesta con el opt-in apagado: no es un tercero')
+  t.is(r.json.choices[0].message.content, 'hola desde afuera')
+  t.is(r.headers['x-pyrus-scope'], 'local', 'y lo declara: el prompt no salio de la maquina')
+  t.is(r.headers['x-pyrus-kind'], 'upstream', 'aunque se le haya pedido por HTTP')
+
+  // Sin Authorization: el proveedor local no lleva credencial y mandarle una
+  // vacia seria peor que no mandar nada.
+  t.absent(ultimoPedidoExterno.max_tokens > 128, 'respeta su propio tope de salida')
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  t.is(log.json.log[0].target, 'local', 'y el rastro no lo cuenta como consumo externo: no lo fue')
+
+  store.clearUpstreams()
+  gw.setUpstreams([])
+})
+
+test('con las dos puertas abiertas contesta la de casa, no la que cobra', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  const env = (await import('bare-env')).default
+  env.PYRUS_TEST_KEY = 'clave-de-prueba'
+
+  // El MISMO modelo por dos caminos, que es lo que habilita `as`: sin eso
+  // serian dos modelos distintos y no se cruzarian nunca.
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'motor',
+        label: 'Motor local',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'pesos-abiertos', as: 'dos-puertas' }]
+      },
+      {
+        id: 'pago',
+        label: 'Proveedor pago',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [{ modelId: 'el-caro', as: 'dos-puertas', pricePerMTok: { input: 1, output: 2 } }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true) // prendido: ni asi tiene que ganar el pago
+
+  for (const u of ups) {
+    if (u.precio) costs.registrarPrecio('upstream:' + u.id, u.precio)
+    store.registerUpstream({
+      id: u.id,
+      modelId: u.anunciadoComo,
+      displayName: u.displayName,
+      operator: u.label,
+      local: u.esLocal,
+      maxConcurrentRequests: 2
+    })
+  }
+
+  t.is(
+    store.findAllByModelId('dos-puertas').length,
+    2,
+    'dos candidatos para un modelo: recien ahora el ruteo tiene algo que decidir'
+  )
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'dos-puertas', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 200)
+  t.is(r.headers['x-pyrus-scope'], 'local', 'gana la de casa mientras tenga lugar (D19)')
+  t.is(
+    ultimoPedidoExterno.model,
+    'pesos-abiertos',
+    'y se le pidio con SU nombre, no con el anunciado'
+  )
+
   store.clearUpstreams()
   costs.olvidarPreciosExternos()
   gw.setUpstreams([])

@@ -161,10 +161,22 @@ function sendJson(res, statusCode, body, extraHeaders = null) {
 //
 // encodeURIComponent porque un header no puede llevar bytes fuera de latin-1 y
 // el nombre del operador lo elige una persona ("Nodo de Ramón").
+// Un upstream que corre en esta maquina NO es un tercero. Todo lo que decide
+// privacidad y gasto -- el opt-in, el filtro de `local: true`, la condicion de
+// "sin capacidad local" -- pregunta esto y no el `kind`, que solo dice COMO se
+// le pide (por HTTP) y no A QUIEN.
+function esTercero(node) {
+  return !!node && node.kind === 'upstream' && node.local !== true
+}
+
 function provenanceHeaders(node) {
   return {
     'X-Pyrus-Operator': encodeURIComponent((node && node.operator) || ''),
     'X-Pyrus-Kind': (node && node.kind) || 'unknown',
+    // De que lado del borde de la maquina se genero la respuesta. `kind` no
+    // alcanza: un upstream puede ser un tercero o un motor propio detras de
+    // HTTP, y el chat necesita saber cual para no prometer de menos ni de mas.
+    'X-Pyrus-Scope': esTercero(node) ? 'external' : 'local',
     'X-Pyrus-Model': encodeURIComponent((node && node.modelId) || '')
   }
 }
@@ -752,7 +764,11 @@ async function handleRemoteChat({
             created,
             model,
             choices: [
-              { index: 0, message: { role: 'assistant', content: contenido }, finish_reason: 'stop' }
+              {
+                index: 0,
+                message: { role: 'assistant', content: contenido },
+                finish_reason: 'stop'
+              }
             ]
           },
           provenanceHeaders(elegido || node)
@@ -959,9 +975,13 @@ async function handleChat(req, res) {
   // de la red -- es mas, porque ademas guarda logs.
   // Se cuentan ANTES de cualquier filtro: si `local` los saca, el error de mas
   // abajo tiene que poder decir que habia uno y por que no se uso.
-  const externos = candidatos.filter((n) => n.kind === 'upstream')
+  const externos = candidatos.filter(esTercero)
 
-  if (local) candidatos = candidatos.filter((n) => n.kind !== 'peer' && n.kind !== 'upstream')
+  // Un upstream LOCAL sobrevive a este filtro, y tiene que sobrevivir: el
+  // pedido dice "que no salga de esta maquina", y un llama-server en localhost
+  // no la saca. Filtrarlo dejaria sin contestar al unico caso donde el candado
+  // y la capacidad no estan en conflicto.
+  if (local) candidatos = candidatos.filter((n) => n.kind !== 'peer' && !esTercero(n))
 
   // D19 — las otras dos condiciones del externo. Se aplican como FILTRO de
   // candidatos y no como un `if` en el despacho: un upstream inelegible tiene
@@ -987,7 +1007,7 @@ async function handleChat(req, res) {
       // atender ahora, el externo no compite. Recien cuando estan todos llenos
       // -- o cuando no hay ninguno, que es el caso de un modelo que solo sirve
       // el externo -- entra a la puja.
-      const propios = candidatos.filter((n) => n.kind !== 'upstream')
+      const propios = candidatos.filter((n) => !esTercero(n))
       const hayLugar = propios.some((n) => !estaSaturado(n))
       if (hayLugar) {
         vetoExterno = {
@@ -996,7 +1016,7 @@ async function handleChat(req, res) {
         }
       }
     }
-    if (vetoExterno) candidatos = candidatos.filter((n) => n.kind !== 'upstream')
+    if (vetoExterno) candidatos = candidatos.filter((n) => !esTercero(n))
   }
 
   // Todos los candidatos que habia eran externos y quedaron vetados. El 404
@@ -1064,10 +1084,10 @@ async function handleChat(req, res) {
   // si no hay ningun candidato propio -- el caso de un modelo que unicamente
   // sirve el externo -- se devuelve el 402.
   let degradado = null
-  if (!reserva.ok && node.kind === 'upstream') {
+  if (!reserva.ok && esTercero(node)) {
     // `candidatos` es el orden PUNTUADO, asi que el primero no-externo es el
     // mejor de los propios, no el primero que aparecio.
-    const alternativa = candidatos.find((n) => n.kind !== 'upstream')
+    const alternativa = candidatos.find((n) => !esTercero(n))
     if (alternativa) {
       degradado = {
         de: node.id,
@@ -1345,7 +1365,12 @@ async function handleChat(req, res) {
       // 'local' es esta maquina generando de verdad; 'mock' es teatro de demo.
       // Distinguirlos importa: sin el campo, una corrida con --demo produce un
       // rastro con tok/s inventados que no se puede separar de uno real.
-      target: node.kind === 'real' ? 'local' : node.kind === 'upstream' ? 'upstream' : 'mock',
+      // 'local' es lo que se genero en ESTA maquina, con el motor embebido o
+      // con un motor propio detras de HTTP; 'upstream' es lo que se le pidio a
+      // un tercero; 'mock' es teatro del modo --demo. Un upstream local
+      // contado como 'upstream' inflaria el panel de consumo externo con
+      // requests que nunca salieron de la maquina.
+      target: esTercero(node) ? 'upstream' : node.kind === 'mock' ? 'mock' : 'local',
       nodeId: node.id,
       operator: node.operator,
       candidatos: candidatos.length,

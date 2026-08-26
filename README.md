@@ -265,18 +265,40 @@ export NVIDIA_API_KEY=...          # el nombre lo dice el campo apiKeyEnv
 pyrusllm serve --swarm
 ```
 
-Un upstream se registra **offline** si le falta la credencial o el precio, y el
-arranque dice cuál de las dos. Lo del precio no es burocracia: sin él
+Un upstream remoto se registra **offline** si le falta la credencial o el precio,
+y el arranque dice cuál de las dos. Lo del precio no es burocracia: sin él
 `costs.estimar()` devuelve cero, la reserva no aparta nada y el tope de gasto
 deja de cortar justo en el único camino que cuesta dólares.
 
-Mandarle el prompt a un tercero pide **opt-in explícito** (`"optIn": true`, o
-`POST /v1/upstream/opt-in` para prenderlo en caliente sin reiniciar; eso no
-escribe el archivo). Y aun prendido, el externo solo entra a la puja cuando no
+Mandarle el prompt a un tercero pide **opt-in explícito** (`"optIn": true`, o el
+interruptor de `/node`). Y aun prendido, el externo solo entra a la puja cuando no
 hay capacidad local ni en la red: mientras alguien de este lado pueda atender, el
 prompt no sale. Si el presupuesto se agota, se **degrada a un candidato local**
 en vez de negar el servicio —y el rastro de ruteo lo registra como degradación,
 no como una elección normal. `GET /v1/upstream` muestra el estado.
+
+**No todo upstream es un tercero.** `"local": true` marca un endpoint que corre en
+esta máquina —`llama-server`, vLLM, un NIM self-hosted— hablando OpenAI en
+localhost. Entra por HTTP como cualquier upstream, pero el prompt no sale de la
+máquina: no lleva credencial, no lleva precio, no le aplica el opt-in y sobrevive
+al candado de `local: true` del pedido. Lo que decide todo eso es el campo
+`local`, nunca el `kind`, que sólo dice *cómo* se le pide y no *a quién*. La
+respuesta lo declara en `X-Pyrus-Scope: local|external`, y el chat lo muestra como
+"(this machine)" en vez de "(external API)".
+
+Ese es además el único camino para servir **pesos abiertos**: el motor embebido
+resuelve nombres del registry de QVAC (`registry://`), así que un `.gguf` bajado
+de HuggingFace no entra por ahí. Se levanta aparte y se consume por HTTP.
+
+**Varias puertas al mismo modelo.** El campo `as` separa cómo llama el proveedor a
+un modelo de cómo lo anuncia esta red: NVIDIA sirve
+`nvidia/nemotron-3.5-lightning-30b-a3b`, OpenRouter sirve
+`nvidia/nemotron-3.5-lightning` y tu `llama-server` sirve lo que le pongas —los
+tres con `"as": "nemotron-3.5-lightning"` entran como **una sola fila** del
+catálogo. Sin eso serían tres modelos distintos: `findAllByModelId` filtra por
+nombre exacto, así que el ruteo por carga, el desempate y la degradación por
+presupuesto nunca llegarían a tener dos candidatos entre los cuales elegir. Lo que
+viaja en el body sigue siendo el nombre de cada proveedor.
 
 ## Pruebas
 
@@ -373,9 +395,15 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
 - El nodo que infiere ve el prompt en texto plano. El claim es "ninguna
   corporación centralizada agrega tus datos a escala", no "nadie más lo ve":
   el cifrado E2E está fuera de alcance.
+- **El ledger cuenta dólares, y hay límites que no se miden en dólares.** El tier
+  gratuito de NVIDIA se agota por *créditos* y el de OpenRouter por *requests por
+  día*. Para `budget.mjs` los dos son gratis y por lo tanto ilimitados, que es
+  justo lo que no son: el nodo deja de contestar sin que ningún contador lo haya
+  visto venir.
 - **El asistente externo manda tu prompt a un tercero.** Es el único camino del
   proyecto donde el texto sale de la red P2P hacia la API de una empresa, que lo
-  ve, lo puede loguear y lo factura. Está **apagado por default** y hacen falta
+  ve, lo puede loguear y lo factura. (Un upstream con `"local": true` no cuenta:
+  no sale de la máquina.) Está **apagado por default** y hacen falta
   tres cosas a la vez para que se use: `optIn` prendido, que no haya capacidad
   local ni en la red, y presupuesto disponible. `local: true` lo excluye siempre,
   con opt-in o sin él. Cuando contesta, lo dice: `X-Pyrus-Kind: upstream` en los

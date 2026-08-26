@@ -85,20 +85,37 @@ export class Upstream {
     baseUrl,
     apiKeyEnv,
     model,
+    anunciadoComo = null,
     displayName,
     tags = [],
     maxConcurrent = 4,
     maxTokens = MAX_TOKENS_DEFAULT,
     precio = null,
+    esLocal = false,
     timeoutPrimerChunkMs = PRIMER_CHUNK_TIMEOUT_MS,
     timeoutIdleMs = IDLE_TIMEOUT_MS,
-    extraBody = null
+    extraBody = null,
+    extraHeaders = null
   }) {
     this.id = id
     this.label = label || id
     this.baseUrl = String(baseUrl).replace(/\/+$/, '')
     this.apiKeyEnv = apiKeyEnv
     this.model = model
+    // COMO LO LLAMA EL PROVEEDOR vs COMO LO ANUNCIA ESTA RED. Son dos cosas y
+    // hasta ahora eran una sola.
+    //
+    // El mismo modelo tiene un nombre distinto en cada puerta: NVIDIA lo llama
+    // `nvidia/nemotron-3.5-lightning-30b-a3b` y OpenRouter
+    // `nvidia/nemotron-3.5-lightning`. Con un solo campo, dos proveedores del
+    // MISMO modelo entran al registro como dos modelos distintos y no compiten
+    // nunca -- findAllByModelId filtra por nombre exacto, asi que el ruteo por
+    // carga, el desempate y la degradacion por presupuesto no se ejercen jamas.
+    //
+    // `anunciadoComo` es el nombre con el que la fila entra al marketplace;
+    // `model` es el string que viaja en el body al proveedor. Sin declararlo,
+    // son el mismo y todo se comporta como antes.
+    this.anunciadoComo = anunciadoComo || model
     this.displayName = displayName || model
     this.tags = tags
     this.maxConcurrent = maxConcurrent
@@ -109,11 +126,21 @@ export class Upstream {
     // justo en el unico camino que cuesta dolares. Un cliente de OpenAI que no
     // manda `max_tokens` -que son casi todos- no puede desactivar el corte sin
     // querer, asi que el limite lo pone el nodo.
-    this.maxTokens = Number.isFinite(maxTokens) && maxTokens > 0 ? Math.floor(maxTokens) : MAX_TOKENS_DEFAULT
+    this.maxTokens =
+      Number.isFinite(maxTokens) && maxTokens > 0 ? Math.floor(maxTokens) : MAX_TOKENS_DEFAULT
     // { entrada, salida } en micro-dolares por 1M de tokens, o null si el
     // operador no lo declaro. Sin precio no hay reserva posible: quien
     // registra decide si eso deja al upstream afuera (bin.mjs lo deja).
     this.precio = precio
+    // Un endpoint que corre en ESTA maquina: llama-server, vLLM o un NIM
+    // self-hosted, hablando OpenAI en localhost. Es un upstream por como se le
+    // pide -- HTTP, no el motor embebido-- y NO es un tercero por donde va el
+    // prompt: no sale de la maquina, no lo ve nadie, no cuesta dolares.
+    //
+    // Esa diferencia no es cosmetica: decide si le aplican el opt-in, el
+    // filtro de `local: true` y la condicion de "sin capacidad local" de D19.
+    // A las tres les aplica que NO.
+    this.esLocal = esLocal === true
     // Los dos relojes salen de la config para que un modelo lento se pueda
     // acomodar sin tocar el codigo -- y para que los tests los puedan ejercitar
     // sin esperar un minuto. Un valor invalido cae al default: nunca a cero,
@@ -124,6 +151,12 @@ export class Upstream {
     // chat_template_kwargs.enable_thinking). Viven en la config y no en el
     // codigo: son del modelo, no nuestros.
     this.extraBody = extraBody
+    // Headers extra del proveedor. OpenRouter, por ejemplo, usa HTTP-Referer y
+    // X-Title para atribuir el trafico a una app. Van en la config y no en el
+    // codigo por la misma razon que extraBody: son del proveedor, no nuestros.
+    // `Authorization` y `Content-Type` NO se pueden pisar desde aca -- ver el
+    // armado de headers en #completar.
+    this.extraHeaders = extraHeaders
   }
 
   // La credencial se lee de una VARIABLE DE ENTORNO cuyo NOMBRE esta en la
@@ -134,7 +167,10 @@ export class Upstream {
   }
 
   disponible() {
-    return !!this.apiKey
+    // Un endpoint local no lleva credencial: pedirle una lo dejaria apagado
+    // para siempre. Lo que lo hace usable es que este levantado, y eso se sabe
+    // recien al pedirle algo.
+    return this.esLocal || !!this.apiKey
   }
 
   // Genera deltas de texto. MISMA forma que engine.complete(), a proposito:
@@ -144,7 +180,7 @@ export class Upstream {
   // `signal` lo manda el gateway cuando el cliente se va. Los timeouts son de
   // acá: son del protocolo con el proveedor, no del cliente, y el gateway no
   // tiene por que saber cuanto tarda una API que no eligio.
-  async * completar({ messages, maxTokens = 0, signal = null, onUsage = null }) {
+  async *completar({ messages, maxTokens = 0, signal = null, onUsage = null }) {
     // Un solo controlador para las tres formas de cortar -- el cliente se fue,
     // el proveedor no arranco, el proveedor se colgo a mitad-: la que dispare
     // primero aborta el fetch, y el `motivo` dice cual fue. Sin esto el error
@@ -168,7 +204,10 @@ export class Upstream {
 
     if (signal) {
       if (signal.aborted) cortar('el cliente cerro la conexion')
-      else signal.addEventListener('abort', () => cortar('el cliente cerro la conexion'), { once: true })
+      else
+        signal.addEventListener('abort', () => cortar('el cliente cerro la conexion'), {
+          once: true
+        })
     }
 
     try {
@@ -183,12 +222,24 @@ export class Upstream {
     }
   }
 
-  async * #completar({ messages, maxTokens, onUsage, ctl, armar, motivoDe }) {
+  // Los de la config PRIMERO y los nuestros despues: `Authorization` no se
+  // puede pisar desde un archivo -- seria mandarle la credencial de un
+  // proveedor a otro-- y `Content-Type` tampoco, porque el cuerpo es JSON
+  // aunque alguien escriba otra cosa.
+  #headers(key) {
+    const h = { ...(this.extraHeaders || {}) }
+    h['Content-Type'] = 'application/json'
+    if (key) h.Authorization = 'Bearer ' + key
+    else delete h.Authorization
+    return h
+  }
+
+  async *#completar({ messages, maxTokens, onUsage, ctl, armar, motivoDe }) {
     // El menor entre lo que pidio el cliente y lo que este nodo permite. Un
     // cliente puede pedir MENOS que el tope; no puede pedir mas.
     const tope = maxTokens > 0 ? Math.min(maxTokens, this.maxTokens) : this.maxTokens
     const key = this.apiKey
-    if (!key) {
+    if (!key && !this.esLocal) {
       throw new Error('falta la credencial: pone la variable de entorno ' + this.apiKeyEnv)
     }
 
@@ -235,7 +286,7 @@ export class Upstream {
       try {
         res = await fetch(this.baseUrl + '/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+          headers: this.#headers(key),
           body: JSON.stringify(body),
           signal: ctl.signal
         })
@@ -330,7 +381,13 @@ export function cargarDesde(objeto) {
   if (!objeto || !Array.isArray(objeto.upstreams)) return []
   const out = []
   for (const u of objeto.upstreams) {
-    if (!u || !u.id || !u.baseUrl || !u.apiKeyEnv) continue
+    // `apiKeyEnv` deja de ser obligatorio SOLO para un proveedor local: es el
+    // unico que no lleva credencial. Para uno remoto sigue siendo obligatorio,
+    // porque un upstream sin nombre de variable no puede autenticarse y el
+    // fallo saldria recien en el primer prompt.
+    const esLocal = u && u.local === true
+    if (!u || !u.id || !u.baseUrl) continue
+    if (!esLocal && !u.apiKeyEnv) continue
     for (const m of u.models || []) {
       if (!m || !m.modelId) continue
       out.push(
@@ -340,14 +397,17 @@ export function cargarDesde(objeto) {
           baseUrl: u.baseUrl,
           apiKeyEnv: u.apiKeyEnv,
           model: m.modelId,
+          anunciadoComo: typeof m.as === 'string' && m.as !== '' ? m.as : null,
           displayName: m.displayName || m.modelId,
           tags: m.tags || [],
           maxConcurrent: Number.isFinite(m.maxConcurrent) ? m.maxConcurrent : 4,
           maxTokens: Number(m.maxTokens),
           precio: precioDe(m),
+          esLocal,
           timeoutPrimerChunkMs: m.timeoutPrimerChunkMs,
           timeoutIdleMs: m.timeoutIdleMs,
-          extraBody: m.extraBody || null
+          extraBody: m.extraBody || null,
+          extraHeaders: u.extraHeaders || null
         })
       )
     }
