@@ -46,9 +46,10 @@
     "serve": "bare bin.mjs --no-updates serve --swarm",
     "format": "prettier . --write",
     "lint": "prettier . --check && lunte",
-    "test": "npm run test:unit && npm run test:integracion",
+    "test": "npm run test:unit && npm run test:integracion && npm run humo",
     "test:unit": "brittle-bare test/index.js",
     "test:integracion": "brittle-bare test/integracion.js",
+    "humo": "node scripts/humo-build.js",
     "make": "node scripts/make.js",
     "make:darwin-arm64": "bare-build --name pyrusllm --standalone --host darwin-arm64 --out ./out/darwin-arm64 bin.mjs",
     "make:darwin-x64": "bare-build --name pyrusllm --standalone --host darwin-x64 --out ./out/darwin-x64 bin.mjs",
@@ -59,7 +60,8 @@
     "auditoria": "node scripts/auditoria.js",
     "release": "node scripts/release.js",
     "release:host": "node scripts/release.js --host",
-    "seed": "pear seed pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny"
+    "seed": "pear seed pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny",
+    "postinstall": "node scripts/parche-noble-bare.js"
   },
   "dependencies": {
     "@qvac/bare-sdk": "^0.17.1",
@@ -92,7 +94,8 @@
     "protomux": "^3.11.0",
     "ready-resource": "^1.2.0",
     "sodium-native": "^5.1.0",
-    "which-runtime": "^1.4.0"
+    "which-runtime": "^1.4.0",
+    "ws": "file:vendor/ws-stub"
   },
   "devDependencies": {
     "bare-build": "^1.0.2",
@@ -106,5 +109,8 @@
     "url": "https://github.com/gazzimon/qvac_node.git"
   },
   "author": "gazzimon",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "overrides": {
+    "ws": "file:vendor/ws-stub"
+  }
 }

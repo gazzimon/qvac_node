@@ -2373,13 +2373,19 @@ test('FASE 9: y sin el import de WDK NO cargaria, que es por lo que esta', async
     "import('@x402/evm').then(m => console.log('OK ' + Object.keys(m).length))" +
       ".catch(e => console.log('FALL ' + e.message))"
   )
-  // No se busca el prefijo 'FALL': un MODULE_NOT_FOUND de resolucion lo tira
-  // Bare como excepcion no capturada, antes de que el .catch() del import
-  // llegue a existir. Lo que importa es que NO diga OK y que nombre la causa.
+  // No se busca el prefijo 'FALL': el error lo tira Bare antes de que el
+  // .catch() del import llegue a existir. Lo que importa es que NO diga OK y
+  // que la causa siga siendo la diagnosticada.
+  //
+  // La causa CAMBIO una vez, y este assert lo cazo: era `node:crypto` (el
+  // packer eligiendo la variante de node en @noble/hashes) hasta que ese
+  // problema se arreglo en scripts/parche-noble-bare.js. Lo que queda es el
+  // polyfill: viem usa TextEncoder y Bare no lo trae como global; WDK lo
+  // instala al cargarse.
   t.absent(salida.startsWith('OK'), 'importado solo no carga')
   t.ok(
-    salida.includes('node:crypto'),
-    'y sigue siendo por node:crypto, no por otra cosa: ' + salida.slice(0, 110)
+    salida.includes('TextEncoder'),
+    'y es por el global que falta, no por otra cosa: ' + salida.slice(0, 110)
   )
 })
 

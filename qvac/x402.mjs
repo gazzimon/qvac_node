@@ -4,27 +4,27 @@
 // -----------------------------------------------------------------------------
 // POR QUÉ ESTE ARCHIVO EXISTE, Y POR QUÉ NO ES UN `import` SUELTO
 //
-// `@x402/evm` NO IMPORTA BAJO BARE POR SU CUENTA. La cadena es:
+// `@x402/evm` NO IMPORTA BAJO BARE POR SU CUENTA, y el motivo está
+// diagnosticado: **viem usa `TextEncoder`, que Bare no tiene como global.**
 //
-//     @x402/evm  ->  @noble/hashes/crypto
+//     antes de importar WDK:   typeof globalThis.TextEncoder === 'undefined'
+//     después:                 'function'
 //
-// y `@noble/hashes` exporta ese subpath CONDICIONALMENTE:
+// WDK los instala (`TextEncoder` y `TextDecoder`) al cargarse, y viem —que está
+// abajo de `@x402/evm`— los usa en `utils/encoding/toHex.js`. Sin ese polyfill,
+// el import muere con `ReferenceError: TextEncoder is not defined`.
 //
-//     "./crypto": { "node": { "import": "./esm/cryptoNode.js" }, ... }
+// Alcanza con IMPORTAR WDK: no hace falta derivar ninguna cuenta ni abrir
+// ninguna wallet. Lo que importa es que el polyfill quede instalado antes.
 //
-// Bare matchea la condición `node`, cae en `cryptoNode.js`, y ese archivo
-// importa `node:crypto`, que bajo Bare no existe. Es R1 otra vez, escondido dos
-// niveles abajo en el árbol de dependencias.
+// (Hubo un segundo problema, ya resuelto por otro lado: `@noble/hashes` elegía
+// su variante `node:crypto` bajo el packer. Eso rompía el BINARIO, no el
+// runtime, y lo arregla `scripts/parche-noble-bare.js`.)
 //
-// Con `@tetherto/wdk-wallet-evm` importado ANTES, funciona. Y alcanza con
-// importarlo: no hace falta derivar ninguna cuenta ni abrir ninguna wallet.
-//
-// **EL MECANISMO EXACTO NO ESTÁ DIAGNOSTICADO.** Se sabe QUÉ pasa, no POR QUÉ.
-// Eso es incómodo en el camino que maneja pagos, así que en vez de dejarlo como
-// un `import` de arriba de archivo que alguien va a reordenar en un refactor de
-// imports —y la falla aparecería tres saltos más allá, como un MODULE_NOT_FOUND
-// que no dice nada de x402—, vive acá, con el porqué al lado y con dos cosas
-// que lo vigilan:
+// Depender de un polyfill que instala otro paquete es frágil igual, así que en
+// vez de dejarlo como un `import` de arriba de archivo que alguien va a
+// reordenar en un refactor de imports —y la falla aparecería tres saltos más
+// allá—, vive acá, con el porqué al lado y con dos cosas que lo vigilan:
 //
 //   - el paso 5 de `scripts/spike-d11-wdk-bare.mjs`, que mide si `@x402/evm`
 //     importa AISLADO lanzando un proceso bare limpio (hoy falla, y está bien
@@ -99,9 +99,9 @@ let cache = null
 export async function cargar() {
   if (cache) return cache
 
-  // ESTE IMPORT NO SE MUEVE Y NO SE BORRA. Ver el encabezado: sin él, el de
-  // abajo tira MODULE_NOT_FOUND sobre `node:crypto` y el error no menciona
-  // x402 por ningún lado.
+  // ESTE IMPORT NO SE MUEVE Y NO SE BORRA. Ver el encabezado: instala los
+  // globales `TextEncoder`/`TextDecoder` que viem necesita, y sin él el de
+  // abajo muere con un ReferenceError que no menciona x402 por ningún lado.
   await import('@tetherto/wdk-wallet-evm')
 
   const core = await import('@x402/core')

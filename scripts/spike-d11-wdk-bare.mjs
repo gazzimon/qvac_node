@@ -102,23 +102,18 @@ await paso(4, 'import @x402/core y @x402/evm', async () => {
 // -----------------------------------------------------------------------------
 // El paso 5 existe porque el 4 PASABA POR EL MOTIVO EQUIVOCADO (2026-08-26).
 //
-// El 4 corre despues de los pasos 1-3, que ya importaron WDK. Y resulta que eso
-// no es incidental: `@x402/evm` NO importa bajo Bare por su cuenta.
+// El 4 corre despues de los pasos 1-3, que ya importaron WDK. Y eso no es
+// incidental: `@x402/evm` NO importa bajo Bare por su cuenta.
 //
-//     @x402/evm -> @noble/hashes/crypto
+// El motivo esta diagnosticado y es un GLOBAL, no una resolucion: viem usa
+// `TextEncoder`, Bare no lo trae, y WDK lo instala al cargarse.
 //
-// y `@noble/hashes` exporta ese subpath CONDICIONALMENTE:
+//     antes de importar WDK:   typeof globalThis.TextEncoder === 'undefined'
+//     despues:                 'function'
 //
-//     "./crypto": { "node": { "import": "./esm/cryptoNode.js" }, ... }
-//
-// Bare matchea la condicion `node`, cae en `cryptoNode.js`, y ese archivo
-// importa `node:crypto`, que bajo Bare no existe. Es R1 otra vez, escondido dos
-// niveles abajo en el arbol de dependencias.
-//
-// Con WDK importado antes -- alcanza con IMPORTARLO, sin derivar ninguna cuenta
-// -- el import de `@x402/evm` funciona. El mecanismo exacto NO esta
-// diagnosticado, y por eso este paso existe: mide la propiedad de la que
-// depende la Fase 9 en vez de darla por sentada.
+// (Hubo ademas un problema de resolucion -- @noble/hashes eligiendo su variante
+// `node:crypto` bajo el packer -- que rompia el BINARIO. Ese se arregla en
+// scripts/parche-noble-bare.js y ya no aparece aca.)
 //
 // Si el paso 5 falla y el 4 pasa, la conclusion NO es "anda": es que anda solo
 // mientras alguien cargue WDK primero, y eso hay que garantizarlo en el codigo.

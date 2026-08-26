@@ -1,0 +1,10 @@
+{
+  "name": "ws",
+  "version": "8.18.0",
+  "description": "Stub: viem declara ws para su transporte WebSocket, que este proyecto no usa. Ver index.js",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  }
+}
