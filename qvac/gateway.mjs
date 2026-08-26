@@ -128,6 +128,30 @@ function completionId() {
   return 'chatcmpl-' + Date.now().toString(36) + (idCounter++).toString(36)
 }
 
+// B14 / D9 — el `finish_reason` que ve el cliente.
+//
+// D9 lo declara NO NEGOCIABLE: si la respuesta se corto por el tope, tiene que
+// decir `length`. Cobrar por un tope y reportar terminacion normal es mentir en
+// el unico campo que el cliente mira para saber si le falta texto -- y el que
+// mira un agente para decidir si pedir la continuacion.
+//
+// El dato lo da QUIEN GENERO: el proveedor externo lo manda en el ultimo chunk
+// (upstream.mjs lo lee y lo reporta por `onFinish`). Contarlo de este lado no
+// serviria: contamos deltas de SSE, no tokens, asi que compararlos contra el
+// tope daria un numero parecido y no el hecho.
+//
+// Sin dato se reporta `stop`, que es lo que el gateway hacia con TODAS las
+// respuestas. La diferencia es que ahora es el default de "nadie lo dijo" y no
+// una afirmacion sobre todas.
+function finishReasonDe(reportado) {
+  if (typeof reportado !== 'string' || reportado === '') return 'stop'
+  // Se pasa tal cual el vocabulario de OpenAI, que es el que el cliente espera:
+  // stop, length, content_filter, tool_calls. Un valor que no conocemos viaja
+  // igual en vez de aplanarse a 'stop': inventarle un final conocido a algo que
+  // el proveedor nombro distinto es la misma mentira mas chica.
+  return reportado
+}
+
 function chunkEvent({ id, created, model, delta, finishReason = null }) {
   return {
     id,
@@ -710,7 +734,16 @@ function costoDelIntento({ node, usoExterno, tokens, reserva }) {
 // `started` es el dato con el que D4 decide: una vez que salio un token para
 // el cliente, no se reintenta en otro nodo porque una respuesta a medias no se
 // puede retomar en otra maquina.
-async function streamFromLocal({ node, messages, prompt, maxSalida, signal, onChunk, onUsage }) {
+async function streamFromLocal({
+  node,
+  messages,
+  prompt,
+  maxSalida,
+  signal,
+  onChunk,
+  onUsage,
+  onFinish
+}) {
   let started = false
   try {
     let crudos
@@ -729,7 +762,7 @@ async function streamFromLocal({ node, messages, prompt, maxSalida, signal, onCh
           'falta la credencial del asistente externo: pone la variable de entorno ' + up.apiKeyEnv
         )
       }
-      crudos = up.completar({ messages, maxTokens: maxSalida, signal, onUsage })
+      crudos = up.completar({ messages, maxTokens: maxSalida, signal, onUsage, onFinish })
     } else {
       crudos = mockTokens(node, prompt)
     }
@@ -808,6 +841,10 @@ async function handleChatConReintentos({
   // nadie haya tenido que mirar la pantalla en ese momento.
   let ttftMs = null
   let tokens = 0
+  // B14 — COMO termino el que contesto. `null` significa "nadie lo dijo", que
+  // no es lo mismo que `stop`: sin el dato se reporta terminacion normal, que
+  // es lo que hacia antes con TODAS las respuestas.
+  let finReal = null
   // Lo que se estimo para el intento EN CURSO. Vive fuera del loop porque lo
   // lee `emitUnsafe` al escribir los headers, y adentro del loop la reserva es
   // un const de cada vuelta. Con reintento entre candidatos de precios
@@ -946,6 +983,7 @@ async function handleChatConReintentos({
       contenido = ''
       tokens = 0
       ttftMs = null
+      finReal = null
     }
 
     elegido = cand
@@ -976,6 +1014,9 @@ async function handleChatConReintentos({
               onChunk: emit,
               onUsage: (u) => {
                 usoExterno = u
+              },
+              onFinish: (f) => {
+                finReal = f
               }
             })
       requestIdEnVuelo = null
@@ -1030,6 +1071,20 @@ async function handleChatConReintentos({
 
   try {
     if (ultimo && ultimo.ok) {
+      // B14 — la guarda del 200 vacio va ANTES de partir los dos caminos.
+      //
+      // Estaba solo del lado del stream, con el `return` del no-stream por
+      // delante: quien pedia sin `stream: true` -- un curl, Open WebUI, el
+      // default de cualquier SDK de OpenAI -- recibia 200 con `content: ""` y
+      // `finish_reason: "stop"`. O sea exactamente lo que el comentario de
+      // abajo decia que no habia que devolver, en la mitad de los casos.
+      if (!headersSent && contenido === '') {
+        return sendError(res, 502, 'el par termino el request sin devolver ningun token', {
+          type: 'server_error',
+          code: 'empty_response'
+        })
+      }
+
       if (!stream) {
         // Los mismos headers de procedencia que el camino con stream. Sin
         // esto, quien pide sin `stream:true` -- un curl, Open WebUI, cualquier
@@ -1048,22 +1103,20 @@ async function handleChatConReintentos({
               {
                 index: 0,
                 message: { role: 'assistant', content: contenido },
-                finish_reason: 'stop'
+                finish_reason: finishReasonDe(finReal)
               }
             ]
           },
           provenanceHeaders(elegido || node, costoEstimado)
         )
       }
-      if (!headersSent) {
-        // El par contesto OK pero sin un solo token. Es raro y hay que decirlo,
-        // no devolver un 200 vacio que el cliente lee como respuesta valida.
-        return sendError(res, 502, 'el par termino el request sin devolver ningun token', {
-          type: 'server_error',
-          code: 'empty_response'
-        })
-      }
-      const close = chunkEvent({ id, created, model, delta: {}, finishReason: 'stop' })
+      const close = chunkEvent({
+        id,
+        created,
+        model,
+        delta: {},
+        finishReason: finishReasonDe(finReal)
+      })
       res.write(`data: ${JSON.stringify(close)}\n\n`)
       res.write('data: [DONE]\n\n')
       return

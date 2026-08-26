@@ -223,7 +223,7 @@ export class Upstream {
   // `signal` lo manda el gateway cuando el cliente se va. Los timeouts son de
   // acá: son del protocolo con el proveedor, no del cliente, y el gateway no
   // tiene por que saber cuanto tarda una API que no eligio.
-  async *completar({ messages, maxTokens = 0, signal = null, onUsage = null }) {
+  async *completar({ messages, maxTokens = 0, signal = null, onUsage = null, onFinish = null }) {
     // Un solo controlador para las tres formas de cortar -- el cliente se fue,
     // el proveedor no arranco, el proveedor se colgo a mitad-: la que dispare
     // primero aborta el fetch, y el `motivo` dice cual fue. Sin esto el error
@@ -254,7 +254,15 @@ export class Upstream {
     }
 
     try {
-      yield* this.#completar({ messages, maxTokens, onUsage, ctl, armar, motivoDe: () => motivo })
+      yield* this.#completar({
+        messages,
+        maxTokens,
+        onUsage,
+        onFinish,
+        ctl,
+        armar,
+        motivoDe: () => motivo
+      })
     } finally {
       clearTimeout(temporizador)
       // Si el consumidor corta el `for await` -- un `break`, o una excepcion mas
@@ -283,7 +291,7 @@ export class Upstream {
     return h
   }
 
-  async *#completar({ messages, maxTokens, onUsage, ctl, armar, motivoDe }) {
+  async *#completar({ messages, maxTokens, onUsage, onFinish, ctl, armar, motivoDe }) {
     // El menor entre lo que pidio el cliente y lo que este nodo permite. Un
     // cliente puede pedir MENOS que el tope; no puede pedir mas.
     const tope = maxTokens > 0 ? Math.min(maxTokens, this.maxTokens) : this.maxTokens
@@ -369,6 +377,7 @@ export class Upstream {
     // SSE a mano: mismo formato que ya parsea el chat del panel.
     let buffer = ''
     let usage = null
+    let finishReason = null
 
     for await (const chunk of res.body) {
       const porque = motivoDe()
@@ -429,6 +438,19 @@ export class Upstream {
           // El usage viaja en el ultimo chunk cuando el proveedor lo manda.
           if (ev.usage) usage = ev.usage
 
+          // B14 -- COMO TERMINO, que hasta ahora se descartaba igual que se
+          // descartaba el error. El proveedor lo dice en el ultimo chunk, y es
+          // el unico que lo sabe con certeza: nosotros contamos deltas de SSE,
+          // no tokens, asi que comparar contra el tope daria un numero parecido
+          // y no el hecho.
+          //
+          // Importa porque D9 lo declara no negociable: si la respuesta se
+          // corto por el tope, el cliente tiene que leer `length` y no `stop`.
+          // Cobrar por un tope y reportar terminacion normal es mentir en el
+          // unico campo que el cliente mira para saber si le falta texto.
+          const fin = ev.choices && ev.choices[0] && ev.choices[0].finish_reason
+          if (typeof fin === 'string' && fin !== '') finishReason = fin
+
           const delta = ev.choices && ev.choices[0] && ev.choices[0].delta
           if (!delta) continue
 
@@ -450,6 +472,7 @@ export class Upstream {
     }
 
     if (usage && onUsage) onUsage(usage)
+    if (finishReason && onFinish) onFinish(finishReason)
   }
 }
 

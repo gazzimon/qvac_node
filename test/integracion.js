@@ -344,6 +344,18 @@ let cortaModelo = null
 // reaccionar al rechazo.
 let cuotaAgotadaModelo = null
 
+// B14 (segunda mitad): el proveedor contesta BIEN y no manda un solo token de
+// contenido. Cierra limpio, con [DONE]. No es lo mismo que colgarse: ahi salta
+// el reloj y el 502 sale por el camino de error, sin pasar nunca por la guarda
+// del 200 vacio -- que es como el primer intento de este test pasaba por el
+// motivo equivocado.
+let sinContenidoModelo = null
+
+// B14: el proveedor corta por el tope y lo DICE, que es como termina de verdad
+// un request con `max_tokens` chico. El finish_reason viaja en el ultimo chunk
+// y hasta ahora se descartaba.
+let finishReasonFalso = null
+
 // B15: abre con 200, manda un delta, y despues un objeto `error` EN EL CUERPO.
 // Es lo que hace un proveedor cuando se rompe algo despues de haber mandado los
 // headers -- el status ya viajo y no se puede corregir -, y es el modo normal
@@ -381,6 +393,14 @@ function levantarProveedorFalso() {
         // nadie del otro lado se entera solo. Es lo que tiene que cortar el reloj.
         if (seCuelga) return
         chunk({ choices: [{ delta: { role: 'assistant' } }] })
+        if (
+          sinContenidoModelo &&
+          ultimoPedidoExterno &&
+          ultimoPedidoExterno.model === sinContenidoModelo
+        ) {
+          res.write('data: [DONE]\n\n')
+          return res.end()
+        }
         // `reasoning_content` en el MISMO delta que el contenido: si el cliente
         // lo leyera, el pensamiento del modelo saldria al chat.
         chunk({
@@ -408,6 +428,10 @@ function levantarProveedorFalso() {
             choices: [{ delta: {} }],
             usage: { prompt_tokens: 1000, completion_tokens: 500 }
           })
+        }
+        // El chunk de cierre con el motivo, como lo manda un proveedor real.
+        if (finishReasonFalso) {
+          chunk({ choices: [{ index: 0, delta: {}, finish_reason: finishReasonFalso }] })
         }
         res.write('data: [DONE]\n\n')
         res.end()
@@ -941,6 +965,163 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
   costs.olvidarPreciosExternos()
   gw.setUpstreams([])
   gw.setUpstreamOptIn(false)
+})
+
+// ---------------------------------------------------------------------------
+// B14 — `finish_reason` no puede decir `stop` cuando el tope recorto
+//
+// D9 lo declara NO NEGOCIABLE, y no es formalismo: `finish_reason` es el unico
+// campo que el cliente mira para saber si le falta texto, y el que un agente
+// mira para decidir si pedir la continuacion. Decir `stop` despues de cortar
+// por un tope que ademas se cobro es mentir en el unico lugar donde importa.
+//
+// El nodo impone su propio `maxTokens` aunque el cliente no lo pida
+// (upstream.mjs), asi que esto pasa HOY, sin esperar a la Fase 9.
+// ---------------------------------------------------------------------------
+
+async function conUpstreamDePrueba(t, { modelId, extra = {} }, fn) {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'b14',
+        label: 'Proveedor con tope',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [{ modelId, maxTokens: 256, pricePerMTok: { input: 1, output: 2 }, ...extra }]
+      }
+    ]
+  })
+  costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId,
+    displayName: 'Con tope',
+    operator: 'Proveedor con tope (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  try {
+    await fn()
+  } finally {
+    store.clearUpstreams()
+    costs.olvidarPreciosExternos()
+    gw.setUpstreams([])
+    gw.setUpstreamOptIn(false)
+  }
+}
+
+test('si el proveedor corto por el tope, el cliente lee length y no stop', async (t) => {
+  finishReasonFalso = 'length'
+
+  await conUpstreamDePrueba(t, { modelId: 'proveedor/cortado' }, async () => {
+    // Sin stream: la respuesta se arma entera y el campo viaja en el JSON.
+    const r = await pedir('POST', '/v1/chat/completions', {
+      key: KEY,
+      body: { model: 'proveedor/cortado', messages: [{ role: 'user', content: 'hola' }] }
+    })
+    t.is(r.status, 200)
+    t.is(
+      r.json.choices[0].finish_reason,
+      'length',
+      'la respuesta se corto por el tope y lo dice (D9)'
+    )
+
+    // Y con stream, en el chunk de cierre, que es donde lo lee un cliente SSE.
+    const s = await pedir('POST', '/v1/chat/completions', {
+      key: KEY,
+      body: {
+        model: 'proveedor/cortado',
+        messages: [{ role: 'user', content: 'hola' }],
+        stream: true
+      }
+    })
+    t.is(s.status, 200)
+    t.ok(
+      s.body.includes('"finish_reason":"length"'),
+      'el chunk de cierre tambien lo dice, no solo el camino sin stream'
+    )
+  })
+
+  finishReasonFalso = null
+})
+
+test('una respuesta que termino sola sigue diciendo stop', async (t) => {
+  finishReasonFalso = 'stop'
+
+  await conUpstreamDePrueba(t, { modelId: 'proveedor/entero' }, async () => {
+    const r = await pedir('POST', '/v1/chat/completions', {
+      key: KEY,
+      body: { model: 'proveedor/entero', messages: [{ role: 'user', content: 'hola' }] }
+    })
+    t.is(r.json.choices[0].finish_reason, 'stop', 'sin recorte, terminacion normal')
+  })
+
+  // Y si el proveedor no dice nada, se reporta `stop`: es el default de "nadie
+  // lo dijo", no una afirmacion sobre todas las respuestas.
+  finishReasonFalso = null
+  await conUpstreamDePrueba(t, { modelId: 'proveedor/mudo-fin' }, async () => {
+    const r = await pedir('POST', '/v1/chat/completions', {
+      key: KEY,
+      body: { model: 'proveedor/mudo-fin', messages: [{ role: 'user', content: 'hola' }] }
+    })
+    t.is(r.json.choices[0].finish_reason, 'stop')
+  })
+})
+
+test('una respuesta vacia es 502 tambien SIN stream, no un 200 con content ""', async (t) => {
+  // La otra mitad de B14. La guarda existia solo del lado del stream, con el
+  // `return` del no-stream por delante: quien pedia sin `stream: true` -- un
+  // curl, Open WebUI, el default de cualquier SDK de OpenAI -- recibia 200 con
+  // `content: ""` y `finish_reason: "stop"`. Un cliente no tenia como
+  // distinguirlo de un modelo que decidio no decir nada.
+  //
+  // El proveedor contesta BIEN: 200, chunk de apertura, [DONE]. Cero contenido.
+  // Ese es el caso que llega a la guarda; uno colgado saltaria por el reloj.
+  sinContenidoModelo = 'proveedor/vacio'
+
+  await conUpstreamDePrueba(t, { modelId: 'proveedor/vacio' }, async () => {
+    const r = await pedir('POST', '/v1/chat/completions', {
+      key: KEY,
+      body: { model: 'proveedor/vacio', messages: [{ role: 'user', content: 'hola' }] }
+    })
+    t.not(r.status, 200, 'una respuesta sin un solo token no es un exito')
+    // Acceso defensivo a proposito: si esto falla, el assert de arriba ya dijo
+    // que se rompio, y un TypeError sobre `error.code` abortaria la corrida
+    // entera sin llegar a los tests que siguen. Es la misma leccion de B18 --
+    // un test que revienta en vez de fallar no dice que se rompio.
+    t.is(
+      (r.json && r.json.error && r.json.error.code) || null,
+      'empty_response',
+      'y lo dice con su propio codigo'
+    )
+    t.absent(r.json && r.json.choices, 'no viaja un choices vacio con finish_reason stop')
+  })
+
+  sinContenidoModelo = null
+})
+
+test('un motivo que no conocemos viaja tal cual, no se aplana a stop', async (t) => {
+  // Inventarle un final conocido a algo que el proveedor nombro distinto es la
+  // misma mentira, mas chica. `content_filter` es el caso real que importa: el
+  // cliente tiene que poder distinguir "termino" de "lo cortaron".
+  finishReasonFalso = 'content_filter'
+
+  await conUpstreamDePrueba(t, { modelId: 'proveedor/filtrado' }, async () => {
+    const r = await pedir('POST', '/v1/chat/completions', {
+      key: KEY,
+      body: { model: 'proveedor/filtrado', messages: [{ role: 'user', content: 'hola' }] }
+    })
+    t.is(r.json.choices[0].finish_reason, 'content_filter')
+  })
+
+  finishReasonFalso = null
 })
 
 // ---------------------------------------------------------------------------

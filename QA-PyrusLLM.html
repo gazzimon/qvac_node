@@ -1,0 +1,1792 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Protocolo de QA de PyrusLLM — 36 pruebas sobre las Fases 4 a 8.5, con comando, resultado esperado y veredicto.">
+<style>
+  /* reset minimo */
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; }
+  img, svg, video { max-width: 100%; height: auto; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+</style>
+<title>Protocolo QA PyrusLLM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+  :root {
+    --bg: #F1F4F0;
+    --surface: #FFFFFF;
+    --surface-2: #E8EDE6;
+    --ink: #171E21;
+    --ink-2: #5C6A6C;
+    --line: #D6DED4;
+    --line-strong: #BCC7BA;
+    --accent: #22505F;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #E1EBEE;
+    --pass: #4A7A1B;
+    --fail: #A63B2B;
+    --block: #96690F;
+    --pass-soft: #E9F1DC;
+    --fail-soft: #F8E5E1;
+    --block-soft: #F7EDD8;
+    --code-bg: #131A1D;
+    --code-ink: #DCE5DA;
+    --code-line: #2A3438;
+    --shadow: 0 1px 2px rgba(23, 30, 33, .06), 0 8px 24px -16px rgba(23, 30, 33, .35);
+    --radius: 10px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101618;
+      --surface: #182023;
+      --surface-2: #1F292C;
+      --ink: #E6ECE6;
+      --ink-2: #97A5A3;
+      --line: #2A3538;
+      --line-strong: #3B494D;
+      --accent: #86BCCB;
+      --accent-ink: #0E1417;
+      --accent-soft: #1D2E34;
+      --pass: #A3CB60;
+      --fail: #E4826C;
+      --block: #DEB25A;
+      --pass-soft: #1E2A16;
+      --fail-soft: #2E1B17;
+      --block-soft: #2C2413;
+      --code-bg: #0C1113;
+      --code-ink: #DCE5DA;
+      --code-line: #242E31;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -18px rgba(0, 0, 0, .8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #101618;
+    --surface: #182023;
+    --surface-2: #1F292C;
+    --ink: #E6ECE6;
+    --ink-2: #97A5A3;
+    --line: #2A3538;
+    --line-strong: #3B494D;
+    --accent: #86BCCB;
+    --accent-ink: #0E1417;
+    --accent-soft: #1D2E34;
+    --pass: #A3CB60;
+    --fail: #E4826C;
+    --block: #DEB25A;
+    --pass-soft: #1E2A16;
+    --fail-soft: #2E1B17;
+    --block-soft: #2C2413;
+    --code-bg: #0C1113;
+    --code-ink: #DCE5DA;
+    --code-line: #242E31;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -18px rgba(0, 0, 0, .8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Sans 3", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16.5px;
+    line-height: 1.55;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 {
+    font-family: Bitter, ui-serif, Georgia, "Times New Roman", serif;
+    text-wrap: balance;
+    margin: 0;
+    line-height: 1.2;
+  }
+
+  code, pre, .mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  a { color: var(--accent); }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 22px 120px;
+  }
+
+  /* ---------- cabecera ---------- */
+  header.top {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .top-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 34px 22px 30px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 26px;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 26px;
+    height: 2px;
+    background: var(--accent);
+    display: inline-block;
+  }
+
+  h1 { font-size: clamp(30px, 4.4vw, 44px); margin: 10px 0 8px; }
+
+  .lede {
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .meta {
+    display: flex;
+    gap: 26px;
+    flex-wrap: wrap;
+    font-size: 14px;
+  }
+
+  .meta div span {
+    display: block;
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    margin-bottom: 3px;
+  }
+
+  .meta div b { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* ---------- layout ---------- */
+  .cols {
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr);
+    gap: 40px;
+    align-items: start;
+    padding-top: 34px;
+  }
+
+  aside {
+    position: sticky;
+    top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+
+  .panel h3 {
+    font-size: 13px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    font-family: "Source Sans 3", sans-serif;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .tally { display: grid; gap: 8px; }
+
+  .tally-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 14px;
+  }
+
+  .tally-row .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  .tally-row b { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .bar {
+    display: flex;
+    height: 8px;
+    border-radius: 99px;
+    overflow: hidden;
+    background: var(--surface-2);
+    margin-bottom: 14px;
+  }
+
+  .bar i { display: block; height: 100%; transition: width .25s ease; }
+
+  nav.jump { display: grid; gap: 2px; }
+
+  nav.jump a {
+    text-decoration: none;
+    color: var(--ink);
+    font-size: 14px;
+    padding: 7px 9px;
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  nav.jump a:hover { background: var(--surface-2); }
+  nav.jump a span { color: var(--ink-2); font-variant-numeric: tabular-nums; font-size: 13px; }
+
+  main { display: flex; flex-direction: column; gap: 30px; min-width: 0; }
+
+  /* ---------- bloques de prosa ---------- */
+  .block {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px 26px;
+    box-shadow: var(--shadow);
+  }
+
+  .block h2 { font-size: 23px; margin-bottom: 8px; }
+  .block p { color: var(--ink-2); }
+  .block p:last-child { margin-bottom: 0; }
+  .block ul { color: var(--ink-2); padding-left: 20px; margin: 10px 0; }
+  .block li { margin-bottom: 6px; }
+  .block strong { color: var(--ink); font-weight: 600; }
+
+  .section-head { margin: 10px 0 -6px; }
+  .section-head h2 { font-size: 26px; margin-bottom: 6px; }
+  .section-head p { color: var(--ink-2); margin: 0; max-width: 68ch; }
+
+  /* ---------- código ---------- */
+  .code {
+    position: relative;
+    background: var(--code-bg);
+    border: 1px solid var(--code-line);
+    border-radius: 8px;
+    margin: 10px 0 0;
+  }
+
+  .code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 10px 7px 13px;
+    border-bottom: 1px solid var(--code-line);
+  }
+
+  .code-head span {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #8FA39C;
+    font-family: "Source Sans 3", sans-serif;
+    font-weight: 600;
+  }
+
+  .code pre {
+    margin: 0;
+    padding: 13px;
+    overflow-x: auto;
+    color: var(--code-ink);
+    font-size: 13.5px;
+    line-height: 1.65;
+    white-space: pre;
+  }
+
+  button.copy {
+    font: 600 12px/1 "Source Sans 3", sans-serif;
+    background: transparent;
+    color: #A8BDB5;
+    border: 1px solid #35423F;
+    border-radius: 5px;
+    padding: 5px 9px;
+    cursor: pointer;
+  }
+
+  button.copy:hover { color: #E4EFE7; border-color: #566661; }
+
+  /* ---------- tarjetas de test ---------- */
+  .test {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--line-strong);
+    border-radius: var(--radius);
+    padding: 20px 24px 22px;
+    box-shadow: var(--shadow);
+    scroll-margin-top: 16px;
+  }
+
+  .test[data-v="pass"] { border-left-color: var(--pass); }
+  .test[data-v="fail"] { border-left-color: var(--fail); }
+  .test[data-v="block"] { border-left-color: var(--block); }
+  .test[data-v="na"] { border-left-color: var(--ink-2); }
+
+  .test-head {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+
+  .tid {
+    font: 600 13px/1 "JetBrains Mono", monospace;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 5px 7px;
+    border-radius: 5px;
+    letter-spacing: .02em;
+  }
+
+  .test h3 { font-size: 19px; flex: 1 1 320px; }
+
+  .tag {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    padding: 3px 9px;
+  }
+
+  .why { color: var(--ink-2); margin: 4px 0 14px; max-width: 72ch; }
+
+  .field { margin-top: 14px; }
+
+  .field > h4 {
+    font: 600 11px/1 "Source Sans 3", sans-serif;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    margin: 0 0 6px;
+  }
+
+  .field ul { margin: 0; padding-left: 20px; }
+  .field li { margin-bottom: 5px; }
+  .field p { margin: 0; }
+
+  .pre-line {
+    background: var(--surface-2);
+    border-radius: 7px;
+    padding: 9px 12px;
+    font-size: 14.5px;
+  }
+
+  .warn {
+    border-left: 3px solid var(--block);
+    background: var(--block-soft);
+    color: var(--ink);
+    padding: 9px 13px;
+    border-radius: 0 7px 7px 0;
+    font-size: 14.5px;
+    margin-top: 14px;
+  }
+
+  /* ---------- veredicto ---------- */
+  .verdict {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--line-strong);
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .segs { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .segs label {
+    cursor: pointer;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 7px 13px;
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    color: var(--ink-2);
+    background: var(--surface);
+    user-select: none;
+  }
+
+  .segs input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .segs label:hover { border-color: var(--ink-2); }
+  .segs input:focus-visible + span { text-decoration: underline; }
+
+  .segs label:has(input[value="pass"]:checked) { background: var(--pass-soft); border-color: var(--pass); color: var(--pass); }
+  .segs label:has(input[value="fail"]:checked) { background: var(--fail-soft); border-color: var(--fail); color: var(--fail); }
+  .segs label:has(input[value="block"]:checked) { background: var(--block-soft); border-color: var(--block); color: var(--block); }
+  .segs label:has(input[value="na"]:checked) { background: var(--surface-2); border-color: var(--ink-2); color: var(--ink-2); }
+
+  textarea.notes {
+    width: 100%;
+    margin-top: 12px;
+    min-height: 62px;
+    resize: vertical;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 10px 12px;
+    color: var(--ink);
+    font: 400 14.5px/1.5 "Source Sans 3", sans-serif;
+  }
+
+  textarea.notes::placeholder { color: var(--ink-2); }
+
+  /* ---------- barra inferior ---------- */
+  .actionbar {
+    position: sticky;
+    bottom: 0;
+    margin-top: 34px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: var(--shadow);
+  }
+
+  .btn {
+    font: 600 14px/1 "Source Sans 3", sans-serif;
+    padding: 10px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-ink);
+    cursor: pointer;
+  }
+
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+  .btn.ghost:hover { border-color: var(--ink-2); }
+
+  .status { font-size: 14px; color: var(--ink-2); }
+
+  dialog {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink);
+    padding: 0;
+    width: min(860px, 92vw);
+    box-shadow: 0 24px 70px -30px rgba(0, 0, 0, .6);
+  }
+
+  dialog::backdrop { background: rgba(8, 12, 14, .55); }
+
+  .dlg-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  dialog textarea {
+    width: 100%;
+    min-height: 46vh;
+    border: 0;
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 16px 18px;
+    font: 400 13px/1.6 "JetBrains Mono", monospace;
+    resize: vertical;
+    display: block;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translate(-50%, 20px);
+    background: var(--ink);
+    color: var(--bg);
+    padding: 10px 18px;
+    border-radius: 99px;
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+    z-index: 50;
+  }
+
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  footer.end {
+    color: var(--ink-2);
+    font-size: 14px;
+    text-align: center;
+    padding-top: 28px;
+    max-width: 60ch;
+    margin: 0 auto;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  @media (max-width: 900px) {
+    .cols { grid-template-columns: 1fr; gap: 24px; }
+    aside { position: static; }
+    nav.jump { grid-template-columns: repeat(2, 1fr); display: grid; }
+  }
+</style>
+
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <div>
+      <div class="eyebrow">Protocolo completo &middot; Fases 4 a 8.5</div>
+      <h1>Protocolo QA PyrusLLM</h1>
+      <p class="lede">
+        Treinta y seis pruebas con comando, resultado esperado y veredicto, sobre el
+        binario instalado &mdash; no sobre el repo clonado. Se corre de arriba hacia abajo
+        y se completa mientras se corre: el reporte sale de esta misma página.
+      </p>
+    </div>
+    <div class="meta">
+      <div><span>Versión objetivo</span><b>pyrusllm 0.11.0</b></div>
+      <div><span>Máquinas</span><b>2 (A y B)</b></div>
+      <div><span>Duración estimada</span><b>5 h</b></div>
+      <div><span>Pruebas</span><b id="meta-count">36</b></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="cols">
+    <aside>
+      <div class="panel">
+        <h3>Avance</h3>
+        <div class="bar">
+          <i id="bar-pass" style="width:0%; background:var(--pass)"></i>
+          <i id="bar-fail" style="width:0%; background:var(--fail)"></i>
+          <i id="bar-block" style="width:0%; background:var(--block)"></i>
+          <i id="bar-na" style="width:0%; background:var(--ink-2)"></i>
+        </div>
+        <div class="tally">
+          <div class="tally-row"><span><i class="dot" style="background:var(--pass)"></i>Pasa</span><b id="n-pass">0</b></div>
+          <div class="tally-row"><span><i class="dot" style="background:var(--fail)"></i>Falla</span><b id="n-fail">0</b></div>
+          <div class="tally-row"><span><i class="dot" style="background:var(--block)"></i>Bloqueado</span><b id="n-block">0</b></div>
+          <div class="tally-row"><span><i class="dot" style="background:var(--ink-2)"></i>No aplica</span><b id="n-na">0</b></div>
+          <div class="tally-row" style="border-top:1px solid var(--line); padding-top:8px; margin-top:2px">
+            <span>Sin correr</span><b id="n-todo">36</b>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Ir a</h3>
+        <nav class="jump" id="jump"></nav>
+      </div>
+    </aside>
+
+    <main>
+      <section class="block" id="prompt-agente">
+        <h2>Prompt de arranque del agente</h2>
+        <p>
+          Santiago: abrí una terminal en la carpeta del repo, arrancá el agente
+          (<code>claude</code>) y pegale esto como primer mensaje. Define el rol, lo que
+          puede y no puede tocar, y el formato con el que tiene que devolver cada resultado.
+        </p>
+        <div class="code">
+          <div class="code-head">
+            <span>Prompt · pegar tal cual</span>
+            <button class="copy" data-copy="#agent-prompt">Copiar</button>
+          </div>
+          <pre id="agent-prompt">Sos el operador de QA de PyrusLLM. Vas a ejecutar el "Protocolo QA PyrusLLM"
+completo -- 36 pruebas, T01 a T36, Fases 4 a 8.5 -- que tengo abierto en el
+navegador, sobre DOS maquinas: A (esta) y B (la segunda, por SSH o a mano con
+la otra persona).
+
+El protocolo esta agrupado asi, y conviene correrlo por bloques:
+
+  T01-T08  Fase 4 y 4.5  install, inferencia local, swarm-join, API OpenAI
+  T09-T15  Fase 5        OTA, D4, reintentos, credenciales, soak, auditoria
+  T16-T19  Fase 6        la suite, los mocks declarados, el README, las vistas
+  T20-T23  Fase 6.5      el ledger: reserva, tope, reparto por cuenta
+  T24-T25  Fase 6.6      la cuota gratuita por par
+  T26-T29  Fase 7        wallet, seed cifrada, manifiesto firmado con direccion
+  T30-T32  Fase 8        el precio rutea, y sale al chat
+  T33-T36  Fase 8.5      el asistente externo como un candidato mas
+
+Reglas, en orden de importancia:
+
+1. NO arregles codigo. Este es un pase de QA, no de desarrollo. Si algo falla,
+   documentalo y segui con el test siguiente. Nada de editar archivos del repo
+   salvo que yo te lo pida explicitamente.
+2. Corre los tests EN ORDEN. Varios dependen del estado que deja el anterior
+   (nodo levantado, api key emitida, par descubierto, wallet creada).
+3. Para cada test devolveme, sin adornos:
+   - el ID (T0x) y el veredicto: PASA / FALLA / BLOQUEADO / NO APLICA
+   - el comando exacto que corriste (si lo adaptaste, deci por que)
+   - la salida REAL pegada, recortada a lo relevante (no la resumas: el
+     veredicto se lee de la salida, no de tu opinion)
+   - los numeros que el test pide medir (segundos, tokens/s, TTFT, micros,
+     codigo HTTP)
+4. Un test PASA solo si se cumple TODO lo que dice "Resultado esperado". Si se
+   cumple parcialmente es FALLA, con la parte que fallo escrita.
+5. BLOQUEADO es cuando no lo pudiste correr (falta la maquina B, falta una
+   credencial de proveedor, no hay red). Deci que falto.
+6. Antes de arrancar, ejecuta el bloque "Preparacion" y confirmame el entorno:
+   SO, version del binario (pyrusllm --version), directorio de storage, si hay
+   .env y que variables cargo, si hay upstreams.json, y si hay un proceso viejo
+   escuchando en 8787.
+7. Nunca imprimas el VALOR de una API key, de una credencial de proveedor ni de
+   PYRUS_WALLET_PASSPHRASE, y NUNCA las 24 palabras de la wallet. Los nombres de
+   las variables si, los valores no. Si una salida los trae, enmascaralos con
+   ****. Si un test te pide buscar la frase dentro de un archivo, reporta
+   solamente si aparece o no, nunca el contenido.
+8. Los comandos de la maquina B van marcados. No los corras en A "para
+   simular": un test de dos maquinas corrido en una sola es BLOQUEADO.
+9. Los tests que dicen "contra la suite" se verifican corriendo npm test y
+   leyendo la linea del test nombrado. Pegame esa linea, no todo el output.
+
+Empeza por la Preparacion y para cuando la tengas: te confirmo el entorno antes
+de que arranques con T01.</pre>
+        </div>
+      </section>
+
+      <section class="block" id="preparacion">
+        <h2>Preparación</h2>
+        <p>
+          Se prueba <strong>la instalación real</strong>: el binario que baja un usuario, no
+          <code>node bin.mjs</code> desde el repo. El repo hace falta solo para
+          <code>scripts/</code> y las suites de test.
+        </p>
+        <ul>
+          <li><strong>Máquina A</strong> — la que corre el pase completo. Windows 11 o macOS/Linux.</li>
+          <li><strong>Máquina B</strong> — segunda máquina, en <em>otra</em> red o en el mismo hotspot. Alcanza con que corra <code>pyrusllm serve --swarm</code>.</li>
+          <li><strong>Red</strong> — si el P2P no descubre pares, sospechar de la red antes que del código: un AP corporativo que bloquea UDP rompe el hole-punching. Plan B: hotspot del teléfono en las dos máquinas.</li>
+          <li><strong>Nada escuchando en 8787</strong> — un gateway viejo abierto es el error más probable de todo el pase.</li>
+          <li><strong>Credenciales de proveedor</strong> — los tests de Fase 8 y 8.5 (T30 a T36) piden al menos una API key de NVIDIA o de OpenRouter en el <code>.env</code>. Sin ninguna, ese bloque entero queda BLOQUEADO, no FALLA.</li>
+          <li><strong>Passphrase de wallet</strong> — <code>PYRUS_WALLET_PASSPHRASE</code> en el <code>.env</code>, larga y única. Sin ella no se puede crear ni abrir la wallet de la Fase 7.</li>
+        </ul>
+        <div class="code">
+          <div class="code-head">
+            <span>Storage y config · dónde mira el nodo</span>
+            <button class="copy" data-copy="#prep-storage">Copiar</button>
+          </div>
+          <pre id="prep-storage"># El directorio de storage lo imprime el nodo al arrancar. Ahi viven:
+#   identity.json     la semilla de red (en claro, declarado)
+#   apikeys.json      las credenciales emitidas (persisten)
+#   wallet.json       el keystore CIFRADO de la wallet de cobro (Fase 7)
+#   upstreams.json    que proveedores externos usa este nodo (Fases 8 y 8.5)
+#   ledger            el gasto del mes (persiste)
+
+# Copiar la plantilla de upstreams al storage, y editarla ahi:
+Copy-Item upstreams.example.json "<storage>\upstreams.json"      # PowerShell
+cp upstreams.example.json "<storage>/upstreams.json"             # bash
+
+# La credencial NO va en ese archivo: va el NOMBRE de la variable de entorno
+# (campo apiKeyEnv), y el valor va en el .env. Es la razon por la que el
+# secreto no entra al manifiesto firmado que se anuncia a la red.</pre>
+        </div>
+        <div class="code">
+          <div class="code-head">
+            <span>Máquina A · PowerShell</span>
+            <button class="copy" data-copy="#prep-ps">Copiar</button>
+          </div>
+          <pre id="prep-ps">git clone https://github.com/gazzimon/qvac_node.git; cd qvac_node
+npm install                      # solo para scripts/ y las suites
+Get-NetTCPConnection -LocalPort 8787 -ErrorAction SilentlyContinue   # tiene que dar vacio
+Get-Process bare,pyrusllm -ErrorAction SilentlyContinue              # procesos viejos: matarlos
+Copy-Item .env.example .env      # y completar las claves que se vayan a usar</pre>
+        </div>
+        <div class="code">
+          <div class="code-head">
+            <span>Máquina A · bash (macOS / Linux)</span>
+            <button class="copy" data-copy="#prep-sh">Copiar</button>
+          </div>
+          <pre id="prep-sh">git clone https://github.com/gazzimon/qvac_node.git && cd qvac_node
+npm install
+lsof -i :8787 || echo "8787 libre"
+pgrep -fl "bare|pyrusllm" || echo "sin procesos viejos"
+cp .env.example .env</pre>
+        </div>
+        <div class="warn">
+          El pase entero asume el puerto <code>8787</code>. Si hace falta otro, cambiarlo en
+          <em>todos</em> los comandos con <code>--port</code> y en las URLs, y anotarlo en el reporte.
+        </div>
+      </section>
+
+      <div id="tests"></div>
+
+      <div class="actionbar">
+        <div class="status" id="status">Sin correr — 36 pruebas pendientes.</div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap">
+          <button class="btn ghost" id="btn-reset">Borrar todo</button>
+          <button class="btn" id="btn-report">Generar reporte</button>
+        </div>
+      </div>
+
+      <footer class="end">
+        Protocolo completo, Fases 4 a 8.5. Fuera de alcance a proposito: la Fase 9
+        (recibos y liquidacion), y la 6.5 congelada, que arrastra B14
+        (<code>finish_reason: length</code> al recortar por el tope) y bloquea el
+        cierre de la 9.
+      </footer>
+    </main>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-head">
+    <h3 style="font-size:18px">Reporte del pase</h3>
+    <div style="display:flex; gap:10px">
+      <button class="btn" id="btn-copy-report">Copiar al portapapeles</button>
+      <button class="btn ghost" id="btn-close">Cerrar</button>
+    </div>
+  </div>
+  <textarea id="report" spellcheck="false" readonly></textarea>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const TESTS = [
+    {
+      id: 'T01',
+      fase: 'Fase 4',
+      titulo: 'La instalación de una línea deja la app andando',
+      why: 'El claim del proyecto es que instalar es la demo: una línea, sin Node, sin npm, sin Pear, sin sudo ni UAC, y la app abre sola en el navegador.',
+      pre: 'Máquina A limpia (sin pyrusllm instalado). Si ya está, desinstalar borrando el binario de %LOCALAPPDATA% o ~/.local/bin.',
+      cmds: [
+        { os: 'Máquina A · PowerShell', code: 'irm https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.ps1 | iex' },
+        { os: 'Máquina A · bash', code: 'curl -fsSL https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.sh | sh' }
+      ],
+      esperado: [
+        'El instalador detecta plataforma, baja el binario del release y verifica el checksum antes de instalar.',
+        'No pide sudo, ni UAC, ni contraseña. Instala en ~/.local/bin o %LOCALAPPDATA%.',
+        'Arranca solo y abre el navegador en http://localhost:8787.',
+        'La página que abre es el chat, con el nodo APAGADO y el botón "Launch local agent" visible.'
+      ],
+      medir: 'Segundos desde que se pega el comando hasta que el navegador muestra el chat.',
+      nota: 'En Windows, SmartScreen avisa una vez: el binario no está firmado. Eso no es un FALLA, es esperado — anotarlo.'
+    },
+    {
+      id: 'T02',
+      fase: 'Fase 4',
+      titulo: 'La descarga directa verifica contra su .sha256',
+      why: 'Para quien no ejecuta un script bajado de internet, el camino alternativo es bajar el binario a mano. Si el checksum publicado no coincide con el archivo, ese camino no existe.',
+      pre: 'Ninguna. Se hace contra el release público.',
+      cmds: [
+        { os: 'Máquina A · PowerShell', code: '$v = "pyrusllm-win32-x64.exe"\ncurl.exe -fL -o $v      "https://github.com/gazzimon/qvac_node/releases/latest/download/$v"\ncurl.exe -fL -o "$v.sha256" "https://github.com/gazzimon/qvac_node/releases/latest/download/$v.sha256"\n(Get-FileHash $v -Algorithm SHA256).Hash.ToLower()\nGet-Content "$v.sha256"' },
+        { os: 'Máquina A · bash', code: 'v=pyrusllm-darwin-arm64   # o pyrusllm-linux-x64\ncurl -fLO "https://github.com/gazzimon/qvac_node/releases/latest/download/$v"\ncurl -fLO "https://github.com/gazzimon/qvac_node/releases/latest/download/$v.sha256"\nshasum -a 256 "$v"\ncat "$v.sha256"' }
+      ],
+      esperado: [
+        'Los dos archivos bajan con 200 (no un 404 de release sin assets).',
+        'El hash calculado coincide, carácter por carácter, con el del .sha256.',
+        'El tamaño del binario está en el orden de la tabla del README (~101 MB darwin-arm64, ~158 MB win32-x64, ~253 MB linux-x64).'
+      ],
+      medir: 'Hash calculado y hash publicado, los dos pegados en el reporte.',
+      nota: 'En macOS, el binario bajado por navegador arranca en cuarentena: xattr -d com.apple.quarantine <archivo>.'
+    },
+    {
+      id: 'T03',
+      fase: 'Fase 4',
+      titulo: 'El binario corre sin Node, sin npm y sin Pear',
+      why: 'Es el argumento de distribución entero: el motor de inferencia viaja adentro del binario. Si hace falta un runtime instalado, el claim se cae.',
+      pre: 'T01 hecho. Idealmente en una sesión de terminal donde node y npm no estén en el PATH.',
+      cmds: [
+        { os: 'Máquina A · PowerShell', code: 'pyrusllm --version\nwhere.exe node; where.exe npm; where.exe pear   # anotar si estan o no\npyrusllm --no-open --port 8787' },
+        { os: 'Máquina A · bash', code: 'pyrusllm --version\ncommand -v node; command -v npm; command -v pear\npyrusllm --no-open --port 8787' }
+      ],
+      esperado: [
+        '--version imprime 0.11.0 (o la del release probado) y sale con código 0.',
+        'Con --no-open el proceso levanta la app y NO abre el navegador.',
+        'El log dice el puerto, el storage y el estado del updater ("updates: enabled (jitter 10000ms)").',
+        'http://localhost:8787 responde en otra terminal aunque node no exista en la máquina.'
+      ],
+      medir: 'Versión reportada y línea de log del updater.',
+      nota: 'Dejar este proceso corriendo: T06, T12 y T13 pegan contra él.'
+    },
+    {
+      id: 'T04',
+      fase: 'Fase 4',
+      titulo: 'Inferencia local desde la terminal, sin abrir nada',
+      why: 'Es el camino más corto a un token real y el único que no depende de la red: si esto falla, todo lo que sigue mide otra cosa.',
+      pre: 'T01. La primera corrida baja los pesos del registry de QVAC y tarda; la segunda ya no.',
+      cmds: [
+        { os: 'Máquina A · las dos', code: 'pyrusllm prompt "Que es una red peer-to-peer?"\npyrusllm prompt "Contame un chiste corto" --quiet\npyrusllm prompt "Hola" --no-download        # falla limpio si no hay pesos en cache' }
+      ],
+      esperado: [
+        'Sale texto generado, no una respuesta enlatada, y al final el diagnóstico con TTFT, tokens y tokens/s.',
+        '--quiet imprime SOLO la respuesta, sin diagnóstico.',
+        '--no-download, sin pesos en cache, falla con un mensaje claro en vez de bajar 1 GB.',
+        'El proceso termina solo y devuelve el prompt de la terminal (no queda colgado con el cursor titilando).'
+      ],
+      medir: 'TTFT y tokens/s de la segunda corrida (la primera incluye la descarga del modelo).',
+      nota: 'Si aparece "File descriptor could not be locked", hay otro proceso bare vivo usando el registry. No es un bug: matarlo y repetir.'
+    },
+    {
+      id: 'T05',
+      fase: 'Fase 4',
+      titulo: 'D7 — cronometrar el swarm-join aparte del install',
+      why: 'Es el punto que el propio roadmap deja abierto en la Fase 4: sin separar los dos relojes no se sabe cuál de los dos se come el minuto.',
+      pre: 'Las dos máquinas prendidas y con la misma hora. Arrancar los dos comandos CON POCOS SEGUNDOS DE DIFERENCIA.',
+      cmds: [
+        { os: 'Máquina A', code: 'pyrusllm peers --operator "Nodo A" --timeout 120 --expect 1' },
+        { os: 'Máquina B (al mismo tiempo)', code: 'pyrusllm peers --operator "Nodo B" --timeout 120 --expect 1' }
+      ],
+      esperado: [
+        'Las dos máquinas se descubren y cada una lista al par con su operador y su modelo.',
+        'Los dos procesos salen con código 0 (el --expect 1 se cumplió).',
+        'El tiempo hasta el primer par queda anotado por separado del tiempo de instalación.'
+      ],
+      medir: 'Segundos hasta el primer par verificado, en cada máquina. El descubrimiento suele tardar ~17 s.',
+      nota: 'Cero pares casi nunca es la red: es falta de simultaneidad. Antes de dar FALLA, repetir con las dos ventanas solapadas y --timeout 120. Si aún así da cero, probar las dos en el hotspot del teléfono.'
+    },
+    {
+      id: 'T06',
+      fase: 'Fase 4',
+      titulo: 'El gateway habla OpenAI de verdad, con y sin stream',
+      why: 'Todo el valor para el cliente es que un cliente OpenAI sin modificar le hable. Y los headers de procedencia tienen que ir en las DOS formas de respuesta: hubo un defecto donde solo aparecían con stream.',
+      pre: 'T03 corriendo. La key se pide una vez y se reusa en T07, T12 y T13.',
+      cmds: [
+        { os: 'Máquina A · PowerShell', code: '$k = (curl.exe -s http://localhost:8787/v1/keys/panel | ConvertFrom-Json).key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"LLAMA_3_2_1B_INST_Q4_0\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}],\\"local\\":true}" `\n  http://localhost:8787/v1/chat/completions' },
+        { os: 'Máquina A · bash', code: 'k=$(curl -s http://localhost:8787/v1/keys/panel | python3 -c "import sys,json;print(json.load(sys.stdin)[\'key\'])")\ncurl -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" \\\n  -d \'{"model":"LLAMA_3_2_1B_INST_Q4_0","messages":[{"role":"user","content":"hola"}],"local":true}\' \\\n  http://localhost:8787/v1/chat/completions\n# el mismo pedido con "stream":true\n' }
+      ],
+      esperado: [
+        '/v1/models devuelve el formato OpenAI estricto: object "list", data[] con id, object "model", owned_by.',
+        'El modelo pedido tiene que ser un id REAL de /v1/models; si no, el error es el de modelo no encontrado (D5), y eso también se anota.',
+        'La respuesta sin stream trae los headers X-Pyrus-Operator, X-Pyrus-Kind y X-Pyrus-Model.',
+        'La respuesta con stream:true trae los mismos tres headers y llega como SSE.',
+        'El cuerpo NO tiene campos propios metidos adentro del formato de OpenAI.'
+      ],
+      medir: 'Los tres headers de las dos formas, pegados. Y el X-Pyrus-Kind (local / peer / upstream / mock).',
+      nota: 'Guardar la key: se usa en varios tests. Nunca pegarla en el reporte.'
+    },
+    {
+      id: 'T07',
+      fase: 'Fase 4',
+      titulo: 'Archivos entre nodos por Hyperdrive',
+      why: 'send / fetch / files es la parte de persistencia que ya está cerrada, y es lo único que hoy mueve bytes que no son tokens. La UI no la expone: si el CLI no anda, no anda nada.',
+      pre: 'T05 verde (las dos máquinas se ven). Un archivo cualquiera en A, por ejemplo un PDF.',
+      cmds: [
+        { os: 'Máquina A', code: 'pyrusllm send ./plano.pdf\n# copiar el link qvac:// que imprime\npyrusllm files' },
+        { os: 'Máquina B', code: 'pyrusllm files --link qvac://<clave> --timeout 60\npyrusllm fetch qvac://<clave>/plano.pdf --out ./descargas --timeout 120' }
+      ],
+      esperado: [
+        'send imprime un link qvac:// y el archivo aparece en pyrusllm files de A.',
+        'B lista el drive remoto con --link y ve el mismo archivo.',
+        'fetch lo baja a ./descargas y el archivo abre bien (comparar tamaño y hash con el original).',
+        'El botón "Archivos" de la tarjeta del nodo, en /network, muestra lo mismo en modo solo lectura.'
+      ],
+      medir: 'Tamaño y SHA-256 en A y en B — tienen que ser idénticos.',
+      nota: 'La carga y la descarga no tienen UI: hoy es CLI, y eso es lo declarado.'
+    },
+    {
+      id: 'T08',
+      fase: 'Fase 4.5',
+      titulo: 'Un cliente OpenAI de terceros, sin tocar una línea',
+      why: 'Es la prueba de que el gateway habla el protocolo y no una imitación. Un agente externo apuntando su base_url a este nodo prueba lo que ningún test propio puede probar.',
+      pre: 'T06 verde. Anotar un modelId exacto de /v1/models — si no matchea, cae en D5 y no es culpa del cliente.',
+      cmds: [
+        { os: 'Cliente Python (openai)', code: 'pip install openai\npython -c "from openai import OpenAI; c=OpenAI(base_url=\'http://localhost:8787/v1\', api_key=\'<key-de-T06>\'); r=c.chat.completions.create(model=\'<modelId exacto>\', messages=[{\'role\':\'user\',\'content\':\'decime una cosa sola\'}]); print(r.choices[0].message.content)"' },
+        { os: 'Hermes Agent · ~/.hermes/config.yaml', code: 'model:\n  provider: custom\n  base_url: http://127.0.0.1:8787/v1\n  default: <modelId exacto que anuncia el nodo>' }
+      ],
+      esperado: [
+        'El SDK oficial de OpenAI recibe una respuesta válida sin ningún parche.',
+        'El nodo registra el request en /v1/routing-log con su motivo de ruteo.',
+        'Con un modelId inventado, el error es el mensaje claro de modelo no encontrado (D5), no un 500.'
+      ],
+      medir: 'Cliente usado y su versión, más la respuesta recibida.',
+      nota: 'Hermes es upside, no criterio: si su versión del día rompe, se marca NO APLICA y se sigue. Usar solo chat simple, sin tool calls.'
+    },
+    {
+      id: 'T09',
+      fase: 'Fase 5',
+      titulo: 'OTA en vivo: la copia instalada se actualiza sola',
+      why: 'El canal de distribución es la red P2P. Un update que hay que ir a buscar a mano no es OTA.',
+      pre: 'En B, pyrusllm instalado POR PEAR (pear install pear://…), corriendo y sin --no-updates. En A, pear con permiso de stage sobre el link.',
+      cmds: [
+        { os: 'Máquina B (primero, y dejarlo abierto)', code: 'npm i -g pear\npear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny\npyrusllm --no-open        # se queda corriendo: aca se ve llegar el update' },
+        { os: 'Máquina A (publica la versión nueva)', code: 'npm run release          # o: pear stage pear://8f789f6h...\nnpm run seed             # dejar el seeder vivo mientras B actualiza' }
+      ],
+      esperado: [
+        'B imprime "[updater] bajando nueva version" sin que nadie toque nada.',
+        'Después imprime "[updater] update aplicado, reinicia para correr la ultima version".',
+        'Al reiniciar, pyrusllm --version en B dice la versión nueva.',
+        'La app de B siguió atendiendo durante la descarga: el update no la cortó.'
+      ],
+      medir: 'Segundos entre el stage en A y la línea "update aplicado" en B. La referencia es ~10 s.',
+      nota: 'Si no hay permiso de publicación sobre el link de Pear, esto es BLOQUEADO, no FALLA. Anotarlo así.'
+    },
+    {
+      id: 'T10',
+      fase: 'Fase 5',
+      titulo: 'D4 — matar un nodo a mitad de stream',
+      why: 'La regla es explícita: el primer token escrito cierra la puerta al reintento. Una respuesta a medias no se retoma en otra máquina, porque el cliente ya vio bytes.',
+      pre: 'A y B viéndose (T05). Fijar el nodo B desde el chat con "Use this node", o mandar node:"<id de B>" en el body.',
+      cmds: [
+        { os: 'Máquina A · disparar el stream', code: 'curl.exe -N -s -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId de B>\\",\\"node\\":\\"<id de B>\\",\\"stream\\":true,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"escribi 800 palabras sobre redes p2p\\"}]}" `\n  http://localhost:8787/v1/chat/completions' },
+        { os: 'Máquina B · a los 2 segundos', code: '# matar el proceso mientras el stream corre\nGet-Process pyrusllm | Stop-Process -Force     # PowerShell\npkill -f pyrusllm                              # bash' }
+      ],
+      esperado: [
+        'El stream se corta con un error explícito para el cliente, no con un final silencioso que parece completo.',
+        'NO hay un reintento a mitad de respuesta en otra máquina: el texto no continúa con otro nodo.',
+        'El nodo desaparece de /v1/nodes (y de la tabla de /admin) porque el socket cayó — no porque venció un expiresAt.',
+        '/v1/routing-log registra el corte con su motivo.'
+      ],
+      medir: 'Cuántos tokens alcanzó a ver el cliente y qué error recibió.',
+      nota: 'Alternativa sin matar procesos: el botón "Tirar" de /admin, que pega contra POST /v1/nodes/<id>/kick. Es la misma prueba en la mitad de tiempo.'
+    },
+    {
+      id: 'T11',
+      fase: 'Fase 5',
+      titulo: 'El reintento antes del primer byte, y el 429 tratado como "está lleno"',
+      why: 'Elegir un candidato no es casarse con él: mientras al cliente no le salió un byte, el gateway tiene que probar el siguiente. Y un 429 se lee como saturado, no como roto.',
+      pre: 'Al menos dos candidatos para el mismo modelo. Con serve --demo se consigue rápido: 1 nodo real + 3 mocks.',
+      cmds: [
+        { os: 'Máquina A · levantar con candidatos', code: 'pyrusllm serve --swarm --demo --operator "Nodo A"' },
+        { os: 'Máquina A · tirar uno y pedir sin stream', code: '# tirar el candidato preferido desde /admin (boton "Tirar") o:\ncurl.exe -s -X POST -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes/<id>/kick\n# y ahora pedir SIN stream: el reintento sigue siendo legitimo\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' }
+      ],
+      esperado: [
+        'El request se sirve igual: el gateway recorrió la lista y usó el siguiente candidato.',
+        'Los headers de procedencia dicen que contestó OTRO nodo, no el que se tiró.',
+        '/v1/routing-log tiene una entrada con el motivo del salto — no "primero de N candidatos".',
+        'Los mocks de --demo quedan detrás de cualquier candidato real, siempre.'
+      ],
+      medir: 'La entrada del routing-log del salto, pegada entera.',
+      nota: 'Si el candidato caído devuelve 429 en vez de caerse, el trato tiene que ser el mismo: marcarlo saturado para que el request siguiente no se coma el mismo rechazo.'
+    },
+    {
+      id: 'T12',
+      fase: 'Fase 5',
+      titulo: 'La credencial es obligatoria, y revocar revoca',
+      why: 'La promesa es que no hay puerta trasera: hasta el panel del navegador pide su key y la manda como cualquier cliente. La única ruta sin gate es el bootstrap.',
+      pre: 'T03 corriendo. Key de T06 a mano.',
+      cmds: [
+        { os: 'Máquina A · sin credencial (todas tienen que dar 401)', code: 'foreach ($r in "/v1/chat/completions","/v1/routing-log","/v1/upstream","/v1/budget","/v1/quota","/v1/wallet","/v1/audit","/v1/keys") {\n  $c = curl.exe -s -o NUL -w "%{http_code}" "http://localhost:8787$r"\n  "$r -> $c"\n}\ncurl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8787/v1/keys/panel   # esta es la excepcion: 200' },
+        { os: 'Máquina A · emitir, usar y revocar', code: 'curl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d "{\\"label\\":\\"bot telegram\\"}" http://localhost:8787/v1/keys\n# usar la key nueva contra /v1/chat/completions -> 200\n# revocarla por id y repetir el mismo request -> 401\ncurl.exe -s -X DELETE -H "Authorization: Bearer $k" http://localhost:8787/v1/keys/<id>' }
+      ],
+      esperado: [
+        'Las ocho rutas de la lista devuelven 401 sin Authorization.',
+        '/v1/keys/panel devuelve 200 sin credencial — es la única, y es el arranque del panel.',
+        'Una key revocada deja de servir en el acto; las demás siguen andando.',
+        'Reiniciar el nodo NO revoca las keys: persisten en <storage>/apikeys.json (eso cambió, y el ledger depende de eso).'
+      ],
+      medir: 'La tabla ruta -> código, pegada entera.',
+      nota: 'Nunca pegar el valor de una key en el reporte. El id y el label alcanzan.'
+    },
+    {
+      id: 'T13',
+      fase: 'Fase 5',
+      titulo: 'Sin agente lanzado no se llega a la red, y el pin es pin',
+      why: 'Son dos negativas que tienen que ser explícitas: 503 con motivo cuando el agente está apagado, y 404 cuando la máquina fijada no está. Un reemplazo silencioso sería peor que el error.',
+      pre: 'Arrancar A SIN --swarm (pyrusllm --no-open), o sea con el agente apagado, y sin haber tocado "Launch local agent".',
+      cmds: [
+        { os: 'Máquina A · agente apagado', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/agent      # offline\n# pedir con un node remoto -> 503 agent_offline\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"node\\":\\"<id de un par>\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions\n# pedir LOCAL -> tiene que andar igual\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId local>\\",\\"local\\":true,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions' },
+        { os: 'Máquina A · lanzar en caliente y fijar un nodo que no existe', code: 'curl.exe -s -X POST -H "Authorization: Bearer $k" http://localhost:8787/v1/agent/launch\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/agent    # launching -> live\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"node\\":\\"nodo-que-no-existe\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions' }
+      ],
+      esperado: [
+        'Con el agente apagado: /v1/agent dice offline y el selector del chat no ofrece Auto ni nodos remotos.',
+        'Un request cuyo único candidato era un par devuelve 503 con motivo agent_offline.',
+        'El modelo local anda igual — es la única excepción, para que el primer arranque no sea una pared.',
+        'POST /v1/agent/launch une al swarm EN CALIENTE, sin reiniciar el proceso, y /v1/agent pasa a live.',
+        'Con un node inexistente: 404 con el motivo. Nunca otro nodo en su lugar.'
+      ],
+      medir: 'Los códigos HTTP y los cuerpos de error de los tres casos.',
+      nota: 'Si el gateway se levantó sin capacidad de lanzar agente, /v1/agent/launch contesta 503 diciendo que hay que reiniciarlo con serve --swarm. Eso también es correcto: anotar cuál de los dos caminos se probó.'
+    },
+    {
+      id: 'T14',
+      fase: 'Fase 5',
+      titulo: 'Soak: diez vueltas seguidas, no la mejor',
+      why: 'Los tres modos de falla que arruinan una demo (proceso que no termina, registry que timeoutea, install que se cuelga en 0 B/s) no se ven en una corrida sola.',
+      pre: 'Repo clonado con npm install (Preparación). Nada más corriendo en 8787.',
+      cmds: [
+        { os: 'Máquina A · repo', code: 'node scripts/soak.js --runs 10\nnode scripts/soak.js --runs 3 --gpu-layers 0\nnode scripts/soak.js --install --runs 3        # incluye pear install desde el link' }
+      ],
+      esperado: [
+        'Las 10 vueltas terminan. Un FAIL es exit code distinto de 0, salida sin respuesta, o un proceso que hubo que matar por timeout.',
+        'Ningún proceso queda vivo al final (verificar con Get-Process / pgrep).',
+        'El reporte de distribución muestra la dispersión, no solo el mejor caso.'
+      ],
+      medir: 'Vueltas OK / total, y el peor tiempo de la distribución.',
+      nota: 'El modo --install depende de la red P2P: si baja a 0 B/s, es el fallo ya documentado y hay que anotarlo con la red que se usó (wifi del lugar vs hotspot).'
+    },
+    {
+      id: 'T15',
+      fase: 'Fase 5',
+      titulo: 'La auditoría dictamina que hubo inferencia real',
+      why: 'Un panel con tokens moviéndose no prueba nada: cualquiera graba una animación. Lo que prueba es un archivo con TTFT, tokens y tok/s atribuidos a una clave pública.',
+      pre: 'Haber corrido T04, T06 y T11 contra este gateway, para que el rastro tenga con qué dictaminar.',
+      cmds: [
+        { os: 'Máquina A · repo', code: 'node scripts/auditoria.js\nnode scripts/auditoria.js --url http://localhost:8787 --limit 1000 --out logs/qa-parte1.jsonl\necho $LASTEXITCODE        # PowerShell   /   echo $?  en bash' },
+        { os: 'Máquina A · el rastro crudo', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/audit | more' }
+      ],
+      esperado: [
+        'El script sale con código 0 y dictamina que hubo inferencia real.',
+        'El JSONL guardado tiene requests con destino local o peer, con TTFT, tokens y tok/s.',
+        'Los nodos mock de --demo aparecen aparte y EXCLUIDOS del veredicto.',
+        '/v1/audit trae la clave pública del nodo al lado del rastro — la auditoría puede atribuirlo.',
+        'Correr la auditoría sobre un gateway que solo sirvió mocks tiene que salir con código 1.'
+      ],
+      medir: 'Exit code, cantidad de requests auditados y el SHA-256 del JSONL generado.',
+      nota: 'El último punto es la prueba de que la auditoría audita: si siempre dice que sí, no está mirando nada.'
+    },
+    {
+      id: 'T16',
+      fase: 'Fase 6',
+      titulo: 'La suite entera en verde, tres corridas seguidas',
+      why: 'Una corrida verde puede ser suerte de timing. Tres seguidas es lo que se entrega. La referencia declarada al cerrar la Fase 8 es 110 tests y 493 asserts.',
+      pre: 'Repo con npm install. Sin gateway propio corriendo: la suite de integración levanta el suyo.',
+      cmds: [
+        { os: 'Máquina A · repo', code: 'npm test\nnpm test\nnpm test                 # las tres seguidas, sin tocar nada en el medio\nnpm run lint             # prettier --check y lunte' },
+        { os: 'Por separado, si algo falla', code: 'npm run test:unit\nnpm run test:integracion' }
+      ],
+      esperado: [
+        'Las tres corridas terminan en verde, con la misma cantidad de tests y asserts.',
+        'El total es 110 tests / 493 asserts, o más si se agregaron. Menos es un test que dejó de correr.',
+        'La suite de integración cierra el puerto al terminar: los dos últimos tests son justamente eso.',
+        'npm run lint pasa sin diferencias de formato.'
+      ],
+      medir: 'tests / asserts / fallas de cada una de las tres corridas.',
+      nota: 'Si una corrida falla y las otras dos pasan, eso es un test inestable y va como FALLA con el nombre del test, no como "pasó igual".'
+    },
+    {
+      id: 'T17',
+      fase: 'Fase 6',
+      titulo: 'Lo simulado sigue diciendo que es simulado',
+      why: 'Es un compromiso explícito del proyecto: nada de mocks silenciosos. Es fácil que la marca se pierda en un refactor, y ahí es donde deja de ser honesto.',
+      pre: 'Un gateway con serve --demo y otro sin --demo, para comparar.',
+      cmds: [
+        { os: 'Máquina A · con mocks', code: 'pyrusllm serve --demo --operator "Nodo A"\n# en otra terminal:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes' },
+        { os: 'Máquina A · el manifiesto sin wallet', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/swarm/manifest' }
+      ],
+      esperado: [
+        'Con --demo, los tres nodos simulados vienen marcados como simulado y con kind mock; el log del arranque lo avisa.',
+        'Sin --demo, el registro arranca VACÍO: cero nodos, cero mocks.',
+        'En un nodo sin wallet, el bloque economic del manifiesto viene marcado con _mock — y eso hoy significa "no declara dirección de cobro", no "no está implementado".',
+        'El bloque directory NO está marcado como mock: ahí va la clave real del Hyperbee.',
+        '/v1/models no revela quién es el proveedor de cada modelo.'
+      ],
+      medir: 'El JSON de /v1/nodes con los campos de marca, y el bloque economic del manifiesto.',
+      nota: 'Contra la suite: "buildManifest rechaza entradas invalidas y marca los mocks" y "/v1/models sigue abierto pero ya no dice quien es el proveedor".'
+    },
+    {
+      id: 'T18',
+      fase: 'Fase 6',
+      titulo: 'El README no promete nada que el sistema no haga',
+      why: 'La sección "Qué es simulado" existe para que nadie descubra un límite solo. Si quedó desactualizada después de cerrar una fase, el documento pasa de ser honesto a ser una trampa.',
+      pre: 'README.md a mano y el nodo corriendo, para contrastar cada afirmación.',
+      cmds: [
+        { os: 'Máquina A · repo', code: 'Select-String -Path README.md -Pattern "simulado|mock|no est(a|á) implementado|todav(i|í)a" | Select-Object -First 30' },
+        { os: 'Los cuatro que hay que verificar uno por uno', code: '# 1. "el precio que rutea es el del ledger, y el string pricing del manifiesto\n#     es decorativo"  -> comparar /v1/nodes (pricing) con el log de ruteo (micros)\n# 2. "la cuota gratuita NO persiste: se repone al reiniciar"  -> T25\n# 3. "las api keys persisten"  -> T12\n# 4. "recibos y liquidacion siguen sin implementar (Fases 9 y 10)"\n#     -> no tiene que haber ninguna ruta que diga haber pagado algo' }
+      ],
+      esperado: [
+        'Cada afirmación de "Qué es simulado" se corresponde con lo que hace el nodo hoy.',
+        'Ninguna línea dice que algo es mock cuando ya está implementado (el caso de economic, que cambió en la Fase 7).',
+        'Ninguna línea dice que algo está implementado cuando no lo está: recibos y liquidación siguen siendo Fases 9 y 10.',
+        'La línea de privacidad sigue acotada: "ninguna corporación centralizada agrega tus datos a escala", NO "nadie más ve tu prompt".'
+      ],
+      medir: 'Las afirmaciones que no se pudieron verificar, listadas.',
+      nota: 'Este test es lectura contra comportamiento. Si algo no se puede verificar con un comando, se anota como no verificable en vez de darlo por bueno.'
+    },
+    {
+      id: 'T19',
+      fase: 'Fase 6',
+      titulo: 'Las cuatro vistas, los redirects y el canal de distribución',
+      why: 'Es lo que ve un jurado o un usuario nuevo. Una página que rompe en consola arruina la demo aunque el backend esté impecable.',
+      pre: 'Gateway corriendo con --swarm y, si se puede, un par visible.',
+      cmds: [
+        { os: 'Máquina A · abrir y mirar la consola del navegador', code: 'http://localhost:8787/            # chat\nhttp://localhost:8787/node        # My Node: keys, cuota, presupuesto, wallet, opt-in\nhttp://localhost:8787/network     # la grilla del marketplace\nhttp://localhost:8787/admin       # log de ruteo y controles de caos\nhttp://localhost:8787/proveedor   # tiene que redirigir a /node\nhttp://localhost:8787/cliente     # tiene que redirigir a /' },
+        { os: 'Máquina A · el canal de distribución', code: 'start landing/index.html            # los links de descarga y sus .sha256\nstart installer/PyrusLLM.bat        # el .bat que instala y abre' }
+      ],
+      esperado: [
+        'Las cuatro vistas renderizan sin un solo error en la consola del navegador.',
+        '/proveedor y /cliente redirigen con 302 a /node y / respectivamente.',
+        'Cada respuesta del chat dice qué máquina la produjo, y ahora también cuánto costó (ver T32).',
+        '"Use this node" en una tarjeta de /network abre el chat con esa máquina fijada.',
+        'Los links de descarga del landing apuntan al release y cada uno tiene su .sha256 al lado.'
+      ],
+      medir: 'Errores de consola por vista (tiene que ser cero) y capturas de las cuatro.',
+      nota: 'Las capturas sirven para la submission: sacarlas con datos reales, no con el modo --demo, o aclarar cuál es cuál.'
+    },
+    {
+      id: 'T20',
+      fase: 'Fase 6.5',
+      titulo: 'El ledger trabaja en dos tiempos: reserva y liquidación',
+      why: 'Antes del request no se sabe lo que va a costar. La reserva aparta la cota superior y la escribe a disco ANTES de que el request salga; un tope aplicado al facturar no es un tope, es un descuento.',
+      pre: 'Un upstream con precio configurado y opt-in prendido (ver T33). Sin upstream todo vale cero y este test no mide nada.',
+      cmds: [
+        { os: 'Máquina A · mirar el saldo antes, durante y después', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# disparar un request largo al externo y, MIENTRAS corre, en otra terminal:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# y cuando termina:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget' },
+        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "la reserva aparta la cota superior y la liquidacion devuelve el resto"\n#   "dos requests en vuelo no gastan los mismos dolares"\n#   "settle nunca cobra mas de lo reservado"\n#   "costo cero no toca el ledger"' }
+      ],
+      esperado: [
+        'Durante el request, reserved_micros es mayor que cero: hay plata apartada.',
+        'Al terminar, reserved_micros vuelve a cero y spent_micros sube con el costo REAL, que es menor o igual a lo reservado.',
+        'La respuesta trae los dos formatos: los micros enteros y el string en USD.',
+        'Un request local (costo cero) no mueve ninguno de los dos números.',
+        'Los cuatro tests nombrados pasan.'
+      ],
+      medir: 'Los tres estados de /v1/budget pegados: antes, durante y después.',
+      nota: 'Si el proceso se corta en el medio, la reserva huérfana se cobra entera al estimado: cobra de más y corta antes, que es el lado correcto para equivocarse.'
+    },
+    {
+      id: 'T21',
+      fase: 'Fase 6.5',
+      titulo: 'El tope corta de verdad, y reiniciar no lo repone',
+      why: 'Es la invariante del ledger: tope de USD 0,10, cien vueltas, y el gasto real nunca lo supera. Y si reiniciar el nodo repusiera el tope, el tope sería una sugerencia.',
+      pre: 'Repo con npm install. El tope no se puede bajar desde afuera: se verifica con la suite, que es donde vive la invariante.',
+      cmds: [
+        { os: 'Máquina A · repo', code: 'npm run test:unit\n# leer estas lineas:\n#   "EL TOPE CORTA: el gasto real nunca supera el declarado"\n#   "agotado el tope, reiniciar el nodo NO lo repone"\n#   "la api key sobrevive al reinicio: sin eso la cuenta del ledger no existe"\n#   "el mes rota: el gasto vuelve a cero, el tope sobrevive, el cerrado queda"' },
+        { os: 'Máquina A · el ledger en disco', code: '# el gasto tiene que estar escrito, no solo en memoria\nGet-ChildItem "<storage>" | Select-Object Name, Length, LastWriteTime\n# reiniciar el nodo y volver a pedir /v1/budget con la MISMA key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget' }
+      ],
+      esperado: [
+        'Los cuatro tests nombrados pasan.',
+        'Después de reiniciar el nodo, /v1/budget con la misma key devuelve el mismo spent_micros: el gasto sobrevivió.',
+        'La cuenta a la que se le imputa el gasto es la API key, y la key sobrevive al reinicio.',
+        'El tope por default es USD 20 y aparece como cap_micros = 20000000.'
+      ],
+      medir: 'spent_micros antes y después del reinicio — tienen que coincidir.',
+      nota: 'Con el gateway sin upstream configurado el gasto siempre es cero, así que este test sin T33 hecho solo verifica la mitad de la suite. Anotarlo.'
+    },
+    {
+      id: 'T22',
+      fase: 'Fase 6.5',
+      titulo: 'El gasto se imputa a la cuenta, no al nodo',
+      why: 'Tener una key por cliente sirve para poder revocar de a uno; el reparto del mes sirve para saber a quién cobrarle. Si todo el consumo cae en una bolsa común, ninguna de las dos cosas funciona.',
+      pre: 'Dos API keys emitidas con labels distintos (T12) y algo de consumo con cada una.',
+      cmds: [
+        { os: 'Máquina A', code: '# emitir dos keys y consumir con cada una\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $bodyA http://localhost:8787/v1/keys\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $bodyB http://localhost:8787/v1/keys\n# donde:  $bodyA = \'{"label":"cliente uno"}\'   y   $bodyB = \'{"label":"cliente dos"}\'\n\n# despues de consumir con las dos:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget/report\ncurl.exe -s -H "Authorization: Bearer $k" "http://localhost:8787/v1/budget/report?period=2026-08"' }
+      ],
+      esperado: [
+        '/v1/budget consultado con la key A devuelve el saldo de A, no la suma del nodo.',
+        '/v1/budget/report lista una fila por cuenta, con su gasto en micros y en USD.',
+        'La suma de las filas coincide con total_micros.',
+        'El parámetro period devuelve un mes cerrado sin recalcular nada: el reparto se acumula durante el mes.'
+      ],
+      medir: 'El reporte completo, con las dos cuentas y el total.',
+      nota: 'Contra la suite: "el reparto acumula durante el mes, no se calcula al cierre".'
+    },
+    {
+      id: 'T23',
+      fase: 'Fase 6.5',
+      titulo: 'Micro-dólares enteros, y el redondeo va hacia arriba',
+      why: 'Un tope acumulado en punto flotante deriva justo en el borde, que es el único lugar donde el número importa. Por eso el ledger cuenta enteros: 1 USD = 1.000.000 de micros.',
+      pre: 'Repo con npm install.',
+      cmds: [
+        { os: 'Máquina A · repo', code: 'npm run test:unit\n# leer estas lineas:\n#   "estimar acota por arriba y real cobra lo generado"\n#   "los montos son enteros y redondean hacia arriba"\n#   "lo que no esta en la tabla de precios sale cero"' },
+        { os: 'Máquina A · el número por HTTP', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# spent_micros, reserved_micros, cap_micros y remaining_micros tienen que ser\n# ENTEROS. Si aparece un decimal en cualquiera de los cuatro, es FALLA.' }
+      ],
+      esperado: [
+        'Los tres tests nombrados pasan.',
+        'Los cuatro campos _micros de /v1/budget son enteros, sin parte decimal.',
+        'Un modelo que no está en la tabla de precios estima cero — y eso es lo que hace que un upstream sin precio se registre offline (T33).',
+        'El redondeo es hacia arriba: nunca se estima de menos.'
+      ],
+      medir: 'Los cuatro campos _micros, pegados tal cual vienen.',
+      nota: 'Redondear hacia arriba es la decisión deliberada: cobra de más y corta antes.'
+    },
+    {
+      id: 'T24',
+      fase: 'Fase 6.6',
+      titulo: 'La cuota gratuita: cuánta GPU regala este nodo y a quién',
+      why: 'Es el contador que mira hacia afuera, y no se mide en dólares sino en tokens de salida. Se chequea ANTES del request y se registra DESPUÉS, con los tokens que se generaron de verdad.',
+      pre: 'Un par consumiendo de este nodo (T05 y T06 con la máquina B pidiéndole a A).',
+      cmds: [
+        { os: 'Máquina A · el estado de la cuota', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota' },
+        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "la cuota corta al agotarse y dice cuando se repone"\n#   "la cuota se descuenta con los tokens servidos de verdad"\n#   "agotada la cuota se rechaza ANTES de gastar la GPU"\n#   "la cuota es por par: agotar la de uno no toca la del otro"\n#   "un request que falla cargando el modelo no gasta cuota"' }
+      ],
+      esperado: [
+        '/v1/quota devuelve quota_tokens (100000 por default), window_hours (24) y lo regalado en la ventana.',
+        'La clave de cada par se muestra RECORTADA: es el identificador de red de otra persona.',
+        'El consumo del par B aparece en la fila de B y sube con los tokens que realmente se generaron.',
+        'Agotada la cuota, el rechazo dice cuándo se repone — no solo que no.',
+        'El chequeo de cuota va ANTES del de capacidad: "te quedaste sin cuota" es distinto de "estoy lleno".',
+        'Un request cancelado a los tres tokens gasta tres; uno que falló cargando el modelo no gasta nada.'
+      ],
+      medir: 'El JSON de /v1/quota antes y después de que B consuma, y los tokens contados.',
+      nota: 'El request que cruza el límite se sirve ENTERO: cortar una generación por la mitad se ve como un bug y regala igual la GPU ya gastada. El que no entra es el siguiente.'
+    },
+    {
+      id: 'T25',
+      fase: 'Fase 6.6',
+      titulo: 'La ventana es deslizante, y la cuota no persiste',
+      why: 'Un corte a medianoche hace un pico a las 00:01 y castiga al que empezó 23:50, por eso son baldes por hora. Y que reiniciar reponga la cuota está declarado: si se descubre en producción, es una sorpresa.',
+      pre: 'T24 con consumo registrado de al menos un par.',
+      cmds: [
+        { os: 'Máquina A', code: '# anotar given_tokens\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota\n# reiniciar el nodo y volver a preguntar\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota' },
+        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer: "la ventana es deslizante: se repone sola con las horas"\n#       "la cuota es configurable y el registro ignora basura"' }
+      ],
+      esperado: [
+        'Después de reiniciar, la cuota vuelve a cero: NO persiste, y eso es lo declarado en el README.',
+        'El ledger, en cambio, SÍ sobrevive al reinicio (T21). Los dos contadores se comportan distinto a propósito.',
+        'Los dos tests nombrados pasan.',
+        'No hay registro compartido entre nodos: la cuota de A no la conoce B.'
+      ],
+      medir: 'given_tokens antes y después del reinicio.',
+      nota: 'Si en algún momento esto empieza a persistir, el README miente al revés. Vale como FALLA igual.'
+    },
+    {
+      id: 'T26',
+      fase: 'Fase 7',
+      titulo: 'Crear la wallet de cobro y ver la dirección',
+      why: 'La Fase 7 hace que el manifiesto diga la verdad sobre a quién pagarle. WDK no acepta la seed de red que el nodo ya tenía: exige mnemonic BIP-39, y no trae dónde guardarlo.',
+      pre: 'PYRUS_WALLET_PASSPHRASE en el .env, larga y única. Máquina sin wallet previa.',
+      cmds: [
+        { os: 'Máquina A', code: 'pyrusllm wallet                 # todavia no hay: tiene que decirlo y explicar como crearla\npyrusllm wallet --crear         # muestra las 24 palabras UNA sola vez\npyrusllm wallet                 # ahora muestra la direccion de cobro' },
+        { os: 'Máquina A · sin la passphrase', code: '# sacar PYRUS_WALLET_PASSPHRASE del entorno y del .env, y arrancar el nodo\npyrusllm serve --swarm --operator "Nodo A"\n# el arranque tiene que avisar fuerte, no fallar en silencio' }
+      ],
+      esperado: [
+        'Sin wallet, el comando lo dice claro y explica cómo crear una — no es un error.',
+        'wallet --crear sin PYRUS_WALLET_PASSPHRASE se niega y dice que es con eso que se cifra la seed.',
+        'Las 24 palabras se muestran UNA vez, con el aviso de que sin ellas y sin el keystore la wallet se pierde.',
+        'pyrusllm wallet muestra la dirección, las redes (plasma, stable) y el modo de liquidación (batch-receipts).',
+        'Con wallet pero SIN passphrase, el nodo arranca igual y avisa que se anuncia SIN dirección de cobro: el economic vuelve al mock marcado.'
+      ],
+      medir: 'La dirección de cobro (esa sí se puede pegar: viaja en el manifiesto público). Las 24 palabras, NUNCA.',
+      nota: 'Límite honesto declarado: si el .env vive al lado del keystore, el cifrado protege de un backup, de un repo y de un pear stage — no de alguien que ya tiene acceso a esa máquina.'
+    },
+    {
+      id: 'T27',
+      fase: 'Fase 7',
+      titulo: 'D13 — la seed no está en claro en ningún lado',
+      why: 'Es la mitad de D13 que sí existía: WDK exporta errores e interfaces, no custodia. El cifrado es Argon2id más secretbox de sodium, y lo que hay que probar es que no quedó nada legible.',
+      pre: 'T26 hecho: wallet creada y las 24 palabras anotadas en papel.',
+      cmds: [
+        { os: 'Máquina A · buscar la frase adentro del keystore', code: '# palabra por palabra: si CUALQUIERA aparece, es FALLA\nforeach ($p in "palabra1","palabra2","palabra3") {\n  $hit = Select-String -Path "<storage>\\wallet.json" -Pattern $p -SimpleMatch -Quiet\n  "$p -> $(if ($hit) { \'APARECE (FALLA)\' } else { \'no aparece\' })"\n}\n# la direccion tampoco tiene que estar guardada en el keystore\nSelect-String -Path "<storage>\\wallet.json" -Pattern "0x" -SimpleMatch -Quiet' },
+        { os: 'Máquina A · passphrase equivocada', code: '$env:PYRUS_WALLET_PASSPHRASE = "una que no es"\npyrusllm wallet          # NO tiene que abrir\nnpm run test:unit        # leer: "la seed de la wallet no queda en claro, y la passphrase equivocada no abre"' }
+      ],
+      esperado: [
+        'Ninguna de las 24 palabras aparece dentro de wallet.json.',
+        'La dirección tampoco está guardada en el keystore: se deriva al abrirlo.',
+        'Con la passphrase equivocada, la wallet no abre y el error lo dice sin filtrar nada.',
+        'El keystore tiene permisos de solo-dueño.',
+        'El test unitario nombrado pasa.'
+      ],
+      medir: 'Solo el resultado de cada búsqueda (aparece / no aparece). Nunca el contenido del archivo.',
+      nota: 'Este es el test donde más importa la regla 7 del prompt: no pegar la frase ni el archivo en el reporte.'
+    },
+    {
+      id: 'T28',
+      fase: 'Fase 7',
+      titulo: 'El manifiesto firmado lleva la dirección, y la firma la ata',
+      why: 'La propiedad que importa no es que la dirección viaje: es que no se pueda reenviar el manifiesto de otro con la wallet propia adentro. Cambiarle la wallet a un manifiesto firmado tiene que invalidarlo.',
+      pre: 'T26 en las dos máquinas, cada una con SU propia wallet. Las dos con --swarm.',
+      cmds: [
+        { os: 'Máquina A', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/wallet\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/swarm/manifest\n# comparar: la direccion de /v1/wallet tiene que ser la del bloque economic' },
+        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "dos nodos con wallet anuncian direcciones distintas, y la firma las ata"\n#   "un manifiesto manipulado no verifica"\n#   "un economic invalido no se firma: firmarlo es mandar a pagar a cualquier lado"\n#   "el economic con wallet valida contra el schema congelado, sin tocarlo"' }
+      ],
+      esperado: [
+        '/v1/wallet dice configurada: true, con dirección, chains y settlement.',
+        'El bloque economic del manifiesto trae esa misma dirección y YA NO tiene la marca _mock.',
+        'La máquina B anuncia una dirección DISTINTA — cada nodo cobra a la suya.',
+        'El manifiesto valida contra manifest-v0.json sin haber tocado el schema, y eso ahora lo comprueba un test (B19).',
+        'Los cuatro tests nombrados pasan.'
+      ],
+      medir: 'Las dos direcciones (A y B) y el bloque economic completo de una de las dos.',
+      nota: 'Esta fase NO cobra nada. El manifiesto dice a quién pagarle; pagarle es la Fase 9, con los recibos y la liquidación todavía sin implementar.'
+    },
+    {
+      id: 'T29',
+      fase: 'Fase 7',
+      titulo: 'Las 24 palabras restauran la misma dirección en otra máquina',
+      why: 'Un respaldo que no restaura no es un respaldo. Y es la única salida si se pierde el keystore, porque no hay custodia de terceros en el medio.',
+      pre: 'T26 hecho en A, con las 24 palabras anotadas. Una máquina (o un storage) SIN wallet donde restaurar.',
+      cmds: [
+        { os: 'Máquina B (o un storage limpio)', code: '# con PYRUS_WALLET_PASSPHRASE definida (puede ser otra distinta a la de A)\npyrusllm wallet --restaurar "palabra1 palabra2 ... palabra24"\npyrusllm wallet          # tiene que dar la MISMA direccion que A' },
+        { os: 'Máquina B · contra la suite', code: 'npm run test:unit\n# leer: "la frase de respaldo restaura la misma direccion en otra maquina"' }
+      ],
+      esperado: [
+        'La dirección restaurada es idéntica, carácter por carácter, a la de la máquina original.',
+        'La passphrase de cifrado puede ser distinta: cifra el keystore local, no deriva la wallet.',
+        'Una frase inválida (23 palabras, una mal escrita) se rechaza con un motivo, no genera una wallet distinta en silencio.',
+        'El test unitario nombrado pasa.'
+      ],
+      medir: 'Las dos direcciones, la original y la restaurada, una al lado de la otra.',
+      nota: 'Después de este test, borrar la wallet restaurada si esa máquina no la va a usar: dos nodos anunciando la misma dirección de cobro es un escenario que no se quiere en la red.'
+    },
+    {
+      id: 'T30',
+      fase: 'Fase 8',
+      titulo: 'Con carga pareja gana el más barato, y el log dice los dos precios',
+      why: 'Es el punto central del DoD de la Fase 8. Y el motivo tiene que afirmar un hecho, no repetir lo que el sort debería haber hecho: hubo un bug donde el log decía "más barato" y nombraba al más caro.',
+      pre: 'Dos upstreams configurados con precios DISTINTOS para el mismo modelo (campo as), opt-in prendido, y presupuesto disponible.',
+      cmds: [
+        { os: 'Máquina A · dos proveedores para el mismo modelo', code: '# en <storage>/upstreams.json, dos filas con el MISMO "as" y precios distintos.\n# Ej: NVIDIA y OpenRouter, los dos con "as": "nemotron-3.5-lightning".\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\n# tienen que aparecer como UNA sola fila del catalogo' },
+        { os: 'Máquina A · pedir y leer el motivo', code: 'curl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' }
+      ],
+      esperado: [
+        'Contesta el proveedor más barato de los dos.',
+        'La entrada del routing-log dice "carga pareja (N%), mas barato:" y muestra LOS DOS precios estimados.',
+        'El precio que se compara es el del ledger en micro-dólares, el mismo con el que se abre la reserva — no el string pricing del manifiesto.',
+        'Tres puertas al mismo modelo entran como UNA sola fila del catálogo, gracias al campo as.'
+      ],
+      medir: 'La entrada del routing-log entera, con los dos números, y qué proveedor contestó.',
+      nota: 'Contra la suite: "FASE 8: con carga pareja gana el mas barato, y el log dice los dos precios" y el de integración "entre dos proveedores que cobran, rutea al mas barato y lo dice".'
+    },
+    {
+      id: 'T31',
+      fase: 'Fase 8',
+      titulo: 'El precio nunca le gana a "puede atender ahora"',
+      why: 'Es dónde entra el precio, que era lo único discutible: paso 4, después de la carga y antes del histórico. La opción barata que está llena no es barata, y una respuesta que no llega no es más económica: es ninguna.',
+      pre: 'T30 armado. Hace falta poder saturar al candidato barato — con /admin, o con dos requests concurrentes contra un nodo de capacidad 1.',
+      cmds: [
+        { os: 'Máquina A · saturar al barato y pedir', code: '# ocupar al barato (dos requests largos en paralelo contra un nodo de capacidad 1)\n# y mientras tanto, pedir de nuevo:\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' },
+        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "FASE 8: el precio NO le gana a puede atender ahora"\n#   "FASE 8: gratis le gana a pago por PRECIO, no por el tipo de nodo"\n#   "FASE 8: el precio se compara ANTES que la latencia y los errores"\n#   "FASE 8: sin precioDe el ruteo se comporta igual que antes"' }
+      ],
+      esperado: [
+        'Con el barato saturado, contesta el caro que tiene lugar — y el log dice que fue por carga, no por precio.',
+        'Un candidato local o un par (que valen cero) le gana a un upstream que cobra POR PRECIO, no por su tipo de nodo.',
+        'Con precio pareja, deciden el histórico y la latencia como antes.',
+        'Los cuatro tests nombrados pasan.'
+      ],
+      medir: 'El motivo de ruteo de cada caso: saturado, precio, histórico.',
+      nota: 'Esto reemplazó un accidente por un criterio: que "la de casa le gane a la que cobra" ya pasaba, pero lo producía el desempate por tipo de nodo, que el propio archivo declara que ya no es criterio.'
+    },
+    {
+      id: 'T32',
+      fase: 'Fase 8',
+      titulo: 'El chat dice cuánto cuesta cada respuesta',
+      why: 'Es el segundo punto del DoD. Y dice el TECHO, no lo que salió: en streaming los headers viajan antes del primer token, así que el costo real todavía no existe cuando hay que declararlo.',
+      pre: 'T30 armado, para que haya un camino que cueste dinero de verdad.',
+      cmds: [
+        { os: 'Máquina A · el header', code: 'curl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions | Select-String "X-Pyrus"' },
+        { os: 'Máquina A · el chat en el navegador', code: '# http://localhost:8787/  -> mandar dos prompts:\n#   1. uno LOCAL (this machine only)     -> tiene que decir "no charge"\n#   2. uno al externo (con opt-in)       -> tiene que decir "up to USD 0.000xxx"\n# y uno CORTO al externo, de pocos tokens, para el caso de abajo' }
+      ],
+      esperado: [
+        'La respuesta trae X-Pyrus-Cost-Estimate-Micros con un entero.',
+        'El chat muestra "up to USD …" cuando cuesta y "no charge" cuando no — dos textos distintos a propósito.',
+        'Un turno chico, de menos de 50 micros, NO se muestra como USD 0.0000: esa era la distinción que la línea existe para hacer, y se rompía con cuatro decimales.',
+        'El número del chat coincide con el header, y con el costMicros que queda en el rastro de ruteo.',
+        'Lo local dice "no charge", no "USD 0.0000".'
+      ],
+      medir: 'El header y el texto del chat, para un turno caro y uno de pocos micros.',
+      nota: 'Lo que sigue siendo decorativo es el string pricing del manifiesto ("0.002 QVAC / 1K tok"): no participa de ninguna decisión, y eso está escrito en el README.'
+    },
+    {
+      id: 'T33',
+      fase: 'Fase 8.5',
+      titulo: 'El asistente externo entra como una fila más del registro',
+      why: 'La tesis de la fase: sin una sola línea especial en el despacho. Si el externo necesitara un camino aparte, todo lo que se probó del ruteo no aplicaría a él.',
+      pre: 'upstreams.json en el storage con al menos un proveedor, y su credencial en el .env.',
+      cmds: [
+        { os: 'Máquina A · arrancar y leer el estado', code: 'pyrusllm serve --swarm --operator "Nodo A"\n# el arranque dice que .env cargo, nombrando variables y nunca valores\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/upstream\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes' },
+        { os: 'Máquina A · un upstream mal configurado', code: '# sacarle el precio a una fila, o la credencial, y reiniciar:\n# tiene que registrarse OFFLINE, y el arranque tiene que decir CUAL de las dos falta' }
+      ],
+      esperado: [
+        'El upstream aparece en /v1/nodes con kind upstream, y en /v1/models como un modelo más.',
+        'El arranque nombra las variables del .env que cargó, y nunca sus valores.',
+        'Un upstream remoto sin credencial O sin precio se registra OFFLINE, y el arranque dice cuál de las dos falta.',
+        'Un upstream con "local": true no pide credencial, no pide precio, no le aplica el opt-in, y declara X-Pyrus-Scope: local.',
+        'Un upstream no infla la capacidad anunciada del nodo.'
+      ],
+      medir: 'El JSON de /v1/upstream (sin secretos) y las filas de /v1/nodes.',
+      nota: 'Sin precio, costs.estimar devuelve cero, la reserva no aparta nada y el tope deja de cortar justo en el único camino que cuesta dólares. Por eso el precio faltante es motivo de offline.'
+    },
+    {
+      id: 'T34',
+      fase: 'Fase 8.5',
+      titulo: 'Las tres condiciones para que el prompt salga de la máquina',
+      why: 'Es el punto donde se acota la promesa de privacidad. Hacen falta tres cosas a la vez: opt-in prendido, que no haya capacidad de este lado, y presupuesto. Y local: true lo excluye siempre.',
+      pre: 'T33 verde. Poder saturar o apagar los candidatos locales para dejar sin capacidad a la red.',
+      cmds: [
+        { os: 'Máquina A · el opt-in, por HTTP', code: '$on  = \'{"enabled":true}\'\n$off = \'{"enabled":false}\'\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $off http://localhost:8787/v1/upstream/opt-in\n# pedir con la red sin capacidad -> NUNCA el externo\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $on  http://localhost:8787/v1/upstream/opt-in\n# ahora si: pedir de nuevo' },
+        { os: 'Máquina A · el candado local', code: '# con opt-in PRENDIDO, un pedido con "local": true no puede salir jamas\n$loc = \'{"model":"<modelId>","local":true,"messages":[{"role":"user","content":"hola"}]}\'\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $loc http://localhost:8787/v1/chat/completions' }
+      ],
+      esperado: [
+        'Con opt-in apagado: 503 con el motivo, o un candidato local. Nunca el externo — y el error dice cómo prenderlo.',
+        'Con opt-in prendido y sin capacidad de este lado: contesta el externo, y los headers lo declaran (X-Pyrus-Kind: upstream, X-Pyrus-Scope: external).',
+        'Mientras haya capacidad local o en la red, el prompt NO sale: el externo es último por posición, no por veto.',
+        'Con local: true, nunca sale de la máquina, con opt-in o sin él.',
+        'Con el presupuesto agotado: se degrada a un candidato local con aviso, y el rastro lo registra como DEGRADACIÓN, no como una elección normal.',
+        'El interruptor de /node hace lo mismo que el POST, y la tarjeta cambia de estado.'
+      ],
+      medir: 'Los cuatro casos con su código HTTP, sus headers de procedencia y su entrada en el routing-log.',
+      nota: 'Que un candidato declare capacidad no prueba que funcione: un llama-server apagado anuncia 0/2, o sea "tengo lugar". Quedar último se mide por lo que pasó, no por lo que se anunció.'
+    },
+    {
+      id: 'T35',
+      fase: 'Fase 8.5',
+      titulo: 'B3 — un proveedor que se cuelga no deja el request colgado',
+      why: 'Lo que sigue corriendo del otro lado son dólares de la cuenta del operador. Y un proveedor que se cuelga sin cerrar el socket dejaba la reserva comprometida para siempre.',
+      pre: 'T33 verde. Se verifica contra la suite, que tiene un proveedor falso que se cuelga a propósito.',
+      cmds: [
+        { os: 'Máquina A · repo', code: 'npm run test:integracion\n# leer estas lineas:\n#   "un proveedor que se cuelga no deja el request colgado"\n#   "un error adentro de un stream 200 no se reporta como respuesta exitosa"\n#   "un error adentro del stream deja seguir con el candidato siguiente"\n#   "un proveedor que no manda usage se liquida por la reserva, no por los deltas"\n#   "un 429 del proveedor se trata como saturacion, no como error del request"' },
+        { os: 'Máquina A · a mano, cerrando la pestaña', code: '# disparar un request largo al externo desde el chat y cerrar la pestaña.\n# Despues:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget   # reserved_micros tiene que volver a 0\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes    # el slot del nodo, liberado' }
+      ],
+      esperado: [
+        'Al cerrar el cliente, el request al proveedor se cancela: no queda generando para nadie.',
+        'Los dos relojes propios funcionan: 60 s al primer byte y 30 s de silencio entre tokens.',
+        'La reserva se libera, el slot del nodo se libera, y un request que murió SIN un solo token liquida cero.',
+        'Un corte propio (por timeout) no se reintenta.',
+        'Un 200 con un error adentro del stream no cuenta como éxito, y deja seguir con el candidato siguiente.',
+        'Los cinco tests nombrados pasan.'
+      ],
+      medir: 'reserved_micros después del corte (tiene que ser 0) y el estado del slot.',
+      nota: 'Cobrar la cota superior a un request que no generó nada sería cobrar un request que no ocurrió. Esa regla salió justamente de este bug.'
+    },
+    {
+      id: 'T36',
+      fase: 'Fase 8.5',
+      titulo: 'Los secretos no viajan, ni a otro proveedor ni a la respuesta',
+      why: 'Son tres agujeros distintos que se cerraron juntos: una credencial que podía viajar al proveedor equivocado, una ruta de lectura sin gate, y un tope de salida que un archivo de config podía pisar.',
+      pre: 'T33 verde, con al menos dos proveedores distintos configurados.',
+      cmds: [
+        { os: 'Máquina A · la ruta y su respuesta', code: 'curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8787/v1/upstream            # 401 sin key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/upstream          # con key: sin secretos\n# buscar en la respuesta el valor de la credencial: NO tiene que estar\n# (solo el NOMBRE de la variable de entorno)' },
+        { os: 'Máquina A · contra la suite', code: 'npm run test:integracion\n# leer estas lineas:\n#   "la config no puede mandarle la credencial de un proveedor a otro"\n#   "el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el tope"\n#   "las rutas que solo leen plata o proveedor tambien piden la key"\nnpm run test:unit\n# leer: "los headers de la config no pueden pisar la credencial"' }
+      ],
+      esperado: [
+        'GET /v1/upstream sin credencial da 401; con credencial, la respuesta trae el nombre de la variable de entorno y nunca su valor.',
+        'La credencial de un proveedor no puede viajar a otro por más que la config lo pida.',
+        'extraBody no puede pisar max_tokens ni stream: el único número que acota la reserva no es sobre-escribible desde un archivo.',
+        'El pedido al proveedor siempre pide usage; si el proveedor no lo manda, se liquida por la reserva.',
+        'Los cuatro tests nombrados pasan.'
+      ],
+      medir: 'El código HTTP de las dos llamadas y la respuesta con credencial, revisada campo por campo.',
+      nota: 'Queda abierto y declarado: el reintento sobre un POST de streaming no es idempotente (B5). La mitigación es el nonce de D20, agendado para la Fase 11.'
+    }
+  ];
+
+  const KEY = 'pyrusllm-qa-completo-v1';
+  const VERDICTS = [
+    { v: 'pass', label: 'Pasa' },
+    { v: 'fail', label: 'Falla' },
+    { v: 'block', label: 'Bloqueado' },
+    { v: 'na', label: 'No aplica' }
+  ];
+  const NOMBRE = { pass: 'PASA', fail: 'FALLA', block: 'BLOQUEADO', na: 'NO APLICA' };
+
+  let state = {};
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) state = JSON.parse(raw) || {};
+  } catch (e) {
+    state = {};
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+    } catch (e) {
+      /* modo privado o storage bloqueado: la pagina sigue funcionando sin persistir */
+    }
+  }
+
+  const esc = (s) =>
+    String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  function render() {
+    const cont = document.getElementById('tests');
+    let faseActual = null;
+    let html = '';
+
+    TESTS.forEach((t) => {
+      if (t.fase !== faseActual) {
+        faseActual = t.fase;
+        html +=
+          '<div class="section-head"><h2>' +
+          esc(faseActual) +
+          '</h2><p>' +
+          esc(descFase(faseActual)) +
+          '</p></div>';
+      }
+
+      const st = state[t.id] || {};
+      html += '<article class="test" id="' + t.id + '"' + (st.v ? ' data-v="' + st.v + '"' : '') + '>';
+      html +=
+        '<div class="test-head"><span class="tid">' +
+        t.id +
+        '</span><h3>' +
+        esc(t.titulo) +
+        '</h3><span class="tag">' +
+        esc(t.fase) +
+        '</span></div>';
+      html += '<p class="why">' + esc(t.why) + '</p>';
+      html += '<div class="field"><h4>Precondición</h4><p class="pre-line">' + esc(t.pre) + '</p></div>';
+
+      t.cmds.forEach((c, i) => {
+        const cid = t.id + '-c' + i;
+        html +=
+          '<div class="code"><div class="code-head"><span>' +
+          esc(c.os) +
+          '</span><button class="copy" data-copy="#' +
+          cid +
+          '">Copiar</button></div><pre id="' +
+          cid +
+          '">' +
+          esc(c.code) +
+          '</pre></div>';
+      });
+
+      html += '<div class="field"><h4>Resultado esperado</h4><ul>';
+      t.esperado.forEach((e) => (html += '<li>' + esc(e) + '</li>'));
+      html += '</ul></div>';
+      html += '<div class="field"><h4>Qué medir</h4><p>' + esc(t.medir) + '</p></div>';
+      if (t.nota) html += '<div class="warn">' + esc(t.nota) + '</div>';
+
+      html += '<div class="verdict"><div class="segs">';
+      VERDICTS.forEach((o) => {
+        html +=
+          '<label><input type="radio" name="v-' +
+          t.id +
+          '" value="' +
+          o.v +
+          '"' +
+          (st.v === o.v ? ' checked' : '') +
+          '><span>' +
+          o.label +
+          '</span></label>';
+      });
+      html += '</div></div>';
+      html +=
+        '<textarea class="notes" data-id="' +
+        t.id +
+        '" placeholder="Salida real, números medidos, desvíos del comando…">' +
+        esc(st.n || '') +
+        '</textarea>';
+      html += '</article>';
+    });
+
+    cont.innerHTML = html;
+
+    const jump = document.getElementById('jump');
+    jump.innerHTML = TESTS.map(
+      (t) =>
+        '<a href="#' +
+        t.id +
+        '"><span>' +
+        t.id +
+        '</span>' +
+        esc(t.titulo.length > 26 ? t.titulo.slice(0, 26) + '…' : t.titulo) +
+        '</a>'
+    ).join('');
+
+    document.getElementById('meta-count').textContent = TESTS.length;
+    tally();
+  }
+
+  function descFase(f) {
+    const d = {
+      'Fase 4': 'El install es la demo: una línea, sin dependencias previas, y de ahí a un token real.',
+      'Fase 4.5': 'Un cliente de terceros elige esta red sin que nadie toque su código.',
+      'Fase 5': 'OTA en vivo y endurecimiento: qué hace el sistema cuando algo se cae en el peor momento.',
+      'Fase 6': 'Submission y pitch: la suite, los mocks que siguen declarados y el README que no promete de más.',
+      'Fase 6.5': 'El ledger: reserva write-ahead, tope que corta y reparto por cuenta, en micro-dólares enteros.',
+      'Fase 6.6': 'La cuota gratuita, del lado del proveedor: cuánta GPU regala este nodo y a qué par.',
+      'Fase 7': 'El manifiesto deja de mentir sobre a dónde se le paga a este nodo. No cobra: declara.',
+      'Fase 8': 'El precio entra al ruteo —después de la carga, antes del histórico— y sale al chat.',
+      'Fase 8.5': 'El asistente externo como un candidato más, con tres condiciones y ninguna línea especial.'
+    };
+    return d[f] || '';
+  }
+
+  function tally() {
+    const c = { pass: 0, fail: 0, block: 0, na: 0 };
+    TESTS.forEach((t) => {
+      const v = state[t.id] && state[t.id].v;
+      if (v && c[v] !== undefined) c[v]++;
+    });
+    const total = TESTS.length;
+    const todo = total - (c.pass + c.fail + c.block + c.na);
+
+    document.getElementById('n-pass').textContent = c.pass;
+    document.getElementById('n-fail').textContent = c.fail;
+    document.getElementById('n-block').textContent = c.block;
+    document.getElementById('n-na').textContent = c.na;
+    document.getElementById('n-todo').textContent = todo;
+
+    ['pass', 'fail', 'block', 'na'].forEach((k) => {
+      document.getElementById('bar-' + k).style.width = (c[k] / total) * 100 + '%';
+    });
+
+    const st = document.getElementById('status');
+    st.textContent =
+      todo === total
+        ? 'Sin correr — ' + total + ' pruebas pendientes.'
+        : todo === 0
+          ? 'Pase completo: ' + c.pass + ' pasan, ' + c.fail + ' fallan, ' + c.block + ' bloqueadas, ' + c.na + ' no aplican.'
+          : todo + ' pendientes de ' + total + ' — ' + c.pass + ' pasan, ' + c.fail + ' fallan.';
+  }
+
+  document.addEventListener('change', (ev) => {
+    const el = ev.target;
+    if (el.type === 'radio' && el.name.startsWith('v-')) {
+      const id = el.name.slice(2);
+      state[id] = Object.assign({}, state[id], { v: el.value });
+      const card = document.getElementById(id);
+      if (card) card.setAttribute('data-v', el.value);
+      save();
+      tally();
+    }
+  });
+
+  document.addEventListener('input', (ev) => {
+    const el = ev.target;
+    if (el.classList && el.classList.contains('notes')) {
+      const id = el.dataset.id;
+      state[id] = Object.assign({}, state[id], { n: el.value });
+      save();
+    }
+  });
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('on');
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove('on'), 1800);
+  }
+
+  function copiar(texto, ok) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(texto).then(
+        () => toast(ok),
+        () => toast('No se pudo copiar — seleccioná el texto a mano')
+      );
+    } else {
+      toast('No se pudo copiar — seleccioná el texto a mano');
+    }
+  }
+
+  document.addEventListener('click', (ev) => {
+    const b = ev.target.closest('button.copy');
+    if (!b) return;
+    const el = document.querySelector(b.dataset.copy);
+    if (el) copiar(el.textContent, 'Copiado');
+  });
+
+  function reporte() {
+    const hoy = new Date().toISOString().slice(0, 10);
+    let out = '# Protocolo QA PyrusLLM — Fases 4 a 8.5\n\n';
+    out += 'Fecha: ' + hoy + '\nOperador: \nMáquina A (SO / versión): \nMáquina B (SO / versión): \nRed usada: \n\n';
+
+    const c = { pass: 0, fail: 0, block: 0, na: 0, todo: 0 };
+    TESTS.forEach((t) => {
+      const v = (state[t.id] || {}).v;
+      if (v) c[v]++;
+      else c.todo++;
+    });
+    out +=
+      '## Resumen\n\n| Pasa | Falla | Bloqueado | No aplica | Sin correr |\n| --- | --- | --- | --- | --- |\n| ' +
+      c.pass + ' | ' + c.fail + ' | ' + c.block + ' | ' + c.na + ' | ' + c.todo + ' |\n\n';
+
+    out += '## Resultados\n\n';
+    TESTS.forEach((t) => {
+      const st = state[t.id] || {};
+      out += '### ' + t.id + ' — ' + t.titulo + '  (' + t.fase + ')\n';
+      out += '**Veredicto:** ' + (st.v ? NOMBRE[st.v] : 'SIN CORRER') + '\n\n';
+      out += '**A medir:** ' + t.medir + '\n\n';
+      out += '**Notas y salida:**\n' + (st.n ? st.n : '_(vacío)_') + '\n\n';
+    });
+
+    const fallas = TESTS.filter((t) => (state[t.id] || {}).v === 'fail');
+    out += '## Fallas para revisar\n\n';
+    out += fallas.length
+      ? fallas.map((t) => '- ' + t.id + ' — ' + t.titulo).join('\n') + '\n'
+      : 'Ninguna.\n';
+    return out;
+  }
+
+  const dlg = document.getElementById('dlg');
+
+  document.getElementById('btn-report').addEventListener('click', () => {
+    document.getElementById('report').value = reporte();
+    if (dlg.showModal) dlg.showModal();
+  });
+
+  document.getElementById('btn-close').addEventListener('click', () => dlg.close());
+
+  document.getElementById('btn-copy-report').addEventListener('click', () => {
+    copiar(document.getElementById('report').value, 'Reporte copiado');
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    if (!confirm('Borra todos los veredictos y notas de esta máquina. ¿Seguir?')) return;
+    state = {};
+    save();
+    render();
+  });
+
+  render();
+</script>
+<script>
+  /* Solo en el archivo suelto: descargar el reporte y avisar si el navegador
+     no puede guardar el avance (Safari bloquea localStorage en file://). */
+  (function () {
+    var head = document.querySelector('.dlg-head > div');
+    if (head) {
+      var b = document.createElement('button');
+      b.className = 'btn ghost';
+      b.textContent = 'Descargar .md';
+      b.addEventListener('click', function () {
+        var txt = document.getElementById('report').value;
+        var url = URL.createObjectURL(new Blob([txt], { type: 'text/markdown;charset=utf-8' }));
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'qa-pyrusllm-' + new Date().toISOString().slice(0, 10) + '.md';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      });
+      head.insertBefore(b, head.firstChild);
+    }
+
+    var guarda = true;
+    try {
+      localStorage.setItem('__qa_probe', '1');
+      localStorage.removeItem('__qa_probe');
+    } catch (e) {
+      guarda = false;
+    }
+    if (!guarda) {
+      var aviso = document.createElement('div');
+      aviso.style.cssText =
+        'background:var(--block-soft);color:var(--ink);border-bottom:1px solid var(--block);' +
+        'padding:10px 22px;font-size:14.5px;text-align:center';
+      aviso.textContent =
+        'Este navegador no guarda el avance en un archivo abierto desde el disco: ' +
+        'genera y descarga el reporte antes de cerrar la pestana.';
+      document.body.insertBefore(aviso, document.body.firstChild);
+    }
+  })();
+</script>
+</body>
+</html>
