@@ -152,7 +152,7 @@ falla con el bug puesto.
 
 | Fase | Estado real | Qué falta exactamente |
 | --- | --- | --- |
-| 6.5 Presupuesto | **REABIERTA** | B1 y B2 siguen cerrados y con test. Quedan tres: B6 tiene el arreglo pero **ningún test lo discrimina**, B13 (el tope no acota lo que se factura) y B14 (`finish_reason` miente cuando el tope recorta). La decisión de forma de B13 ya está tomada: tope de nodo con las keys como sub-topes, default USD 20 |
+| 6.5 Presupuesto | **CONGELADA 2026-08-26** | Por decisión del dueño, no se trabaja por ahora. B1 y B2 cerrados y con test; quedan abiertos **B6**, **B13** y **B14**. Congelada no es cerrada: el mecanismo de corte es lo que heredan la 9, la 10 y la 11, así que los tres se heredan con él — B14 es la condición no negociable de D9 y la Fase 9 la va a necesitar. La forma de B13 ya está decidida |
 | 6.6 Cuota gratuita | **Cerrada** | Nada. `quota.mjs` no lo tocó ninguno de los commits nuevos. No persiste, y eso está declarado |
 | 7 Desmockear `economic` | **NO EMPEZADA** | Todo, y sin un solo commit en tres pasadas. `_mock: 'NO IMPLEMENTADO'` sigue en [qvac/manifest.mjs:100](qvac/manifest.mjs#L100), la wallet es `0x000…0`, y WDK no está en `package.json`. **D13 sin implementar.** Bloquea 9, 10 y 11 |
 | 8 Precio que rutea | **Parcial** | `anunciadoComo` ([upstream.mjs:159](qvac/upstream.mjs#L159)) hizo que NVIDIA y OpenRouter entren al catálogo con el mismo nombre y por primera vez compitan de verdad. Pero el precio **sigue sin participar del score** —no hay ninguna mención de precio en `qvac/routing.mjs`— y el costo **sigue sin aparecer en el chat**, tampoco en `qvac/pages.mjs` |
@@ -191,14 +191,17 @@ falla con el bug puesto.
    del primer byte dejó de estar dos segundos por encima de lo medido. Los
    cuatro con test, y los cuatro verificados contra el bug puesto — que es el
    criterio que B6 no cumple y por eso B6 sigue abierto.
-2. **Fase 6.5 — cerrar lo que se reabrió**: B13 (con la forma ya decidida), B14,
-   y el test con CJK que le falta a B6.
+2. ~~**Fase 6.5 — cerrar lo que se reabrió**~~ **CONGELADA 2026-08-26** por
+   decisión del dueño. B6, B13 y B14 quedan abiertos y anotados; no se tocan
+   hasta que se descongele. Lo que hay que tener presente al retomarla es que
+   B14 es la condición no negociable de D9: la Fase 9 no se puede cerrar sin
+   ese arreglo, viva donde viva.
 3. **Fase 7** — la precondición que se saltea desde la primera pasada. Bloquea
    9, 10 y 11.
 4. **Fase 8 — la mitad que falta**: el precio en el score y el costo en el chat.
 5. **Fase 9** en adelante, como estaba escrito.
 
-**Siguiente:** el punto 2. Y una regla nueva, que sale de B18 y no de ninguna
+**Siguiente:** el punto 3, la Fase 7 — con el 2 congelado. Y una regla nueva, que sale de B18 y no de ninguna
 fase: **una corrida verde no es evidencia de nada si el test no falla cuando se
 quita el arreglo, y una suite no está verde hasta que lo esté varias veces
 seguidas.** Las dos pasadas anteriores de esta sección afirmaron "suite en
@@ -717,6 +720,23 @@ la cuota es decorativa desde el día uno.
 ## 2 · Fases
 
 ### Fase 6.5 — Presupuesto, corte y degradación a local (~2 días) ← va primero
+
+> **CONGELADA por decisión del dueño del proyecto, 2026-08-26.** Queda con tres
+> puntos abiertos y no se trabajan por ahora: **B6** (el arreglo está, ningún
+> test lo discrimina), **B13** (el tope es por API key y la factura del
+> proveedor es una sola, así que N keys son N × USD 20 de plata real) y **B14**
+> (`finish_reason` dice `stop` cuando el nodo recortó por el tope).
+>
+> Congelada **no** es cerrada, y la diferencia importa acá más que en cualquier
+> otra fase de este documento: el mecanismo de corte es lo que las Fases 9, 10 y
+> 11 heredan, así que los tres puntos abiertos se heredan con él. Dos de ellos
+> tienen dueño en otra fase aunque el arreglo viva acá — B14 es la "condición no
+> negociable" de D9, que la Fase 9 va a necesitar sí o sí, y B13 es lo que hace
+> que el `--budget` del agente de la Fase 11 acote algo.
+>
+> La forma de B13 ya está decidida, para no volver a discutirla cuando se
+> descongele: **tope de nodo evaluado además del de la key, default USD 20, con
+> las keys como sub-topes.**
 
 **Sí, esto va antes que todo lo demás, y la razón no es económica: es de
 seguridad.**
@@ -1276,12 +1296,12 @@ sección 0-ter, y manda esa.
 | Orden | Qué | Estado | Por qué ahí |
 | --- | --- | --- | --- |
 | 0 | **Aplicar al early access de VELA** | pendiente | Es lo único que no controlamos. Se dispara y se sigue trabajando |
-| 1 | **Fase 6.5 — presupuesto, corte y degradación** | **construida, DoD abierto** (B1, B2, B6) | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza |
+| 1 | **Fase 6.5 — presupuesto, corte y degradación** | **construida, CONGELADA 2026-08-26** (B6, B13, B14 abiertos) | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza |
 | 1' | ~~Spike de D11~~ **HECHO** | cerrado | Pasó: WDK y x402 corren directo bajo Bare, con firma idéntica a Node |
 | 1'' | Fase 6.6 — cuota gratuita del proveedor | **cerrada** | Misma forma que la 6.5 y tampoco depende de D11. El punto de control ya existe en provider.mjs |
 | 2 | Fase 7 — desmockear `economic` (incluye D13) | **no empezada** | Precondición de todo cobro |
 | 3 | Fase 8 — precio comparable y que rutea | **parcial**: D6 cerrado, el precio no rutea | Vale sola aunque x402 se caiga |
-| 4 | Fase 8.5 — el asistente externo como candidato | **construida**, falta el opt-in en el panel (B3, B4, B7) | Chica, porque la 8 ya dejó el ruteo listo |
+| 4 | Fase 8.5 — el asistente externo como candidato | **CERRADA 2026-08-26** (B3, B4, B7, y después B11, B12, B15, B16) | Chica, porque la 8 ya dejó el ruteo listo |
 | 5 | Fase 9 — x402 en el borde | bloqueada por la 7 | El hito técnico |
 | 6 | Fase 10 — recibos y lote | bloqueada por la 7 | Mata la Fase 6 |
 | 7 | Fase 11 — capa agéntica con harness | bloqueada por la 7 | El pitch |
@@ -1289,7 +1309,7 @@ sección 0-ter, y manda esa.
 | 9 | Fase 12 — MCP toolkit | no empezada | Upside; se corta primero |
 | — | V2/V3 — enclave | no empezada | Cuando haya acceso y D17 esté cerrada |
 
-**Trabajo que quedó fuera de toda fase y que hay que ubicar en alguna:** los 576
+**Trabajo que quedó fuera de toda fase y que hay que ubicar en alguna:** los 574
 LOC de RAG que no importa nadie (B8), el instalador sin verificación de
 integridad (B9) y la ausencia de CI (B10). Ninguno bloquea el camino crítico;
 los tres son deuda que crece sola.
