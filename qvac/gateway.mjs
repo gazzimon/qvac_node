@@ -169,6 +169,14 @@ function esTercero(node) {
   return !!node && node.kind === 'upstream' && node.local !== true
 }
 
+// Con que etiqueta entra al rastro lo que genero este candidato.
+function targetDe(node) {
+  if (!node) return 'none'
+  if (node.kind === 'peer') return 'peer'
+  if (node.kind === 'mock') return 'mock'
+  return esTercero(node) ? 'upstream' : 'local'
+}
+
 function provenanceHeaders(node) {
   return {
     'X-Pyrus-Operator': encodeURIComponent((node && node.operator) || ''),
@@ -613,7 +621,122 @@ function streamFromPeer({ node, model, messages, onChunk, onStart }) {
   })
 }
 
-async function handleRemoteChat({
+// Lo que costo UN intento, con las tres verdades distintas que puede haber:
+//
+//   1. No llego un solo token. El proveedor no genero nada y no nos va a
+//      facturar nada: cobrar la cota superior seria cobrar por un request que
+//      no ocurrio. Es el caso del proveedor colgado y el del que rechaza antes
+//      de empezar -- y ahora tambien el del candidato que fallo y se reintento
+//      en otro, que no puede cobrarse dos veces.
+//
+//   2. Llegaron tokens Y el `usage` del proveedor. Son los tokens REALES,
+//      contados por SU tokenizador. Es lo que se liquida.
+//
+//   3. Llegaron tokens y NO llego el `usage`. Hubo gasto y no sabemos cuanto:
+//      se cobra la reserva entera, que es la cota superior con la que se
+//      autorizo. Se equivoca para arriba, que es el unico lado que no se pasa
+//      del tope (B2). Y se dice en voz alta: un proveedor que no manda usage
+//      es algo que el operador tiene que ver y arreglar, no una diferencia
+//      silenciosa entre este ledger y la factura de fin de mes.
+//
+// Los deltas contados de este lado NO sirven para facturar un externo: son
+// chunks de SSE, no tokens, y los de entrada directamente no se ven.
+function costoDelIntento({ node, usoExterno, tokens, reserva }) {
+  if (!esTercero(node)) {
+    return costs.real({ model: claveDePrecio(node), completionTokens: tokens })
+  }
+  if (!usoExterno && tokens === 0) return 0
+  if (!usoExterno) {
+    const costo = reserva.micros || 0
+    console.error(
+      `[${node.id}] el proveedor no mando "usage": se liquida por la reserva ` +
+        `(${costs.formatUSD(costo)}), que es la cota superior y no el costo real`
+    )
+    return costo
+  }
+  return costs.real({
+    model: claveDePrecio(node),
+    promptTokens: Number(usoExterno.prompt_tokens) || 0,
+    completionTokens: Number.isFinite(Number(usoExterno.completion_tokens))
+      ? Number(usoExterno.completion_tokens)
+      : tokens
+  })
+}
+
+// Un intento contra un candidato que NO es un par: el motor embebido, un
+// upstream (propio o de un tercero) o un mock del modo --demo.
+//
+// Devuelve la MISMA forma que streamFromPeer y, como el, no rechaza nunca:
+// { ok, started, code, message }. Esa simetria es lo que permite que un solo
+// loop recorra candidatos de cualquier clase. Antes habia dos caminos
+// separados -- uno con reintento y otro sin el -- y el reintento se frenaba en
+// la frontera entre pares y no-pares: si fallaban todos los pares, el modelo
+// local nunca se probaba aunque estuviera en la misma lista de candidatos.
+//
+// `started` es el dato con el que D4 decide: una vez que salio un token para
+// el cliente, no se reintenta en otro nodo porque una respuesta a medias no se
+// puede retomar en otra maquina.
+async function streamFromLocal({ node, messages, prompt, maxSalida, signal, onChunk, onUsage }) {
+  let started = false
+  try {
+    let crudos
+    if (node.kind === 'real') {
+      const mid = await ensureRealModel()
+      crudos = engineMod.complete({ modelId: mid, history: messages })
+    } else if (node.kind === 'upstream') {
+      // La fila del registro y la instancia que sabe hablar con la API son dos
+      // cosas: la fila puede sobrevivir a una relectura de config que saco al
+      // upstream, y en ese caso hay que fallar diciendolo -- no caer al mock,
+      // que devolveria texto inventado con los headers de un proveedor real.
+      const up = upstreams.get(node.id)
+      if (!up) throw new Error('el asistente externo ya no esta configurado en este nodo')
+      if (!up.disponible()) {
+        throw new Error(
+          'falta la credencial del asistente externo: pone la variable de entorno ' + up.apiKeyEnv
+        )
+      }
+      crudos = up.completar({ messages, maxTokens: maxSalida, signal, onUsage })
+    } else {
+      crudos = mockTokens(node, prompt)
+    }
+
+    for await (const delta of crudos) {
+      // Cortar el `for await` cierra el generador, y el finally de completar()
+      // aborta el fetch. Por eso alcanza con salir: no hace falta propagar la
+      // cancelacion a mano hasta el socket del proveedor.
+      if (signal.aborted) break
+      started = true
+      onChunk(delta)
+    }
+    return { ok: true, started, code: null, message: null }
+  } catch (err) {
+    const message = String((err && err.message) || err)
+    return {
+      ok: false,
+      started,
+      // Un 429 del proveedor es "no puedo AHORA", igual que el at_capacity de
+      // un par: el loop lo trata como saturacion y prueba el siguiente. Es la
+      // unica forma de reaccionar a una cuota diaria agotada, que el ledger no
+      // ve porque no se mide en dolares.
+      code: /\b429\b/.test(message)
+        ? 'at_capacity'
+        : esTercero(node)
+          ? 'upstream_error'
+          : 'local_error',
+      message
+    }
+  }
+}
+
+// Sirve un request recorriendo los candidatos EN ORDEN hasta que uno conteste.
+//
+// Antes se llamaba handleRemoteChat y solo miraba pares; el motor local y los
+// upstream tenian su propio camino sin reintento, y elegido el nodo el request
+// se casaba con el. Ahora hay un solo recorrido para todas las clases: si el
+// mejor candidato falla ANTES del primer token -- este saturado, no tenga
+// credencial, no haya swarm, se quede sin cuota diaria -- se prueba el
+// siguiente, sea de la clase que sea.
+async function handleChatConReintentos({
   req,
   res,
   node,
@@ -621,10 +744,11 @@ async function handleRemoteChat({
   model,
   messages,
   stream,
-  // La reserva la abre handleChat, porque es el que sabe a que cuenta imputar.
-  // Aca solo se liquida. Default para los tests, que llaman a esta funcion
-  // directo sin pasar por el ledger.
-  reserva = { id: null },
+  // La cuenta contra la que se reserva. La reserva se abre POR INTENTO y no
+  // una vez: el precio depende del nodo, y con reintentos entre candidatos de
+  // precios distintos una sola reserva acotaria el gasto del equivocado.
+  cuenta = null,
+  maxTokensPedido = 0,
   // La maquina que el cliente fijo, si fijo alguna: corta el reintento.
   pin = null,
   // Por que se eligio a este candidato y no a otro. Va al log de ruteo.
@@ -633,7 +757,8 @@ async function handleRemoteChat({
 }) {
   const id = completionId()
   const created = Math.floor(Date.now() / 1000)
-  const pares = candidatos.filter((n) => n.kind === 'peer')
+  const prompt = lastUserText(messages)
+  const promptTokens = estimarPromptTokens(messages)
 
   // Los headers se escriben RECIEN con el primer token, no al elegir el par.
   // Es lo que hace posible D4: mientras no se le mando nada al cliente, un
@@ -673,10 +798,14 @@ async function handleRemoteChat({
   const emitUnsafe = (delta) => {
     if (!headersSent) {
       res.writeHead(200, {
+        // `elegido`, no `node`: con reintento el que contesta puede no ser el
+        // que se eligio primero, y el header nombra a QUIEN CONTESTO. Decia el
+        // del primer intento, o sea mentia en el unico caso donde el dato
+        // importa.
+        ...provenanceHeaders(elegido || node),
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        ...provenanceHeaders(node)
+        Connection: 'keep-alive'
       })
       const open = chunkEvent({ id, created, model, delta: { role: 'assistant' } })
       res.write(`data: ${JSON.stringify(open)}\n\n`)
@@ -690,10 +819,22 @@ async function handleRemoteChat({
   // sigue generando para nadie y su slot queda ocupado de gratis -- en un
   // marketplace eso es CPU que alguien esta pagando.
   let cancelado = false
+  let terminado = false
   let requestIdEnVuelo = null
+
+  // B3 -- el cliente se fue y el gasto tiene que irse con el. Del lado del par
+  // se le manda un chat:cancel; del lado local y del externo, este signal es
+  // el que corta el `for await` y aborta el fetch al proveedor. Lo que sigue
+  // corriendo despues de que el cliente cerro la pestaña son dolares de la
+  // cuenta del operador.
+  const cancelacion = new AbortController()
   const onClientGone = () => {
+    // Despues de terminar, el 'close' del response es el cierre normal:
+    // abortar ahi seria disparar un error sobre un request que salio bien.
+    if (terminado) return
     cancelado = true
     if (requestIdEnVuelo) swarmRef.cancelChat(requestIdEnVuelo)
+    cancelacion.abort()
   }
   req.on('close', onClientGone)
   res.on('close', onClientGone)
@@ -701,38 +842,133 @@ async function handleRemoteChat({
   const intentos = []
   let elegido = null
   let ultimo = null
+  let usoExterno = null
+  let costoTotal = 0
+  // El candidato que se salteo por falta de saldo, si despues contesto otro.
+  // Es una decision de PLATA y el rastro tiene que poder distinguirla de una
+  // eleccion normal: sin esto, "eligio local" y "queria el externo y no le
+  // alcanzaba" se ven identicas en el panel.
+  let degradado = null
+  // La ultima reserva rechazada. Si NINGUN candidato llego a intentarse por
+  // falta de saldo, es lo que convierte el fracaso en un 402 con numeros en
+  // vez de un 502 generico.
+  let sinSaldo = null
 
-  for (const cand of pares) {
+  for (const cand of candidatos) {
     if (cancelado) break
+
+    // Un par sin agente lanzado no se puede intentar -- pero NO corta la
+    // lista: el modelo de esta maquina puede estar mas abajo, y antes ese caso
+    // devolvia 503 sin llegar a mirarlo.
+    if (cand.kind === 'peer' && !swarmRef) {
+      ultimo = {
+        ok: false,
+        code: 'agent_offline',
+        message:
+          'your node is offline, so the network is out of reach — launch your local agent to use it.'
+      }
+      intentos.push({ nodeId: cand.id, operator: cand.operator, ok: false, code: 'agent_offline' })
+      continue
+    }
+
+    // FASE 6.5 — la reserva va por INTENTO: despues de saber a quien se le va
+    // a pedir (el precio depende del nodo) y antes de pedirselo. Un tope que
+    // se evalua despues del gasto es un descuento.
+    const tope = topeDeSalida(cand, maxTokensPedido)
+    const reserva = budget.reserve(
+      cuenta,
+      estimarRequest({ node: cand, maxTokens: tope, promptTokens })
+    )
+    if (!reserva.ok) {
+      // No alcanza para ESTE candidato. No es el final del camino: el
+      // siguiente puede ser gratis, y contestar con el motor local es mejor
+      // que negar el servicio. Es la degradacion del DoD de la Fase 8.5,
+      // ahora como un paso mas del recorrido y no como un caso especial.
+      sinSaldo = reserva
+      if (!degradado) {
+        degradado = {
+          de: cand.id,
+          motivo: `presupuesto agotado: quedan ${costs.formatUSD(reserva.remaining)} de un tope de ${costs.formatUSD(reserva.cap)}`
+        }
+      }
+      intentos.push({
+        nodeId: cand.id,
+        operator: cand.operator,
+        ok: false,
+        code: 'budget_exhausted'
+      })
+      continue
+    }
+
+    // Lo que genero un intento fallido no cuenta para el siguiente. Sin esto,
+    // en el camino no-stream -- donde el contenido se junta y se manda al
+    // final -- la respuesta del que contesto saldria pegada al pedazo del que
+    // se cayo, y el cliente leeria las dos mitades como una sola.
+    if (!headersSent) {
+      contenido = ''
+      tokens = 0
+      ttftMs = null
+    }
+
     elegido = cand
+    usoExterno = null
+    let saturado = false
     store.beginRequest(cand.id)
     try {
-      const r = await streamFromPeer({
-        node: cand,
-        model,
-        messages,
-        onStart: (rid) => {
-          requestIdEnVuelo = rid
-          // El cliente se fue MIENTRAS se armaba el request: se cancela ya
-          // mismo, sin esperar a que el par empiece a generar.
-          if (cancelado) swarmRef.cancelChat(rid)
-        },
-        onChunk: emit
-      })
+      const r =
+        cand.kind === 'peer'
+          ? await streamFromPeer({
+              node: cand,
+              model,
+              messages,
+              onStart: (rid) => {
+                requestIdEnVuelo = rid
+                // El cliente se fue MIENTRAS se armaba el request: se cancela
+                // ya mismo, sin esperar a que el par empiece a generar.
+                if (cancelado) swarmRef.cancelChat(rid)
+              },
+              onChunk: emit
+            })
+          : await streamFromLocal({
+              node: cand,
+              messages,
+              prompt,
+              maxSalida: tope,
+              signal: cancelacion.signal,
+              onChunk: emit,
+              onUsage: (u) => {
+                usoExterno = u
+              }
+            })
       requestIdEnVuelo = null
       ultimo = r
       intentos.push({ nodeId: cand.id, operator: cand.operator, ok: r.ok, code: r.code || null })
 
       if (r.ok) break
-      // D4: si ya se le mando aunque sea un token al cliente, NO se reintenta.
-      // El contexto de una respuesta a medias no se puede retomar en otro nodo.
-      if (r.started) break
 
-      // El par dijo que esta lleno. Es informacion mas fresca que el ultimo
-      // `node:status`, que puede tener hasta 2s de atraso (swarm.mjs:48): sin
-      // esto, los requests que entren en esa ventana lo vuelven a elegir y se
-      // comen el mismo rechazo. S5 de NOTES-SATURACION.md.
-      if (r.code === 'at_capacity') store.markSaturated(cand.id)
+      // D4: si ya se le mando aunque sea un token AL CLIENTE, no se reintenta.
+      // El contexto de una respuesta a medias no se puede retomar en otro nodo.
+      //
+      // La condicion es `headersSent` y no `r.started`, y la diferencia es
+      // real: `started` dice que el PROVEEDOR empezo a generar, pero en el
+      // camino no-stream el contenido se junta y no sale hasta el final, asi
+      // que el cliente todavia no vio nada y el reintento sigue siendo
+      // legitimo. Cortar por `started` renunciaba a reintentar justo cuando
+      // no habia ningun motivo para no hacerlo.
+      if (headersSent) break
+
+      // Dijo que esta lleno. De un par es informacion mas fresca que el ultimo
+      // `node:status`, que puede tener hasta 2s de atraso (swarm.mjs:48); de un
+      // upstream es un 429, o sea la cuota del proveedor agotada. En los dos
+      // casos volver a elegirlo en los proximos segundos se come el mismo
+      // rechazo. S5 de NOTES-SATURACION.md.
+      //
+      // Se ANOTA aca y se aplica en el finally, DESPUES del endRequest. Al
+      // reves -- que es como estaba -- el endRequest de la salida bajaba en uno
+      // el contador que markSaturated acababa de llenar, y el nodo quedaba con
+      // exactamente un slot libre: o sea no saturado, o sea elegible otra vez
+      // para el request siguiente. La marca no protegia de nada.
+      if (r.code === 'at_capacity') saturado = true
 
       // Con la maquina fijada por el cliente no hay a quien reintentarle: pedir
       // un nodo concreto y recibir la respuesta de otro es exactamente lo que
@@ -744,6 +980,13 @@ async function handleRemoteChat({
       )
     } finally {
       store.endRequest(cand.id)
+      if (saturado) store.markSaturated(cand.id)
+      // Se liquida ESTE intento antes de pasar al siguiente. Una reserva que
+      // no se liquida queda comprometiendo saldo hasta que reinicie el
+      // proceso, y con reintentos habria una por candidato probado.
+      const costo = costoDelIntento({ node: cand, usoExterno, tokens, reserva })
+      budget.settle(reserva.id, costo)
+      costoTotal += costo
     }
   }
 
@@ -788,12 +1031,40 @@ async function handleRemoteChat({
       return
     }
 
-    // Fracaso. Si no se escribio nada todavia, viaja como status HTTP.
-    const motivo = ultimo ? ultimo.message : 'no hay ningun par sirviendo ese modelo'
+    // Ningun candidato pudo. Si no se escribio nada todavia, el fracaso viaja
+    // como status HTTP y con el motivo del ultimo intento.
+    //
+    // El 402 va primero: que no alcance el saldo no es un fallo del proveedor
+    // sino una decision de este nodo, y merece su propio status y sus numeros.
+    if (!elegido && sinSaldo) {
+      return sendError(
+        res,
+        402,
+        `presupuesto agotado: quedan ${costs.formatUSD(sinSaldo.remaining)} de un tope de ${costs.formatUSD(sinSaldo.cap)}`,
+        { type: 'insufficient_quota', code: 'budget_exhausted' }
+      )
+    }
+
+    const motivo = ultimo ? ultimo.message : 'no hay ningun nodo sirviendo ese modelo'
     const code = ultimo ? ultimo.code : 'no_peer'
 
     if (!headersSent) {
-      return sendError(res, 502, `el par remoto no pudo responder: ${motivo}`, {
+      // La puerta del producto: sin agente lanzado no se llega a la red, y el
+      // mensaje tiene que decir el siguiente paso en vez de solo negar.
+      if (code === 'agent_offline') {
+        return sendError(
+          res,
+          503,
+          'your node is offline, so the network is out of reach — launch your local agent to use it. Your own local model still answers.',
+          { type: 'service_unavailable', code }
+        )
+      }
+      // 502 cuando el que fallo fue OTRA maquina -- un par o una API de un
+      // tercero -: el error no es de este gateway, y un 500 mandaria a revisar
+      // el lado equivocado. Es la distincion que hace cualquier proxy.
+      const status = elegido && !esTercero(elegido) && elegido.kind !== 'peer' ? 500 : 502
+      const prefijo = elegido && elegido.kind === 'peer' ? 'el par remoto no pudo responder: ' : ''
+      return sendError(res, status, `${prefijo}${motivo}`, {
         type: 'server_error',
         code
       })
@@ -805,32 +1076,44 @@ async function handleRemoteChat({
     if (headersSent || !stream) res.end()
     else if (!res.writableEnded) res.end()
 
+    terminado = true
     const ms = Date.now() - startedAt
     const ok = !!(ultimo && ultimo.ok)
 
-    // Misma liquidacion que en el camino local. Hoy da cero: los tokens de un
-    // par se pagaran en USD₮ contra su wallet (Fase 9), no contra este tope,
-    // que es para el gasto en dolares del asistente externo.
-    const costoReal = costs.real({ model, completionTokens: tokens })
-    budget.settle(reserva.id, costoReal)
+    // Ya se liquido por intento adentro del loop; aca solo se reporta el
+    // acumulado. Liquidar de nuevo cobraria dos veces el mismo request.
+    const costoReal = costoTotal
 
     store.pushLog({
       modelId: model,
-      target: 'peer',
+      // De donde salieron los tokens. 'local' es esta maquina -- con el motor
+      // embebido o con un motor propio detras de HTTP -; 'peer' es otra
+      // maquina de la red; 'upstream' es la API de un tercero; 'mock' es
+      // teatro del modo --demo. Distinguirlos importa: sin el campo, una
+      // corrida con --demo produce un rastro con tok/s inventados que no se
+      // puede separar de uno real, y un upstream local inflaria el panel de
+      // consumo externo con requests que nunca salieron de la maquina.
+      target: targetDe(elegido),
       costMicros: costoReal,
       nodeId: elegido ? elegido.id : null,
       operator: elegido ? elegido.operator : null,
       candidatos: candidatos.length,
-      reason:
-        `par P2P${pares.length > 1 ? ` (${intentos.length} de ${pares.length} intentados)` : ''}` +
-        ` — ${motivo || `${candidatos.length} candidato(s) para "${model}"`}`,
+      reason: degradado
+        ? `${degradado.motivo} — se degrado de ${degradado.de} a otro candidato`
+        : `${intentos.length > 1 ? `${intentos.length} de ${candidatos.length} candidatos intentados — ` : ''}` +
+          `${motivo || `${candidatos.length} candidato(s) para "${model}"`}`,
+      // El rastro tiene que poder distinguir "eligio local" de "queria el
+      // externo y no le alcanzo el saldo". Sin esto las dos entradas se ven
+      // iguales, y la degradacion -- que es una decision de plata -- queda sin
+      // auditoria.
+      degradado: degradado || undefined,
       // POR QUE se eligio a este y no a otro: la carga del elegido y la de los
       // que quedaron atras. Es el DoD de la Fase 8 -- antes el log solo podia
       // decir "el primero", que no es un motivo.
       decision: decision || undefined,
       intentos: intentos.length > 1 ? intentos : undefined,
       ok,
-      code: ok ? null : (ultimo && ultimo.code) || 'no_peer',
+      code: ok ? null : (ultimo && ultimo.code) || (sinSaldo ? 'budget_exhausted' : 'no_peer'),
       tokens,
       ttftMs,
       tokensPerSec: tokensPerSec({ tokens, ttftMs, ms }),
@@ -989,6 +1272,9 @@ async function handleChat(req, res) {
   // siempre en 0) y recien ahi lo rechazariamos.
   let vetoExterno = null
   if (externos.length > 0) {
+    // Solo las reglas DURAS filtran. "Hay capacidad local" ya no esta acá:
+    // se volvio una posicion en la lista, mas abajo, porque la capacidad
+    // declarada de un candidato no prueba que ese candidato funcione.
     if (local) {
       vetoExterno = {
         code: 'local_only',
@@ -1001,21 +1287,21 @@ async function handleChat(req, res) {
           'hay un asistente externo configurado, pero mandarle el prompt a un tercero esta apagado. ' +
           'Se prende con POST /v1/upstream/opt-in o con "optIn": true en upstreams.json.'
       }
-    } else {
-      // "Sin capacidad local" es la tercera condicion, y se mide sobre los
-      // candidatos que NO son el externo: mientras alguien de esta red pueda
-      // atender ahora, el externo no compite. Recien cuando estan todos llenos
-      // -- o cuando no hay ninguno, que es el caso de un modelo que solo sirve
-      // el externo -- entra a la puja.
-      const propios = candidatos.filter((n) => !esTercero(n))
-      const hayLugar = propios.some((n) => !estaSaturado(n))
-      if (hayLugar) {
-        vetoExterno = {
-          code: 'upstream_not_needed',
-          message: 'hay capacidad local o en la red para este modelo'
-        }
-      }
     }
+    // El opt-in y el candado `local: true` son reglas DURAS: sacan al externo
+    // de la lista y no hay vuelta. La tercera condicion de D19 -- "sin
+    // capacidad local" -- no puede serlo, y esa es la diferencia que se vio
+    // recien probandolo con un motor local apagado:
+    //
+    //   la capacidad DECLARADA de un candidato no dice que ese candidato
+    //   funcione. Un llama-server que no esta levantado anuncia 0/2 -- o sea
+    //   "tengo lugar" --, el externo quedaba vetado por eso, el local fallaba
+    //   y no habia a quien recurrir. El respaldo existia solo en el papel.
+    //
+    // Asi que el externo deja de filtrarse y pasa AL FINAL de la lista. Con el
+    // recorrido por candidatos, quedar ultimo ES la condicion: se lo intenta
+    // cuando los de casa no pudieron, medido por lo que paso y no por lo que
+    // anunciaron. Y mientras alguno de casa conteste, el prompt no sale.
     if (vetoExterno) candidatos = candidatos.filter((n) => !esTercero(n))
   }
 
@@ -1043,12 +1329,28 @@ async function handleChat(req, res) {
     return sendError(res, 404, eleccion.reason, { code: 'node_not_found' })
   }
 
-  // `let` desde la Fase 8.5: con el presupuesto agotado el externo se cambia
-  // por un candidato propio en vez de negar el servicio (ver mas abajo).
-  let node = eleccion.node
+  // El MEJOR candidato, no el unico: quien recorre la lista es
+  // handleChatConReintentos. Aca solo se usa para los errores de mas abajo,
+  // que hablan del que se eligio primero.
+  const node = eleccion.node
   // El orden puntuado, no el de llegada: si el mejor falla antes del primer
   // token, D4 reintenta en el segundo MEJOR, no en el siguiente de la lista.
-  candidatos = eleccion.orden
+  //
+  // Con una salvedad: los terceros van al fondo, sin importar que tengan la
+  // carga mas baja (siempre la tienen: es la de una API que no es nuestra).
+  // Es la tercera condicion de D19 aplicada como POSICION y no como filtro
+  // -- ver la nota de arriba --, y `partition` la deja estable, asi que entre
+  // ellos conservan el orden por carga que les dio pickCandidate.
+  const orden = eleccion.orden
+  const propios = orden.filter((n) => !esTercero(n))
+  // La tercera condicion de D19: mientras alguien de casa pueda atender AHORA,
+  // el externo va al fondo. Si estan todos saturados no se lo demora: ahi el
+  // orden de pickCandidate ya pone adelante al que tiene lugar, y el externo
+  // es el unico que lo tiene. Es el caso que el roadmap pide -- red saturada,
+  // el request se va afuera -- y demorarlo tambien lo romperia.
+  candidatos = propios.some((n) => !estaSaturado(n))
+    ? [...propios, ...orden.filter(esTercero)]
+    : orden
   // `motivo` a secas ya lo usa el rechazo por API key mas arriba.
   const motivoRuteo = eleccion.reason
   const decision = eleccion.decision
@@ -1068,334 +1370,23 @@ async function handleChat(req, res) {
     })
   }
 
-  // FASE 6.5 — la reserva va ACA: despues de saber a quien se le va a pedir
-  // (porque el precio depende del nodo) y ANTES de pedirselo. Ese orden es
-  // toda la fase: un tope que se evalua despues del gasto es un descuento.
-  const cuenta = cuentaDe(req)
-  const promptTokens = estimarPromptTokens(messages)
-  let maxSalida = topeDeSalida(node, norm.maxTokens || 0)
-  let reserva = budget.reserve(cuenta, estimarRequest({ node, maxTokens: maxSalida, promptTokens }))
-
-  // Lo que la Fase 6.5 dejo escrito y no podia alcanzar: ahora el camino
-  // externo estima distinto de cero, asi que el corte se ejerce de verdad.
-  //
-  // Y corta DEGRADANDO, no negando. El DoD de la Fase 8.5 es explicito: con el
-  // presupuesto agotado se contesta local, con aviso, y nunca el externo. Solo
-  // si no hay ningun candidato propio -- el caso de un modelo que unicamente
-  // sirve el externo -- se devuelve el 402.
-  let degradado = null
-  if (!reserva.ok && esTercero(node)) {
-    // `candidatos` es el orden PUNTUADO, asi que el primero no-externo es el
-    // mejor de los propios, no el primero que aparecio.
-    const alternativa = candidatos.find((n) => !esTercero(n))
-    if (alternativa) {
-      degradado = {
-        de: node.id,
-        motivo: `presupuesto agotado: quedan ${costs.formatUSD(reserva.remaining)} de un tope de ${costs.formatUSD(reserva.cap)}`
-      }
-      node = alternativa
-      maxSalida = topeDeSalida(node, norm.maxTokens || 0)
-      reserva = budget.reserve(cuenta, estimarRequest({ node, maxTokens: maxSalida, promptTokens }))
-    }
-  }
-
-  if (!reserva.ok) {
-    return sendError(
-      res,
-      402,
-      `presupuesto agotado: quedan ${costs.formatUSD(reserva.remaining)} de un tope de ${costs.formatUSD(reserva.cap)}`,
-      { type: 'insufficient_quota', code: 'budget_exhausted' }
-    )
-  }
-
-  // Un par del swarm: los tokens vienen de OTRA maquina por el FramedStream
-  // que el swarm ya tiene abierto. Sin swarm conectado no hay a quien
-  // preguntarle, y decirlo asi es mejor que un 500 generico.
-  if (node.kind === 'peer') {
-    if (!swarmRef) {
-      // La puerta del producto: sin agente lanzado no se llega a la red. El
-      // modelo local sigue disponible, y el mensaje lo dice -- un 503 que solo
-      // niega deja al que lo lee sin siguiente paso.
-      //
-      // Se libera la reserva: este request no gasto nada. Toda salida
-      // temprana que ya paso por reserve() tiene que liberar, o el saldo queda
-      // comprometido para siempre por un request que nunca existio.
-      budget.release(reserva.id)
-      return sendError(
-        res,
-        503,
-        'your node is offline, so the network is out of reach — launch your local agent to use it. Your own local model still answers.',
-        { type: 'service_unavailable', code: 'agent_offline' }
-      )
-    }
-    return await handleRemoteChat({
-      req,
-      res,
-      pin,
-      decision,
-      motivo: motivoRuteo,
-      node,
-      candidatos,
-      model,
-      messages,
-      stream,
-      reserva
-    })
-  }
-
-  const prompt = lastUserText(messages)
-  const id = completionId()
-  const created = Math.floor(Date.now() / 1000)
-
-  store.beginRequest(node.id)
-  const startedAt = Date.now()
-
-  // B3 -- el cliente se fue y el gasto tiene que irse con el.
-  //
-  // El camino P2P ya cancelaba: hay un `req.on('close')` mas arriba que le
-  // avisa al par para que deje de generar, con el comentario que dice que
-  // dejarlo trabajando para nadie es CPU que alguien esta pagando. El argumento
-  // vale MAS de este lado -- lo que sigue corriendo son dolares de la cuenta
-  // del operador -- y era justamente el camino que no lo tenia.
-  //
-  // Se arma para todos los kinds y no solo para el externo: el generador local
-  // no lo mira todavia, pero el flag es el mismo que corta el `for await` de
-  // abajo, asi que un cliente que se va deja de hacer trabajar a esta maquina
-  // igual.
-  const cancelacion = new AbortController()
-  let terminado = false
-  const alIrse = () => {
-    // Despues de terminar, el 'close' del response es el cierre normal. Abortar
-    // ahi seria disparar un error sobre un request que salio bien.
-    if (!terminado) cancelacion.abort()
-  }
-  req.on('close', alIrse)
-  res.on('close', alIrse)
-
-  // Mismos tres numeros que en el camino P2P, para que el rastro compare peras
-  // con peras: sin esto el panel podia decir "40 tok/s" de un par y nada del
-  // nodo local, que es exactamente la comparacion que la demo quiere mostrar.
-  let ttftMs = null
-  let tokens = 0
-
-  // El `usage` que el proveedor externo manda en el ultimo chunk: son los
-  // tokens REALES -- contados por SU tokenizador-- y son los que se liquidan.
-  // Los de entrada no hay otra forma de saberlos: aca solo se ven caracteres.
-  // Si el proveedor no lo manda, se liquida con lo contado en este proceso,
-  // que es la mejor verdad disponible y nunca menos que cero.
-  let usoExterno = null
-
-  // El iterable de deltas es el mismo para stream y no-stream: la unica
-  // diferencia es como se empaqueta la salida. La medicion va ACA adentro y no
-  // en los dos consumidores por la misma razon: un solo lugar donde contar, y
-  // el camino no-stream deja de ser el que nunca reporta nada.
-  const deltas = async function* () {
-    let crudos
-    if (node.kind === 'real') {
-      crudos = (async function* () {
-        const mid = await ensureRealModel()
-        yield* engineMod.complete({ modelId: mid, history: messages })
-      })()
-    } else if (node.kind === 'upstream') {
-      // La fila del registro y la instancia que sabe hablar con la API son dos
-      // cosas: la fila puede sobrevivir a una relectura de config que saco al
-      // upstream, y en ese caso hay que fallar diciendolo -- no caer al mock,
-      // que devolveria texto inventado con los headers de un proveedor real.
-      const up = upstreams.get(node.id)
-      if (!up) {
-        throw new Error('el asistente externo ya no esta configurado en este nodo')
-      }
-      if (!up.disponible()) {
-        throw new Error(
-          'falta la credencial del asistente externo: pone la variable de entorno ' + up.apiKeyEnv
-        )
-      }
-      crudos = up.completar({
-        messages,
-        maxTokens: maxSalida,
-        signal: cancelacion.signal,
-        onUsage: (u) => {
-          usoExterno = u
-        }
-      })
-    } else {
-      crudos = mockTokens(node, prompt)
-    }
-
-    for await (const delta of crudos) {
-      // Cortar el `for await` cierra el generador de arriba, y el `finally` de
-      // `completar` aborta el fetch. Por eso alcanza con salir: no hace falta
-      // propagar la cancelacion a mano hasta el socket del proveedor.
-      if (cancelacion.signal.aborted) break
-      if (ttftMs === null) ttftMs = Date.now() - startedAt
-      tokens++
-      yield delta
-    }
-  }
-
-  // El camino no-stream y el de error-antes-de-headers responden con
-  // `res.end()` adentro de sendJson/sendError. Sin este flag, el `finally`
-  // llamaba a `res.end()` una segunda vez sobre una respuesta ya cerrada.
-  let responded = false
-
-  // El camino local no tenia forma de decir en el log que un request habia
-  // fallado: el `finally` corria igual y escribia una entrada indistinguible
-  // de una exitosa. Sin esto, "el nodo local anduvo bien toda la tarde" y
-  // "el nodo local reviento en cada request" se ven idénticos en el panel.
-  let fallo = null
-
-  try {
-    if (!stream) {
-      // Se junta todo y se responde un `chat.completion` unico. Un error aca
-      // todavia puede viajar con su status HTTP correcto, porque no se
-      // escribio ni un byte de la respuesta.
-      let content = ''
-      for await (const delta of deltas()) content += delta
-      sendJson(
-        res,
-        200,
-        {
-          id,
-          object: 'chat.completion',
-          created,
-          model,
-          choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }]
-        },
-        provenanceHeaders(node)
-      )
-      responded = true
-    } else {
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        ...provenanceHeaders(node)
-      })
-
-      // OpenAI abre con un chunk que solo anuncia el rol. Hay clientes que lo
-      // dan por sentado para inicializar el mensaje antes del primer contenido.
-      const open = chunkEvent({ id, created, model, delta: { role: 'assistant' } })
-      res.write(`data: ${JSON.stringify(open)}\n\n`)
-
-      for await (const delta of deltas()) {
-        const ev = chunkEvent({ id, created, model, delta: { content: delta } })
-        res.write(`data: ${JSON.stringify(ev)}\n\n`)
-      }
-
-      const close = chunkEvent({ id, created, model, delta: {}, finishReason: 'stop' })
-      res.write(`data: ${JSON.stringify(close)}\n\n`)
-      res.write('data: [DONE]\n\n')
-    }
-  } catch (err) {
-    const message = String((err && err.message) || err)
-    fallo = message
-    if (!res.headersSent) {
-      // 502 cuando el que fallo fue el proveedor externo: el error no es de
-      // este gateway, y un 500 le diria al cliente que reviso el lado
-      // equivocado. Es la misma distincion que hace cualquier proxy.
-      const status = node.kind === 'upstream' ? 502 : 500
-      sendError(res, status, message, { type: 'server_error' })
-      responded = true
-    } else {
-      // Ya se empezo a streamear: no hay status HTTP que cambiar. El error va
-      // dentro del canal SSE y se corta -- D4: no se reintenta en otro nodo,
-      // el cliente ya tiene una respuesta parcial que no se puede retomar.
-      const payload = JSON.stringify({ error: { message, type: 'server_error', code: null } })
-      res.write(`data: ${payload}\n\n`)
-      res.write('data: [DONE]\n\n')
-    }
-  } finally {
-    terminado = true
-    store.endRequest(node.id)
-    if (!responded) res.end()
-
-    // Se liquida con los tokens que REALMENTE se generaron, y la diferencia
-    // contra la reserva vuelve al saldo. Va en el `finally` a proposito: un
-    // request que revienta a mitad de stream igual gasto lo que gasto, y una
-    // reserva que no se liquida queda comprometiendo saldo hasta que reinicie
-    // el proceso.
-    // Con `usage` del proveedor se liquida con los tokens REALES, contados por
-    // SU tokenizador. Sin `usage`, el camino externo NO se liquida con lo
-    // contado de este lado: `tokens` cuenta deltas de SSE, que no son tokens, y
-    // los de entrada directamente no se ven -- liquidar asi subfactura casi
-    // todo el request, y el tope deja de cortar donde tiene que cortar (B2).
-    //
-    // El lado seguro es cobrar la RESERVA entera, que es la cota superior con
-    // la que se autorizo el gasto. Se equivoca para arriba, que es el unico
-    // error que no se pasa del tope. Y se dice en voz alta: un proveedor que no
-    // manda `usage` es algo que el operador tiene que poder ver y arreglar, no
-    // una diferencia silenciosa entre este ledger y la factura que le llega a
-    // fin de mes.
-    let costoReal
-    if (node.kind === 'upstream' && !usoExterno && tokens === 0) {
-      // No llego un solo token: el proveedor no genero nada y no nos va a
-      // facturar nada. Cobrar la cota superior acá seria cobrar por un request
-      // que no ocurrio -- que es el error simetrico al de B2 y igual de malo-.
-      // Es el caso del proveedor colgado y el del que rechaza antes de empezar.
-      costoReal = 0
-    } else if (node.kind === 'upstream' && !usoExterno) {
-      // Llegaron tokens pero no el `usage` que los cuenta. Acá SI hubo gasto y
-      // no sabemos cuanto, asi que se cobra la reserva entera: la cota superior
-      // con la que se autorizo. Se equivoca para arriba, que es el unico lado
-      // que no se pasa del tope.
-      costoReal = reserva.micros || 0
-      console.error(
-        `[${node.id}] el proveedor no mando "usage": se liquida por la reserva ` +
-          `(${costs.formatUSD(costoReal)}), que es la cota superior y no el costo real`
-      )
-    } else {
-      costoReal = costs.real({
-        model: claveDePrecio(node),
-        promptTokens: usoExterno ? Number(usoExterno.prompt_tokens) || 0 : 0,
-        completionTokens:
-          usoExterno && Number.isFinite(Number(usoExterno.completion_tokens))
-            ? Number(usoExterno.completion_tokens)
-            : tokens
-      })
-    }
-    budget.settle(reserva.id, costoReal)
-    // El motivo dice lo que REALMENTE pasó, y desde la Fase 8 eso incluye por
-    // que se eligio este candidato: lo arma pickCandidate mirando la carga de
-    // todos. Antes decía "menor carga relativa (simulado)", que era falso, y
-    // despues "elegir por carga es D6, sin implementar", que era cierto pero
-    // ya no lo es.
-    const ms = Date.now() - startedAt
-    store.pushLog({
-      modelId: model,
-      // 'local' es esta maquina generando de verdad; 'mock' es teatro de demo.
-      // Distinguirlos importa: sin el campo, una corrida con --demo produce un
-      // rastro con tok/s inventados que no se puede separar de uno real.
-      // 'local' es lo que se genero en ESTA maquina, con el motor embebido o
-      // con un motor propio detras de HTTP; 'upstream' es lo que se le pidio a
-      // un tercero; 'mock' es teatro del modo --demo. Un upstream local
-      // contado como 'upstream' inflaria el panel de consumo externo con
-      // requests que nunca salieron de la maquina.
-      target: esTercero(node) ? 'upstream' : node.kind === 'mock' ? 'mock' : 'local',
-      nodeId: node.id,
-      operator: node.operator,
-      candidatos: candidatos.length,
-      reason: degradado
-        ? `${degradado.motivo} — se degrado del externo (${degradado.de}) a este nodo`
-        : motivoRuteo || `único candidato para "${model}"`,
-      decision: decision || undefined,
-      // El rastro tiene que poder distinguir "eligio local" de "queria el
-      // externo y no le alcanzo el saldo". Sin esto las dos entradas se ven
-      // iguales, y la degradacion -- que es una decision de plata-- queda sin
-      // auditoria.
-      degradado: degradado || undefined,
-      ok: fallo === null,
-      code: fallo === null ? null : 'server_error',
-      // Lo que costo esta respuesta. Hoy es 0 en el camino local y es la
-      // verdad, no un relleno: la inferencia propia no cuesta dolares. El
-      // campo existe desde ahora para que el rastro de la Fase 8.5 no tenga
-      // un agujero en las entradas anteriores.
-      costMicros: costoReal,
-      tokens,
-      ttftMs,
-      tokensPerSec: tokensPerSec({ tokens, ttftMs, ms }),
-      ms
-    })
-  }
+  // El recorrido de candidatos, la reserva por intento, el streaming, la
+  // liquidacion y el rastro viven todos ahi. handleChat elige QUE candidatos
+  // hay y en que orden; ese otro los prueba hasta que uno conteste.
+  return await handleChatConReintentos({
+    req,
+    res,
+    node,
+    candidatos,
+    model,
+    messages,
+    stream,
+    cuenta: cuentaDe(req),
+    maxTokensPedido: norm.maxTokens || 0,
+    pin,
+    decision,
+    motivo: motivoRuteo
+  })
 }
 
 async function onRequest(req, res) {

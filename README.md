@@ -119,6 +119,27 @@ tiene **Use this node**, que fija esa máquina y abre el chat con ella elegida.
 **Pin es pin**: si la máquina fijada no está, la respuesta es 404 con el motivo,
 nunca un reemplazo silencioso.
 
+### El ruteo con reintento
+
+Elegir un candidato **no es casarse con él**. El gateway recorre la lista
+puntuada en orden y prueba el siguiente cada vez que uno falla *antes de que al
+cliente le salga un byte*: un par sin agente lanzado, un motor local que no está
+levantado, un proveedor que devuelve 429 porque se agotó su cuota del día. Un
+solo recorrido para todas las clases de candidato —par P2P, motor embebido,
+motor local por HTTP, API de un tercero, mock—, con la reserva de presupuesto
+abierta **por intento**, porque el precio depende del nodo.
+
+El corte es D4 y mira **lo que vio el cliente**, no lo que generó el proveedor:
+en `stream: true` el primer token escrito cierra la puerta al reintento —una
+respuesta a medias no se retoma en otra máquina—, pero sin stream el contenido
+se junta y no sale hasta el final, así que reintentar sigue siendo legítimo y se
+descarta lo que alcanzó a generar el que se cayó.
+
+Un `429` se lee como *"está lleno"* y no como *"está roto"*: mismo tratamiento
+que el `at_capacity` de un par, incluido marcarlo saturado para que el request
+siguiente no se coma el mismo rechazo. Es la única forma de reaccionar a una
+cuota diaria agotada, que el ledger no puede ver porque no se mide en dólares.
+
 ### El ruteo
 
 `Auto` no es un orden fijo. `qvac/routing.mjs` descarta a los saturados, ordena
@@ -269,6 +290,14 @@ Un upstream remoto se registra **offline** si le falta la credencial o el precio
 y el arranque dice cuál de las dos. Lo del precio no es burocracia: sin él
 `costs.estimar()` devuelve cero, la reserva no aparta nada y el tope de gasto
 deja de cortar justo en el único camino que cuesta dólares.
+
+El externo es el **último recurso por posición, no por veto**: mientras algún
+candidato de casa pueda atender ahora, los terceros van al fondo de la lista.
+Antes se los filtraba, y eso tenía un agujero que sólo se ve probándolo: la
+capacidad *declarada* de un candidato no prueba que ese candidato funcione. Un
+`llama-server` apagado anuncia 0/2 —o sea "tengo lugar"—, el externo quedaba
+excluido, el local fallaba y no había a quién recurrir. Quedar último **es** la
+condición, medida por lo que pasó y no por lo que se anunció.
 
 Mandarle el prompt a un tercero pide **opt-in explícito** (`"optIn": true`, o el
 interruptor de `/node`). Y aun prendido, el externo solo entra a la puja cuando no

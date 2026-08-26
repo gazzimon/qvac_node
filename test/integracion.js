@@ -284,6 +284,17 @@ let mandaUsage = true
 // presupuesto que lo autorizo.
 let seCuelga = false
 
+// Manda tokens y CORTA el socket sin [DONE], pero SOLO para el modelo que se
+// le nombre. Un flag global cortaria tambien la respuesta del candidato que
+// tiene que salvar el request, que es justo lo que el test quiere ver.
+let cortaModelo = null
+
+// El proveedor contesta 429 para el modelo que se le nombre: es como se ve
+// desde afuera una cuota diaria agotada en un tier gratuito. No se mide en
+// dolares, asi que el ledger no la ve venir -- lo unico que queda es
+// reaccionar al rechazo.
+let cuotaAgotadaModelo = null
+
 // Un proveedor compatible con OpenAI en veinte lineas: dos deltas, un `usage`
 // con tokens que NO coinciden con los contados de este lado -- a proposito,
 // para probar que se liquida con los del proveedor -- y el [DONE].
@@ -300,6 +311,14 @@ function levantarProveedorFalso() {
         } catch (e) {
           ultimoPedidoExterno = null
         }
+        if (
+          cuotaAgotadaModelo &&
+          ultimoPedidoExterno &&
+          ultimoPedidoExterno.model === cuotaAgotadaModelo
+        ) {
+          res.writeHead(429, { 'Content-Type': 'application/json' })
+          return res.end(JSON.stringify({ error: { message: 'rate limit exceeded' } }))
+        }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         const chunk = (d) => res.write('data: ' + JSON.stringify(d) + '\n\n')
         // Cabecera mandada y despues silencio: el socket sigue vivo, asi que
@@ -312,6 +331,9 @@ function levantarProveedorFalso() {
           choices: [{ delta: { reasoning_content: 'primero pienso...', content: 'hola ' } }]
         })
         chunk({ choices: [{ delta: { content: 'desde afuera' } }] })
+        if (cortaModelo && ultimoPedidoExterno && ultimoPedidoExterno.model === cortaModelo) {
+          return res.destroy()
+        }
         if (mandaUsage) {
           chunk({
             choices: [{ delta: {} }],
@@ -882,6 +904,284 @@ test('con las dos puertas abiertas contesta la de casa, no la que cobra', async 
   costs.olvidarPreciosExternos()
   gw.setUpstreams([])
   gw.setUpstreamOptIn(false)
+})
+
+// ---------------------------------------------------------------------------
+// El recorrido de candidatos cruza las clases
+//
+// Antes habia dos caminos: uno con reintento (solo pares) y otro sin ninguno
+// (motor local, upstream, mocks). El reintento se frenaba en la frontera: si
+// fallaban todos los pares, el modelo de esta maquina no se probaba nunca
+// aunque estuviera en la misma lista de candidatos.
+// ---------------------------------------------------------------------------
+
+test('un par inalcanzable ya no tapa al candidato local', async (t) => {
+  const store = await import('../qvac/store.mjs')
+
+  // Un par que anuncia el MISMO modelo que un mock del registro. El gateway de
+  // esta suite corre sin swarm (`serve --demo`, sin --swarm), asi que el par
+  // no se puede intentar: es el caso "lanzaste el chat pero no el agente".
+  store.upsertFromManifest('ff'.repeat(32), {
+    metadata: { operator: 'Par fantasma', tags: ['facturas'] },
+    models: [
+      { modelId: 'facturas-ar', displayName: 'Facturas AR', qos: { maxConcurrentRequests: 4 } }
+    ]
+  })
+
+  const candidatos = store.findAllByModelId('facturas-ar')
+  t.ok(candidatos.length >= 2, 'hay un par y un mock sirviendo el mismo modelo')
+  t.is(candidatos[0].kind, 'peer', 'y el par va primero, que es lo que antes cortaba el camino')
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 200, 'antes esto era un 503 agent_offline sin mirar al resto de la lista')
+  t.not(
+    decodeURIComponent(r.headers['x-pyrus-operator']),
+    'Par fantasma',
+    'y contesto el otro, no el que no se podia intentar'
+  )
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  const e = log.json.log[0]
+  t.ok(e.intentos && e.intentos.length > 1, 'el rastro guarda los dos intentos')
+  t.is(e.intentos[0].code, 'agent_offline', 'y por que fallo el primero')
+
+  store.removeByPeer('ff'.repeat(32), { hard: true })
+})
+
+test('sin ningun par alcanzable Y sin candidato local, el 503 sigue diciendo que hacer', async (t) => {
+  const store = await import('../qvac/store.mjs')
+
+  store.upsertFromManifest('ee'.repeat(32), {
+    metadata: { operator: 'Par solo' },
+    models: [{ modelId: 'solo-remoto', qos: { maxConcurrentRequests: 4 } }]
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'solo-remoto', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 503)
+  t.is(r.json.error.code, 'agent_offline')
+  t.ok(
+    r.json.error.message.indexOf('launch your local agent') !== -1,
+    'un 503 que solo niega deja al que lo lee sin siguiente paso'
+  )
+
+  store.removeByPeer('ee'.repeat(32), { hard: true })
+})
+
+test('un upstream caido se saltea y contesta el siguiente candidato', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  // Dos puertas al mismo modelo: la primera apunta a un puerto donde no hay
+  // nadie escuchando -- el caso real de "no levantaste el llama-server" -- y la
+  // segunda al proveedor de prueba, que si contesta.
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'caido',
+        label: 'Motor apagado',
+        local: true,
+        baseUrl: 'http://127.0.0.1:8897/v1',
+        models: [{ modelId: 'x', as: 'con-respaldo' }]
+      },
+      {
+        id: 'vivo',
+        label: 'Motor vivo',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'y', as: 'con-respaldo' }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+
+  // El caido con MAS capacidad libre, para que pickCandidate lo ponga primero:
+  // sin eso el test podria pasar por casualidad.
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'con-respaldo',
+    displayName: 'Apagado',
+    operator: 'Motor apagado',
+    local: true,
+    maxConcurrentRequests: 8
+  })
+  store.registerUpstream({
+    id: ups[1].id,
+    modelId: 'con-respaldo',
+    displayName: 'Vivo',
+    operator: 'Motor vivo',
+    local: true,
+    maxConcurrentRequests: 1
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'con-respaldo', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 200, 'el fallo del primero no es el fallo del request')
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Motor vivo', 'contesto el segundo')
+  t.is(r.json.choices[0].message.content, 'hola desde afuera')
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  const e = log.json.log[0]
+  t.is(e.intentos.length, 2, 'y los dos intentos quedan en el rastro')
+  t.is(e.intentos[0].ok, false)
+  t.is(e.intentos[1].ok, true)
+
+  store.clearUpstreams()
+  gw.setUpstreams([])
+})
+
+test('D4 mira lo que vio EL CLIENTE, no lo que genero el proveedor', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  // El primer proveedor manda tokens y corta el socket sin cerrar el stream.
+  cortaModelo = 'x'
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'cortado',
+        label: 'Corta a la mitad',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'x', as: 'se-corta' }]
+      },
+      {
+        id: 'sano',
+        label: 'Sano',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'y', as: 'se-corta' }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'se-corta',
+    operator: 'Corta a la mitad',
+    displayName: 'Cortado',
+    local: true,
+    maxConcurrentRequests: 8
+  })
+  store.registerUpstream({
+    id: ups[1].id,
+    modelId: 'se-corta',
+    operator: 'Sano',
+    displayName: 'Sano',
+    local: true,
+    maxConcurrentRequests: 1
+  })
+
+  // El orden tiene que ser determinista: con los dos en carga 0 el desempate de
+  // pickCandidate es al azar. Se ocupa el unico slot del sano para que quede
+  // segundo -- saturado no significa descartado, significa ultimo.
+  store.beginRequest('upstream:' + ups[1].id)
+
+  // SIN stream: el contenido se junta y no sale hasta el final, asi que al
+  // cliente no le llego un byte y el reintento es legitimo.
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'se-corta', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 200, 'se reintenta: el cliente no habia visto nada')
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Sano', 'contesto el segundo')
+  t.is(
+    r.json.choices[0].message.content,
+    'hola desde afuera',
+    'y la respuesta NO trae pegado el pedazo del que se cayo'
+  )
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  t.is(log.json.log[0].intentos.length, 2, 'los dos intentos quedan en el rastro')
+
+  cortaModelo = null
+  store.endRequest('upstream:' + ups[1].id)
+  store.clearUpstreams()
+  gw.setUpstreams([])
+})
+
+test('un 429 del proveedor se trata como saturacion, no como error del request', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  // La cuota diaria del primero, agotada. Es el limite que budget.mjs NO puede
+  // ver, porque no se mide en dolares: se cuenta en requests por dia.
+  cuotaAgotadaModelo = 'sin-cuota'
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'agotado',
+        label: 'Sin cuota',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'sin-cuota', as: 'con-cuota', timeoutPrimerChunkMs: 4000 }]
+      },
+      {
+        id: 'conCuota',
+        label: 'Con cuota',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'z', as: 'con-cuota' }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  for (const u of ups) {
+    store.registerUpstream({
+      id: u.id,
+      modelId: 'con-cuota',
+      displayName: u.label,
+      operator: u.label,
+      local: true,
+      maxConcurrentRequests: u.id === ups[0].id ? 4 : 1
+    })
+  }
+  store.beginRequest('upstream:' + ups[1].id) // el otro, segundo y determinista
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'con-cuota', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 200, 'el request se salva con el otro candidato')
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Con cuota')
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  t.is(
+    log.json.log[0].intentos[0].code,
+    'at_capacity',
+    'el 429 se lee como "lleno", no como "roto"'
+  )
+
+  // Y queda marcado lleno: el proximo request no vuelve a gastar el intento
+  // contra un proveedor que ya dijo que no. S5 de NOTES-SATURACION.md.
+  const fila = store.getNode('upstream:' + ups[0].id)
+  t.is(
+    fila.activeRequests,
+    fila.maxConcurrentRequests,
+    'marcado saturado hasta que se sepa otra cosa'
+  )
+
+  cuotaAgotadaModelo = null
+  store.endRequest('upstream:' + ups[1].id)
+  store.clearUpstreams()
+  gw.setUpstreams([])
 })
 
 test('cierra el proveedor externo de prueba', async (t) => {
