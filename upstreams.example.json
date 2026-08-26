@@ -8,11 +8,19 @@
     "los pedidos de otros pares contra tu cuenta. Apagado por defecto: revender",
     "la API de un tercero no puede pasar por accidente.",
     "",
+    "optIn: si es true, este nodo puede MANDARLE TU PROMPT A UN TERCERO cuando",
+    "no hay capacidad local ni en la red. Apagado por defecto. Es la condicion",
+    "de D19 y acota la promesa de privacidad del proyecto: con esto prendido,",
+    "el texto de algunos prompts sale de tu maquina hacia la API de arriba.",
+    "Se puede prender en caliente con POST /v1/upstream/opt-in, pero eso NO",
+    "escribe el archivo: al reiniciar vuelve a valer lo que diga aca.",
+    "",
     "Todo lo medido abajo es contra integrate.api.nvidia.com el 2026-08-25.",
     "Volver a medir antes de confiar: son numeros de una cuenta y un dia."
   ],
 
   "brokerEnabled": false,
+  "optIn": false,
 
   "upstreams": [
     {
@@ -27,6 +35,30 @@
           "displayName": "Nemotron 3.5 Lightning 30B",
           "tags": ["upstream", "agentic", "fast"],
           "maxConcurrent": 4,
+
+          "maxTokens": 1024,
+
+          "pricePerMTok": { "input": 0.20, "output": 0.60 },
+
+          "_pricePerMTok": [
+            "USD por 1M de tokens. NO ESTA MEDIDO: son los unicos dos numeros",
+            "de este archivo que no salieron de una corrida. Ponele el de TU",
+            "cuenta antes de confiar en el tope de gasto.",
+            "",
+            "Es obligatorio: sin precio, costs.estimar() devuelve cero, la",
+            "reserva no aparta nada y el tope de budget.mjs deja de cortar",
+            "justo en el unico camino que cuesta dolares. Por eso un upstream",
+            "sin precio se registra OFFLINE en vez de andar sin contador.",
+            "",
+            "Ante la duda, poner un precio MAS ALTO que el real: sobreestimar",
+            "corta antes de tiempo, subestimar se pasa del tope. Es el mismo",
+            "criterio con el que costs.mjs usa el precio estandar de Claude y",
+            "no el promocional.",
+            "",
+            "maxTokens es el techo de salida que impone el nodo cuando el",
+            "cliente no manda max_tokens -que son casi todos los clientes de",
+            "OpenAI-. Sin un techo no hay cota superior que reservar."
+          ],
 
           "_medido": {
             "ttftMs": 430,

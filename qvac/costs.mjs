@@ -53,12 +53,44 @@ export const MODELO_EXTERNO_DEFAULT = 'claude-sonnet-5'
 // mas.
 const GRATIS = { entrada: 0, salida: 0 }
 
+// Los precios de los upstreams NO pueden vivir en la tabla de arriba: que APIs
+// usa este nodo lo decide el operador en su `upstreams.json`, y cada cuenta
+// tiene su lista de modelos y su tarifa. Se registran al arrancar, desde la
+// config, y quedan aca para que `estimar` y `real` no tengan que saber de
+// donde salio el precio.
+//
+// Un modelo externo SIN precio declarado no entra a esta tabla, y por lo tanto
+// `conocido()` da false y estima cero. Eso es deliberado y peligroso: un gasto
+// que el contador no ve es un tope que no corta. Por eso el registro del
+// upstream (bin.mjs) exige el precio para dejarlo online, en vez de dejar que
+// esta tabla lo perdone.
+const PRECIOS_EXTERNOS = new Map()
+
+// `entrada`/`salida` en micro-dolares por 1M de tokens, la misma unidad que
+// PRECIOS. Devuelve false si el precio no es utilizable: quien registra decide
+// que hacer con eso, aca no se inventa una tarifa.
+export function registrarPrecio(modelId, { entrada = 0, salida = 0 } = {}) {
+  if (typeof modelId !== 'string' || modelId === '') return false
+  const e = Number(entrada)
+  const s = Number(salida)
+  if (!Number.isFinite(e) || !Number.isFinite(s) || e < 0 || s < 0) return false
+  if (e === 0 && s === 0) return false
+  PRECIOS_EXTERNOS.set(modelId, { entrada: Math.ceil(e), salida: Math.ceil(s) })
+  return true
+}
+
+// Para los tests y para un reinicio de config: la tabla externa es estado de
+// proceso, no una constante.
+export function olvidarPreciosExternos() {
+  PRECIOS_EXTERNOS.clear()
+}
+
 export function precioDe(modelId) {
-  return PRECIOS[modelId] || GRATIS
+  return PRECIOS[modelId] || PRECIOS_EXTERNOS.get(modelId) || GRATIS
 }
 
 export function conocido(modelId) {
-  return Object.prototype.hasOwnProperty.call(PRECIOS, modelId)
+  return Object.prototype.hasOwnProperty.call(PRECIOS, modelId) || PRECIOS_EXTERNOS.has(modelId)
 }
 
 // Redondeo SIEMPRE hacia arriba. Un request que sale 0.4 micros se cobra 1: a

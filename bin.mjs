@@ -294,6 +294,88 @@ async function readStdin() {
 // pyrusllm serve
 // ---------------------------------------------------------------------------
 
+// Lee `<storage>/upstreams.json` y convierte cada modelo externo en una fila
+// del registro. Es TODO el cableado de la Fase 8.5 del lado del arranque: a
+// partir de aca /v1/models lo lista, el chat lo ofrece y el ruteo lo puntua.
+//
+// Un upstream se registra OFFLINE si le falta la credencial o el precio. Las
+// dos ausencias son distintas y ninguna puede pasar en silencio:
+//
+//   - sin credencial no puede contestar, y el error saldria recien en el
+//     primer prompt, con el usuario mirando;
+//   - sin precio `costs.estimar` devuelve CERO, la reserva no aparta nada y el
+//     tope de gasto deja de cortar justo en el unico camino que cuesta
+//     dolares. Un externo gratis-a-los-ojos-del-contador es peor que un
+//     externo apagado.
+//
+// Offline y no ausente porque el panel tiene que mostrarlo con lo que le
+// falta: "configuraste mal" y "no configuraste nada" no pueden verse igual.
+async function registrarUpstreams({ gw, store, dir }) {
+  const upstream = await import('./qvac/upstream.mjs')
+  const costs = await import('./qvac/costs.mjs')
+
+  const cfg = await upstream.leerConfig(dir)
+  if (cfg.error) {
+    console.error(`  [upstream] ${cfg.error}`)
+    console.error('  [upstream] se sigue sin asistente externo')
+    return
+  }
+
+  // Se relee entero: las filas y los precios de una corrida anterior se borran
+  // antes de escribir los nuevos, o un modelo sacado del archivo seguiria
+  // anunciado.
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams(cfg.upstreams)
+  gw.setUpstreamOptIn(cfg.optIn)
+
+  if (cfg.upstreams.length === 0) return
+
+  for (const u of cfg.upstreams) {
+    // El precio se registra contra el ID DE LA FILA del registro y no contra
+    // el modelId: si dos nodos sirven el mismo modelo -- un par gratis y esta
+    // API cobrando-- indexar por nombre de modelo le cobraria al par la tarifa
+    // del tercero. Ver claveDePrecio() en gateway.mjs.
+    const filaId = `upstream:${u.id}`
+    const conPrecio = u.precio ? costs.registrarPrecio(filaId, u.precio) : false
+
+    const falta = []
+    if (!u.disponible()) falta.push(`falta la variable de entorno ${u.apiKeyEnv}`)
+    if (!conPrecio) falta.push('falta "pricePerMTok" en la config')
+
+    store.registerUpstream({
+      id: u.id,
+      modelId: u.model,
+      displayName: u.displayName,
+      // El operador que se muestra en el panel y viaja en los headers de
+      // procedencia. Dice el proveedor Y que es externo: la promesa de
+      // privacidad se acota en el nombre mismo de quien contesto.
+      operator: `${u.label} (externo)`,
+      pricing: conPrecio
+        ? `${costs.formatUSD(u.precio.salida)} / per 1m completion tokens`
+        : 'sin precio declarado',
+      tags: u.tags,
+      maxConcurrentRequests: u.maxConcurrent,
+      status: falta.length ? 'offline' : 'online'
+    })
+
+    if (falta.length) {
+      console.log(`  [upstream] ${u.displayName} (${u.label}) DESACTIVADO: ${falta.join('; ')}`)
+    } else {
+      console.log(
+        `  [upstream] ${u.displayName} (${u.label}) listo — hasta ${u.maxTokens} tokens de salida, ` +
+          `${costs.formatUSD(u.precio.salida)}/1M`
+      )
+    }
+  }
+
+  console.log(
+    cfg.optIn
+      ? '  [upstream] opt-in PRENDIDO: con la red sin capacidad, el prompt puede salir a un tercero'
+      : '  [upstream] opt-in apagado: ningun prompt sale a un tercero (POST /v1/upstream/opt-in para prenderlo)'
+  )
+}
+
 // Levanta el gateway y los paneles. La usan DOS caminos: `pyrusllm serve` con
 // sus flags, y `pyrusllm` a secas -- que ademas corre el updater OTA. Recibe
 // opciones en vez de leer serveCmd.flags porque en el segundo camino ese
@@ -343,6 +425,12 @@ async function startGateway(opts = {}) {
       maxConcurrentRequests: m.maxConcurrentRequests
     })
   }
+
+  // FASE 8.5 — el asistente externo, si el operador configuro alguno. Va
+  // DESPUES de la fila local a proposito: el orden en que se registran no
+  // decide nada (eso es pickCandidate), pero el log de arranque se lee mejor
+  // con la maquina propia primero y el tercero despues.
+  await registrarUpstreams({ gw, store, dir: budgetDir })
 
   let nodeSwarm = null
   let provider = null

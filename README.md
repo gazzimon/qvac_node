@@ -248,6 +248,36 @@ Los dos se ven juntos en `/node`, en una tarjeta con las dos lecturas, y por API
 en `/v1/budget` y `/v1/quota`. La inferencia local no está en ninguna de las dos
 y la tarjeta lo dice: no le cuesta a nadie más que al dueño de la máquina.
 
+### El asistente externo
+
+Un nodo sin GPU —o con la red saturada— puede contestar preguntándole a una API
+externa. Es **un candidato más** del registro (`kind: 'upstream'`), no un camino
+aparte: el ruteo lo puntúa, `/v1/models` lo lista, el chat lo ofrece y los
+headers de procedencia lo declaran, sin una sola línea especial en el despacho.
+
+Se configura copiando [`upstreams.example.json`](upstreams.example.json) a
+`<storage>/upstreams.json`. La credencial **no va en el archivo**: va el *nombre*
+de una variable de entorno, así el secreto no toca el disco del repo ni entra al
+manifiesto firmado que se anuncia a la red.
+
+```bash
+export NVIDIA_API_KEY=...          # el nombre lo dice el campo apiKeyEnv
+pyrusllm serve --swarm
+```
+
+Un upstream se registra **offline** si le falta la credencial o el precio, y el
+arranque dice cuál de las dos. Lo del precio no es burocracia: sin él
+`costs.estimar()` devuelve cero, la reserva no aparta nada y el tope de gasto
+deja de cortar justo en el único camino que cuesta dólares.
+
+Mandarle el prompt a un tercero pide **opt-in explícito** (`"optIn": true`, o
+`POST /v1/upstream/opt-in` para prenderlo en caliente sin reiniciar; eso no
+escribe el archivo). Y aun prendido, el externo solo entra a la puja cuando no
+hay capacidad local ni en la red: mientras alguien de este lado pueda atender, el
+prompt no sale. Si el presupuesto se agota, se **degrada a un candidato local**
+en vez de negar el servicio —y el rastro de ruteo lo registra como degradación,
+no como una elección normal. `GET /v1/upstream` muestra el estado.
+
 ## Pruebas
 
 ```bash
@@ -314,11 +344,11 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
   **no** es mock: ahí se firma la clave real del Hyperbee.
 - `Auto` elige por **carga**, no por precio: no es una subasta. El precio viaja
   en el manifiesto pero todavía no participa del ruteo.
-- **El ledger corta, pero hoy todo da cero.** La tabla de precios
-  (`qvac/costs.mjs`) tiene los modelos de la API de Claude, y ningún modelo
-  externo está cableado todavía: la inferencia local y la de un par valen 0, así
-  que el gasto registrado es 0 y el tope nunca se toca. Lo que está probado es la
-  mecánica —reserva, corte, liquidación—, no una factura.
+- **El ledger corta, y con un asistente externo configurado deja de dar cero.**
+  La inferencia local y la de un par siguen valiendo 0 —no le cuestan a nadie más
+  que al dueño de la máquina—, así que sin upstream el gasto registrado es 0 y el
+  tope nunca se toca. Con un upstream configurado (ver abajo) el camino cobra de
+  verdad: reserva, corte y liquidación con los tokens que reporta el proveedor.
 - El saldo y la cuota viven en el proceso (el ledger persiste su reserva a disco;
   la cuota no persiste). No hay registro compartido entre nodos.
 - **El precio no es comparable todavía.** Viaja estructurado en el manifiesto,
@@ -336,6 +366,13 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
 - El nodo que infiere ve el prompt en texto plano. El claim es "ninguna
   corporación centralizada agrega tus datos a escala", no "nadie más lo ve":
   el cifrado E2E está fuera de alcance.
+- **El asistente externo manda tu prompt a un tercero.** Es el único camino del
+  proyecto donde el texto sale de la red P2P hacia la API de una empresa, que lo
+  ve, lo puede loguear y lo factura. Está **apagado por default** y hacen falta
+  tres cosas a la vez para que se use: `optIn` prendido, que no haya capacidad
+  local ni en la red, y presupuesto disponible. `local: true` lo excluye siempre,
+  con opt-in o sin él. Cuando contesta, lo dice: `X-Pyrus-Kind: upstream` en los
+  headers y "(external API)" en la línea de procedencia del chat.
 
 ## Stack
 

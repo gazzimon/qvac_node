@@ -43,6 +43,11 @@ import env from 'bare-env'
 const REINTENTOS = 3
 const ESPERA_BASE_MS = 400
 
+// Techo de salida cuando ni la config ni el cliente dicen otra cosa. 1024 son
+// ~4 parrafos: alcanza para una respuesta de chat y acota el peor caso de la
+// reserva a un numero que se puede mirar sin susto.
+const MAX_TOKENS_DEFAULT = 1024
+
 function esReintentable(status) {
   return status === 429 || (status >= 500 && status < 600)
 }
@@ -61,6 +66,8 @@ export class Upstream {
     displayName,
     tags = [],
     maxConcurrent = 4,
+    maxTokens = MAX_TOKENS_DEFAULT,
+    precio = null,
     extraBody = null
   }) {
     this.id = id
@@ -71,6 +78,18 @@ export class Upstream {
     this.displayName = displayName || model
     this.tags = tags
     this.maxConcurrent = maxConcurrent
+    // TOPE DE SALIDA PROPIO, y con default distinto de cero a proposito.
+    //
+    // La reserva del presupuesto es `promptTokens*entrada + maxTokens*salida`:
+    // con maxTokens en cero la cota superior da CERO y el tope deja de cortar
+    // justo en el unico camino que cuesta dolares. Un cliente de OpenAI que no
+    // manda `max_tokens` -que son casi todos- no puede desactivar el corte sin
+    // querer, asi que el limite lo pone el nodo.
+    this.maxTokens = Number.isFinite(maxTokens) && maxTokens > 0 ? Math.floor(maxTokens) : MAX_TOKENS_DEFAULT
+    // { entrada, salida } en micro-dolares por 1M de tokens, o null si el
+    // operador no lo declaro. Sin precio no hay reserva posible: quien
+    // registra decide si eso deja al upstream afuera (bin.mjs lo deja).
+    this.precio = precio
     // Algunos modelos piden campos fuera del estandar de OpenAI (por ejemplo
     // chat_template_kwargs.enable_thinking). Viven en la config y no en el
     // codigo: son del modelo, no nuestros.
@@ -93,6 +112,9 @@ export class Upstream {
   // que cancelacion, timeouts y conteo de tokens siguen funcionando sin
   // cambios.
   async * completar({ messages, maxTokens = 0, signal = null, onUsage = null }) {
+    // El menor entre lo que pidio el cliente y lo que este nodo permite. Un
+    // cliente puede pedir MENOS que el tope; no puede pedir mas.
+    const tope = maxTokens > 0 ? Math.min(maxTokens, this.maxTokens) : this.maxTokens
     const key = this.apiKey
     if (!key) {
       throw new Error('falta la credencial: pone la variable de entorno ' + this.apiKeyEnv)
@@ -105,7 +127,7 @@ export class Upstream {
       model: this.model,
       messages,
       stream: true,
-      ...(maxTokens > 0 ? { max_tokens: maxTokens } : {}),
+      max_tokens: tope,
       ...(this.extraBody || {})
     }
 
@@ -211,10 +233,87 @@ export function cargarDesde(objeto) {
           displayName: m.displayName || m.modelId,
           tags: m.tags || [],
           maxConcurrent: Number.isFinite(m.maxConcurrent) ? m.maxConcurrent : 4,
+          maxTokens: Number(m.maxTokens),
+          precio: precioDe(m),
           extraBody: m.extraBody || null
         })
       )
     }
   }
   return out
+}
+
+// El precio que declara el operador, en USD por 1M de tokens, pasado a los
+// micro-dolares enteros con los que trabaja costs.mjs. Nunca floats mas alla
+// de esta conversion: es el unico punto donde un numero escrito por una
+// persona entra al contador.
+//
+// Se redondea HACIA ARRIBA. Un precio subestimado hace que la reserva se
+// quede corta, y una reserva corta es un tope que se pasa.
+function precioDe(m) {
+  const p = m && m.pricePerMTok
+  if (!p) return null
+  const entrada = Number(p.input)
+  const salida = Number(p.output)
+  if (!Number.isFinite(entrada) || !Number.isFinite(salida)) return null
+  if (entrada < 0 || salida < 0) return null
+  if (entrada === 0 && salida === 0) return null
+  return {
+    entrada: Math.ceil(entrada * 1_000_000),
+    salida: Math.ceil(salida * 1_000_000)
+  }
+}
+
+// El OPT-IN de D19: mandarle el prompt a un tercero es una decision del
+// operador y tiene que ser explicita. Ausente significa APAGADO -- un archivo
+// de config a medio escribir no puede terminar sacando prompts de la maquina.
+export function optInDe(objeto) {
+  return !!(objeto && objeto.optIn === true)
+}
+
+// Revender la API de un tercero a la red es OTRA decision, y tambien apagada
+// por default. Todavia no la consume nadie: se lee aca para que el dia que se
+// cablee el broker el default seguro ya este escrito donde corresponde.
+export function brokerDe(objeto) {
+  return !!(objeto && objeto.brokerEnabled === true)
+}
+
+// -----------------------------------------------------------------------------
+// El archivo
+// -----------------------------------------------------------------------------
+
+// `<storage>/upstreams.json`, el mismo directorio donde ya viven budget.json e
+// identity.json. NO se lee del repo: la config lleva el nombre de la variable
+// con la credencial y la lista de proveedores de esta persona.
+//
+// Que el archivo no exista es el caso NORMAL, no un error: la enorme mayoria
+// de los nodos no habla con ninguna API externa. Se devuelve la config vacia y
+// nadie se entera. Un archivo que existe pero esta roto SI se avisa, porque
+// ahi alguien quiso configurar algo y no le funciono.
+export async function leerConfig(dir) {
+  const vacia = { upstreams: [], optIn: false, brokerEnabled: false, error: null }
+  if (!dir) return vacia
+
+  let crudo = null
+  try {
+    const fs = await import('bare-fs')
+    const path = await import('bare-path')
+    crudo = fs.default.readFileSync(path.default.join(dir, 'upstreams.json'), 'utf8')
+  } catch {
+    return vacia
+  }
+
+  let objeto = null
+  try {
+    objeto = JSON.parse(crudo)
+  } catch (err) {
+    return { ...vacia, error: 'upstreams.json no es JSON valido: ' + ((err && err.message) || err) }
+  }
+
+  return {
+    upstreams: cargarDesde(objeto),
+    optIn: optInDe(objeto),
+    brokerEnabled: brokerDe(objeto),
+    error: null
+  }
 }

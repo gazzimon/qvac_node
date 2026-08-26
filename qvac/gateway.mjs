@@ -35,7 +35,7 @@ import * as apikeys from './apikeys.mjs'
 import * as budget from './budget.mjs'
 import * as costs from './costs.mjs'
 import * as quota from './quota.mjs'
-import { pickCandidate } from './routing.mjs'
+import { pickCandidate, estaSaturado } from './routing.mjs'
 
 const MOCK_REPLIES = {
   'facturas-ar': (prompt) =>
@@ -398,6 +398,75 @@ export function setFiles(f) {
 
 export function setSwarm(swarm) {
   swarmRef = swarm
+}
+
+// ---------------------------------------------------------------------------
+// FASE 8.5 — el asistente externo
+//
+// El gateway recibe las instancias ya construidas, igual que el swarm y el
+// drive: quien lee `upstreams.json` es bin.mjs, que es el dueno del directorio
+// de storage. Aca solo se sabe que existen y con que fila del registro se
+// corresponden.
+//
+// La clave del Map es el `id` de la fila del store (`upstream:<id>`), que es
+// lo que trae el candidato elegido: asi el despacho no tiene que volver a
+// buscar por modelo ni adivinar cual de dos upstreams del mismo proveedor era.
+// ---------------------------------------------------------------------------
+let upstreams = new Map()
+
+// D19: mandarle el prompt a un tercero esta APAGADO salvo que el operador lo
+// prenda. El default vive aca y no en la config para que un archivo ausente,
+// vacio o roto signifique lo mismo que un "no".
+let upstreamOptIn = false
+
+export function setUpstreams(lista) {
+  upstreams = new Map()
+  for (const u of lista || []) upstreams.set(`upstream:${u.id}`, u)
+}
+
+export function setUpstreamOptIn(valor) {
+  upstreamOptIn = valor === true
+  return upstreamOptIn
+}
+
+export function upstreamStatus() {
+  return {
+    optIn: upstreamOptIn,
+    upstreams: [...upstreams.values()].map((u) => ({
+      id: u.id,
+      nodeId: `upstream:${u.id}`,
+      label: u.label,
+      model: u.model,
+      displayName: u.displayName,
+      maxTokens: u.maxTokens,
+      // El NOMBRE de la variable de entorno, nunca su valor.
+      apiKeyEnv: u.apiKeyEnv,
+      credencial: u.disponible()
+    }))
+  }
+}
+
+// El tope de salida efectivo de un upstream: el menor entre lo que pidio el
+// cliente y lo que el nodo permite. Se calcula ACA -- y no solo adentro de
+// `completar`-- porque es el numero con el que se estima la reserva, y una
+// reserva calculada sobre un tope distinto del que se manda no acota nada.
+function topeDeSalida(node, pedido) {
+  const up = upstreams.get(node && node.id)
+  if (!up) return pedido
+  return pedido > 0 ? Math.min(pedido, up.maxTokens) : up.maxTokens
+}
+
+// Tokens del prompt, estimados por caracteres, SOLO para la reserva.
+//
+// El numero exacto lo sabe el tokenizador del proveedor y llega recien con el
+// `usage` del ultimo chunk -- despues de gastar-. Se divide por 3 y no por los
+// ~4 caracteres por token que es la regla habitual: la reserva es una cota
+// SUPERIOR, y equivocarse para arriba corta antes de tiempo mientras que
+// equivocarse para abajo deja pasar gasto por encima del tope.
+function estimarPromptTokens(messages) {
+  let chars = 0
+  for (const m of messages || []) chars += String((m && m.content) || '').length
+  return Math.ceil(chars / 3)
 }
 
 // ---------------------------------------------------------------------------
@@ -823,9 +892,22 @@ function cuentaDe(req) {
 // la reserva y la liquidacion esten EJERCITADAS antes de que haya plata de por
 // medio. Un mecanismo de corte que se estrena el dia que empieza a cobrar es
 // un mecanismo de corte sin probar.
+// Con que clave se le pregunta el precio a costs.mjs.
+//
+// Para un upstream es el ID DE LA FILA, no el modelId, y la diferencia no es
+// cosmetica: dos nodos pueden servir el mismo modelo con precios distintos --
+// un par de la red sirviendo llama1b gratis y una API de un tercero cobrando
+// por el mismo nombre-. Indexado por modelId, el precio del externo se le
+// cobraba tambien al par, que no cobra nada. El precio es de QUIEN contesta.
+function claveDePrecio(node) {
+  if (!node) return null
+  return node.kind === 'upstream' ? node.id : node.modelId
+}
+
 function estimarRequest({ node, maxTokens = 0, promptTokens = 0 }) {
-  if (!node || !costs.conocido(node.modelId)) return 0
-  return costs.estimar({ model: node.modelId, promptTokens, maxTokens })
+  const clave = claveDePrecio(node)
+  if (!clave || !costs.conocido(clave)) return 0
+  return costs.estimar({ model: clave, promptTokens, maxTokens })
 }
 
 async function handleChat(req, res) {
@@ -854,7 +936,67 @@ async function handleChat(req, res) {
   // "local only": el prompt no sale de esta maquina. Se filtra ANTES de elegir
   // -- si el unico candidato era remoto, el 404 de abajo tiene que decir que no
   // hay nadie local, y no rutear a la red igual.
-  if (local) candidatos = candidatos.filter((n) => n.kind !== 'peer')
+  //
+  // El upstream cae por el mismo filtro que el par, y esa linea es literal en
+  // el DoD de la Fase 8.5: `local: true` nunca sale de la maquina, con o sin
+  // opt-in. Un tercero al otro lado de una API no es menos "afuera" que un par
+  // de la red -- es mas, porque ademas guarda logs.
+  // Se cuentan ANTES de cualquier filtro: si `local` los saca, el error de mas
+  // abajo tiene que poder decir que habia uno y por que no se uso.
+  const externos = candidatos.filter((n) => n.kind === 'upstream')
+
+  if (local) candidatos = candidatos.filter((n) => n.kind !== 'peer' && n.kind !== 'upstream')
+
+  // D19 — las otras dos condiciones del externo. Se aplican como FILTRO de
+  // candidatos y no como un `if` en el despacho: un upstream inelegible tiene
+  // que ser invisible para pickCandidate, o terminaria ganando por carga (esta
+  // siempre en 0) y recien ahi lo rechazariamos.
+  let vetoExterno = null
+  if (externos.length > 0) {
+    if (local) {
+      vetoExterno = {
+        code: 'local_only',
+        message: 'el pedido pide que nada salga de esta maquina'
+      }
+    } else if (!upstreamOptIn) {
+      vetoExterno = {
+        code: 'upstream_opt_in_required',
+        message:
+          'hay un asistente externo configurado, pero mandarle el prompt a un tercero esta apagado. ' +
+          'Se prende con POST /v1/upstream/opt-in o con "optIn": true en upstreams.json.'
+      }
+    } else {
+      // "Sin capacidad local" es la tercera condicion, y se mide sobre los
+      // candidatos que NO son el externo: mientras alguien de esta red pueda
+      // atender ahora, el externo no compite. Recien cuando estan todos llenos
+      // -- o cuando no hay ninguno, que es el caso de un modelo que solo sirve
+      // el externo -- entra a la puja.
+      const propios = candidatos.filter((n) => n.kind !== 'upstream')
+      const hayLugar = propios.some((n) => !estaSaturado(n))
+      if (hayLugar) {
+        vetoExterno = {
+          code: 'upstream_not_needed',
+          message: 'hay capacidad local o en la red para este modelo'
+        }
+      }
+    }
+    if (vetoExterno) candidatos = candidatos.filter((n) => n.kind !== 'upstream')
+  }
+
+  // Todos los candidatos que habia eran externos y quedaron vetados. El 404
+  // generico de mas abajo diria "no hay nodos sirviendo ese modelo", que es
+  // falso: hay uno, y no se lo uso por una decision. Decir cual es la decision
+  // es lo unico accionable para el que recibe el error.
+  if (candidatos.length === 0 && externos.length > 0 && vetoExterno) {
+    const detalle =
+      vetoExterno.code === 'local_only'
+        ? `"${model}" solo lo sirve un asistente externo, y ${vetoExterno.message}`
+        : vetoExterno.message
+    return sendError(res, 503, detalle, {
+      type: 'service_unavailable',
+      code: vetoExterno.code
+    })
+  }
 
   const eleccion = pickCandidate(candidatos, { statsFor: store.statsFor, pin })
 
@@ -865,7 +1007,9 @@ async function handleChat(req, res) {
     return sendError(res, 404, eleccion.reason, { code: 'node_not_found' })
   }
 
-  const node = eleccion.node
+  // `let` desde la Fase 8.5: con el presupuesto agotado el externo se cambia
+  // por un candidato propio en vez de negar el servicio (ver mas abajo).
+  let node = eleccion.node
   // El orden puntuado, no el de llegada: si el mejor falla antes del primer
   // token, D4 reintenta en el segundo MEJOR, no en el siguiente de la lista.
   candidatos = eleccion.orden
@@ -892,13 +1036,34 @@ async function handleChat(req, res) {
   // (porque el precio depende del nodo) y ANTES de pedirselo. Ese orden es
   // toda la fase: un tope que se evalua despues del gasto es un descuento.
   const cuenta = cuentaDe(req)
-  const estimado = estimarRequest({ node, maxTokens: norm.maxTokens || 0 })
-  const reserva = budget.reserve(cuenta, estimado)
+  const promptTokens = estimarPromptTokens(messages)
+  let maxSalida = topeDeSalida(node, norm.maxTokens || 0)
+  let reserva = budget.reserve(cuenta, estimarRequest({ node, maxTokens: maxSalida, promptTokens }))
+
+  // Lo que la Fase 6.5 dejo escrito y no podia alcanzar: ahora el camino
+  // externo estima distinto de cero, asi que el corte se ejerce de verdad.
+  //
+  // Y corta DEGRADANDO, no negando. El DoD de la Fase 8.5 es explicito: con el
+  // presupuesto agotado se contesta local, con aviso, y nunca el externo. Solo
+  // si no hay ningun candidato propio -- el caso de un modelo que unicamente
+  // sirve el externo -- se devuelve el 402.
+  let degradado = null
+  if (!reserva.ok && node.kind === 'upstream') {
+    // `candidatos` es el orden PUNTUADO, asi que el primero no-externo es el
+    // mejor de los propios, no el primero que aparecio.
+    const alternativa = candidatos.find((n) => n.kind !== 'upstream')
+    if (alternativa) {
+      degradado = {
+        de: node.id,
+        motivo: `presupuesto agotado: quedan ${costs.formatUSD(reserva.remaining)} de un tope de ${costs.formatUSD(reserva.cap)}`
+      }
+      node = alternativa
+      maxSalida = topeDeSalida(node, norm.maxTokens || 0)
+      reserva = budget.reserve(cuenta, estimarRequest({ node, maxTokens: maxSalida, promptTokens }))
+    }
+  }
 
   if (!reserva.ok) {
-    // Este camino todavia no se alcanza -- hoy todo estima cero -- y se
-    // completa en la Fase 8.5, donde el corte degrada a inferencia local en vez
-    // de negar el servicio. Queda escrito el error correcto y no un TODO.
     return sendError(
       res,
       402,
@@ -955,18 +1120,48 @@ async function handleChat(req, res) {
   let ttftMs = null
   let tokens = 0
 
+  // El `usage` que el proveedor externo manda en el ultimo chunk: son los
+  // tokens REALES -- contados por SU tokenizador-- y son los que se liquidan.
+  // Los de entrada no hay otra forma de saberlos: aca solo se ven caracteres.
+  // Si el proveedor no lo manda, se liquida con lo contado en este proceso,
+  // que es la mejor verdad disponible y nunca menos que cero.
+  let usoExterno = null
+
   // El iterable de deltas es el mismo para stream y no-stream: la unica
   // diferencia es como se empaqueta la salida. La medicion va ACA adentro y no
   // en los dos consumidores por la misma razon: un solo lugar donde contar, y
   // el camino no-stream deja de ser el que nunca reporta nada.
   const deltas = async function* () {
-    const crudos =
-      node.kind === 'real'
-        ? (async function* () {
-            const mid = await ensureRealModel()
-            yield* engineMod.complete({ modelId: mid, history: messages })
-          })()
-        : mockTokens(node, prompt)
+    let crudos
+    if (node.kind === 'real') {
+      crudos = (async function* () {
+        const mid = await ensureRealModel()
+        yield* engineMod.complete({ modelId: mid, history: messages })
+      })()
+    } else if (node.kind === 'upstream') {
+      // La fila del registro y la instancia que sabe hablar con la API son dos
+      // cosas: la fila puede sobrevivir a una relectura de config que saco al
+      // upstream, y en ese caso hay que fallar diciendolo -- no caer al mock,
+      // que devolveria texto inventado con los headers de un proveedor real.
+      const up = upstreams.get(node.id)
+      if (!up) {
+        throw new Error('el asistente externo ya no esta configurado en este nodo')
+      }
+      if (!up.disponible()) {
+        throw new Error(
+          'falta la credencial del asistente externo: pone la variable de entorno ' + up.apiKeyEnv
+        )
+      }
+      crudos = up.completar({
+        messages,
+        maxTokens: maxSalida,
+        onUsage: (u) => {
+          usoExterno = u
+        }
+      })
+    } else {
+      crudos = mockTokens(node, prompt)
+    }
 
     for await (const delta of crudos) {
       if (ttftMs === null) ttftMs = Date.now() - startedAt
@@ -1032,7 +1227,11 @@ async function handleChat(req, res) {
     const message = String((err && err.message) || err)
     fallo = message
     if (!res.headersSent) {
-      sendError(res, 500, message, { type: 'server_error' })
+      // 502 cuando el que fallo fue el proveedor externo: el error no es de
+      // este gateway, y un 500 le diria al cliente que reviso el lado
+      // equivocado. Es la misma distincion que hace cualquier proxy.
+      const status = node.kind === 'upstream' ? 502 : 500
+      sendError(res, status, message, { type: 'server_error' })
       responded = true
     } else {
       // Ya se empezo a streamear: no hay status HTTP que cambiar. El error va
@@ -1051,9 +1250,14 @@ async function handleChat(req, res) {
     // request que revienta a mitad de stream igual gasto lo que gasto, y una
     // reserva que no se liquida queda comprometiendo saldo hasta que reinicie
     // el proceso.
+    const completionReales =
+      usoExterno && Number.isFinite(Number(usoExterno.completion_tokens))
+        ? Number(usoExterno.completion_tokens)
+        : tokens
     const costoReal = costs.real({
-      model: node.modelId,
-      completionTokens: tokens
+      model: claveDePrecio(node),
+      promptTokens: usoExterno ? Number(usoExterno.prompt_tokens) || 0 : 0,
+      completionTokens: completionReales
     })
     budget.settle(reserva.id, costoReal)
     // El motivo dice lo que REALMENTE pasó, y desde la Fase 8 eso incluye por
@@ -1067,12 +1271,19 @@ async function handleChat(req, res) {
       // 'local' es esta maquina generando de verdad; 'mock' es teatro de demo.
       // Distinguirlos importa: sin el campo, una corrida con --demo produce un
       // rastro con tok/s inventados que no se puede separar de uno real.
-      target: node.kind === 'real' ? 'local' : 'mock',
+      target: node.kind === 'real' ? 'local' : node.kind === 'upstream' ? 'upstream' : 'mock',
       nodeId: node.id,
       operator: node.operator,
       candidatos: candidatos.length,
-      reason: motivoRuteo || `único candidato para "${model}"`,
+      reason: degradado
+        ? `${degradado.motivo} — se degrado del externo (${degradado.de}) a este nodo`
+        : motivoRuteo || `único candidato para "${model}"`,
       decision: decision || undefined,
+      // El rastro tiene que poder distinguir "eligio local" de "queria el
+      // externo y no le alcanzo el saldo". Sin esto las dos entradas se ven
+      // iguales, y la degradacion -- que es una decision de plata-- queda sin
+      // auditoria.
+      degradado: degradado || undefined,
       ok: fallo === null,
       code: fallo === null ? null : 'server_error',
       // Lo que costo esta respuesta. Hoy es 0 en el camino local y es la
@@ -1247,6 +1458,35 @@ async function onRequest(req, res) {
           }
         : null
       return sendJson(res, 200, { nodes: store.listNodes(), swarm })
+    }
+    // FASE 8.5 — el estado del asistente externo y su interruptor.
+    //
+    // El opt-in se puede prender en caliente y no solo desde el archivo: el
+    // caso real es "se saturo la red en medio de una demo". Lo que NO se puede
+    // hacer por HTTP es configurar un upstream nuevo ni cambiarle la
+    // credencial: eso vive en el disco del operador.
+    if (req.method === 'GET' && pathname === '/v1/upstream') {
+      return sendJson(res, 200, upstreamStatus())
+    }
+    if (req.method === 'POST' && pathname === '/v1/upstream/opt-in') {
+      // Pide credencial igual que /v1/chat/completions: prender el opt-in es
+      // autorizar gasto contra la cuenta del operador. Dejarlo abierto seria
+      // dejar que cualquiera que llegue al puerto empiece a gastarle plata.
+      const rechazo = rechazoPorKey(req)
+      if (rechazo) return sendError(res, 401, rechazo)
+
+      let cuerpo = {}
+      try {
+        cuerpo = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'body invalido, se esperaba JSON')
+      }
+      if (typeof cuerpo.enabled !== 'boolean') {
+        return sendError(res, 400, 'falta "enabled" (booleano)')
+      }
+      setUpstreamOptIn(cuerpo.enabled)
+      console.log(`[upstream] opt-in ${upstreamOptIn ? 'PRENDIDO' : 'apagado'} por HTTP`)
+      return sendJson(res, 200, upstreamStatus())
     }
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
       return sendJson(res, 200, { log: store.getLog() })

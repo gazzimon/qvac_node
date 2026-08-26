@@ -119,6 +119,10 @@ const STYLE = `
   /* Verde como 'online': un par P2P verificado es la cosa buena que muestra
      la demo, no puede parecerse a un mock. */
   .badge.peer { background: #10331f; color: #4ade80; }
+  /* Ambar, el color de aviso del resto de la UI: el externo funciona, pero es
+     el unico camino donde el prompt sale de la red y cuesta plata. Ni el verde
+     del par verificado ni el azul de esta maquina. */
+  .badge.upstream { background: #3a2a10; color: #fbbf24; }
   /* Acciones por tarjeta. "Chatear" queda primero y en azul: es la accion que
      cuenta la demo sola. "Conectar" es secundaria pero es la que prueba que
      esto es un gateway de verdad y no un chat con pasos extra. */
@@ -294,6 +298,7 @@ const STYLE = `
   }
   .prov .peer { color: #4ade80; font-weight: 600; }
   .prov .local { color: #7db8ff; font-weight: 600; }
+  .prov .upstream { color: #fbbf24; font-weight: 600; }
 
   .composer { border-top: 1px solid #262b36; padding: .9rem 0 1.1rem; }
   .composer .row { display: flex; gap: .5rem; align-items: flex-end; }
@@ -789,6 +794,10 @@ export const NETWORK_HTML = page(
       real: 'this machine',
       peer: 'verified P2P peer',
       mock: 'simulated',
+      // El unico kind que manda el prompt FUERA de la red: a una API de un
+      // tercero, con la cuenta del operador. La etiqueta lo dice sin
+      // eufemismos porque es la unica que acota la promesa de privacidad.
+      upstream: 'external API · third party',
       // Sale del directorio Hyperbee: su manifiesto verifico alguna vez, pero
       // ahora no hay socket. Nunca es candidato de ruteo (ver store.mjs).
       known: 'known · disconnected'
@@ -1849,7 +1858,10 @@ const CHAT_JS = String.raw`
     // llama1b colapsaban en una sola opcion: no habia forma de elegir cual.
     function fijables() {
       return nodes.filter(function (n) {
-        return n.status === 'online' && (n.kind === 'peer' || n.kind === 'real' || n.kind === 'mock')
+        return (
+          n.status === 'online' &&
+          (n.kind === 'peer' || n.kind === 'real' || n.kind === 'mock' || n.kind === 'upstream')
+        )
       })
     }
 
@@ -2034,8 +2046,16 @@ const CHAT_JS = String.raw`
     // La linea de procedencia. Es lo que separa a esto de cualquier otro chat:
     // el nodo que contesto sale nombrado, no supuesto.
     function prov(m) {
-      var clase = m.kind === 'peer' ? 'peer' : 'local'
-      var quien = m.kind === 'peer' ? m.operator : m.operator + ' (this machine)'
+      var clase = m.kind === 'peer' ? 'peer' : m.kind === 'upstream' ? 'upstream' : 'local'
+      // "(this machine)" es una afirmacion, no un adorno: colgarsela a un
+      // upstream diria que el prompt no salio de aca cuando salio a la API de
+      // un tercero. Cada kind se nombra por lo que es.
+      var quien =
+        m.kind === 'peer'
+          ? m.operator
+          : m.kind === 'upstream'
+            ? m.operator + ' (external API)'
+            : m.operator + ' (this machine)'
       // Cada parte en su propio span: unidas en un solo nodo de texto, el gap
       // del flex no aplica y se leia "18150ms1 tok/s20.2s".
       var partes = ['<span class="' + clase + '">' + esc(quien) + '</span>']
@@ -2281,7 +2301,7 @@ const CHAT_JS = String.raw`
         { g: 'Model', t: 'Effort', v: NIVELES[opciones.esfuerzo], extra: escalon(opciones.esfuerzo), mock: true,
           f: function () { opciones.esfuerzo = (opciones.esfuerzo + 1) % 5; guardarOpts(); repintarPal() } },
         { g: 'Model', t: 'Thinking', extra: interruptor(opciones.thinking), mock: true,
-          d: 'Medido: prenderlo en nemotron-3.5 cuesta 100x tokens. Falta cablear upstreams',
+          d: 'Medido: prenderlo en nemotron-3.5 cuesta 100x tokens. El toggle todavia no viaja al upstream',
           f: function () { opciones.thinking = !opciones.thinking; guardarOpts(); repintarPal() } },
         { g: 'Model', t: 'Switch models when a message is flagged', extra: interruptor(opciones.cambiarSiFlag), mock: true,
           f: function () { opciones.cambiarSiFlag = !opciones.cambiarSiFlag; guardarOpts(); repintarPal() } },

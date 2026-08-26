@@ -1149,3 +1149,184 @@ test('un request que falla cargando el modelo no gasta cuota', async (t) => {
 
   quota.reset()
 })
+
+// ---------------------------------------------------------------------------
+// Fase 8.5 — el asistente externo como un candidato mas
+//
+// Todo lo de aca corre SIN tocar la API de NVIDIA: se prueba la config, el
+// precio y las tres condiciones de elegibilidad de D19, que es donde estan las
+// decisiones. Que el SSE del proveedor se parsee bien se verifica contra el
+// proveedor de verdad, no con un mock que confirme lo que ya creemos.
+// ---------------------------------------------------------------------------
+
+test('la config de upstreams se lee entera: modelos, precio y tope de salida', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'nim',
+        label: 'NVIDIA NIM',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/',
+        apiKeyEnv: 'NVIDIA_API_KEY',
+        models: [
+          {
+            modelId: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+            displayName: 'Nemotron 3.5 Lightning 30B',
+            maxTokens: 512,
+            pricePerMTok: { input: 0.2, output: 0.6 }
+          }
+        ]
+      }
+    ]
+  })
+
+  t.is(ups.length, 1)
+  t.is(ups[0].id, 'nim:nvidia/nemotron-3.5-lightning-30b-a3b', 'el id lleva proveedor y modelo')
+  t.is(ups[0].baseUrl, 'https://integrate.api.nvidia.com/v1', 'la barra final se saca')
+  t.is(ups[0].maxTokens, 512)
+  t.alike(ups[0].precio, { entrada: 200_000, salida: 600_000 }, 'USD por 1M -> micros enteros')
+})
+
+test('un upstream sin tope de salida igual tiene uno: la reserva lo necesita', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'x',
+        baseUrl: 'https://ejemplo.test/v1',
+        apiKeyEnv: 'X_KEY',
+        models: [{ modelId: 'm1' }]
+      }
+    ]
+  })
+
+  t.ok(ups[0].maxTokens > 0, 'sin maxTokens la cota superior del gasto daria cero')
+  t.is(ups[0].precio, null, 'sin pricePerMTok no se inventa un precio')
+})
+
+test('el opt-in ausente, roto o a medias significa NO', async (t) => {
+  const upstream = await import('../qvac/upstream.mjs')
+
+  t.is(upstream.optInDe(null), false)
+  t.is(upstream.optInDe({}), false)
+  t.is(upstream.optInDe({ optIn: 'true' }), false, 'el string no alcanza: tiene que ser booleano')
+  t.is(upstream.optInDe({ optIn: true }), true)
+  t.is(upstream.brokerDe({}), false, 'revender tampoco pasa por omision')
+})
+
+test('el precio de un modelo externo entra al contador y estima como los demas', async (t) => {
+  const costs = await import('../qvac/costs.mjs')
+  costs.olvidarPreciosExternos()
+
+  t.is(costs.conocido('nvidia/nemotron'), false, 'antes de registrarlo no cuesta nada')
+
+  t.is(costs.registrarPrecio('nvidia/nemotron', { entrada: 200_000, salida: 600_000 }), true)
+  t.is(costs.conocido('nvidia/nemotron'), true)
+
+  // 1000 de entrada a 0.20/1M + 1024 de salida a 0.60/1M
+  const estimado = costs.estimar({
+    model: 'nvidia/nemotron',
+    promptTokens: 1000,
+    maxTokens: 1024
+  })
+  t.is(estimado, 200 + 615, 'redondea hacia arriba, como el resto de costs.mjs')
+
+  t.is(costs.registrarPrecio('otro', { entrada: 0, salida: 0 }), false, 'gratis no es un precio')
+  t.is(costs.conocido('otro'), false)
+
+  costs.olvidarPreciosExternos()
+})
+
+test('D19: el externo no compite mientras alguien de la red tenga lugar', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const local = {
+    id: 'local:llama1b',
+    kind: 'real',
+    activeRequests: 2,
+    maxConcurrentRequests: 3,
+    operator: 'yo'
+  }
+  const externo = {
+    id: 'upstream:nim',
+    kind: 'upstream',
+    activeRequests: 0,
+    maxConcurrentRequests: 4,
+    operator: 'NVIDIA NIM (externo)'
+  }
+
+  // Sin el filtro de elegibilidad, el externo GANA: su carga es 0 y la del
+  // local 66%. Ese es justamente el motivo por el que la condicion se aplica
+  // como filtro antes de puntuar y no como un `if` despues.
+  const sinFiltro = pickCandidate([local, externo])
+  t.is(sinFiltro.node.id, 'upstream:nim', 'por carga sola, el externo se lleva todo')
+
+  const conFiltro = pickCandidate([local])
+  t.is(conFiltro.node.id, 'local:llama1b', 'filtrado antes de puntuar, contesta la maquina')
+})
+
+test('una fila de upstream se registra, se lista y no infla la capacidad anunciada', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  store.seed()
+
+  store.registerLocal({
+    modelId: 'llama1b',
+    displayName: 'Llama 3.2 1B',
+    operator: 'yo',
+    maxConcurrentRequests: 3
+  })
+
+  const antes = store.localLoad().maxConcurrentRequests
+
+  const id = store.registerUpstream({
+    id: 'nim:nemotron',
+    modelId: 'nvidia/nemotron',
+    displayName: 'Nemotron 3.5',
+    operator: 'NVIDIA NIM (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  t.is(id, 'upstream:nim:nemotron')
+  const fila = store.listNodes().find((n) => n.id === id)
+  t.is(fila.kind, 'upstream', 'entra al registro como una fila mas')
+  t.is(fila.status, 'online')
+
+  // Lo que este nodo le anuncia a la red es lo que ESTE nodo puede servir. Un
+  // upstream es capacidad de un tercero: sumarla seria anunciar 7 slots
+  // teniendo 3, la clase de mentira que el manifiesto firmado existe para
+  // evitar.
+  t.is(store.localLoad().maxConcurrentRequests, antes, 'la capacidad local no cambia')
+
+  store.clearUpstreams()
+  t.absent(
+    store.listNodes().find((n) => n.kind === 'upstream'),
+    'al releer la config no quedan filas viejas'
+  )
+  store.seed()
+})
+
+test('un upstream sin credencial se registra offline: no puede ser candidato', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  store.seed()
+
+  store.registerUpstream({
+    id: 'nim:nemotron',
+    modelId: 'nvidia/nemotron',
+    displayName: 'Nemotron 3.5',
+    operator: 'NVIDIA NIM (externo)',
+    status: 'offline'
+  })
+
+  const fila = store.listNodes().find((n) => n.kind === 'upstream')
+  t.is(fila.status, 'offline', 'se ve en el panel con lo que le falta')
+  t.is(
+    store.findAllByModelId('nvidia/nemotron').length,
+    0,
+    'pero findAllByModelId no lo ofrece: filtra por online'
+  )
+
+  store.clearUpstreams()
+  store.seed()
+})

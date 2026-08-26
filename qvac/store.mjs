@@ -371,6 +371,53 @@ export function localNodeIdFor(modelId) {
   return null
 }
 
+// ---------------------------------------------------------------------------
+// El asistente externo (Fase 8.5) como UNA FILA MAS del registro.
+//
+// Es todo el argumento de la fase: un upstream no necesita camino propio.
+// Entra aca con kind 'upstream' y, sin escribir una linea mas, /v1/models lo
+// lista, /v1/nodes lo dibuja en el panel, findAllByModelId lo considera,
+// pickCandidate lo puntua y los headers de procedencia lo declaran.
+//
+// `status` arranca donde diga el llamador: un upstream configurado pero SIN
+// credencial en el entorno se registra igual y se deja offline. Se ve en el
+// panel -- con lo que le falta -- en vez de no existir, que es la diferencia
+// entre "configuraste mal" y "no configuraste nada".
+export function registerUpstream({
+  id,
+  modelId,
+  displayName,
+  operator,
+  pricing = 'sin precio declarado',
+  tags = [],
+  maxConcurrentRequests = 4,
+  status = 'online'
+}) {
+  const rowId = `upstream:${id}`
+  nodes.set(rowId, {
+    id: rowId,
+    kind: 'upstream',
+    modelId,
+    displayName: displayName || modelId,
+    tags,
+    pricing,
+    operator: operator || 'Asistente externo',
+    maxConcurrentRequests,
+    activeRequests: 0,
+    status: status === 'offline' ? 'offline' : 'online'
+  })
+  return rowId
+}
+
+// Se borran TODOS antes de volver a registrar: la config se relee entera, y
+// dejar la fila de un modelo que el operador saco del archivo anunciaria algo
+// que este nodo ya no puede servir.
+export function clearUpstreams() {
+  for (const [id, node] of nodes) {
+    if (node.kind === 'upstream') nodes.delete(id)
+  }
+}
+
 export function updateStatus(peerKey, status) {
   for (const node of nodes.values()) {
     if (node.peerKey !== peerKey) continue
@@ -459,8 +506,12 @@ export function findAllByModelId(modelId) {
   // prompt del escenario lo contesta la misma máquina — el camino P2P queda
   // sin ejercitar justo cuando se lo está mostrando. El log dice cuántos
   // candidatos hubo, así que la preferencia queda visible y no escondida.
-  const rank = { peer: 0, real: 1, mock: 2 }
-  return candidatos.sort((a, b) => (rank[a.kind] ?? 3) - (rank[b.kind] ?? 3))
+  // Mismo orden que RANK_KIND de routing.mjs. Estaban divergiendo: aca no
+  // figuraba 'upstream', asi que caia en el `?? 3` -- detras de los mocks-. Un
+  // externo que cuesta dolares y contesta de verdad no puede ordenarse peor
+  // que el teatro del modo --demo.
+  const rank = { peer: 0, real: 1, upstream: 2, mock: 3 }
+  return candidatos.sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9))
 }
 
 // El rastro dejo de ser solo de ruteo: ahora tambien entran la carga del
