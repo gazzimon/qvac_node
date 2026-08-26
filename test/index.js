@@ -1330,3 +1330,118 @@ test('un upstream sin credencial se registra offline: no puede ser candidato', a
   store.clearUpstreams()
   store.seed()
 })
+
+// ---------------------------------------------------------------------------
+// B1 — el tope tiene que sobrevivir a un reinicio
+//
+// El ledger le imputa el gasto a la cuenta, y la cuenta ES la API key. Con el
+// registro de keys en memoria ese id no volvia despues de un reinicio: el
+// cliente pedia una key nueva y arrancaba con el tope entero otra vez. El
+// mecanismo de corte funcionaba perfecto y era, igual, evitable apagando y
+// prendiendo.
+//
+// Por eso el criterio de cierre de la Fase 6.5 dice "agotar, REINICIAR, y
+// seguir cortado": sin el reinicio en el medio, el test pasa con el bug puesto.
+// ---------------------------------------------------------------------------
+
+function dirTemporalPelado() {
+  const fs = require('bare-fs')
+  const os = require('bare-os')
+  const path = require('bare-path')
+  // Mismo criterio que directorioTemporal(): nada de mkdtempSync en Windows.
+  const dir = path.join(
+    os.tmpdir(),
+    'qvac-keys-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  )
+  fs.mkdirSync(dir, { recursive: true })
+  return {
+    dir,
+    limpiar() {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+      } catch {}
+    }
+  }
+}
+
+test('la api key sobrevive al reinicio: sin eso la cuenta del ledger no existe', async (t) => {
+  const apikeys = await import('../qvac/apikeys.mjs')
+  const tmp = dirTemporalPelado()
+
+  apikeys.open(tmp.dir)
+  const emitida = apikeys.createKey({ label: 'bot de telegram' })
+  apikeys.close()
+
+  // El "reinicio": el Map se vacia y se vuelve a leer del disco.
+  apikeys.reset()
+  apikeys.open(null)
+  t.is(apikeys.verifyKey(emitida.key), null, 'sin el archivo, la key no existe (es el bug)')
+
+  const cargadas = apikeys.open(tmp.dir)
+  t.is(cargadas, 1)
+
+  const reconocida = apikeys.verifyKey(emitida.key)
+  t.ok(reconocida, 'la MISMA key sigue sirviendo despues del reinicio')
+  t.is(reconocida.id, emitida.id, 'y sobre todo: el MISMO id, que es la cuenta del ledger')
+  t.is(reconocida.label, 'bot de telegram')
+
+  apikeys.close()
+  apikeys.reset()
+  tmp.limpiar()
+})
+
+test('agotado el tope, reiniciar el nodo NO lo repone', async (t) => {
+  const apikeys = await import('../qvac/apikeys.mjs')
+  const budget = await import('../qvac/budget.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const tmp = dirTemporalPelado()
+
+  // Un tope chico y un precio real, para que el gasto sea de verdad y no una
+  // cuenta de cero como la del camino local.
+  costs.olvidarPreciosExternos()
+  costs.registrarPrecio('externo-de-prueba', { entrada: 1_000_000, salida: 2_000_000 })
+
+  apikeys.open(tmp.dir)
+  budget.open(tmp.dir)
+
+  const key = apikeys.createKey({ label: 'cliente' })
+  budget.setCap(key.id, costs.usdAMicros(0.1))
+
+  // Se gasta hasta que el ledger corta.
+  const porRequest = costs.estimar({ model: 'externo-de-prueba', promptTokens: 1000, maxTokens: 10000 })
+  let cortado = false
+  for (let i = 0; i < 100; i++) {
+    const r = budget.reserve(key.id, porRequest)
+    if (!r.ok) {
+      cortado = true
+      break
+    }
+    budget.settle(r.id, porRequest)
+  }
+  t.ok(cortado, 'el tope corta antes de las 100 vueltas')
+
+  const gastado = budget.usage(key.id).spent
+  t.ok(gastado > 0)
+
+  // EL REINICIO. Es el paso que faltaba en el DoD original.
+  apikeys.close()
+  budget.close()
+  apikeys.reset()
+
+  apikeys.open(tmp.dir)
+  budget.open(tmp.dir)
+
+  const reconocida = apikeys.verifyKey(key.key)
+  t.ok(reconocida, 'el cliente vuelve con la misma credencial')
+
+  const despues = budget.usage(reconocida.id)
+  t.is(despues.spent, gastado, 'el gasto sigue imputado a la misma cuenta')
+  t.is(budget.reserve(reconocida.id, porRequest).ok, false, 'y sigue cortado')
+
+  apikeys.close()
+  budget.close()
+  apikeys.reset()
+  budget.reset()
+  costs.olvidarPreciosExternos()
+  tmp.limpiar()
+})

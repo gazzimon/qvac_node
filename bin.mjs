@@ -402,6 +402,14 @@ async function startGateway(opts = {}) {
   }
   budget.open(budgetDir)
 
+  // Y el registro de API keys ANTES que el gateway, por la misma razon y por
+  // una mas: la cuenta a la que el ledger le imputa el gasto ES la key, asi que
+  // un registro que no sobrevive al proceso es un tope que se resetea
+  // reiniciando. Van juntos o el de arriba no garantiza nada.
+  const apikeys = await import('./qvac/apikeys.mjs')
+  const cargadas = apikeys.open(budgetDir)
+  if (cargadas > 0) console.log(`  [apikeys] ${cargadas} key(s) del registro guardado`)
+
   const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
   const server = createGateway({ port, gpuLayers, demo })
 
@@ -534,6 +542,12 @@ async function startGateway(opts = {}) {
     // encima deja streams escribiendo contra cores ya cerrados. Si tarda, el
     // timeout de arriba corta igual.
     if (data) await data.close().catch(() => {})
+
+    // Los dos archivos que sostienen el tope de gasto. `close` de apikeys es lo
+    // unico que baja el `lastUsedAt` a disco -- `verifyKey` lo toca en cada
+    // request y no guarda, para no pagar un fsync en el camino caliente.
+    apikeys.close()
+    budget.close()
 
     await shutdownGateway()
     server.close(() => {

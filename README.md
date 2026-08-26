@@ -349,13 +349,20 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
   que al dueño de la máquina—, así que sin upstream el gasto registrado es 0 y el
   tope nunca se toca. Con un upstream configurado (ver abajo) el camino cobra de
   verdad: reserva, corte y liquidación con los tokens que reporta el proveedor.
-- El saldo y la cuota viven en el proceso (el ledger persiste su reserva a disco;
-  la cuota no persiste). No hay registro compartido entre nodos.
+- El ledger y el registro de keys persisten a disco; **la cuota gratuita no**: se
+  repone al reiniciar el nodo. No hay registro compartido entre nodos.
 - **El precio no es comparable todavía.** Viaja estructurado en el manifiesto,
   pero lo llena una constante: todos los nodos anuncian el mismo número. Por eso
   el chat no muestra cuánto costó cada respuesta — un costo inventado sería peor
   que ninguno.
-- Las API keys viven en memoria del proceso: no persisten, sin scopes.
+- Las API keys **persisten** en `<storage>/apikeys.json`, en claro y con permisos
+  de solo-dueño, todavía sin scopes. Persisten porque tienen que hacerlo: la
+  cuenta a la que el ledger le imputa el gasto **es** la key, así que con el
+  registro en memoria el tope de USD 20 se reponía apagando y prendiendo el
+  nodo. En claro por el mismo criterio que `identity.json`, que ya guarda la
+  semilla de red así en ese directorio: el gateway escucha solo en 127.0.0.1 y
+  el panel existe para poder volver a copiar una key semanas después. La que
+  **no** puede ir en claro es la semilla de la wallet, y eso es otra cosa (D13).
 - El login por rol (`qvac/auth.mjs`) **no está conectado a ninguna ruta**: es
   código muerto, no un gate. El gate real son las API keys (ver arriba).
 - Las transacciones muestran tokens, latencia y quién — **no muestran plata**.
