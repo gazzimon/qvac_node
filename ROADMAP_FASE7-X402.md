@@ -120,69 +120,89 @@ De ahí sale la Fase 6.5 y las decisiones D18 y D19.
 
 ---
 
-## 0-ter · Estado real al 2026-08-26 — lo que la auditoría encontró
+## 0-ter · Estado real al 2026-08-26 (tercera pasada) — lo que la auditoría encontró y lo que se arregló
 
-Este documento se escribió **antes** de ejecutar. Esta sección lo corrige: dice
-lo que hay en el árbol, no lo que estaba planeado. Sale de una auditoría del
-código del 2026-08-26, actualizada después del commit `e753e0a` "Nvidia Node" y
-después de cerrar las Fases 6.5 y 8.5 (suite en verde: 76 tests —55 unit + 21
-integración—, 322/322 asserts; sin CI).
+Esta sección se reescribió tres veces el mismo día, y esa frecuencia es el dato
+más honesto del documento. La primera pasada declaró cerradas las Fases 6.5 y
+8.5; la segunda encontró que los commits `326ae4b` "OpenRouter" y `c1ba394`
+"OPEN ROUTER 2" les habían seguido agregando superficie después de cerrarlas, con
+cuatro bugs nuevos adentro; ésta registra que esos cuatro están cerrados, con
+test que falla si se les quita el arreglo.
 
-**La regla que se rompió, y que esta sección repone:** la tabla de la sección 7
-pone 7 → 8 → 8.5, y se ejecutó 8.5 con la 7 sin empezar y la 8 a medias. Cada
-fase que se adelanta a su precondición agranda la superficie que después hay que
-volver a tocar — y en este roadmap "después" quiere decir *con plata real de por
-medio*.
+Suite: 99 tests (66 unit + 33 integración), 419/419 asserts, **5 corridas
+seguidas en verde**. Que diga cuántas corridas no es adorno — ver B18.
+`prettier --check` sigue fallando en 40 archivos; sigue sin haber CI.
+
+**La regla que se rompió dos veces, y por qué la segunda fue distinta.** La
+primera vez se ejecutó la 8.5 con la 7 sin empezar: se salteó una precondición.
+La segunda no fue eso — fue seguir construyendo sobre una fase **ya declarada
+cerrada**, el mismo día, sin volver a abrirla. Es la falla más difícil de ver de
+las dos, porque no hay ningún momento en que alguien decida saltearse nada:
+simplemente el trabajo sigue y la declaración de cierre queda atrás, todavía
+escrita, ya falsa. Una fase cerrada tiene que quedar quieta; si se le toca la
+superficie, se reabre y se vuelve a cerrar con lo que haya aparecido.
+
+**Y lo que la evidencia de una auditoría vale.** `c1ba394` reescribió 767 líneas
+de `gateway.mjs`, y con eso ocho de las nueve líneas que la primera pasada citaba
+dejaron de apuntar a lo que citaban. Las de abajo están verificadas contra el
+árbol de hoy y van a caducar igual: lo que no caduca es el **test**, que es la
+única evidencia que se rompe sola cuando alguien deshace el arreglo. Por eso a
+partir de acá un bug no cuenta como cerrado sin uno, y sin haber comprobado que
+falla con el bug puesto.
 
 | Fase | Estado real | Qué falta exactamente |
 | --- | --- | --- |
-| 6.5 Presupuesto | **CERRADA 2026-08-26** | B1, B2 y B6 arreglados y con test de regresión. El criterio nuevo —agotar el tope, **reiniciar**, y seguir cortado— pasa. El reparto de fin de mes ya tenía cobertura |
-| 6.6 Cuota gratuita | **Cerrada** | Nada. Es el módulo mejor cubierto del repo (`quota.mjs`, 59 referencias en la suite). No persiste, y eso está declarado |
-| 7 Desmockear `economic` | **NO EMPEZADA** | Todo. `_mock: 'NO IMPLEMENTADO'` sigue en [qvac/manifest.mjs:100](qvac/manifest.mjs#L100), la wallet es `0x000…0`, y WDK **no está en `package.json`** — sólo en el spike. **D13 sin implementar.** Bloquea 9, 10 y 11 |
-| 8 Precio que rutea | **Parcial — sustituida** | D6 (carga) cerrado. El **precio no participa del ruteo en ningún lado**: el orden de [qvac/routing.mjs:105](qvac/routing.mjs#L105) es saturado → mock → carga → errorRate → latencia. El chat no muestra el costo. El commit "fase 8" entregó el selector de máquina del chat, que es otra cosa |
-| 8.5 Asistente externo | **CERRADA 2026-08-26** | La tesis se sostiene: el upstream entró como una fila del store y el resto funcionó solo. `e753e0a` cerró la línea del README y sumó 9 tests de integración contra un proveedor falso. B3, B4 y B7 arreglados, y el interruptor del opt-in está en `/node`, verificado en el navegador. Queda B5, que no es de esta fase |
-| 9–12, 11.5, Track V | No empezadas | 9 y 10 bloqueadas por 7 |
+| 6.5 Presupuesto | **REABIERTA** | B1 y B2 siguen cerrados y con test. Quedan tres: B6 tiene el arreglo pero **ningún test lo discrimina**, B13 (el tope no acota lo que se factura) y B14 (`finish_reason` miente cuando el tope recorta). La decisión de forma de B13 ya está tomada: tope de nodo con las keys como sub-topes, default USD 20 |
+| 6.6 Cuota gratuita | **Cerrada** | Nada. `quota.mjs` no lo tocó ninguno de los commits nuevos. No persiste, y eso está declarado |
+| 7 Desmockear `economic` | **NO EMPEZADA** | Todo, y sin un solo commit en tres pasadas. `_mock: 'NO IMPLEMENTADO'` sigue en [qvac/manifest.mjs:100](qvac/manifest.mjs#L100), la wallet es `0x000…0`, y WDK no está en `package.json`. **D13 sin implementar.** Bloquea 9, 10 y 11 |
+| 8 Precio que rutea | **Parcial** | `anunciadoComo` ([upstream.mjs:159](qvac/upstream.mjs#L159)) hizo que NVIDIA y OpenRouter entren al catálogo con el mismo nombre y por primera vez compitan de verdad. Pero el precio **sigue sin participar del score** —no hay ninguna mención de precio en `qvac/routing.mjs`— y el costo **sigue sin aparecer en el chat**, tampoco en `qvac/pages.mjs` |
+| 8.5 Asistente externo | **CERRADA 2026-08-26 (segunda vez)** | B11, B12, B15 y B16 arreglados, los cuatro con test verificado contra el bug puesto. B5 sigue acotado y con dueño (D20 / Fase 11), que es de otra fase |
+| 9–12, 11.5, Track V | No empezadas | 9 y 10 siguen bloqueadas por 7 |
 
-### Los bugs abiertos, y de qué fase es cada uno
-
-No van en una lista aparte: van **adentro de la fase que los tiene que cerrar**,
-y ninguna fase se declara cerrada con uno abierto. Esa es toda la corrección de
-método de esta sección — el resto del documento ya estaba bien.
+### Los bugs, y de qué fase es cada uno
 
 | # | Bug | Fase dueña | Evidencia |
 | --- | --- | --- | --- |
-| **B1** | **CERRADO 2026-08-26** — **El tope se resetea en cada reinicio.** La cuenta ES la API key ([gateway.mjs:877](qvac/gateway.mjs#L877)) y las keys viven sólo en memoria ([apikeys.mjs:15](qvac/apikeys.mjs#L15)). `budget.json` persiste `accounts[<id>]`, pero ese id no vuelve nunca: reiniciar el nodo es un tope nuevo, y el archivo acumula cuentas huérfanas que nadie va a reclamar | **6.5** | apikeys.mjs:15 |
-| **B2** | **CERRADO 2026-08-26** — **La liquidación depende de un campo del JSON del operador.** Sin `stream_options.include_usage` el proveedor no manda `usage`, y entonces se liquida con `promptTokens: 0` y con `completionTokens` = cantidad de **deltas SSE** ([gateway.mjs:1161](qvac/gateway.mjs#L1161)), que no son tokens. Sub-factura, en silencio, y el tope deja de cortar donde tiene que cortar. El test de `e753e0a` cubre el camino feliz —su proveedor falso **siempre** manda `usage`—, así que el modo de falla real sigue sin ejercitarse | **6.5** (lo ejerce 8.5) | gateway.mjs:1242 |
-| **B3** | **CERRADO 2026-08-26** — **Sin timeout ni cancelación en el camino externo.** `completar()` acepta `signal` y el gateway no se lo pasa ([gateway.mjs:1148](qvac/gateway.mjs#L1148)); el `req.on('close')` existe sólo en la rama P2P ([gateway.mjs:670](qvac/gateway.mjs#L670)). Se cancela el camino que gasta GPU ajena y no el que gasta dólares propios | **8.5** | gateway.mjs:1148 |
-| **B4** | **CERRADO 2026-08-26** — `...extraBody` se esparce **después** de `max_tokens` y de `stream` ([upstream.mjs:131](qvac/upstream.mjs#L131)): una config puede pisar el único número que acota la reserva, o poner `stream:false` y romper el parser | **8.5** | upstream.mjs:130 |
-| **B5** | **ACOTADO, no cerrado.** 3 reintentos con backoff sobre un POST sin clave de idempotencia. Desde B3 un corte propio —cliente ido, timeout— ya no se reintenta, y el reintento solo ocurre antes de leer una sola respuesta. Queda el caso real: si la conexión se cae *después* de que el proveedor empezó a generar, `fetch` rechaza y se reintenta mientras el primer intento se sigue facturando. El arreglo de verdad es el `nonce` de D20 | **11** (D20) | upstream.mjs:115 |
-| **B6** | **CERRADO 2026-08-26** — `estimarPromptTokens = chars/3` se documenta como cota superior y no lo es: en CJK y en varios alfabetos no latinos la relación se acerca a 1 token por carácter | **6.5** | [gateway.mjs:466](qvac/gateway.mjs#L466) |
-| **B7** | **CERRADO 2026-08-26** — `GET /v1/upstream` sin auth: expone proveedor, modelos, nombres de variables de entorno y si hay credencial | **8.5** | [gateway.mjs:1457](qvac/gateway.mjs#L1457) |
-| **B8** | **576 LOC de RAG huérfanas**: `rag.mjs`, `embeddings.mjs` y `rag-corpus.mjs` no las importa nadie, 0 tests, 0 endpoints. Y son exactamente la superficie que D21 mide | fuera de fase — hay que decidir | qvac/rag\*.mjs |
+| **B1** | **CERRADO.** El registro de keys persiste con escritura atómica ([apikeys.mjs:64-111](qvac/apikeys.mjs#L64-L111)) y está cableado: `apikeys.open` en [bin.mjs:465](bin.mjs#L465), `close` en [bin.mjs:604](bin.mjs#L604). Dos tests, y el segundo reinicia el nodo en el medio | 6.5 | [test/index.js:1440](test/index.js#L1440) |
+| **B2** | **CERRADO.** `include_usage: true` lo impone el código y la config no lo puede apagar; sin `usage` y con tokens se liquida por la reserva entera y se avisa. El test apaga el `usage` del proveedor falso y verifica 514 micros contra los 4 que habrían salido de contar deltas | 6.5 | [test/integracion.js:807](test/integracion.js#L807) |
+| **B3** | **CERRADO.** El `AbortController` del gateway llega al externo como `signal`, y los dos relojes viven en `completar()`. El test cuelga al proveedor y verifica que la reserva se liberó y no se cobró nada | 8.5 | [test/integracion.js:873](test/integracion.js#L873) |
+| **B4** | **CERRADO.** `extraBody` se esparce primero; `stream`, `stream_options` y `max_tokens` van después. El test manda una config hostil y verifica que gana el nodo en los tres campos | 8.5 | [test/integracion.js:652](test/integracion.js#L652) |
+| **B5** | **ACOTADO, no cerrado, y agravado por OpenRouter.** 3 reintentos con backoff sobre un POST sin clave de idempotencia ([upstream.mjs:330](qvac/upstream.mjs#L330)). Lo que cambió es contra qué corre: `esReintentable` incluye 429, y en el tier `:free` de OpenRouter el 429 **es** el límite del día — que se cuenta en requests, no en dólares, así que `budget.mjs` no lo ve ni lo puede acotar. Un solo request del usuario consume 3 del cupo diario antes de degradar. Y con el reloj en 180s (B16) la ventana de reserva comprometida por un request que reintenta tres veces es de ~9 minutos. El arreglo de verdad sigue siendo el `nonce` de D20 | **11** (D20) | [upstream.mjs:330](qvac/upstream.mjs#L330) |
+| **B6** | **ABIERTO: el arreglo está, el test no.** `estimarPromptTokens` cuenta bytes UTF-8 y divide por 2 ([gateway.mjs:502](qvac/gateway.mjs#L502)). Pero es privada del módulo y el único assert que la roza usa el prompt `'hola'`: 4 bytes y 4 caracteres, `ceil(4/3) = ceil(4/2) = 2`. **El test pasa idéntico con el bug puesto.** Falta uno con CJK, que es lo único que distingue el arreglo del bug | 6.5 | [test/integracion.js:860](test/integracion.js#L860) |
+| **B7** | **CERRADO.** `GET /v1/upstream` pide credencial, con test. Ver B12: lo que esa ruta protege se leía sin credencial en dos rutas de al lado, y eso ya no | 8.5 | [test/integracion.js:495](test/integracion.js#L495) |
+| **B8** | **574 LOC de RAG huérfanas** —no 576—: `rag.mjs` (180), `embeddings.mjs` (185), `rag-corpus.mjs` (209). Último commit sobre los tres: `ede441a`, anterior a las tres pasadas; nada del trabajo nuevo los tocó. 0 importadores fuera de sí mismos, 0 tests, 0 endpoints. Y quedaron peor: `upstreams.example.json` conserva un bloque `_embeddings` que documenta cómo configurarlos, y `leerConfig` sólo lee `upstreams`, `optIn` y `brokerEnabled` — ese bloque no lo parsea nadie | fuera de fase — hay que decidir | [qvac/rag.mjs:39](qvac/rag.mjs#L39) |
 | **B9** | El instalador —único canal de distribución— baja el `.exe` de `releases/latest` **sin checksum ni firma** | fuera de fase | [installer/PyrusLLM.bat:36](installer/PyrusLLM.bat#L36) |
-| **B10** | Sin CI: 311 asserts que corren sólo si alguien se acuerda de correrlos. Y `prettier --check` falla en 7 archivos ya versionados, así que `npm run lint` no está limpio ni siquiera antes de tocar nada | fuera de fase | — |
+| **B10** | Sin CI, y `prettier --check` pasó de fallar en 7 archivos a fallar en **40**. `npm run lint` no está limpio ni antes de tocar nada | fuera de fase | `npx prettier . --check` |
+| **B11** | **CERRADO — la credencial de un proveedor podía viajar al endpoint de otro.** `#headers()` escribía `Content-Type` y `Authorization` después de esparcir los `extraHeaders` del archivo, y el comentario declaraba que por eso no se podían pisar. Era falso: los nombres de header de HTTP no distinguen mayúsculas y un objeto de JavaScript sí, así que un `authorization` en minúscula —como lo escribe cualquiera que copie una línea de un curl— no colisionaba, sobrevivían los dos y `bare-fetch` los mandaba concatenados. Se normaliza a minúscula al entrar ([upstream.mjs:114](qvac/upstream.mjs#L114), [:202](qvac/upstream.mjs#L202)) y los nuestros se escriben también en minúscula ([:278](qvac/upstream.mjs#L278)): la colisión la resuelve el objeto, sin lista de nombres reservados que mantener. El test mira lo que recibió el **servidor**, no el objeto que armó el cliente. Verificado contra el bug puesto: `Bearer CREDENCIAL-DE-OTRO-PROVEEDOR, Bearer clave-de-prueba` | 8.5 | [test/integracion.js:732](test/integracion.js#L732) |
+| **B12** | **CERRADO — cerrar una de las tres puertas no cerraba nada.** B7 le puso credencial a `/v1/upstream` porque decía quién es el proveedor y si hay cuenta del otro lado. El argumento era correcto y estaba incompleto: `/v1/nodes` devolvía el mismo `operator` y además el `pricing`, y `/v1/routing-log` devolvía `costMicros` —el gasto en dólares, request por request— que es **más** de lo que `/v1/upstream` llega a decir. Las dos piden key ahora ([gateway.mjs:1555](qvac/gateway.mjs#L1555), [:1613](qvac/gateway.mjs#L1613)). `/v1/models` **no** se cierra —un cliente OpenAI tiene que descubrir el catálogo antes de tener credencial— y se le saca el dato en vez de la puerta ([:1543](qvac/gateway.mjs#L1543)). Las seis llamadas del panel pasaron a `authFetch`. Verificado en el nodo real: 401/401/200 sin credencial y los cuatro paneles cargando | 8.5 | [test/integracion.js:191](test/integracion.js#L191), [:208](test/integracion.js#L208) |
+| **B13** | **ABIERTO — el tope de USD 20 no acota lo que se factura.** La cuenta es la API key ([gateway.mjs:1192](qvac/gateway.mjs#L1192)) y cada cuenta nace con su propio tope ([budget.mjs:195](qvac/budget.mjs#L195)), pero la factura de OpenRouter es **una sola**, contra la única credencial del operador: N keys son N × USD 20 de plata real antes de que corte algo, y las keys se emiten solas. Además `setCap` no se llama desde ningún camino de producción, sólo desde tests, así que el tope tampoco se puede bajar sin editar el JSON a mano. **Decisión tomada**: tope de nodo evaluado además del de la key, default USD 20 —el que este documento ya promete—, con las keys como sub-topes | **6.5** | [budget.mjs:195](qvac/budget.mjs#L195) |
+| **B14** | **ABIERTO — `finish_reason` dice `stop` cuando el nodo recortó, y cuando no vino nada.** El tope de salida lo impone el nodo aunque el cliente no lo pida, el `finish_reason` del proveedor no se lee nunca, y el gateway escribe `'stop'` fijo ([gateway.mjs:1013](qvac/gateway.mjs#L1013)): una respuesta cortada a los 1024 tokens se reporta como terminación normal. Es la "condición no negociable" de D9, ya incumplida hoy sin esperar a la Fase 9. Y la guarda contra el 200 vacío está sólo en el camino con stream: sin `stream: true` el `return` la precede | **6.5** | [gateway.mjs:1013](qvac/gateway.mjs#L1013) |
+| **B15** | **CERRADO — un 200 no quería decir que salió bien.** El status viaja con los headers, o sea antes del primer token; lo que se rompe después viaja como un objeto `error` en el cuerpo, con el stream cerrándose limpio. El parser miraba `usage` y `delta.content` y nada más, así que ese error se descartaba: el generador terminaba normal, el gateway lo leía como `ok: true`, **cortaba el recorrido de candidatos sin probar el siguiente**, y el cliente recibía 200 con `content: ""` y `finish_reason: "stop"`. Ahora se tira ([upstream.mjs:415](qvac/upstream.mjs#L415)) y el detalle del proveedor va al log de este proceso, no al cliente. Dos tests: que no salga como exitoso, y que el recorrido siga | 8.5 | [test/integracion.js:960](test/integracion.js#L960), [:1018](test/integracion.js#L1018) |
+| **B16** | **CERRADO — el reloj del primer byte estaba calibrado al ras de una sola medición.** Los 60s salían de los 43,4s medidos el 2026-08-25; el 2026-08-26 el mismo endpoint tardó 58. Dos segundos de margen: el reloj que existe para atrapar a un proveedor colgado estaba por cortar a uno lento contestando bien. Ahora 180s ([upstream.mjs:73](qvac/upstream.mjs#L73)). Lo que importa no es el número sino de dónde sale: un tier gratis es una cola y un techo calibrado al ras de una corrida no es un techo. Los dos relojes pasan a tener test —no tenían ninguno—, incluidas las tres formas de escribirlos mal | 8.5 | [test/index.js:1233](test/index.js#L1233) |
+| **B17** | **ABIERTO, parcialmente verificado — el `.env` no está en la lista de exclusión del empaquetado.** `.env.example` le dice al operador que el archivo se lee del directorio de trabajo y `cargarEnv()` lo lee de `process.cwd()`. `.gitignore:34` lo cubre para git; `pear.stage.ignore` ([package.json:19-36](package.json#L19-L36)) **no lo menciona**, y `npm run seed` publica ese stage. **No verificado**: si `pear stage` consulta además el `.gitignore` por su cuenta. Si no lo hace, el canal OTA publica la credencial | fuera de fase | [package.json:19](package.json#L19) |
+| **B18** | **CERRADO — la suite fallaba ~1 de cada 2 corridas y se leía como "suite en verde".** El test del upstream caído ordenaba los candidatos con "el caído con MÁS capacidad libre" (8 contra 1), y eso no ordena nada: `cargaDe` es un cociente y 0/8 y 0/1 son los dos cero. Empatados en carga, `errorRate` y `lastMs`, decidía el `jitter: random()` de `routing.mjs`. Y el modo de falla era un `TypeError` sobre `e.intentos`, no un assert, así que no decía qué se había roto. **Toda afirmación de "suite en verde" anterior a este arreglo era una moneda**, incluidas las dos pasadas anteriores de esta sección. Ahora al vivo se le ocupa su único slot, que lo manda al fondo por la regla de saturados —determinística y anterior a cualquier azar—; 5 corridas completas seguidas en verde | fuera de fase | [test/integracion.js:1282](test/integracion.js#L1282) |
 
 ### El orden que se ejecuta desde acá
 
-1. ~~**Fase 6.5 — cerrar el DoD** (B1, B2, B6)~~ **HECHO 2026-08-26.** El
-   registro de keys persiste, así que la cuenta del ledger sobrevive al
-   proceso; un `usage` ausente se liquida por la reserva y avisa; y la
-   estimación del prompt cuenta bytes UTF-8. Los tres tienen test, y el de B1
-   **reinicia el nodo en el medio**, que es lo que le faltaba al DoD original.
-2. ~~**Fase 8.5 — cerrar el DoD**~~ **HECHO 2026-08-26.** B4 cayó junto con B2;
-   B3 le puso al camino externo la cancelación que el camino P2P ya tenía y dos
-   relojes configurables; B7 le puso credencial a la lectura del estado; y el
-   opt-in dejó de necesitar `curl`. B5 queda acotado y con dueño (D20 / Fase 11).
-3. **Fase 7** — la precondición que se salteó. Bloquea 9, 10 y 11.
+1. ~~**Fase 8.5 — cerrarla de nuevo** (B11, B12, B15, B16)~~ **HECHO 2026-08-26.**
+   La credencial de un proveedor ya no puede viajar a otro; las tres rutas que
+   exponían proveedor, precio y gasto están cerradas o sin el dato; un error
+   dentro de un 200 deja de verse como una respuesta exitosa y vacía; y el reloj
+   del primer byte dejó de estar dos segundos por encima de lo medido. Los
+   cuatro con test, y los cuatro verificados contra el bug puesto — que es el
+   criterio que B6 no cumple y por eso B6 sigue abierto.
+2. **Fase 6.5 — cerrar lo que se reabrió**: B13 (con la forma ya decidida), B14,
+   y el test con CJK que le falta a B6.
+3. **Fase 7** — la precondición que se saltea desde la primera pasada. Bloquea
+   9, 10 y 11.
 4. **Fase 8 — la mitad que falta**: el precio en el score y el costo en el chat.
 5. **Fase 9** en adelante, como estaba escrito.
 
-**Siguiente:** el punto 3, la Fase 7. Los dos primeros están hechos, así que ya
-no queda nada abierto detrás — que era la condición para poder abrir algo nuevo.
-
-La 8.5 va antes que la 7 y que la 8 **sólo porque ya está escrita y a medias**.
-Cerrar lo abierto antes de abrir lo siguiente es la regla; no es una promoción
-de la fase.
+**Siguiente:** el punto 2. Y una regla nueva, que sale de B18 y no de ninguna
+fase: **una corrida verde no es evidencia de nada si el test no falla cuando se
+quita el arreglo, y una suite no está verde hasta que lo esté varias veces
+seguidas.** Las dos pasadas anteriores de esta sección afirmaron "suite en
+verde" sobre una suite que fallaba la mitad de las veces.
 
 ---
 
