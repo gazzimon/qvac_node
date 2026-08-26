@@ -963,7 +963,9 @@ async function handleChatConReintentos({
       if (!degradado) {
         degradado = {
           de: cand.id,
-          motivo: `presupuesto agotado: quedan ${costs.formatUSD(reserva.remaining)} de un tope de ${costs.formatUSD(reserva.cap)}`
+          motivo:
+            `${reserva.scope === 'nodo' ? 'presupuesto del nodo agotado' : 'presupuesto agotado'}: ` +
+            `quedan ${costs.formatUSD(reserva.remaining)} de un tope de ${costs.formatUSD(reserva.cap)}`
         }
       }
       intentos.push({
@@ -1131,7 +1133,11 @@ async function handleChatConReintentos({
       return sendError(
         res,
         402,
-        `presupuesto agotado: quedan ${costs.formatUSD(sinSaldo.remaining)} de un tope de ${costs.formatUSD(sinSaldo.cap)}`,
+        // B13 — se dice CUAL de los dos topes se agoto. "No te alcanza" sin
+        // decir cual techo tocaste no es accionable: bajarle el tope a una key
+        // no arregla un nodo sin saldo, y al reves tampoco.
+        `${sinSaldo.scope === 'nodo' ? 'presupuesto del nodo agotado' : 'presupuesto agotado'}: ` +
+          `quedan ${costs.formatUSD(sinSaldo.remaining)} de un tope de ${costs.formatUSD(sinSaldo.cap)}`,
         { type: 'insufficient_quota', code: 'budget_exhausted' }
       )
     }
@@ -1752,6 +1758,7 @@ async function onRequest(req, res) {
       if (motivo) return sendError(res, 401, motivo)
 
       const uso = budget.usage(cuentaDe(req))
+      const nodo = budget.nodeUsage()
       return sendJson(res, 200, {
         period: uso.period,
         // Los micros son la verdad; los strings son para que el panel no tenga
@@ -1764,7 +1771,20 @@ async function onRequest(req, res) {
         spent: costs.formatUSD(uso.spent),
         reserved: costs.formatUSD(uso.reserved),
         cap: costs.formatUSD(uso.cap),
-        remaining: costs.formatUSD(uso.remaining)
+        remaining: costs.formatUSD(uso.remaining),
+        // B13 — el tope del NODO va al lado del de la cuenta, porque el que
+        // corta de verdad puede ser cualquiera de los dos. Mostrar solo el de
+        // la cuenta hacia que un cliente con saldo de sobra viera "me quedan
+        // USD 20" y recibiera un 402 igual, sin nada que lo explicara.
+        node: {
+          spent_micros: nodo.spent,
+          reserved_micros: nodo.reserved,
+          cap_micros: nodo.cap,
+          remaining_micros: nodo.remaining,
+          spent: costs.formatUSD(nodo.spent),
+          cap: costs.formatUSD(nodo.cap),
+          remaining: costs.formatUSD(nodo.remaining)
+        }
       })
     }
 

@@ -1879,6 +1879,114 @@ test('la api key sobrevive al reinicio: sin eso la cuenta del ledger no existe',
   tmp.limpiar()
 })
 
+// ---------------------------------------------------------------------------
+// B13 — el tope que acota la FACTURA, no a un cliente
+//
+// El tope por cuenta está bien como granularidad: se quiere poder cortarle a un
+// bot sin cortarle a otro. Pero no acotaba nada de lo que se paga — la factura
+// del proveedor externo es UNA SOLA, contra la única credencial del operador.
+// Con N keys emitidas el techo real eran N × USD 20 de plata de verdad, y las
+// keys se emiten solas: una por nodo al apretar "Conectar".
+//
+// Ahora hay dos topes y un request pasa sólo si entra en LOS DOS.
+// ---------------------------------------------------------------------------
+
+test('B13: tres keys no son tres topes; el del nodo las acota a todas', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  budget.reset()
+
+  // Cada key con su propio tope holgado. Antes de B13, esto era USD 30 de techo
+  // real contra una factura que es una sola.
+  const keys = ['bot-telegram', 'open-webui', 'terminal']
+  for (const k of keys) budget.setCap(k, budget.usdAMicros ? budget.usdAMicros(10) : 10_000_000)
+  budget.setNodeCap(12_000_000) // USD 12 para toda la maquina
+
+  t.is(budget.nodeCap(), 12_000_000)
+
+  // Dos clientes gastan USD 5 cada uno: entran en su tope y en el del nodo.
+  for (const k of keys.slice(0, 2)) {
+    const r = budget.reserve(k, 5_000_000)
+    t.ok(r.ok, k + ' entra: le sobra a su cuenta y al nodo')
+    budget.settle(r.id, 5_000_000)
+  }
+
+  const agregado = budget.nodeUsage()
+  t.is(agregado.spent, 10_000_000, 'el nodo lleva la suma de todas las cuentas')
+  t.is(agregado.remaining, 2_000_000, 'y le quedan USD 2, no USD 10')
+
+  // El tercero tiene USD 10 propios sin tocar. Igual NO pasa: la maquina ya no
+  // los tiene. Esto es B13 entero.
+  const tercero = budget.reserve('terminal', 5_000_000)
+  t.is(tercero.ok, false, 'su cuenta le alcanza, la factura del nodo no')
+  t.is(
+    tercero.scope,
+    'nodo',
+    'y se dice CUAL tope se agoto: bajarle el tope a una key no arregla esto'
+  )
+  t.is(budget.usage('terminal').spent, 0, 'sin haber gastado un peso de lo suyo')
+
+  // Lo que sí entra en lo que queda, pasa.
+  const chico = budget.reserve('terminal', 1_500_000)
+  t.ok(chico.ok, 'el tope del nodo no bloquea: acota')
+  budget.settle(chico.id, 1_500_000)
+
+  budget.reset()
+})
+
+test('B13: el tope de cuenta sigue cortando aunque al nodo le sobre', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  budget.reset()
+
+  // La otra dirección, y es la que hace que las keys sigan sirviendo para algo:
+  // un cliente acotado no puede gastarse el saldo de la máquina entera.
+  budget.setNodeCap(20_000_000)
+  budget.setCap('bot-ruidoso', 1_000_000) // USD 1 para este
+
+  const r = budget.reserve('bot-ruidoso', 2_000_000)
+  t.is(r.ok, false, 'su tope corta primero')
+  t.is(r.scope, 'cuenta', 'y el motivo apunta a la cuenta, no al nodo')
+  t.ok(budget.nodeUsage().remaining > 10_000_000, 'al nodo le sobraba de sobra')
+
+  budget.reset()
+})
+
+test('B13: el tope del nodo sobrevive al reinicio, y un ledger viejo no queda sin techo', async (t) => {
+  const budget = await import('../qvac/budget.mjs')
+  const fs = await import('bare-fs')
+  const path = await import('bare-path')
+  const tmp = dirTemporalPelado()
+
+  budget.open(tmp.dir)
+  budget.setNodeCap(3_000_000)
+  const r = budget.reserve('alguien', 1_000_000)
+  budget.settle(r.id, 1_000_000)
+  budget.close()
+
+  budget.open(tmp.dir)
+  t.is(budget.nodeCap(), 3_000_000, 'el tope del nodo persiste')
+  t.is(budget.nodeUsage().spent, 1_000_000, 'y el gasto agregado tambien')
+  budget.close()
+
+  // Un budget.json escrito ANTES de B13 no tiene el campo. No puede significar
+  // "sin tope": un archivo viejo dejaria a la maquina gastando sin techo, que
+  // es justo el bug que esto cierra.
+  const ruta = path.default.join(tmp.dir, 'budget.json')
+  const crudo = JSON.parse(fs.default.readFileSync(ruta, 'utf8'))
+  delete crudo.nodeCap
+  fs.default.writeFileSync(ruta, JSON.stringify(crudo))
+
+  budget.open(tmp.dir)
+  t.is(
+    budget.nodeCap(),
+    budget.TOPE_NODO_DEFAULT_MICROS,
+    'un ledger sin el campo toma el default, no infinito'
+  )
+  budget.close()
+
+  budget.reset()
+  tmp.limpiar()
+})
+
 test('agotado el tope, reiniciar el nodo NO lo repone', async (t) => {
   const apikeys = await import('../qvac/apikeys.mjs')
   const budget = await import('../qvac/budget.mjs')

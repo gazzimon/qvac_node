@@ -1702,16 +1702,32 @@ ${CONNECT_JS}
         if (!r.ok) return
         const b = await r.json()
 
-        document.getElementById('b-remaining').textContent = b.remaining + ' left'
+        // B13 — hay DOS topes y el que corta puede ser cualquiera de los dos.
+        // Se muestra el MENOR de los dos remanentes, porque ese es el que
+        // manda: con el de la cuenta en USD 20 y el del nodo en USD 2, decir
+        // "te quedan 20" es prometer diecinueve que no existen.
+        const nodo = b.node || {}
+        const nodoManda =
+          nodo.remaining_micros !== undefined && nodo.remaining_micros < b.remaining_micros
+        const restante = nodoManda ? nodo.remaining : b.remaining
+        document.getElementById('b-remaining').textContent = restante + ' left'
 
         // El porcentaje se calcula sobre el tope, no sobre lo que queda: con
         // el tope en cero no hay division por cero ni una barra al 100%.
-        const usado = b.cap_micros > 0 ? (b.spent_micros / b.cap_micros) * 100 : 0
+        const capMicros = nodoManda ? nodo.cap_micros : b.cap_micros
+        const spentMicros = nodoManda ? nodo.spent_micros : b.spent_micros
+        const usado = capMicros > 0 ? (spentMicros / capMicros) * 100 : 0
         document.getElementById('b-bar').style.width = Math.min(100, usado).toFixed(1) + '%'
 
         document.getElementById('b-detail').textContent =
-          b.spent + ' spent of ' + b.cap + ' this period (' + b.period + ')' +
-          (b.reserved_micros > 0 ? ' · ' + b.reserved + ' committed to requests in flight' : '')
+          (nodoManda ? nodo.spent + ' spent of ' + nodo.cap + ' on this machine' : b.spent + ' spent of ' + b.cap + ' by this client') +
+          ' this period (' + b.period + ')' +
+          (b.reserved_micros > 0 ? ' · ' + b.reserved + ' committed to requests in flight' : '') +
+          (nodoManda
+            ? ' · your client cap is ' + b.cap + ', but the machine total is what cuts first'
+            : nodo.cap
+              ? ' · machine total: ' + nodo.spent + ' of ' + nodo.cap
+              : '')
       } catch (e) { /* el poll siguiente reintenta */ }
     }
 

@@ -46,6 +46,22 @@ import { usdAMicros } from './costs.mjs'
 // El tope por default, en la unidad de costs.mjs. USD 20 por cuenta y por mes.
 export const TOPE_DEFAULT_MICROS = usdAMicros(20)
 
+// B13 — EL TOPE DEL NODO, y es el que de verdad acota la factura.
+//
+// El tope de arriba es POR CUENTA, y la cuenta es la API key. Eso esta bien
+// como granularidad -- se quiere poder cortarle a un bot sin cortarle a otro --
+// pero no acota nada de lo que se paga: la factura del proveedor externo es UNA
+// SOLA, contra la unica credencial del operador. Con N keys emitidas, el techo
+// real eran N x USD 20 de plata de verdad, y las keys se emiten solas (una por
+// nodo al apretar "Conectar").
+//
+// Asi que hay dos topes y se evaluan LOS DOS: el de la cuenta dice cuanto puede
+// gastar ESE cliente, el del nodo dice cuanto puede gastar esta maquina en
+// total. Un request pasa si entra en los dos. Las keys quedan como SUB-TOPES de
+// este, que es la forma que el roadmap ya prometia cuando decia "el tope de
+// USD 20".
+export const TOPE_NODO_DEFAULT_MICROS = usdAMicros(20)
+
 const VERSION = 1
 
 let estado = null // { version, period, accounts, pending, history }
@@ -66,7 +82,14 @@ export function periodoDe(now = Date.now()) {
 }
 
 function estadoVacio(now) {
-  return { version: VERSION, period: periodoDe(now), accounts: {}, pending: {}, history: [] }
+  return {
+    version: VERSION,
+    period: periodoDe(now),
+    accounts: {},
+    pending: {},
+    history: [],
+    nodeCap: TOPE_NODO_DEFAULT_MICROS
+  }
 }
 
 // Se llama en CADA operacion, no con un timer. Un timer no corre si el proceso
@@ -142,7 +165,13 @@ export function open(dir, { now = Date.now() } = {}) {
           period: typeof crudo.period === 'string' ? crudo.period : periodoDe(now),
           accounts: crudo.accounts && typeof crudo.accounts === 'object' ? crudo.accounts : {},
           pending: crudo.pending && typeof crudo.pending === 'object' ? crudo.pending : {},
-          history: Array.isArray(crudo.history) ? crudo.history : []
+          history: Array.isArray(crudo.history) ? crudo.history : [],
+          // Un ledger escrito antes de B13 no tiene el campo. Se toma el
+          // default en vez de tratarlo como "sin tope": un archivo viejo no
+          // puede significar que la maquina gaste sin techo.
+          nodeCap: Number.isFinite(Number(crudo.nodeCap))
+            ? Math.max(0, Math.floor(Number(crudo.nodeCap)))
+            : TOPE_NODO_DEFAULT_MICROS
         }
       } else if (crudo) {
         console.error(`[budget] ${archivo} es de otra version, se arranca de cero`)
@@ -211,6 +240,42 @@ export function capOf(accountId) {
   return cuentaDe(accountId).cap
 }
 
+// B13 — el tope agregado de la maquina. Se lee y se fija aparte del de cuenta
+// porque son dos cosas distintas: uno acota a un cliente, el otro acota la
+// factura.
+export function setNodeCap(micros) {
+  const n = Math.floor(Number(micros))
+  asegurarAbierto().nodeCap = Number.isFinite(n) && n >= 0 ? n : 0
+  guardar()
+  return estado.nodeCap
+}
+
+export function nodeCap() {
+  const s = asegurarAbierto()
+  return Number.isFinite(s.nodeCap) ? s.nodeCap : TOPE_NODO_DEFAULT_MICROS
+}
+
+// Lo gastado y lo comprometido por TODAS las cuentas del nodo. Es el numero que
+// se compara contra el tope de nodo, y el que se parece a la factura.
+export function nodeUsage({ now = Date.now() } = {}) {
+  asegurarAbierto()
+  if (rotarSiCambioElMes(now)) guardar()
+
+  let spent = 0
+  for (const c of Object.values(estado.accounts)) spent += Number(c.spent) || 0
+  let reserved = 0
+  for (const r of Object.values(estado.pending)) reserved += Number(r.micros) || 0
+
+  const cap = nodeCap()
+  return {
+    period: estado.period,
+    spent,
+    reserved,
+    cap,
+    remaining: Math.max(0, cap - spent - reserved)
+  }
+}
+
 // Cuanto hay comprometido ahora mismo por requests en vuelo de esta cuenta.
 function reservadoDe(accountId) {
   let total = 0
@@ -258,13 +323,30 @@ export function reserve(accountId, micros, { now = Date.now() } = {}) {
   // `if` alrededor de cada llamada.
   if (monto === 0) return { ok: true, id: null, micros: 0 }
 
+  // Los DOS topes, y el request pasa solo si entra en ambos (B13). El orden no
+  // cambia el resultado pero si el mensaje: se reporta el que se agoto de
+  // verdad, porque "no te alcanza" sin decir cual techo tocaste no es
+  // accionable -- bajarle el tope a una key no arregla un nodo sin saldo.
   const estadoCuenta = usage(accountId, { now })
   if (monto > estadoCuenta.remaining) {
     return {
       ok: false,
       reason: 'presupuesto agotado',
+      scope: 'cuenta',
       remaining: estadoCuenta.remaining,
       cap: estadoCuenta.cap,
+      needed: monto
+    }
+  }
+
+  const estadoNodo = nodeUsage({ now })
+  if (monto > estadoNodo.remaining) {
+    return {
+      ok: false,
+      reason: 'presupuesto del nodo agotado',
+      scope: 'nodo',
+      remaining: estadoNodo.remaining,
+      cap: estadoNodo.cap,
       needed: monto
     }
   }
