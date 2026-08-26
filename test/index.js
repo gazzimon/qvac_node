@@ -443,6 +443,103 @@ test('un economic invalido no se firma: firmarlo es mandar a pagar a cualquier l
 })
 
 // ---------------------------------------------------------------------------
+// El manifiesto contra SU PROPIO schema congelado
+//
+// El DoD de la Fase 7 pide que el manifiesto valide contra manifest-v0.json sin
+// tocar el schema, y hasta ahora eso no lo comprobaba NADIE: `grep manifest-v0`
+// sobre el arbol devuelve comentarios y nada mas. El schema era un documento,
+// no un chequeo, y por eso lo de abajo estuvo roto sin que se notara.
+//
+// Las restricciones se leen DEL archivo, no se copian aca: un test que repite a
+// mano lo que dice el schema deja de proteger el dia que el schema cambie.
+// ---------------------------------------------------------------------------
+
+// Validador minimo, solo de lo que este schema usa. No es un JSON-Schema
+// completo y no pretende serlo: hay cero dependencias de validacion en el arbol
+// y sumar una para esto seria pagar caro un chequeo de veinte lineas.
+function violacionesDe(bloque, esquema) {
+  const malas = []
+  for (const req of esquema.required || []) {
+    if (!(req in bloque)) malas.push('falta el required "' + req + '"')
+  }
+  if (esquema.additionalProperties === false) {
+    for (const k of Object.keys(bloque)) {
+      if (!(k in esquema.properties)) malas.push('propiedad extra: "' + k + '"')
+    }
+  }
+  for (const [k, v] of Object.entries(bloque)) {
+    const def = esquema.properties[k]
+    if (!def) continue
+    if (def.pattern && !new RegExp(def.pattern).test(String(v))) {
+      malas.push(k + ' no matchea el pattern')
+    }
+    if (def.enum && !def.enum.includes(v)) malas.push(k + ' fuera del enum')
+    if (def.type === 'array') {
+      if (!Array.isArray(v)) malas.push(k + ' no es un array')
+      else {
+        if (def.minItems && v.length < def.minItems) malas.push(k + ': menos de ' + def.minItems)
+        if (def.maxItems && v.length > def.maxItems) malas.push(k + ': mas de ' + def.maxItems)
+        for (const item of v) {
+          const i = def.items || {}
+          if (i.pattern && !new RegExp(i.pattern).test(String(item)))
+            malas.push(k + ': item invalido "' + item + '"')
+          if (i.minLength && String(item).length < i.minLength)
+            malas.push(k + ': item corto "' + item + '"')
+          if (i.maxLength && String(item).length > i.maxLength)
+            malas.push(k + ': item largo "' + item + '"')
+        }
+      }
+    }
+  }
+  return malas
+}
+
+test('el economic con wallet valida contra el schema congelado, sin tocarlo', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const { createIdentity, buildManifest } = await manifestMod()
+  const fs = await import('bare-fs')
+  const tmp = dirWalletTmp()
+
+  const schema = JSON.parse(fs.default.readFileSync('manifest-v0.json', 'utf8'))
+  const esquemaEconomic = schema.properties.economic
+
+  const w = await wallet.crear(tmp.dir, 'pass')
+  const id = createIdentity()
+  const conWallet = buildManifest({
+    publicKey: id.publicKey,
+    models: MODELS,
+    economic: wallet.economicDe(w.address)
+  })
+
+  t.alike(
+    violacionesDe(conWallet.economic, esquemaEconomic),
+    [],
+    'el bloque economic real valida contra manifest-v0.json'
+  )
+  t.is(conWallet.schemaVersion, schema.properties.schemaVersion.const, 'sin subir schemaVersion')
+
+  // Y el mock NO valida, que es un problema viejo y conocido: D2 pide marcar el
+  // mock donde se vea, `economic` declara additionalProperties:false, y las dos
+  // reglas chocan. Se fija ACA para que el dia que alguien lo arregle -- o lo
+  // rompa mas -- el test lo diga, en vez de que siga sin mirarlo nadie.
+  //
+  // `directory` tiene exactamente el mismo choque y viene de antes de la Fase 7.
+  const sinWallet = buildManifest({ publicKey: id.publicKey, models: MODELS })
+  t.alike(
+    violacionesDe(sinWallet.economic, esquemaEconomic),
+    ['propiedad extra: "_mock"'],
+    'sin wallet la UNICA violacion es la marca de mock (B19), y ninguna otra'
+  )
+  t.alike(
+    violacionesDe(sinWallet.directory, schema.properties.directory),
+    ['propiedad extra: "_mock"'],
+    'y al directorio le pasa lo mismo desde antes de esta fase'
+  )
+
+  tmp.limpiar()
+})
+
+// ---------------------------------------------------------------------------
 // Manifiesto: el directorio deja de ser mock cuando hay un Hyperbee detras
 // ---------------------------------------------------------------------------
 

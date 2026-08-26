@@ -39,17 +39,17 @@ agente.
 
 Lo que ya está construido y sobre lo que se apoya todo lo que sigue:
 
-| Pieza | Estado | Por qué importa acá |
-| --- | --- | --- |
-| `handleChat` en [qvac/gateway.mjs:702](qvac/gateway.mjs#L702) | Cerrado | **Único plano HTTP del sistema.** Es el punto de inserción del 402, y es uno solo. |
-| Bloque `economic` en [qvac/manifest.mjs](qvac/manifest.mjs) | Mock marcado (`_mock`) | El schema **ya previó WDK**. No hay que subir `schemaVersion`. |
-| [manifest-v0.json:84](manifest-v0.json#L84) | Congelado | Dice textualmente que `economic.walletAddress` es la identidad de COBRO y firma los recibos, y que es **distinta** de la clave de red. El diseño ya está escrito. |
-| `pushLog` en [qvac/gateway.mjs:855](qvac/gateway.mjs#L855) | Cerrado | Ya cuenta `tokens`, `ttftMs`, `ms` por request. **La medición del cobro ya existe**, falta ponerle precio. |
-| [qvac/apikeys.mjs](qvac/apikeys.mjs) | En memoria, sin scopes | Auth actual por `Authorization: Bearer`. x402 no lo reemplaza: convive (D16). |
-| Protomux en [qvac/swarm.mjs](qvac/swarm.mjs) | Cerrado | `manifest:announce` / `node:status` / `chat:request`. Sumar tipos de pago es agregar casos, no protocolo nuevo. |
-| [qvac/identity.mjs](qvac/identity.mjs) | Cerrado | Guarda la semilla de red **en claro**. Suficiente para una clave de red; insuficiente para una wallet (D13). |
-| [old/PROMPT_CAPA-AGENTICA_DESCARTADO.md](old/PROMPT_CAPA-AGENTICA_DESCARTADO.md) | Diseñado, **no implementado** | La capa agéntica está pensada entera y descartada solo por elegibilidad del hackathon. Es recuperable tal cual (Fase 11). |
-| [deck/TrustGap.dc.html](deck/TrustGap.dc.html) y [deck/Enclave.dc.html](deck/Enclave.dc.html) | Escrito | Ya plantean el problema del centro que ve las dos puntas y la forma del trabajo confidencial. Es la base del Track V. |
+| Pieza                                                                                         | Estado                        | Por qué importa acá                                                                                                                                               |
+| --------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `handleChat` en [qvac/gateway.mjs:702](qvac/gateway.mjs#L702)                                 | Cerrado                       | **Único plano HTTP del sistema.** Es el punto de inserción del 402, y es uno solo.                                                                                |
+| Bloque `economic` en [qvac/manifest.mjs](qvac/manifest.mjs)                                   | Mock marcado (`_mock`)        | El schema **ya previó WDK**. No hay que subir `schemaVersion`.                                                                                                    |
+| [manifest-v0.json:84](manifest-v0.json#L84)                                                   | Congelado                     | Dice textualmente que `economic.walletAddress` es la identidad de COBRO y firma los recibos, y que es **distinta** de la clave de red. El diseño ya está escrito. |
+| `pushLog` en [qvac/gateway.mjs:855](qvac/gateway.mjs#L855)                                    | Cerrado                       | Ya cuenta `tokens`, `ttftMs`, `ms` por request. **La medición del cobro ya existe**, falta ponerle precio.                                                        |
+| [qvac/apikeys.mjs](qvac/apikeys.mjs)                                                          | En memoria, sin scopes        | Auth actual por `Authorization: Bearer`. x402 no lo reemplaza: convive (D16).                                                                                     |
+| Protomux en [qvac/swarm.mjs](qvac/swarm.mjs)                                                  | Cerrado                       | `manifest:announce` / `node:status` / `chat:request`. Sumar tipos de pago es agregar casos, no protocolo nuevo.                                                   |
+| [qvac/identity.mjs](qvac/identity.mjs)                                                        | Cerrado                       | Guarda la semilla de red **en claro**. Suficiente para una clave de red; insuficiente para una wallet (D13).                                                      |
+| [old/PROMPT_CAPA-AGENTICA_DESCARTADO.md](old/PROMPT_CAPA-AGENTICA_DESCARTADO.md)              | Diseñado, **no implementado** | La capa agéntica está pensada entera y descartada solo por elegibilidad del hackathon. Es recuperable tal cual (Fase 11).                                         |
+| [deck/TrustGap.dc.html](deck/TrustGap.dc.html) y [deck/Enclave.dc.html](deck/Enclave.dc.html) | Escrito                       | Ya plantean el problema del centro que ve las dos puntas y la forma del trabajo confidencial. Es la base del Track V.                                             |
 
 **Deudas declaradas en el README que este roadmap cierra:** `economic` mock, el
 precio no comparable, el precio ausente del ruteo, y la Fase 6 sin dueño.
@@ -86,7 +86,7 @@ alcanzable. Entonces hay **dos planos de pago distintos y no se mezclan**:
 Confundirlos lleva a intentar meter HTTP dentro del canal P2P, que es
 precisamente lo que D1 descartó por escrito.
 
-### R3 — El costo real se conoce *después* de responder
+### R3 — El costo real se conoce _después_ de responder
 
 El esquema `exact` de x402 cobra un monto fijo declarado **antes**. Un LLM no
 sabe cuántos tokens va a generar. Esto no tiene solución elegante: hay que
@@ -107,8 +107,8 @@ centralizada**. Eso rompe tres supuestos de todo lo anterior:
 
 1. **El costo se paga en fiat y se cobra en USD₮.** El operador adelanta la
    plata y la recupera a fin de mes: eso es riesgo de crédito, no de protocolo.
-2. **El prompt sale de la red.** La promesa del README —*"ninguna corporación
-   centralizada agrega tus datos a escala"*— no aplica a ese camino, y hay que
+2. **El prompt sale de la red.** La promesa del README —_"ninguna corporación
+   centralizada agrega tus datos a escala"_— no aplica a ese camino, y hay que
    decirlo en la respuesta misma, no en una nota al pie.
 3. **El tope de USD 20 no es un descuento, es un corte.** Un tope que se aplica
    al facturar es un descuento: el gasto ya ocurrió y alguien lo pagó. Para que
@@ -150,37 +150,38 @@ dejaron de apuntar a lo que citaban. Las de abajo están verificadas contra el
 partir de acá un bug no cuenta como cerrado sin uno, y sin haber comprobado que
 falla con el bug puesto.
 
-| Fase | Estado real | Qué falta exactamente |
-| --- | --- | --- |
-| 6.5 Presupuesto | **CONGELADA 2026-08-26** | Por decisión del dueño, no se trabaja por ahora. B1 y B2 cerrados y con test; quedan abiertos **B6**, **B13** y **B14**. Congelada no es cerrada: el mecanismo de corte es lo que heredan la 9, la 10 y la 11, así que los tres se heredan con él — B14 es la condición no negociable de D9 y la Fase 9 la va a necesitar. La forma de B13 ya está decidida |
-| 6.6 Cuota gratuita | **Cerrada** | Nada. `quota.mjs` no lo tocó ninguno de los commits nuevos. No persiste, y eso está declarado |
-| 7 Desmockear `economic` | **NO EMPEZADA** | Todo, y sin un solo commit en tres pasadas. `_mock: 'NO IMPLEMENTADO'` sigue en [qvac/manifest.mjs:100](qvac/manifest.mjs#L100), la wallet es `0x000…0`, y WDK no está en `package.json`. **D13 sin implementar.** Bloquea 9, 10 y 11 |
-| 8 Precio que rutea | **Parcial** | `anunciadoComo` ([upstream.mjs:159](qvac/upstream.mjs#L159)) hizo que NVIDIA y OpenRouter entren al catálogo con el mismo nombre y por primera vez compitan de verdad. Pero el precio **sigue sin participar del score** —no hay ninguna mención de precio en `qvac/routing.mjs`— y el costo **sigue sin aparecer en el chat**, tampoco en `qvac/pages.mjs` |
-| 8.5 Asistente externo | **CERRADA 2026-08-26 (segunda vez)** | B11, B12, B15 y B16 arreglados, los cuatro con test verificado contra el bug puesto. B5 sigue acotado y con dueño (D20 / Fase 11), que es de otra fase |
-| 9–12, 11.5, Track V | No empezadas | 9 y 10 siguen bloqueadas por 7 |
+| Fase                    | Estado real                          | Qué falta exactamente                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 6.5 Presupuesto         | **CONGELADA 2026-08-26**             | Por decisión del dueño, no se trabaja por ahora. B1 y B2 cerrados y con test; quedan abiertos **B6**, **B13** y **B14**. Congelada no es cerrada: el mecanismo de corte es lo que heredan la 9, la 10 y la 11, así que los tres se heredan con él — B14 es la condición no negociable de D9 y la Fase 9 la va a necesitar. La forma de B13 ya está decidida |
+| 6.6 Cuota gratuita      | **Cerrada**                          | Nada. `quota.mjs` no lo tocó ninguno de los commits nuevos. No persiste, y eso está declarado                                                                                                                                                                                                                                                               |
+| 7 Desmockear `economic` | **CERRADA 2026-08-26**               | El manifiesto firmado lleva la dirección de cobro real que genera WDK. D13 implementado: seed propia, nunca derivada de la de red, cifrada con Argon2id + secretbox. El `_mock` queda sólo para un nodo SIN wallet, y ahí significa "no declara dirección de cobro", no "no implementado". Desbloquea 9, 10 y 11                                            |
+| 8 Precio que rutea      | **Parcial**                          | `anunciadoComo` ([upstream.mjs:159](qvac/upstream.mjs#L159)) hizo que NVIDIA y OpenRouter entren al catálogo con el mismo nombre y por primera vez compitan de verdad. Pero el precio **sigue sin participar del score** —no hay ninguna mención de precio en `qvac/routing.mjs`— y el costo **sigue sin aparecer en el chat**, tampoco en `qvac/pages.mjs` |
+| 8.5 Asistente externo   | **CERRADA 2026-08-26 (segunda vez)** | B11, B12, B15 y B16 arreglados, los cuatro con test verificado contra el bug puesto. B5 sigue acotado y con dueño (D20 / Fase 11), que es de otra fase                                                                                                                                                                                                      |
+| 9–12, 11.5, Track V     | No empezadas                         | 9 y 10 siguen bloqueadas por 7                                                                                                                                                                                                                                                                                                                              |
 
 ### Los bugs, y de qué fase es cada uno
 
-| # | Bug | Fase dueña | Evidencia |
-| --- | --- | --- | --- |
-| **B1** | **CERRADO.** El registro de keys persiste con escritura atómica ([apikeys.mjs:64-111](qvac/apikeys.mjs#L64-L111)) y está cableado: `apikeys.open` en [bin.mjs:465](bin.mjs#L465), `close` en [bin.mjs:604](bin.mjs#L604). Dos tests, y el segundo reinicia el nodo en el medio | 6.5 | [test/index.js:1440](test/index.js#L1440) |
-| **B2** | **CERRADO.** `include_usage: true` lo impone el código y la config no lo puede apagar; sin `usage` y con tokens se liquida por la reserva entera y se avisa. El test apaga el `usage` del proveedor falso y verifica 514 micros contra los 4 que habrían salido de contar deltas | 6.5 | [test/integracion.js:807](test/integracion.js#L807) |
-| **B3** | **CERRADO.** El `AbortController` del gateway llega al externo como `signal`, y los dos relojes viven en `completar()`. El test cuelga al proveedor y verifica que la reserva se liberó y no se cobró nada | 8.5 | [test/integracion.js:873](test/integracion.js#L873) |
-| **B4** | **CERRADO.** `extraBody` se esparce primero; `stream`, `stream_options` y `max_tokens` van después. El test manda una config hostil y verifica que gana el nodo en los tres campos | 8.5 | [test/integracion.js:652](test/integracion.js#L652) |
-| **B5** | **ACOTADO, no cerrado, y agravado por OpenRouter.** 3 reintentos con backoff sobre un POST sin clave de idempotencia ([upstream.mjs:330](qvac/upstream.mjs#L330)). Lo que cambió es contra qué corre: `esReintentable` incluye 429, y en el tier `:free` de OpenRouter el 429 **es** el límite del día — que se cuenta en requests, no en dólares, así que `budget.mjs` no lo ve ni lo puede acotar. Un solo request del usuario consume 3 del cupo diario antes de degradar. Y con el reloj en 180s (B16) la ventana de reserva comprometida por un request que reintenta tres veces es de ~9 minutos. El arreglo de verdad sigue siendo el `nonce` de D20 | **11** (D20) | [upstream.mjs:330](qvac/upstream.mjs#L330) |
-| **B6** | **ABIERTO: el arreglo está, el test no.** `estimarPromptTokens` cuenta bytes UTF-8 y divide por 2 ([gateway.mjs:502](qvac/gateway.mjs#L502)). Pero es privada del módulo y el único assert que la roza usa el prompt `'hola'`: 4 bytes y 4 caracteres, `ceil(4/3) = ceil(4/2) = 2`. **El test pasa idéntico con el bug puesto.** Falta uno con CJK, que es lo único que distingue el arreglo del bug | 6.5 | [test/integracion.js:860](test/integracion.js#L860) |
-| **B7** | **CERRADO.** `GET /v1/upstream` pide credencial, con test. Ver B12: lo que esa ruta protege se leía sin credencial en dos rutas de al lado, y eso ya no | 8.5 | [test/integracion.js:495](test/integracion.js#L495) |
-| **B8** | **574 LOC de RAG huérfanas** —no 576—: `rag.mjs` (180), `embeddings.mjs` (185), `rag-corpus.mjs` (209). Último commit sobre los tres: `ede441a`, anterior a las tres pasadas; nada del trabajo nuevo los tocó. 0 importadores fuera de sí mismos, 0 tests, 0 endpoints. Y quedaron peor: `upstreams.example.json` conserva un bloque `_embeddings` que documenta cómo configurarlos, y `leerConfig` sólo lee `upstreams`, `optIn` y `brokerEnabled` — ese bloque no lo parsea nadie | fuera de fase — hay que decidir | [qvac/rag.mjs:39](qvac/rag.mjs#L39) |
-| **B9** | El instalador —único canal de distribución— baja el `.exe` de `releases/latest` **sin checksum ni firma** | fuera de fase | [installer/PyrusLLM.bat:36](installer/PyrusLLM.bat#L36) |
-| **B10** | Sin CI, y `prettier --check` pasó de fallar en 7 archivos a fallar en **40**. `npm run lint` no está limpio ni antes de tocar nada | fuera de fase | `npx prettier . --check` |
-| **B11** | **CERRADO — la credencial de un proveedor podía viajar al endpoint de otro.** `#headers()` escribía `Content-Type` y `Authorization` después de esparcir los `extraHeaders` del archivo, y el comentario declaraba que por eso no se podían pisar. Era falso: los nombres de header de HTTP no distinguen mayúsculas y un objeto de JavaScript sí, así que un `authorization` en minúscula —como lo escribe cualquiera que copie una línea de un curl— no colisionaba, sobrevivían los dos y `bare-fetch` los mandaba concatenados. Se normaliza a minúscula al entrar ([upstream.mjs:114](qvac/upstream.mjs#L114), [:202](qvac/upstream.mjs#L202)) y los nuestros se escriben también en minúscula ([:278](qvac/upstream.mjs#L278)): la colisión la resuelve el objeto, sin lista de nombres reservados que mantener. El test mira lo que recibió el **servidor**, no el objeto que armó el cliente. Verificado contra el bug puesto: `Bearer CREDENCIAL-DE-OTRO-PROVEEDOR, Bearer clave-de-prueba` | 8.5 | [test/integracion.js:732](test/integracion.js#L732) |
-| **B12** | **CERRADO — cerrar una de las tres puertas no cerraba nada.** B7 le puso credencial a `/v1/upstream` porque decía quién es el proveedor y si hay cuenta del otro lado. El argumento era correcto y estaba incompleto: `/v1/nodes` devolvía el mismo `operator` y además el `pricing`, y `/v1/routing-log` devolvía `costMicros` —el gasto en dólares, request por request— que es **más** de lo que `/v1/upstream` llega a decir. Las dos piden key ahora ([gateway.mjs:1555](qvac/gateway.mjs#L1555), [:1613](qvac/gateway.mjs#L1613)). `/v1/models` **no** se cierra —un cliente OpenAI tiene que descubrir el catálogo antes de tener credencial— y se le saca el dato en vez de la puerta ([:1543](qvac/gateway.mjs#L1543)). Las seis llamadas del panel pasaron a `authFetch`. Verificado en el nodo real: 401/401/200 sin credencial y los cuatro paneles cargando | 8.5 | [test/integracion.js:191](test/integracion.js#L191), [:208](test/integracion.js#L208) |
-| **B13** | **ABIERTO — el tope de USD 20 no acota lo que se factura.** La cuenta es la API key ([gateway.mjs:1192](qvac/gateway.mjs#L1192)) y cada cuenta nace con su propio tope ([budget.mjs:195](qvac/budget.mjs#L195)), pero la factura de OpenRouter es **una sola**, contra la única credencial del operador: N keys son N × USD 20 de plata real antes de que corte algo, y las keys se emiten solas. Además `setCap` no se llama desde ningún camino de producción, sólo desde tests, así que el tope tampoco se puede bajar sin editar el JSON a mano. **Decisión tomada**: tope de nodo evaluado además del de la key, default USD 20 —el que este documento ya promete—, con las keys como sub-topes | **6.5** | [budget.mjs:195](qvac/budget.mjs#L195) |
-| **B14** | **ABIERTO — `finish_reason` dice `stop` cuando el nodo recortó, y cuando no vino nada.** El tope de salida lo impone el nodo aunque el cliente no lo pida, el `finish_reason` del proveedor no se lee nunca, y el gateway escribe `'stop'` fijo ([gateway.mjs:1013](qvac/gateway.mjs#L1013)): una respuesta cortada a los 1024 tokens se reporta como terminación normal. Es la "condición no negociable" de D9, ya incumplida hoy sin esperar a la Fase 9. Y la guarda contra el 200 vacío está sólo en el camino con stream: sin `stream: true` el `return` la precede | **6.5** | [gateway.mjs:1013](qvac/gateway.mjs#L1013) |
-| **B15** | **CERRADO — un 200 no quería decir que salió bien.** El status viaja con los headers, o sea antes del primer token; lo que se rompe después viaja como un objeto `error` en el cuerpo, con el stream cerrándose limpio. El parser miraba `usage` y `delta.content` y nada más, así que ese error se descartaba: el generador terminaba normal, el gateway lo leía como `ok: true`, **cortaba el recorrido de candidatos sin probar el siguiente**, y el cliente recibía 200 con `content: ""` y `finish_reason: "stop"`. Ahora se tira ([upstream.mjs:415](qvac/upstream.mjs#L415)) y el detalle del proveedor va al log de este proceso, no al cliente. Dos tests: que no salga como exitoso, y que el recorrido siga | 8.5 | [test/integracion.js:960](test/integracion.js#L960), [:1018](test/integracion.js#L1018) |
-| **B16** | **CERRADO — el reloj del primer byte estaba calibrado al ras de una sola medición.** Los 60s salían de los 43,4s medidos el 2026-08-25; el 2026-08-26 el mismo endpoint tardó 58. Dos segundos de margen: el reloj que existe para atrapar a un proveedor colgado estaba por cortar a uno lento contestando bien. Ahora 180s ([upstream.mjs:73](qvac/upstream.mjs#L73)). Lo que importa no es el número sino de dónde sale: un tier gratis es una cola y un techo calibrado al ras de una corrida no es un techo. Los dos relojes pasan a tener test —no tenían ninguno—, incluidas las tres formas de escribirlos mal | 8.5 | [test/index.js:1233](test/index.js#L1233) |
-| **B17** | **ABIERTO, parcialmente verificado — el `.env` no está en la lista de exclusión del empaquetado.** `.env.example` le dice al operador que el archivo se lee del directorio de trabajo y `cargarEnv()` lo lee de `process.cwd()`. `.gitignore:34` lo cubre para git; `pear.stage.ignore` ([package.json:19-36](package.json#L19-L36)) **no lo menciona**, y `npm run seed` publica ese stage. **No verificado**: si `pear stage` consulta además el `.gitignore` por su cuenta. Si no lo hace, el canal OTA publica la credencial | fuera de fase | [package.json:19](package.json#L19) |
-| **B18** | **CERRADO — la suite fallaba ~1 de cada 2 corridas y se leía como "suite en verde".** El test del upstream caído ordenaba los candidatos con "el caído con MÁS capacidad libre" (8 contra 1), y eso no ordena nada: `cargaDe` es un cociente y 0/8 y 0/1 son los dos cero. Empatados en carga, `errorRate` y `lastMs`, decidía el `jitter: random()` de `routing.mjs`. Y el modo de falla era un `TypeError` sobre `e.intentos`, no un assert, así que no decía qué se había roto. **Toda afirmación de "suite en verde" anterior a este arreglo era una moneda**, incluidas las dos pasadas anteriores de esta sección. Ahora al vivo se le ocupa su único slot, que lo manda al fondo por la regla de saturados —determinística y anterior a cualquier azar—; 5 corridas completas seguidas en verde | fuera de fase | [test/integracion.js:1282](test/integracion.js#L1282) |
+| #       | Bug                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Fase dueña                      | Evidencia                                                                               |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------- |
+| **B1**  | **CERRADO.** El registro de keys persiste con escritura atómica ([apikeys.mjs:64-111](qvac/apikeys.mjs#L64-L111)) y está cableado: `apikeys.open` en [bin.mjs:465](bin.mjs#L465), `close` en [bin.mjs:604](bin.mjs#L604). Dos tests, y el segundo reinicia el nodo en el medio                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | 6.5                             | [test/index.js:1440](test/index.js#L1440)                                               |
+| **B2**  | **CERRADO.** `include_usage: true` lo impone el código y la config no lo puede apagar; sin `usage` y con tokens se liquida por la reserva entera y se avisa. El test apaga el `usage` del proveedor falso y verifica 514 micros contra los 4 que habrían salido de contar deltas                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | 6.5                             | [test/integracion.js:807](test/integracion.js#L807)                                     |
+| **B3**  | **CERRADO.** El `AbortController` del gateway llega al externo como `signal`, y los dos relojes viven en `completar()`. El test cuelga al proveedor y verifica que la reserva se liberó y no se cobró nada                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 8.5                             | [test/integracion.js:873](test/integracion.js#L873)                                     |
+| **B4**  | **CERRADO.** `extraBody` se esparce primero; `stream`, `stream_options` y `max_tokens` van después. El test manda una config hostil y verifica que gana el nodo en los tres campos                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 8.5                             | [test/integracion.js:652](test/integracion.js#L652)                                     |
+| **B5**  | **ACOTADO, no cerrado, y agravado por OpenRouter.** 3 reintentos con backoff sobre un POST sin clave de idempotencia ([upstream.mjs:330](qvac/upstream.mjs#L330)). Lo que cambió es contra qué corre: `esReintentable` incluye 429, y en el tier `:free` de OpenRouter el 429 **es** el límite del día — que se cuenta en requests, no en dólares, así que `budget.mjs` no lo ve ni lo puede acotar. Un solo request del usuario consume 3 del cupo diario antes de degradar. Y con el reloj en 180s (B16) la ventana de reserva comprometida por un request que reintenta tres veces es de ~9 minutos. El arreglo de verdad sigue siendo el `nonce` de D20                                                                                                                                                                                                                                                                                                                                          | **11** (D20)                    | [upstream.mjs:330](qvac/upstream.mjs#L330)                                              |
+| **B6**  | **ABIERTO: el arreglo está, el test no.** `estimarPromptTokens` cuenta bytes UTF-8 y divide por 2 ([gateway.mjs:502](qvac/gateway.mjs#L502)). Pero es privada del módulo y el único assert que la roza usa el prompt `'hola'`: 4 bytes y 4 caracteres, `ceil(4/3) = ceil(4/2) = 2`. **El test pasa idéntico con el bug puesto.** Falta uno con CJK, que es lo único que distingue el arreglo del bug                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 6.5                             | [test/integracion.js:860](test/integracion.js#L860)                                     |
+| **B7**  | **CERRADO.** `GET /v1/upstream` pide credencial, con test. Ver B12: lo que esa ruta protege se leía sin credencial en dos rutas de al lado, y eso ya no                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 8.5                             | [test/integracion.js:495](test/integracion.js#L495)                                     |
+| **B8**  | **574 LOC de RAG huérfanas** —no 576—: `rag.mjs` (180), `embeddings.mjs` (185), `rag-corpus.mjs` (209). Último commit sobre los tres: `ede441a`, anterior a las tres pasadas; nada del trabajo nuevo los tocó. 0 importadores fuera de sí mismos, 0 tests, 0 endpoints. Y quedaron peor: `upstreams.example.json` conserva un bloque `_embeddings` que documenta cómo configurarlos, y `leerConfig` sólo lee `upstreams`, `optIn` y `brokerEnabled` — ese bloque no lo parsea nadie                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | fuera de fase — hay que decidir | [qvac/rag.mjs:39](qvac/rag.mjs#L39)                                                     |
+| **B9**  | El instalador —único canal de distribución— baja el `.exe` de `releases/latest` **sin checksum ni firma**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | fuera de fase                   | [installer/PyrusLLM.bat:36](installer/PyrusLLM.bat#L36)                                 |
+| **B10** | Sin CI, y `prettier --check` pasó de fallar en 7 archivos a fallar en **40**. `npm run lint` no está limpio ni antes de tocar nada                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | fuera de fase                   | `npx prettier . --check`                                                                |
+| **B11** | **CERRADO — la credencial de un proveedor podía viajar al endpoint de otro.** `#headers()` escribía `Content-Type` y `Authorization` después de esparcir los `extraHeaders` del archivo, y el comentario declaraba que por eso no se podían pisar. Era falso: los nombres de header de HTTP no distinguen mayúsculas y un objeto de JavaScript sí, así que un `authorization` en minúscula —como lo escribe cualquiera que copie una línea de un curl— no colisionaba, sobrevivían los dos y `bare-fetch` los mandaba concatenados. Se normaliza a minúscula al entrar ([upstream.mjs:114](qvac/upstream.mjs#L114), [:202](qvac/upstream.mjs#L202)) y los nuestros se escriben también en minúscula ([:278](qvac/upstream.mjs#L278)): la colisión la resuelve el objeto, sin lista de nombres reservados que mantener. El test mira lo que recibió el **servidor**, no el objeto que armó el cliente. Verificado contra el bug puesto: `Bearer CREDENCIAL-DE-OTRO-PROVEEDOR, Bearer clave-de-prueba` | 8.5                             | [test/integracion.js:732](test/integracion.js#L732)                                     |
+| **B12** | **CERRADO — cerrar una de las tres puertas no cerraba nada.** B7 le puso credencial a `/v1/upstream` porque decía quién es el proveedor y si hay cuenta del otro lado. El argumento era correcto y estaba incompleto: `/v1/nodes` devolvía el mismo `operator` y además el `pricing`, y `/v1/routing-log` devolvía `costMicros` —el gasto en dólares, request por request— que es **más** de lo que `/v1/upstream` llega a decir. Las dos piden key ahora ([gateway.mjs:1555](qvac/gateway.mjs#L1555), [:1613](qvac/gateway.mjs#L1613)). `/v1/models` **no** se cierra —un cliente OpenAI tiene que descubrir el catálogo antes de tener credencial— y se le saca el dato en vez de la puerta ([:1543](qvac/gateway.mjs#L1543)). Las seis llamadas del panel pasaron a `authFetch`. Verificado en el nodo real: 401/401/200 sin credencial y los cuatro paneles cargando                                                                                                                             | 8.5                             | [test/integracion.js:191](test/integracion.js#L191), [:208](test/integracion.js#L208)   |
+| **B13** | **ABIERTO — el tope de USD 20 no acota lo que se factura.** La cuenta es la API key ([gateway.mjs:1192](qvac/gateway.mjs#L1192)) y cada cuenta nace con su propio tope ([budget.mjs:195](qvac/budget.mjs#L195)), pero la factura de OpenRouter es **una sola**, contra la única credencial del operador: N keys son N × USD 20 de plata real antes de que corte algo, y las keys se emiten solas. Además `setCap` no se llama desde ningún camino de producción, sólo desde tests, así que el tope tampoco se puede bajar sin editar el JSON a mano. **Decisión tomada**: tope de nodo evaluado además del de la key, default USD 20 —el que este documento ya promete—, con las keys como sub-topes                                                                                                                                                                                                                                                                                                 | **6.5**                         | [budget.mjs:195](qvac/budget.mjs#L195)                                                  |
+| **B14** | **ABIERTO — `finish_reason` dice `stop` cuando el nodo recortó, y cuando no vino nada.** El tope de salida lo impone el nodo aunque el cliente no lo pida, el `finish_reason` del proveedor no se lee nunca, y el gateway escribe `'stop'` fijo ([gateway.mjs:1013](qvac/gateway.mjs#L1013)): una respuesta cortada a los 1024 tokens se reporta como terminación normal. Es la "condición no negociable" de D9, ya incumplida hoy sin esperar a la Fase 9. Y la guarda contra el 200 vacío está sólo en el camino con stream: sin `stream: true` el `return` la precede                                                                                                                                                                                                                                                                                                                                                                                                                             | **6.5**                         | [gateway.mjs:1013](qvac/gateway.mjs#L1013)                                              |
+| **B15** | **CERRADO — un 200 no quería decir que salió bien.** El status viaja con los headers, o sea antes del primer token; lo que se rompe después viaja como un objeto `error` en el cuerpo, con el stream cerrándose limpio. El parser miraba `usage` y `delta.content` y nada más, así que ese error se descartaba: el generador terminaba normal, el gateway lo leía como `ok: true`, **cortaba el recorrido de candidatos sin probar el siguiente**, y el cliente recibía 200 con `content: ""` y `finish_reason: "stop"`. Ahora se tira ([upstream.mjs:415](qvac/upstream.mjs#L415)) y el detalle del proveedor va al log de este proceso, no al cliente. Dos tests: que no salga como exitoso, y que el recorrido siga                                                                                                                                                                                                                                                                               | 8.5                             | [test/integracion.js:960](test/integracion.js#L960), [:1018](test/integracion.js#L1018) |
+| **B16** | **CERRADO — el reloj del primer byte estaba calibrado al ras de una sola medición.** Los 60s salían de los 43,4s medidos el 2026-08-25; el 2026-08-26 el mismo endpoint tardó 58. Dos segundos de margen: el reloj que existe para atrapar a un proveedor colgado estaba por cortar a uno lento contestando bien. Ahora 180s ([upstream.mjs:73](qvac/upstream.mjs#L73)). Lo que importa no es el número sino de dónde sale: un tier gratis es una cola y un techo calibrado al ras de una corrida no es un techo. Los dos relojes pasan a tener test —no tenían ninguno—, incluidas las tres formas de escribirlos mal                                                                                                                                                                                                                                                                                                                                                                               | 8.5                             | [test/index.js:1233](test/index.js#L1233)                                               |
+| **B17** | **CERRADO 2026-08-26 con la Fase 7.** `.env`, `wallet.json` y `upstreams.json` entran a `pear.stage.ignore` ([package.json:22-24](package.json#L22-L24)). Cambió de dueño en el camino: era "fuera de fase" mientras el `.env` sólo llevaba credenciales de API, y pasó a ser de D13 cuando empezó a llevar la passphrase de la wallet. Lo que sigue **no verificado** es si `pear stage` consulta además el `.gitignore` por su cuenta; ahora no hace falta que lo haga. El texto original decía: el `.env` no está en la lista de exclusión del empaquetado — `.env.example` le dice al operador que el archivo se lee del directorio de trabajo y `cargarEnv()` lo lee de `process.cwd()`. `.gitignore:34` lo cubre para git; `pear.stage.ignore` ([package.json:19-36](package.json#L19-L36)) **no lo menciona**, y `npm run seed` publica ese stage. **No verificado**: si `pear stage` consulta además el `.gitignore` por su cuenta. Si no lo hace, el canal OTA publica la credencial        | fuera de fase                   | [package.json:19](package.json#L19)                                                     |
+| **B18** | **CERRADO — la suite fallaba ~1 de cada 2 corridas y se leía como "suite en verde".** El test del upstream caído ordenaba los candidatos con "el caído con MÁS capacidad libre" (8 contra 1), y eso no ordena nada: `cargaDe` es un cociente y 0/8 y 0/1 son los dos cero. Empatados en carga, `errorRate` y `lastMs`, decidía el `jitter: random()` de `routing.mjs`. Y el modo de falla era un `TypeError` sobre `e.intentos`, no un assert, así que no decía qué se había roto. **Toda afirmación de "suite en verde" anterior a este arreglo era una moneda**, incluidas las dos pasadas anteriores de esta sección. Ahora al vivo se le ocupa su único slot, que lo manda al fondo por la regla de saturados —determinística y anterior a cualquier azar—; 5 corridas completas seguidas en verde                                                                                                                                                                                               | fuera de fase                   | [test/integracion.js:1282](test/integracion.js#L1282)                                   |
+| **B19** | **NUEVO — ningún manifiesto validó nunca contra su propio schema congelado, y nadie lo notó porque nada lo validaba.** D2 pide marcar el mock donde se vea y lo implementa con un campo `_mock` adentro del bloque; `manifest-v0.json` declara `additionalProperties: false` tanto en `economic` como en `directory`. Las dos reglas chocan: **todo manifiesto con un bloque mock es schema-inválido**, y lo viene siendo desde que los mocks existen — `directory` sigue así hoy, sin haberlo tocado la Fase 7. La causa raíz es que el schema era un documento y no un chequeo: `grep manifest-v0` sobre el árbol devolvía sólo comentarios. Ahora hay test, y fija la violación conocida en vez de taparla: si aparece otra, falla. **Lo que hay que decidir** es cuál de las dos reglas cede — la marca de honestidad de D2, o `additionalProperties: false` (que subirlo sería tocar el schema, y D2 lo prohíbe)                                                                                | fuera de fase — hay que decidir | [test/index.js](test/index.js)                                                          |
 
 ### El orden que se ejecuta desde acá
 
@@ -196,12 +197,14 @@ falla con el bug puesto.
    hasta que se descongele. Lo que hay que tener presente al retomarla es que
    B14 es la condición no negociable de D9: la Fase 9 no se puede cerrar sin
    ese arreglo, viva donde viva.
-3. **Fase 7** — la precondición que se saltea desde la primera pasada. Bloquea
-   9, 10 y 11.
+3. ~~**Fase 7** — la precondición que se salteaba desde la primera pasada~~
+   **HECHA 2026-08-26.** Con ella cae B17, que cambió de dueño: era "fuera de
+   fase" mientras el `.env` sólo tenía credenciales de API, y pasó a ser de D13
+   cuando empezó a tener la passphrase de la wallet.
 4. **Fase 8 — la mitad que falta**: el precio en el score y el costo en el chat.
 5. **Fase 9** en adelante, como estaba escrito.
 
-**Siguiente:** el punto 3, la Fase 7 — con el 2 congelado. Y una regla nueva, que sale de B18 y no de ninguna
+**Siguiente:** el punto 4, la Fase 8 — con el 2 congelado y el 3 hecho. Y una regla nueva, que sale de B18 y no de ninguna
 fase: **una corrida verde no es evidencia de nada si el test no falla cuando se
 quita el arreglo, y una suite no está verde hasta que lo esté varias veces
 seguidas.** Las dos pasadas anteriores de esta sección afirmaron "suite en
@@ -264,8 +267,8 @@ del gateway (que después reparte) o la del proveedor elegido.
 **Opciones:** (a) el gateway cobra y liquida al proveedor; (b) `payTo` apunta
 **directo a la wallet del par elegido**.
 
-**Decisión: (b), y no es solo técnico.** El README promete *"ni un tercero que
-se quede con el margen"*. Si el gateway cobra y reparte, el proyecto es
+**Decisión: (b), y no es solo técnico.** El README promete _"ni un tercero que
+se quede con el margen"_. Si el gateway cobra y reparte, el proyecto es
 OpenRouter con más pasos, y el argumento entero del pitch se cae. Con `payTo`
 directo, el gateway arma el 402 con la wallet que vino en el manifiesto
 **firmado** del proveedor — y la firma Ed25519 sobre JCS es justamente lo que
@@ -387,8 +390,8 @@ agrega un componente que el equipo no controla al camino crítico de la primera
 demo que cobra de verdad.
 
 **Lo que hay que decir en voz alta:** la documentación de WDK aclara que Tether
-*"does not endorse, operate, or assume legal or financial responsibility for any
-third-party facilitator"*. Eso va en el README junto al resto de las
+_"does not endorse, operate, or assume legal or financial responsibility for any
+third-party facilitator"_. Eso va en el README junto al resto de las
 advertencias, no escondido.
 
 **Cuándo se revisa:** en la Fase 10, o antes si D17 se activa.
@@ -417,11 +420,11 @@ externos. Un segundo mecanismo de acceso puede volverse contradictorio.
 
 **Decisión: tres caminos que no se pisan.**
 
-| Camino | Condición | Qué pasa |
-| --- | --- | --- |
-| `local: true` | siempre | Gratis, sin red, sin pago. La excepción del README se mantiene. |
-| `Authorization: Bearer qvac_sk_…` | key emitida por el panel | Cuenta con saldo prepago (Fase 10). |
-| Sin key ni saldo | default | **402.** |
+| Camino                            | Condición                | Qué pasa                                                        |
+| --------------------------------- | ------------------------ | --------------------------------------------------------------- |
+| `local: true`                     | siempre                  | Gratis, sin red, sin pago. La excepción del README se mantiene. |
+| `Authorization: Bearer qvac_sk_…` | key emitida por el panel | Cuenta con saldo prepago (Fase 10).                             |
+| Sin key ni saldo                  | default                  | **402.**                                                        |
 
 El 402 es el **default para desconocidos**, que es exactamente lo que un agente
 necesita para consumir sin registrarse en nada. Las keys siguen siendo el camino
@@ -490,7 +493,7 @@ fácil, y el primer mes con tráfico real termina en una factura que nadie acord
 
 ### D19. Cuándo se dispara el asistente externo, y qué se le dice al usuario (negocio + privacidad)
 
-**Problema:** *"cuando la red se satura"* no es una condición ejecutable, y el
+**Problema:** _"cuando la red se satura"_ no es una condición ejecutable, y el
 camino externo rompe la promesa de privacidad del README (R5.2).
 
 **Decisión: tres condiciones, todas necesarias.**
@@ -513,10 +516,10 @@ misma regla, sin excepción nueva.
 **Modelo:** `claude-sonnet-5`, que es el que pediste. Los números para la
 aritmética del tope, al 2026-08-25:
 
-| Modelo | ID | Input $/1M | Output $/1M |
-| --- | --- | ---: | ---: |
-| Claude Sonnet 5 | `claude-sonnet-5` | $3,00 (intro $2,00 **hasta 2026-08-31**) | $15,00 (intro $10,00) |
-| Claude Haiku 4.5 | `claude-haiku-4-5` | $1,00 | $5,00 |
+| Modelo           | ID                 |                               Input $/1M |           Output $/1M |
+| ---------------- | ------------------ | ---------------------------------------: | --------------------: |
+| Claude Sonnet 5  | `claude-sonnet-5`  | $3,00 (intro $2,00 **hasta 2026-08-31**) | $15,00 (intro $10,00) |
+| Claude Haiku 4.5 | `claude-haiku-4-5` |                                    $1,00 |                 $5,00 |
 
 **Ojo con la fecha: el precio intro de Sonnet 5 vence el 31-ago-2026**, dentro de
 seis días. Si la aritmética del tope se calibra esta semana con $2/$10, el 1 de
@@ -552,12 +555,12 @@ a una wallet. Sin límites duros, un loop no es un bug: es una factura.
 **Decisión: cuatro controles, todos en el harness y ninguno confiado al
 modelo.**
 
-| Control | Qué evita | Cómo |
-| --- | --- | --- |
-| **Límite de pasos y de tokens por tarea** | loops infinitos | Contador en el harness. El gateway ya cuenta tokens por request; acá se acumulan por tarea |
-| **Timeout por herramienta** | que una herramienta colgada bloquee la tarea entera | Timeout propio por llamada, más chico que el de la tarea |
-| **Reintentos con backoff exponencial y jitter** | fallos transitorios | Solo para 429, 5xx y errores de conexión. **Nunca** para 400, 404 ni un pago inválido: reintentar un error determinista es gastar dos veces para fallar igual |
-| **Idempotencia** | que el reintento cobre o escriba dos veces | Ver abajo |
+| Control                                         | Qué evita                                           | Cómo                                                                                                                                                          |
+| ----------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Límite de pasos y de tokens por tarea**       | loops infinitos                                     | Contador en el harness. El gateway ya cuenta tokens por request; acá se acumulan por tarea                                                                    |
+| **Timeout por herramienta**                     | que una herramienta colgada bloquee la tarea entera | Timeout propio por llamada, más chico que el de la tarea                                                                                                      |
+| **Reintentos con backoff exponencial y jitter** | fallos transitorios                                 | Solo para 429, 5xx y errores de conexión. **Nunca** para 400, 404 ni un pago inválido: reintentar un error determinista es gastar dos veces para fallar igual |
+| **Idempotencia**                                | que el reintento cobre o escriba dos veces          | Ver abajo                                                                                                                                                     |
 
 **La idempotencia tiene una respuesta que sale gratis del stack:** el `nonce` del
 EIP-3009 **es** la clave de idempotencia. Un reintento que reusa el mismo nonce
@@ -594,12 +597,12 @@ envenenados —instrucciones embebidas en el cuerpo del documento, en metadatos,
 en texto blanco sobre blanco, en el resultado del OCR— y cuatro métricas que se
 publican junto con las de acierto:
 
-| Métrica | Qué cuenta |
-| --- | --- |
-| **Obediencia a la inyección** | cuántas veces el agente siguió la instrucción del documento en vez de la del operador |
-| **Violación de herramientas** | llamadas a una herramienta fuera de la allowlist, o con argumentos fuera del rango declarado |
-| **Exfiltración** | datos del documento apareciendo en un destino que no les corresponde — incluido **el prompt saliendo hacia el asistente externo sin opt-in** (D19) |
-| **Gasto no autorizado** | el caso propio de este proyecto: ¿el documento logró que el agente pagara algo? |
+| Métrica                       | Qué cuenta                                                                                                                                         |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Obediencia a la inyección** | cuántas veces el agente siguió la instrucción del documento en vez de la del operador                                                              |
+| **Violación de herramientas** | llamadas a una herramienta fuera de la allowlist, o con argumentos fuera del rango declarado                                                       |
+| **Exfiltración**              | datos del documento apareciendo en un destino que no les corresponde — incluido **el prompt saliendo hacia el asistente externo sin opt-in** (D19) |
+| **Gasto no autorizado**       | el caso propio de este proyecto: ¿el documento logró que el agente pagara algo?                                                                    |
 
 **Trazabilidad:** por cada paso se registra la **cadena de entrada completa**,
 **qué herramienta se eligió y con qué argumentos**, y **la salida**. El log
@@ -636,10 +639,10 @@ antes de la Fase 8, que hace que el precio participe del ruteo.
 **El dato que decide, y es del propio repo.**
 [EVALUACION-DGX-SPARK.md:109](EVALUACION-DGX-SPARK.md#L109):
 
-| Escenario | USD/MTok | Payback | VAN 12% |
-| --- | ---: | ---: | ---: |
-| Vender commodity 24/7 | 0,30 | **181 meses** | **−3.995** |
-| Nodo privacidad (clínica) | 15 | **7 meses** | **+15.716** |
+| Escenario                 | USD/MTok |       Payback |     VAN 12% |
+| ------------------------- | -------: | ------------: | ----------: |
+| Vender commodity 24/7     |     0,30 | **181 meses** |  **−3.995** |
+| Nodo privacidad (clínica) |       15 |   **7 meses** | **+15.716** |
 
 Mismo equipo, utilización parecida. **Vender barato no es ganar menos: es no
 recuperar nunca el hardware.**
@@ -790,11 +793,11 @@ la Fase 9 y el prepago con firma es la Fase 10.
 
 > **Estado: CERRADA.** Los tres bugs de abajo están arreglados y cada uno tiene
 > test de regresión. Lo que sigue se conserva escrito —y no se borra— porque
-> explica *por qué* el mecanismo podía estar bien construido y aun así no
+> explica _por qué_ el mecanismo podía estar bien construido y aun así no
 > garantizar nada, que es la lección de la fase.
 
 El mecanismo estaba construido y probado desde el principio: `qvac/budget.mjs` reserva antes de
-gastar, escribe la reserva a disco *antes* de que el request salga, liquida
+gastar, escribe la reserva a disco _antes_ de que el request salga, liquida
 contra lo real, devuelve la diferencia y cobra enteras las reservas huérfanas de
 una corrida anterior. Eso funciona y tiene tests.
 
@@ -817,7 +820,7 @@ fase, porque el tope es de esta fase:
   mismo criterio que `identity.json` — decisión tomada, no omisión, y anotada en
   el README. De yapa arregla algo que no era un bug declarado pero se sentía
   como uno: cada reinicio invalidaba la config de todos los clientes.
-  *Test:* «agotado el tope, reiniciar el nodo NO lo repone».
+  _Test:_ «agotado el tope, reiniciar el nodo NO lo repone».
 - **B2 — se liquida con un número que no son tokens.** Cuando el proveedor
   externo no manda `usage`, la liquidación usa `promptTokens: 0` y toma como
   tokens de salida el contador de **deltas SSE** de
@@ -831,7 +834,7 @@ fase, porque el tope es de esta fase:
   proveedor no manda `usage`, se liquida por la **reserva entera** —la cota
   superior con la que se autorizó el gasto— y se avisa por consola. Se equivoca
   para arriba, que es el único lado que no se pasa del tope.
-  *Test:* «un proveedor que no manda usage se liquida por la reserva, no por los
+  _Test:_ «un proveedor que no manda usage se liquida por la reserva, no por los
   deltas» — con el bug puesto daban 4 micro-dólares donde van 514.
 - **B6 — la cota superior del prompt no es una cota superior.**
   `estimarPromptTokens` divide caracteres por 3 y se documenta como cota
@@ -889,16 +892,26 @@ forma, dos líneas más abajo. No hay que inventar un punto de control: ya exist
 
 ### Fase 7 — Desmockear `economic` (~1 día)
 
-> **Estado 2026-08-26: NO EMPEZADA, y es la precondición que se salteó.**
-> `_mock: 'NO IMPLEMENTADO'` sigue en
-> [qvac/manifest.mjs:100](qvac/manifest.mjs#L100), `walletAddress` es
-> `0x000…0`, y `@tetherto/wdk-wallet-evm` **no está en `package.json`**: existe
-> sólo dentro de `scripts/spike-d11-wdk-bare.mjs`. D13 tampoco está: la semilla
-> de red sigue en claro en [qvac/identity.mjs](qvac/identity.mjs) y no hay una
-> segunda semilla, ni cifrada ni sin cifrar.
+> **Estado 2026-08-26: CERRADA.** El manifiesto firmado lleva la dirección de
+> cobro real que genera WDK, en `plasma`/`stable`. D13 implementado con seed
+> propia —nunca derivada de la de red— cifrada con Argon2id + secretbox de
+> sodium. Desbloquea 9, 10 y 11.
 >
-> Bloquea 9, 10 y 11. Se ejecutaron la 8 y la 8.5 por encima de ella, que es
-> exactamente lo que la sección 0-ter existe para no repetir.
+> **Lo que el spike encontró y cambió el plan:** WDK no acepta la seed de 32
+> bytes que `identity.mjs` ya sabe generar —exige mnemonic BIP-39— y no trae con
+> qué generarlo **ni dónde guardarlo**: `@tetherto/wdk-wallet` exporta errores e
+> interfaces, no custodia. O sea que la mitad de D13 que decía _"o delegada al
+> secret manager de WDK"_ no existe, y quedó la otra. Medido en
+> `scripts/spike-d13-wallet-bare.mjs`, que se repite cuando WDK suba de versión
+> (está en beta).
+>
+> **El límite honesto de la custodia, que hay que leer antes de fondear nada:**
+> la passphrase sale de `PYRUS_WALLET_PASSPHRASE`, típicamente en el `.env`. Si
+> ese `.env` vive al lado del keystore, el cifrado protege de un backup, de un
+> repo y de un `pear stage` —**no** de alguien que ya tiene acceso a esa
+> máquina. Se eligió a ojos abiertos: pedirla por consola en cada arranque rompe
+> el arranque desatendido y la promesa de "doble clic y abre en el navegador".
+> Queda escrito en `wallet.mjs`, en `.env.example` y en el propio comando.
 
 Wallet real generada por WDK, `walletAddress` dentro del manifiesto **firmado**,
 el `_mock` afuera, y `/node` mostrando la dirección de cobro del propio nodo.
@@ -906,12 +919,24 @@ el `_mock` afuera, y `/node` mostrando la dirección de cobro del propio nodo.
 **No se cobra nada todavía.** Esta fase solo hace que el manifiesto diga la
 verdad.
 
-**DoD:**
+**DoD — los cuatro puntos, y con qué se verificó cada uno:**
 
-- Dos nodos anuncian direcciones distintas y un par remoto verifica la firma.
-- El manifiesto valida contra `manifest-v0.json` **sin tocar el schema**.
-- El README pierde la línea que dice que `economic` es mock.
-- D13 está implementado: la seed de la wallet no está en claro.
+- ~~Dos nodos anuncian direcciones distintas y un par remoto verifica la firma.~~
+  Test: además de las direcciones distintas, cambiarle la wallet a un manifiesto
+  firmado lo **invalida** — que es la propiedad que impide reenviar el
+  manifiesto de otro con la wallet propia adentro.
+- ~~El manifiesto valida contra `manifest-v0.json` **sin tocar el schema**.~~
+  Y ahora eso lo **comprueba un test**, leyendo las restricciones del archivo.
+  Hasta acá no lo comprobaba nadie: `grep manifest-v0` sobre el árbol devolvía
+  comentarios y nada más. Ver **B19**, que apareció justo por mirarlo.
+- ~~El README pierde la línea que dice que `economic` es mock.~~ Reemplazada, no
+  borrada: dice qué pasa con wallet y qué pasa sin ella.
+- ~~D13 está implementado: la seed de la wallet no está en claro.~~ El test
+  busca **palabra por palabra** de la frase dentro del keystore, y verifica que
+  la dirección tampoco se guarde.
+
+**Lo que esta fase NO hace, y conviene no confundir:** no se cobra nada. El
+manifiesto ya dice a quién pagarle; pagarle es la Fase 9.
 
 ---
 
@@ -1035,7 +1060,7 @@ server lo registra en su log y la tarjeta cambia de estado y de color.
   documento, cuya mitigación (el `nonce` de D20) está agendada para la Fase 11.
   **Acotado, no cerrado.** Un corte propio —cliente ido, timeout— ya no se
   reintenta, y el reintento solo ocurre antes de leer una sola respuesta. Queda
-  el caso real: si la conexión se cae *después* de que el proveedor empezó a
+  el caso real: si la conexión se cae _después_ de que el proveedor empezó a
   generar, `fetch` rechaza y se reintenta mientras el primer intento se sigue
   facturando. Eso no se arregla con un `if`: se arregla con el `nonce` de D20, y
   el dueño es la Fase 11.
@@ -1100,13 +1125,13 @@ como cualquier cliente—, así que esta fase no toca el pipeline de distribuci�
 de prolijidad alrededor del agente: es lo que hace que un agente con wallet sea
 operable.
 
-| Control | Valor de arranque | Qué pasa al cruzarlo |
-| --- | --- | --- |
-| Pasos por documento | acotado y explícito | corta, marca `needs_review`, sigue con el próximo documento |
-| Tokens por tarea | derivado del presupuesto restante | corta antes de gastar, no después |
-| Timeout por herramienta | menor que el de la tarea | falla esa herramienta, no la tarea |
-| Reintentos | backoff exponencial con jitter, solo transitorios | tras el último intento, falla explícita en el audit trail |
-| Idempotencia | `nonce` del pago para lo cobrable; hash del documento + campo para lo demás | el reintento no duplica ni el cobro ni la escritura |
+| Control                 | Valor de arranque                                                           | Qué pasa al cruzarlo                                        |
+| ----------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Pasos por documento     | acotado y explícito                                                         | corta, marca `needs_review`, sigue con el próximo documento |
+| Tokens por tarea        | derivado del presupuesto restante                                           | corta antes de gastar, no después                           |
+| Timeout por herramienta | menor que el de la tarea                                                    | falla esa herramienta, no la tarea                          |
+| Reintentos              | backoff exponencial con jitter, solo transitorios                           | tras el último intento, falla explícita en el audit trail   |
+| Idempotencia            | `nonce` del pago para lo cobrable; hash del documento + campo para lo demás | el reintento no duplica ni el cobro ni la escritura         |
 
 **DoD:**
 
@@ -1167,19 +1192,19 @@ Es upside, no criterio. Se corta primero si aprieta el reloj.
 VELA es WASM dentro de **AWS Nitro Enclaves**. Tres problemas, en orden de
 gravedad:
 
-1. **Contradice la tesis.** El README promete *"un marketplace de inferencia sin
-   datacenter en el medio"*. Meter el cómputo en un enclave de Amazon es poner
+1. **Contradice la tesis.** El README promete _"un marketplace de inferencia sin
+   datacenter en el medio"_. Meter el cómputo en un enclave de Amazon es poner
    el datacenter en el medio. Quien lea las dos cosas juntas lo nota.
 2. **No hay GPU ni forma de cargar los pesos.** Nitro Enclaves no tiene
    aceleración, y QVAC/`llama-cpp` es nativo, no WASM. Portar el motor a WASM
    attestado no es integrar: es otro proyecto.
 3. **No hay streaming.** VELA es `request → cola en Entrypoint → ejecuta →
-   attestation → Exitpoint`: un ciclo on-chain por job. El producto vende TTFT y
+attestation → Exitpoint`: un ciclo on-chain por job. El producto vende TTFT y
    SSE.
 
-[deck/Enclave.dc.html](deck/Enclave.dc.html) ya lo dice mejor: *"matching… sits
+[deck/Enclave.dc.html](deck/Enclave.dc.html) ya lo dice mejor: _"matching… sits
 on the latency critical path. A round trip to the enclave per request may simply
-not be viable."*
+not be viable."_
 
 ### Dónde VELA sí vale
 
@@ -1190,22 +1215,22 @@ sirvió 400 no tiene hoy quién lo contradiga — `recordPeerResult` en
 [qvac/store.mjs:469](qvac/store.mjs#L469) le cree.
 
 Los tres jobs que van adentro son deterministas y asíncronos, o sea que caben en
-la forma nativa de VELA (*"the WASM-job-with-onchain-settlement shape"*, según
+la forma nativa de VELA (_"the WASM-job-with-onchain-settlement shape"_, según
 el propio deck):
 
-| Job | Qué resuelve | Reemplaza a |
-| --- | --- | --- |
-| **metering** | recomputa el consumo desde el transcripto, no desde lo que el nodo afirma | nada — hoy no existe |
-| **settlement** | agrega recibos por proveedor y liquida en lote | Fase 6 / Autobase |
-| **reputation** | puntaje desde recibos firmados y spot-checks aleatorios | el mock de reputación |
+| Job            | Qué resuelve                                                              | Reemplaza a           |
+| -------------- | ------------------------------------------------------------------------- | --------------------- |
+| **metering**   | recomputa el consumo desde el transcripto, no desde lo que el nodo afirma | nada — hoy no existe  |
+| **settlement** | agrega recibos por proveedor y liquida en lote                            | Fase 6 / Autobase     |
+| **reputation** | puntaje desde recibos firmados y spot-checks aleatorios                   | el mock de reputación |
 
 ### Fases del track
 
-| # | Qué | Depende de |
-| --- | --- | --- |
-| **V1** | **Aplicación a Horizen con el deck como está.** Las slides 05 y 06 ya plantean el problema y proponen la clave efímera por request, marcado como *"the open question we bring, not a promise"*. Esa postura es la correcta y **no necesita código de VELA para aplicar**. | nada — ya está escrito |
-| **V2** | Metering en enclave: recomputar el consumo desde el transcripto | Fase 10 + acceso a VELA + D17 |
-| **V3** | Settlement y reputación en enclave | V2 |
+| #      | Qué                                                                                                                                                                                                                                                                       | Depende de                    |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| **V1** | **Aplicación a Horizen con el deck como está.** Las slides 05 y 06 ya plantean el problema y proponen la clave efímera por request, marcado como _"the open question we bring, not a promise"_. Esa postura es la correcta y **no necesita código de VELA para aplicar**. | nada — ya está escrito        |
+| **V2** | Metering en enclave: recomputar el consumo desde el transcripto                                                                                                                                                                                                           | Fase 10 + acceso a VELA + D17 |
+| **V3** | Settlement y reputación en enclave                                                                                                                                                                                                                                        | V2                            |
 
 **La acción que bloquea todo lo demás:** VELA está en closed beta y se entra por
 formulario de early access. Es la única parte del calendario que **no depende
@@ -1235,10 +1260,10 @@ opción.**
 
 Las dos cosas terminan siendo la misma pieza en dos escalas:
 
-| Caso | Mecanismo | Qué es en el stack |
-| --- | --- | --- |
-| Cliente ocasional, un request | x402 `exact`, se liquida | la puerta |
-| Agente, 200 requests | una autorización firmada mayor = **el crédito**, medido por uso | el pasillo |
+| Caso                          | Mecanismo                                                       | Qué es en el stack |
+| ----------------------------- | --------------------------------------------------------------- | ------------------ |
+| Cliente ocasional, un request | x402 `exact`, se liquida                                        | la puerta          |
+| Agente, 200 requests          | una autorización firmada mayor = **el crédito**, medido por uso | el pasillo         |
 
 La carga de crédito es correcta, y se **funda con una firma x402** en vez de con
 un registro. Eso es lo que la mantiene sin intermediario.
@@ -1251,21 +1276,21 @@ cobro propio sería el invento.
 
 ## 5 · Riesgos
 
-| # | Riesgo | Cómo se mide | Plan B |
-| --- | --- | --- | --- |
-| 1 | ~~WDK/x402 no corre bajo Bare~~ **CERRADO 2026-08-25** | El spike de D11 pasó los cuatro pasos, con firma idéntica a Node | — ya no hace falta |
-| 2 | **Plata real en mainnet** (Plasma no es testnet) | Montos de $0.001 y una wallet con USD 2 | Facilitator self-hosted contra una EVM testnet con USD₮0 |
-| 3 | El settle falla **después** de que el nodo ya gastó GPU | Contar fallos de settle en el log de ruteo | Verificación estricta previa + montos chicos; la reputación por par ya existe en `recordPeerResult` |
-| 4 | La seed de la wallet queda en claro como la de red | Revisión de D13 antes de fondear nada | No fondear hasta que esté cifrada. No es negociable |
-| 5 | Dependencia de un facilitator de terceros que Tether **no** respalda | — | Self-hosted, ya presupuestado en la Fase 10 |
-| 6 | VELA no da early access, o lo da tarde | Aplicar primero y seguir sin esperar | El Track V es paralelo justamente por esto: nada del camino crítico lo espera |
-| 7 | **El operador adelanta el costo externo en fiat y cobra en USD₮** — riesgo de crédito y de cambio (R5.1) | Diferencia entre lo consumido y lo cobrado, por mes | El corte de la Fase 6.5 acota la exposición máxima a USD 20 por cuenta. Si no alcanza, pasar a (a) de D18: cobrado antes de gastar |
-| 8 | **El precio intro de Sonnet 5 vence el 31-ago-2026** y el costo por turno sube 50% solo | Está en el calendario, no hay que medirlo | Calibrar la aritmética del tope con el precio estándar desde el día uno, no con el intro |
-| 9 | **Inyección de prompt** en documentos de origen externo | Las cuatro métricas de la Fase 11.5 | Los tres controles duros de D21. El presupuesto acota el daño aunque la inyección funcione |
-| 10 | Un reintento cobra dos veces | Contar liquidaciones por `nonce` repetido en el log | La idempotencia de D20. Es la razón por la que el backoff no se implementa antes que ella. **2026-08-26: el backoff se implementó igual, antes que la idempotencia (B5). Acotarlo en la 8.5** |
-| 11 | **El tope no sobrevive a un reinicio** (B1): la cuenta es la API key y las keys son de memoria | Agotar el tope, reiniciar, pedir de nuevo. Hoy pasa | Persistir la identidad de cuenta. Es el punto 1 del orden de la sección 0-ter y no se avanza sin él |
-| 12 | **La liquidación del externo se cae a un contador de deltas** si el proveedor no manda `usage` (B2) | Correr un upstream sin `include_usage` y comparar el `costMicros` del log contra la factura del proveedor | Imponerlo desde el código y hacer ruidoso el `usage` ausente |
-| 13 | **Un request al externo sin timeout** deja la reserva comprometida y el gasto corriendo aunque el cliente se haya ido (B3) | Cerrar la pestaña a mitad de stream y mirar `reserved` en `/v1/budget` | Pasar el `signal` que `completar()` ya acepta, y armar el mismo `req.on('close')` que ya tiene la rama P2P |
+| #   | Riesgo                                                                                                                     | Cómo se mide                                                                                              | Plan B                                                                                                                                                                                        |
+| --- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ~~WDK/x402 no corre bajo Bare~~ **CERRADO 2026-08-25**                                                                     | El spike de D11 pasó los cuatro pasos, con firma idéntica a Node                                          | — ya no hace falta                                                                                                                                                                            |
+| 2   | **Plata real en mainnet** (Plasma no es testnet)                                                                           | Montos de $0.001 y una wallet con USD 2                                                                   | Facilitator self-hosted contra una EVM testnet con USD₮0                                                                                                                                      |
+| 3   | El settle falla **después** de que el nodo ya gastó GPU                                                                    | Contar fallos de settle en el log de ruteo                                                                | Verificación estricta previa + montos chicos; la reputación por par ya existe en `recordPeerResult`                                                                                           |
+| 4   | La seed de la wallet queda en claro como la de red                                                                         | Revisión de D13 antes de fondear nada                                                                     | No fondear hasta que esté cifrada. No es negociable                                                                                                                                           |
+| 5   | Dependencia de un facilitator de terceros que Tether **no** respalda                                                       | —                                                                                                         | Self-hosted, ya presupuestado en la Fase 10                                                                                                                                                   |
+| 6   | VELA no da early access, o lo da tarde                                                                                     | Aplicar primero y seguir sin esperar                                                                      | El Track V es paralelo justamente por esto: nada del camino crítico lo espera                                                                                                                 |
+| 7   | **El operador adelanta el costo externo en fiat y cobra en USD₮** — riesgo de crédito y de cambio (R5.1)                   | Diferencia entre lo consumido y lo cobrado, por mes                                                       | El corte de la Fase 6.5 acota la exposición máxima a USD 20 por cuenta. Si no alcanza, pasar a (a) de D18: cobrado antes de gastar                                                            |
+| 8   | **El precio intro de Sonnet 5 vence el 31-ago-2026** y el costo por turno sube 50% solo                                    | Está en el calendario, no hay que medirlo                                                                 | Calibrar la aritmética del tope con el precio estándar desde el día uno, no con el intro                                                                                                      |
+| 9   | **Inyección de prompt** en documentos de origen externo                                                                    | Las cuatro métricas de la Fase 11.5                                                                       | Los tres controles duros de D21. El presupuesto acota el daño aunque la inyección funcione                                                                                                    |
+| 10  | Un reintento cobra dos veces                                                                                               | Contar liquidaciones por `nonce` repetido en el log                                                       | La idempotencia de D20. Es la razón por la que el backoff no se implementa antes que ella. **2026-08-26: el backoff se implementó igual, antes que la idempotencia (B5). Acotarlo en la 8.5** |
+| 11  | **El tope no sobrevive a un reinicio** (B1): la cuenta es la API key y las keys son de memoria                             | Agotar el tope, reiniciar, pedir de nuevo. Hoy pasa                                                       | Persistir la identidad de cuenta. Es el punto 1 del orden de la sección 0-ter y no se avanza sin él                                                                                           |
+| 12  | **La liquidación del externo se cae a un contador de deltas** si el proveedor no manda `usage` (B2)                        | Correr un upstream sin `include_usage` y comparar el `costMicros` del log contra la factura del proveedor | Imponerlo desde el código y hacer ruidoso el `usage` ausente                                                                                                                                  |
+| 13  | **Un request al externo sin timeout** deja la reserva comprometida y el gasto corriendo aunque el cliente se haya ido (B3) | Cerrar la pestaña a mitad de stream y mirar `reserved` en `/v1/budget`                                    | Pasar el `signal` que `completar()` ya acepta, y armar el mismo `req.on('close')` que ya tiene la rama P2P                                                                                    |
 
 ---
 
@@ -1293,21 +1318,21 @@ sigue siendo el correcto; lo que cambió es dónde estamos parados dentro de él
 El estado real y el orden que se ejecuta desde el 2026-08-26 están en la
 sección 0-ter, y manda esa.
 
-| Orden | Qué | Estado | Por qué ahí |
-| --- | --- | --- | --- |
-| 0 | **Aplicar al early access de VELA** | pendiente | Es lo único que no controlamos. Se dispara y se sigue trabajando |
-| 1 | **Fase 6.5 — presupuesto, corte y degradación** | **construida, CONGELADA 2026-08-26** (B6, B13, B14 abiertos) | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza |
-| 1' | ~~Spike de D11~~ **HECHO** | cerrado | Pasó: WDK y x402 corren directo bajo Bare, con firma idéntica a Node |
-| 1'' | Fase 6.6 — cuota gratuita del proveedor | **cerrada** | Misma forma que la 6.5 y tampoco depende de D11. El punto de control ya existe en provider.mjs |
-| 2 | Fase 7 — desmockear `economic` (incluye D13) | **no empezada** | Precondición de todo cobro |
-| 3 | Fase 8 — precio comparable y que rutea | **parcial**: D6 cerrado, el precio no rutea | Vale sola aunque x402 se caiga |
-| 4 | Fase 8.5 — el asistente externo como candidato | **CERRADA 2026-08-26** (B3, B4, B7, y después B11, B12, B15, B16) | Chica, porque la 8 ya dejó el ruteo listo |
-| 5 | Fase 9 — x402 en el borde | bloqueada por la 7 | El hito técnico |
-| 6 | Fase 10 — recibos y lote | bloqueada por la 7 | Mata la Fase 6 |
-| 7 | Fase 11 — capa agéntica con harness | bloqueada por la 7 | El pitch |
-| 8 | Fase 11.5 — evaluación adversarial | no empezada | Pegada a la 11. No es opcional |
-| 9 | Fase 12 — MCP toolkit | no empezada | Upside; se corta primero |
-| — | V2/V3 — enclave | no empezada | Cuando haya acceso y D17 esté cerrada |
+| Orden | Qué                                             | Estado                                                            | Por qué ahí                                                                                                                                          |
+| ----- | ----------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | **Aplicar al early access de VELA**             | pendiente                                                         | Es lo único que no controlamos. Se dispara y se sigue trabajando                                                                                     |
+| 1     | **Fase 6.5 — presupuesto, corte y degradación** | **construida, CONGELADA 2026-08-26** (B6, B13, B14 abiertos)      | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza |
+| 1'    | ~~Spike de D11~~ **HECHO**                      | cerrado                                                           | Pasó: WDK y x402 corren directo bajo Bare, con firma idéntica a Node                                                                                 |
+| 1''   | Fase 6.6 — cuota gratuita del proveedor         | **cerrada**                                                       | Misma forma que la 6.5 y tampoco depende de D11. El punto de control ya existe en provider.mjs                                                       |
+| 2     | Fase 7 — desmockear `economic` (incluye D13)    | **CERRADA 2026-08-26**                                            | Precondición de todo cobro. Desbloquea 9, 10 y 11                                                                                                    |
+| 3     | Fase 8 — precio comparable y que rutea          | **parcial**: D6 cerrado, el precio no rutea                       | Vale sola aunque x402 se caiga                                                                                                                       |
+| 4     | Fase 8.5 — el asistente externo como candidato  | **CERRADA 2026-08-26** (B3, B4, B7, y después B11, B12, B15, B16) | Chica, porque la 8 ya dejó el ruteo listo                                                                                                            |
+| 5     | Fase 9 — x402 en el borde                       | **desbloqueada** (la 7 cerró)                                     | El hito técnico. Ojo: D9 exige `finish_reason: length` al recortar, y eso es B14, congelado con la 6.5                                               |
+| 6     | Fase 10 — recibos y lote                        | **desbloqueada** (la 7 cerró)                                     | Mata la Fase 6                                                                                                                                       |
+| 7     | Fase 11 — capa agéntica con harness             | **desbloqueada** (la 7 cerró)                                     | El pitch                                                                                                                                             |
+| 8     | Fase 11.5 — evaluación adversarial              | no empezada                                                       | Pegada a la 11. No es opcional                                                                                                                       |
+| 9     | Fase 12 — MCP toolkit                           | no empezada                                                       | Upside; se corta primero                                                                                                                             |
+| —     | V2/V3 — enclave                                 | no empezada                                                       | Cuando haya acceso y D17 esté cerrada                                                                                                                |
 
 **Trabajo que quedó fuera de toda fase y que hay que ubicar en alguna:** los 574
 LOC de RAG que no importa nadie (B8), el instalador sin verificación de
@@ -1319,24 +1344,24 @@ los tres son deuda que crece sola.
 Todas son del dueño del proyecto, no de un agente (ver la regla de delegación
 arriba). La columna **Tipo** dice por qué.
 
-| #   | Decisión | Tipo | Bloquea |
-| --- | --- | --- | --- |
-| D8  | El 402 vive en el gateway, no en el nodo | arquitectura | Fase 9 |
-| D9  | `exact` con tope declarado (Fase 9) → prepago (Fase 10); `finish_reason: length` si se recorta | negocio | Fase 9 |
-| D10 | `payTo` directo a la wallet del proveedor, tomada del manifiesto firmado | negocio | Fase 9 |
-| D11 | ~~Runtime de la wallet~~ **CERRADA**: `wdk-wallet-evm` directo bajo Bare | arquitectura | — (desbloqueó 7–12) |
-| D12 | Verificar sincrónico, liquidar después, recibo como evento SSE final | arquitectura | Fase 9 |
-| D13 | Seed de wallet separada de la de red y cifrada; no fondear antes | **seguridad** | Fase 7 |
-| D14 | Facilitator hosted hasta la Fase 10 | arquitectura | Fase 9 |
-| D15 | Plasma default, Stable fallback; `chains` kebab-case sin tocar el schema | modelo de datos | Fase 7 |
-| D16 | Tres caminos de acceso: local gratis, key con saldo, desconocido con 402 | negocio | Fase 9 |
-| D17 | Cadena de liquidación si VELA entra — **se cierra recién con el early access** | arquitectura | V2 |
-| D18 | Tope impuesto **antes** del gasto: prepago (6.5) → autorizaciones denominadas (10). Nunca postpago | **negocio + seguridad** | Fase 6.5 |
-| D19 | Tres condiciones para el externo (sin capacidad + opt-in + presupuesto), divulgación en los headers, y qué modelo | **negocio + privacidad** | Fase 8.5 |
-| D20 | Harness: pasos, tokens, timeouts, backoff solo transitorio, `nonce` como clave de idempotencia | arquitectura | Fase 11 |
-| D21 | Cuatro métricas adversariales publicadas con sus fallos + tres controles duros | **seguridad** | Fase 11.5 |
-| D22 | Precio: referencia contra lo que el comprador no puede usar, no contra el token más barato; chicos gratis; piso USD 0,50/MTok | **negocio** | Fase 8 |
-| D23 | Cuota gratuita de 100.000 tokens/24 h, hecha cumplir por el proveedor y por clave de par | **negocio + arquitectura** | Fase 6.6 |
+| #   | Decisión                                                                                                                      | Tipo                       | Bloquea             |
+| --- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ------------------- |
+| D8  | El 402 vive en el gateway, no en el nodo                                                                                      | arquitectura               | Fase 9              |
+| D9  | `exact` con tope declarado (Fase 9) → prepago (Fase 10); `finish_reason: length` si se recorta                                | negocio                    | Fase 9              |
+| D10 | `payTo` directo a la wallet del proveedor, tomada del manifiesto firmado                                                      | negocio                    | Fase 9              |
+| D11 | ~~Runtime de la wallet~~ **CERRADA**: `wdk-wallet-evm` directo bajo Bare                                                      | arquitectura               | — (desbloqueó 7–12) |
+| D12 | Verificar sincrónico, liquidar después, recibo como evento SSE final                                                          | arquitectura               | Fase 9              |
+| D13 | Seed de wallet separada de la de red y cifrada; no fondear antes                                                              | **seguridad**              | Fase 7              |
+| D14 | Facilitator hosted hasta la Fase 10                                                                                           | arquitectura               | Fase 9              |
+| D15 | Plasma default, Stable fallback; `chains` kebab-case sin tocar el schema                                                      | modelo de datos            | Fase 7              |
+| D16 | Tres caminos de acceso: local gratis, key con saldo, desconocido con 402                                                      | negocio                    | Fase 9              |
+| D17 | Cadena de liquidación si VELA entra — **se cierra recién con el early access**                                                | arquitectura               | V2                  |
+| D18 | Tope impuesto **antes** del gasto: prepago (6.5) → autorizaciones denominadas (10). Nunca postpago                            | **negocio + seguridad**    | Fase 6.5            |
+| D19 | Tres condiciones para el externo (sin capacidad + opt-in + presupuesto), divulgación en los headers, y qué modelo             | **negocio + privacidad**   | Fase 8.5            |
+| D20 | Harness: pasos, tokens, timeouts, backoff solo transitorio, `nonce` como clave de idempotencia                                | arquitectura               | Fase 11             |
+| D21 | Cuatro métricas adversariales publicadas con sus fallos + tres controles duros                                                | **seguridad**              | Fase 11.5           |
+| D22 | Precio: referencia contra lo que el comprador no puede usar, no contra el token más barato; chicos gratis; piso USD 0,50/MTok | **negocio**                | Fase 8              |
+| D23 | Cuota gratuita de 100.000 tokens/24 h, hecha cumplir por el proveedor y por clave de par                                      | **negocio + arquitectura** | Fase 6.6            |
 
 ---
 
