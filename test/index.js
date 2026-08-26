@@ -2314,3 +2314,81 @@ test('sin .env no pasa nada: es el caso normal', async (t) => {
   const r = await cargar(path.default.join(os.default.tmpdir(), 'pyrus-no-existe-' + Date.now()))
   t.alike(r.cargadas, [], 'la mayoria de los nodos no habla con ninguna API externa')
 })
+
+// ---------------------------------------------------------------------------
+// FASE 9 — que el stack de x402 cargue, y que cargue POR EL MOTIVO ESCRITO
+//
+// `@x402/evm` no importa bajo Bare por su cuenta: llega a `@noble/hashes/crypto`,
+// que bajo la condicion `node` resuelve a un archivo que importa `node:crypto`.
+// Con WDK importado antes, funciona -- y el mecanismo NO esta diagnosticado.
+//
+// Eso es incomodo en el camino que maneja pagos, asi que hay dos cosas que lo
+// vigilan: el paso 5 del spike de D11, y este test.
+//
+// La prueba se hace en un PROCESO LIMPIO a proposito. Adentro de la suite, para
+// cuando esto corra, ya hay media docena de modulos cargados -- entre ellos
+// wallet.mjs, que importa WDK -- asi que un `await import('../qvac/x402.mjs')`
+// aca pasaria SIEMPRE, incluso con el import de WDK borrado del modulo. Seria
+// otro verde que no significa lo que dice.
+// ---------------------------------------------------------------------------
+
+function bareLimpio(codigo) {
+  const { spawnSync } = require('bare-subprocess')
+  const r = spawnSync(Bare.argv[0], ['-e', codigo], { encoding: 'utf8' })
+  return ((r.stdout || '') + (r.stderr || '')).trim()
+}
+
+test('FASE 9: x402.mjs carga el stack en un proceso limpio', async (t) => {
+  const salida = bareLimpio(
+    "import('./qvac/x402.mjs').then(m => m.cargar()).then(s =>" +
+      " console.log('OK ' + s.core.x402Version + ' ' + Object.keys(s.evm).length))" +
+      ".catch(e => console.log('FALL ' + e.message))"
+  )
+  t.ok(salida.startsWith('OK'), 'carga sin nada precargado: ' + salida.slice(0, 120))
+  t.ok(salida.includes('OK 2'), 'x402Version 2, que es el protocolo que se implementa')
+})
+
+test('FASE 9: y sin el import de WDK NO cargaria, que es por lo que esta', async (t) => {
+  // La contracara. Si esto empezara a pasar, el import de WDK dejo de hacer
+  // falta -- y habria que sacarlo con su comentario, no dejarlo "por las
+  // dudas". Si falla al reves, alguien lo borro y este test dice por que dolio.
+  const salida = bareLimpio(
+    "import('@x402/evm').then(m => console.log('OK ' + Object.keys(m).length))" +
+      ".catch(e => console.log('FALL ' + e.message))"
+  )
+  // No se busca el prefijo 'FALL': un MODULE_NOT_FOUND de resolucion lo tira
+  // Bare como excepcion no capturada, antes de que el .catch() del import
+  // llegue a existir. Lo que importa es que NO diga OK y que nombre la causa.
+  t.absent(salida.startsWith('OK'), 'importado solo no carga')
+  t.ok(
+    salida.includes('node:crypto'),
+    'y sigue siendo por node:crypto, no por otra cosa: ' + salida.slice(0, 110)
+  )
+})
+
+test('FASE 9: Plasma no se cobra sin que alguien verifique su contrato', async (t) => {
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+
+  // D15 puso Plasma de default, pero x402 no la trae: getDefaultAsset tira
+  // "No default asset configured". La direccion del contrato la declaramos
+  // nosotros, y es plata real -- asi que sin confirmacion explicita no se usa.
+  delete env[x402.VAR_PLASMA_OK]
+  t.is(await x402.activoDe('plasma'), null, 'sin confirmar, Plasma queda afuera')
+
+  const stable = await x402.activoDe('stable')
+  t.ok(stable, 'Stable si, y su direccion sale de x402, no de una constante nuestra')
+  t.is(stable.network, 'eip155:988')
+  t.is(stable.symbol, 'USDT0')
+  t.is(stable.decimals, 6)
+
+  t.alike(await x402.redesDisponibles(), ['stable'], 'hoy se puede cobrar en una sola')
+
+  env[x402.VAR_PLASMA_OK] = '1'
+  const plasma = await x402.activoDe('plasma')
+  t.ok(plasma, 'con la confirmacion del operador, entra')
+  t.is(plasma.network, 'eip155:9745')
+  t.alike(await x402.redesDisponibles(), ['plasma', 'stable'], 'y va primero, como dice D15')
+
+  delete env[x402.VAR_PLASMA_OK]
+})
