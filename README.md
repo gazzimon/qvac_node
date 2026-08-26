@@ -143,10 +143,18 @@ cuota diaria agotada, que el ledger no puede ver porque no se mide en dólares.
 ### El ruteo
 
 `Auto` no es un orden fijo. `qvac/routing.mjs` descarta a los saturados, ordena
-por carga, desempata con el histórico por par que el directorio ya venía
-guardando, y recién al final aplica la preferencia por tipo de nodo. Los mocks de
-`--demo` no compiten por carga: la suya la mueve un timer al azar, y compararla
-con carga real sería comparar un número con una ficción.
+por carga, **con carga pareja elige el más barato**, desempata con el histórico
+por par que el directorio ya venía guardando, y recién al final aplica la
+preferencia por tipo de nodo. Los mocks de `--demo` no compiten por carga: la
+suya la mueve un timer al azar, y compararla con carga real sería comparar un
+número con una ficción.
+
+El precio va **después** de la carga y **antes** del histórico, y las dos cosas
+son deliberadas. Después de la carga porque mandar el request a la opción barata
+que está llena cambia dólares por latencia sin que nadie lo haya pedido, y una
+respuesta que no llega no es barata. Antes del histórico porque hoy todos los
+pares y el motor local valen cero: esa comparación sólo separa gratis de pago, y
+entre pares —que es donde el histórico importa— siguen empatados y decide él.
 
 Cada decisión queda registrada **con el motivo**: `/v1/routing-log` devuelve las
 últimas 30 (lo que pinta `/admin`) y `/v1/audit` la serie completa desde el
@@ -402,8 +410,11 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
   cobro" y no "no está implementado". `directory` tampoco es mock: ahí se firma
   la clave real del Hyperbee. **Recibos y liquidación siguen sin implementar**
   (Fases 9 y 10): el manifiesto dice a quién pagarle, todavía no se le paga.
-- `Auto` elige por **carga**, no por precio: no es una subasta. El precio viaja
-  en el manifiesto pero todavía no participa del ruteo.
+- `Auto` elige por **carga y después por precio**: con capacidad pareja gana el
+  más barato, y el log de ruteo lo dice con los dos números. No es una subasta
+  —nadie puja— pero el precio ya no es decorativo. El orden importa y es
+  deliberado: el precio nunca le gana a "puede atender ahora", porque la opción
+  barata que está llena no es barata.
 - **El ledger corta, y con un asistente externo configurado deja de dar cero.**
   La inferencia local y la de un par siguen valiendo 0 —no le cuestan a nadie más
   que al dueño de la máquina—, así que sin upstream el gasto registrado es 0 y el
@@ -411,10 +422,13 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
   verdad: reserva, corte y liquidación con los tokens que reporta el proveedor.
 - El ledger y el registro de keys persisten a disco; **la cuota gratuita no**: se
   repone al reiniciar el nodo. No hay registro compartido entre nodos.
-- **El precio no es comparable todavía.** Viaja estructurado en el manifiesto,
-  pero lo llena una constante: todos los nodos anuncian el mismo número. Por eso
-  el chat no muestra cuánto costó cada respuesta — un costo inventado sería peor
-  que ninguno.
+- **El precio que rutea es el del ledger, en micro-dólares, y es comparable
+  entre nodos de cualquier clase.** Para un asistente externo es el que declaró
+  el operador en su `upstreams.json`; para un par de la red y para el motor
+  local es **cero**, y ese cero no es un placeholder: es la verdad de hoy,
+  porque el pago P2P es la Fase 9. El chat muestra ese número por respuesta.
+  Lo que sigue siendo decorativo es el string `pricing` del manifiesto ("0.002
+  QVAC / 1K tok"), que no participa de ninguna decisión.
 - Las API keys **persisten** en `<storage>/apikeys.json`, en claro y con permisos
   de solo-dueño, todavía sin scopes. Persisten porque tienen que hacerlo: la
   cuenta a la que el ledger le imputa el gasto **es** la key, así que con el
@@ -425,9 +439,11 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
   **no** puede ir en claro es la semilla de la wallet, y eso es otra cosa (D13).
 - El login por rol (`qvac/auth.mjs`) **no está conectado a ninguna ruta**: es
   código muerto, no un gate. El gate real son las API keys (ver arriba).
-- Las transacciones muestran tokens, latencia y quién — **no muestran plata**.
-  El precio lo llena una constante y todos los nodos anuncian el mismo número;
-  un monto ahí sería inventado.
+- **El chat muestra el costo de cada respuesta**, y muestra el TECHO, no lo que
+  salió: en streaming los headers viajan antes del primer token, así que el
+  costo real todavía no existe cuando hay que declararlo. Dice `up to USD …`
+  cuando cuesta y `no charge` cuando no —dos textos distintos a propósito, para
+  que "sale muy poco" no se lea igual que "no se le cobra a nadie".
 - Los instaladores están verificados en Windows; los caminos de macOS y Linux
   están escritos pero no ejecutados end-to-end.
 - El nodo que infiere ve el prompt en texto plano. El claim es "ninguna

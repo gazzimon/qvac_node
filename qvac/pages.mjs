@@ -316,6 +316,9 @@ const STYLE = `
   .prov .peer { color: #4ade80; font-weight: 600; }
   .prov .local { color: #7db8ff; font-weight: 600; }
   .prov .upstream { color: #fbbf24; font-weight: 600; }
+  /* El costo no se resalta como el operador: es un dato, no una alarma. Se
+     distingue de la latencia sin gritar. */
+  .prov .cost { font-variant-numeric: tabular-nums; }
 
   .composer { border-top: 1px solid #262b36; padding: .9rem 0 1.1rem; }
   .composer .row { display: flex; gap: .5rem; align-items: flex-end; }
@@ -2215,6 +2218,16 @@ const CHAT_JS = String.raw`
       el.scrollTop = el.scrollHeight
     }
 
+    // Micro-dolares a texto. SEIS decimales y no cuatro, y no es un detalle de
+    // estilo: con cuatro, cualquier turno de menos de 50 micros se muestra
+    // "USD 0.0000" -- o sea identico a gratis, que es exactamente la
+    // distincion que esta linea existe para hacer. Se recortan los ceros
+    // sobrantes para que un turno caro no se lea lleno de relleno.
+    function usd(micros) {
+      var s = (micros / 1000000).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
+      return 'USD ' + s
+    }
+
     // La linea de procedencia. Es lo que separa a esto de cualquier otro chat:
     // el nodo que contesto sale nombrado, no supuesto.
     function prov(m) {
@@ -2239,6 +2252,14 @@ const CHAT_JS = String.raw`
       if (m.ttft !== null) partes.push('<span>first token ' + m.ttft + 'ms</span>')
       if (m.tps) partes.push('<span>' + m.tps + ' tok/s</span>')
       partes.push('<span>' + m.secs + 's total</span>')
+      // El costo va SIEMPRE, incluido el cero, y el cero se escribe con
+      // palabras. "USD 0.0000" se lee como "salio muy barato" y no es eso: es
+      // que a nadie se le cobra, porque el pago P2P todavia no existe. Y
+      // "up to" tampoco es un adorno: este numero es el techo con el que se
+      // autorizo el gasto, no lo que termino saliendo.
+      if (m.cost === undefined || m.cost === null) { /* turno viejo, sin el dato */ }
+      else if (m.cost > 0) partes.push('<span class="cost">up to ' + usd(m.cost) + '</span>')
+      else partes.push('<span class="cost">no charge</span>')
       return '<div class="prov">' + partes.join('') + '</div>'
     }
 
@@ -2308,6 +2329,10 @@ const CHAT_JS = String.raw`
         var operador = decodeURIComponent(resp.headers.get('X-Pyrus-Operator') || '') || 'unknown node'
         var tipo = resp.headers.get('X-Pyrus-Kind') || 'real'
         var alcance = resp.headers.get('X-Pyrus-Scope') || 'local'
+        // FASE 8 — lo que este turno puede llegar a costar. Es el TECHO con el
+        // que se autorizo el gasto, no lo que salio: en SSE los headers salen
+        // antes del primer token, asi que el real todavia no existe.
+        var costo = parseInt(resp.headers.get('X-Pyrus-Cost-Estimate-Micros') || '0', 10) || 0
 
         var reader = resp.body.getReader()
         var dec = new TextDecoder()
@@ -2346,7 +2371,8 @@ const CHAT_JS = String.raw`
           scope: alcance,
           ttft: ttft,
           tps: ttft !== null && total > 0 ? Math.round(toks / total) : 0,
-          secs: total.toFixed(1)
+          secs: total.toFixed(1),
+          cost: costo
         }
       } catch (err) {
         if (err && err.name === 'AbortError') slot.content += '\n[stopped]'

@@ -177,10 +177,21 @@ function targetDe(node) {
   return esTercero(node) ? 'upstream' : 'local'
 }
 
-function provenanceHeaders(node) {
+// FASE 8 — `costMicros` es el ESTIMADO, no el real, y la diferencia importa.
+//
+// El real se sabe al terminar; estos headers salen ANTES del primer token,
+// porque en SSE no hay otro momento (R4 del roadmap). Asi que lo que viaja es
+// la COTA SUPERIOR con la que se autorizo el gasto -- el mismo numero que
+// aparto la reserva --, y el chat lo muestra como techo y no como precio.
+//
+// Mandar el real obligaria a un trailer HTTP o a un segundo request contra el
+// log, y las dos cosas son peores que decir la verdad de lo que se sabe cuando
+// se sabe.
+function provenanceHeaders(node, costMicros = 0) {
   return {
     'X-Pyrus-Operator': encodeURIComponent((node && node.operator) || ''),
     'X-Pyrus-Kind': (node && node.kind) || 'unknown',
+    'X-Pyrus-Cost-Estimate-Micros': String(Math.max(0, Math.ceil(Number(costMicros) || 0))),
     // De que lado del borde de la maquina se genero la respuesta. `kind` no
     // alcanza: un upstream puede ser un tercero o un motor propio detras de
     // HTTP, y el chat necesita saber cual para no prometer de menos ni de mas.
@@ -797,6 +808,11 @@ async function handleChatConReintentos({
   // nadie haya tenido que mirar la pantalla en ese momento.
   let ttftMs = null
   let tokens = 0
+  // Lo que se estimo para el intento EN CURSO. Vive fuera del loop porque lo
+  // lee `emitUnsafe` al escribir los headers, y adentro del loop la reserva es
+  // un const de cada vuelta. Con reintento entre candidatos de precios
+  // distintos, el header tiene que decir el del que efectivamente contesto.
+  let costoEstimado = 0
 
   const emit = (delta) => {
     // El primer delta con contenido es el primer token, no el chunk de
@@ -825,7 +841,7 @@ async function handleChatConReintentos({
         // que se eligio primero, y el header nombra a QUIEN CONTESTO. Decia el
         // del primer intento, o sea mentia en el unico caso donde el dato
         // importa.
-        ...provenanceHeaders(elegido || node),
+        ...provenanceHeaders(elegido || node, costoEstimado),
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive'
@@ -898,10 +914,9 @@ async function handleChatConReintentos({
     // a pedir (el precio depende del nodo) y antes de pedirselo. Un tope que
     // se evalua despues del gasto es un descuento.
     const tope = topeDeSalida(cand, maxTokensPedido)
-    const reserva = budget.reserve(
-      cuenta,
-      estimarRequest({ node: cand, maxTokens: tope, promptTokens })
-    )
+    const estimado = estimarRequest({ node: cand, maxTokens: tope, promptTokens })
+    costoEstimado = estimado
+    const reserva = budget.reserve(cuenta, estimado)
     if (!reserva.ok) {
       // No alcanza para ESTE candidato. No es el final del camino: el
       // siguiente puede ser gratis, y contestar con el motor local es mejor
@@ -1037,7 +1052,7 @@ async function handleChatConReintentos({
               }
             ]
           },
-          provenanceHeaders(elegido || node)
+          provenanceHeaders(elegido || node, costoEstimado)
         )
       }
       if (!headersSent) {
@@ -1343,7 +1358,29 @@ async function handleChat(req, res) {
     })
   }
 
-  const eleccion = pickCandidate(candidatos, { statsFor: store.statsFor, pin })
+  // FASE 8 — el precio entra al ruteo.
+  //
+  // Se le pasa a `pickCandidate` una funcion ya ATADA A ESTE REQUEST: el costo
+  // de un candidato no es una propiedad del candidato, depende del prompt y del
+  // tope de salida. Un prompt largo contra un modelo caro y el mismo prompt
+  // contra uno gratis no se comparan con una tarifa, se comparan con el numero
+  // que le va a salir a esta persona por ESTA pregunta.
+  //
+  // Es exactamente `estimarRequest`, la misma funcion con la que se abre la
+  // reserva del presupuesto unas lineas mas abajo. Que sean la MISMA importa:
+  // rutear por un numero y cobrar por otro seria elegir con informacion que no
+  // es la que despues se descuenta.
+  const promptTokensDelRuteo = estimarPromptTokens(messages)
+  const eleccion = pickCandidate(candidatos, {
+    statsFor: store.statsFor,
+    precioDe: (cand) =>
+      estimarRequest({
+        node: cand,
+        maxTokens: topeDeSalida(cand, norm.maxTokens || 0),
+        promptTokens: promptTokensDelRuteo
+      }),
+    pin
+  })
 
   // El cliente fijo una maquina que ya no esta entre los candidatos. NO se
   // rutea a otra: el que elige una maquina quiere esa, y contestarle con otra

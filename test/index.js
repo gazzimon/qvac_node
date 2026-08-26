@@ -1219,6 +1219,134 @@ test('D6: el historico desempata cuando la carga empata', async (t) => {
   t.ok(r.reason.includes('errores'), r.reason)
 })
 
+// ---------------------------------------------------------------------------
+// FASE 8 — el precio entra al ruteo
+//
+// La mitad que faltaba de la fase. Lo que estos tests fijan no es "el barato
+// gana": es DONDE gana, que es lo unico discutible. Detras de la carga, porque
+// la opcion barata que esta llena no es barata; delante de la latencia y del
+// desempate por tipo, porque ese ultimo es "preferencia del modo demo, ya no
+// criterio" y venia decidiendo cosas de plata por accidente.
+// ---------------------------------------------------------------------------
+
+// Precio por candidato en micro-dolares, como se lo pasa el gateway: ya atado
+// al request. Un par y el motor local dan cero, que hoy es la verdad y no un
+// placeholder -- el pago P2P es la Fase 9.
+function precioFijo(tabla) {
+  return (n) => tabla[n.id] || 0
+}
+
+test('FASE 8: con carga pareja gana el mas barato, y el log dice los dos precios', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const caro = cand('caro', 'upstream', 0, 4)
+  const barato = cand('barato', 'upstream', 0, 4)
+
+  const r = pickCandidate([caro, barato], {
+    precioDe: precioFijo({ caro: 5000, barato: 900 }),
+    random: SIN_AZAR
+  })
+
+  t.is(r.node.id, 'barato')
+  t.ok(r.reason.includes('mas barato'), r.reason)
+  // Los DOS numeros: sin el del segundo, "el mas barato" no se audita contra
+  // nada -- es la misma exigencia que el DoD le hace al motivo de la carga.
+  t.ok(r.reason.includes('0.0009') && r.reason.includes('0.005'), 'nombra ambos: ' + r.reason)
+})
+
+test('FASE 8: el precio NO le gana a "puede atender ahora"', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  // El gratis esta al 90%; el que cobra, vacio. Gana igual el gratis: mandar
+  // el request al caro porque el barato esta cargado seria cambiar dolares por
+  // latencia sin que nadie lo pidiera.
+  const gratisCargado = cand('gratis', 'peer', 9, 10)
+  const caroLibre = cand('caro', 'upstream', 0, 10)
+
+  const conLugar = pickCandidate([caroLibre, gratisCargado], {
+    precioDe: precioFijo({ caro: 5000 }),
+    random: SIN_AZAR
+  })
+  t.is(conLugar.node.id, 'caro', 'con MENOS carga gana el caro: la carga va primero')
+
+  // Y al reves: lleno de verdad, el caro pasa al frente aunque cueste.
+  const gratisLleno = cand('gratis', 'peer', 10, 10)
+  const r = pickCandidate([gratisLleno, caroLibre], {
+    precioDe: precioFijo({ caro: 5000 }),
+    random: SIN_AZAR
+  })
+  t.is(r.node.id, 'caro', 'un candidato saturado no es barato: es ninguno')
+})
+
+test('FASE 8: gratis le gana a pago por PRECIO, no por el tipo de nodo', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  // Es el comportamiento que la Fase 8.5 ya daba por bueno ("con las dos
+  // puertas abiertas contesta la de casa"), pero lo producia el desempate por
+  // `kind` del paso 7. Con el precio, el motivo deja de ser un accidente.
+  const local = cand('local', 'upstream', 0, 4) // motor propio: no cuesta
+  const tercero = cand('tercero', 'upstream', 0, 4) // API que cobra
+
+  const r = pickCandidate([tercero, local], {
+    precioDe: precioFijo({ tercero: 2500 }),
+    random: SIN_AZAR
+  })
+  t.is(r.node.id, 'local', 'mismo kind, misma carga: decide el precio')
+  t.ok(r.reason.includes('mas barato'), 'y el motivo lo dice: ' + r.reason)
+  t.ok(r.reason.includes('gratis'), 'el cero se escribe "gratis", no "USD 0.0000": ' + r.reason)
+})
+
+test('FASE 8: el precio se compara ANTES que la latencia y los errores', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  const barato = cand('barato', 'upstream', 0, 4)
+  const caro = cand('caro', 'upstream', 0, 4)
+
+  // El caro tiene mejor historia en las dos dimensiones. Pierde igual: con
+  // carga pareja el DoD dice que gana el mas barato.
+  const statsFor = (n) =>
+    n.id === 'caro'
+      ? { requests: 10, errors: 0, lastMs: 100 }
+      : { requests: 10, errors: 3, lastMs: 900 }
+
+  const r = pickCandidate([caro, barato], {
+    statsFor,
+    precioDe: precioFijo({ caro: 5000, barato: 900 }),
+    random: SIN_AZAR
+  })
+  t.is(r.node.id, 'barato')
+
+  // Y con precios IGUALES vuelven a mandar ellos, que es lo que hace que meter
+  // el precio no rompa el desempate entre pares -- donde todos valen cero.
+  const conEmpate = pickCandidate([caro, barato], {
+    statsFor,
+    precioDe: precioFijo({ caro: 900, barato: 900 }),
+    random: SIN_AZAR
+  })
+  t.is(conEmpate.node.id, 'caro', 'empatados en precio, decide el historico')
+  t.ok(conEmpate.reason.includes('errores'), conEmpate.reason)
+})
+
+test('FASE 8: sin precioDe el ruteo se comporta igual que antes', async (t) => {
+  const { pickCandidate } = await import('../qvac/routing.mjs')
+
+  // Todo el resto de la suite llama a pickCandidate sin `precioDe`, y tiene que
+  // seguir andando: el precio es un criterio nuevo, no un requisito nuevo.
+  const cargado = cand('cargado', 'peer', 9, 10)
+  const libre = cand('libre', 'peer', 1, 10)
+  const r = pickCandidate([cargado, libre], { random: SIN_AZAR })
+  t.is(r.node.id, 'libre', 'sigue mandando la carga')
+
+  // Y un precioDe que explota no puede tumbar el ruteo, igual que el historico.
+  const roto = pickCandidate([cargado, libre], {
+    precioDe: () => {
+      throw new Error('costs exploto')
+    },
+    random: SIN_AZAR
+  })
+  t.is(roto.node.id, 'libre', 'se rutea igual, sin el criterio de precio')
+})
+
 test('D6: un historico roto no puede tumbar el ruteo', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 

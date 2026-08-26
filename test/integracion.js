@@ -1204,6 +1204,107 @@ test('con las dos puertas abiertas contesta la de casa, no la que cobra', async 
     'y se le pidio con SU nombre, no con el anunciado'
   )
 
+  // FASE 8 — y ahora gana POR PRECIO, que es otra cosa que ganar por casualidad.
+  // Los dos candidatos son `kind: upstream`, asi que el desempate por tipo --
+  // lo unico que decidia esto antes -- los deja empatados: si el motivo dice
+  // "mas barato", el criterio nuevo es el que mando.
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  t.ok(
+    log.json.log[0].reason.includes('mas barato'),
+    'el log dice POR QUE, y el por que es el precio: ' + log.json.log[0].reason
+  )
+  t.is(r.headers['x-pyrus-cost-estimate-micros'], '0', 'el motor de casa no cuesta dolares')
+
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
+// ---------------------------------------------------------------------------
+// FASE 8 — el precio decide entre dos que COBRAN
+//
+// El test de arriba tiene un gratis y un pago, y por eso no separa del todo dos
+// explicaciones: "gana el barato" y "gana el que no es un tercero". Este pone
+// dos proveedores que cobran, con la misma carga y distinto precio. Si gana el
+// barato, lo unico que puede haberlo decidido es el precio.
+// ---------------------------------------------------------------------------
+
+test('entre dos proveedores que cobran, rutea al mas barato y lo dice', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'caro',
+        label: 'Proveedor caro',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [
+          {
+            modelId: 'el-caro',
+            as: 'dos-que-cobran',
+            maxTokens: 256,
+            pricePerMTok: { input: 10, output: 20 }
+          }
+        ]
+      },
+      {
+        id: 'barato',
+        label: 'Proveedor barato',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [
+          {
+            modelId: 'el-barato',
+            as: 'dos-que-cobran',
+            maxTokens: 256,
+            pricePerMTok: { input: 1, output: 2 }
+          }
+        ]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+
+  for (const u of ups) {
+    costs.registrarPrecio('upstream:' + u.id, u.precio)
+    store.registerUpstream({
+      id: u.id,
+      modelId: u.anunciadoComo,
+      displayName: u.displayName,
+      operator: u.label,
+      // MISMA capacidad: con la carga empatada, el precio es lo unico que puede
+      // decidir. Distinta capacidad haria que ganara por carga y el test no
+      // probaria nada.
+      maxConcurrentRequests: 4
+    })
+  }
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'dos-que-cobran', messages: [{ role: 'user', content: 'hola' }] }
+  })
+
+  t.is(r.status, 200)
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Proveedor barato')
+  t.is(ultimoPedidoExterno.model, 'el-barato', 'se le pidio al barato, con SU nombre')
+
+  // El costo estimado del que contesto viaja al cliente. 'hola' son 4 bytes ->
+  // ceil(4/2) = 2 tokens de entrada a USD 1 el millon, mas 256 de tope de
+  // salida a USD 2 el millon: 2 * 1 + 256 * 2 = 514 micros.
+  t.is(r.headers['x-pyrus-cost-estimate-micros'], '514', 'el techo del gasto llega al chat')
+
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
+  const reason = log.json.log[0].reason
+  t.ok(reason.includes('mas barato'), 'el motivo es el precio: ' + reason)
+  t.ok(reason.includes('0.000514'), 'con el numero del elegido: ' + reason)
+  t.ok(reason.includes('0.00514'), 'y el del que perdio: ' + reason)
+
   store.clearUpstreams()
   costs.olvidarPreciosExternos()
   gw.setUpstreams([])
