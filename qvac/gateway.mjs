@@ -1531,12 +1531,31 @@ async function onRequest(req, res) {
       const data = store
         .listNodes()
         .filter((n) => n.status === 'online')
-        .map((n) => ({ id: n.modelId, object: 'model', created, owned_by: n.operator }))
+        // B12 -- `owned_by` decia el operador, o sea "OpenRouter (externo)":
+        // era la tercera puerta por la que se leia que proveedor paga este nodo,
+        // y la unica de las tres que no se puede cerrar con credencial. Un
+        // cliente OpenAI tiene que poder descubrir el catalogo ANTES de tener
+        // key -- cerrar esta ruta romperia justamente la compatibilidad que es
+        // la razon de que exista --, asi que se cierra el dato y no la puerta.
+        //
+        // El `id` ya no delata nada: desde `anunciadoComo` el catalogo lleva el
+        // nombre con el que ESTA red anuncia el modelo, no el del proveedor.
+        .map((n) => ({ id: n.modelId, object: 'model', created, owned_by: 'pyrusllm' }))
       return sendJson(res, 200, { object: 'list', data })
     }
     // Vista rica del marketplace: precio, operador, carga. La consumen los
     // paneles; no es parte del protocolo de OpenAI y por eso vive aparte.
+    //
+    // B12 -- pide credencial, por lo mismo que B7 se la puso a /v1/upstream.
+    // `toPublic` devuelve `operator` ("OpenRouter (externo)") y `pricing`
+    // ("USD 0.20 / per 1m completion tokens"), que es EXACTAMENTE lo que aquella
+    // ruta protege: quien es el proveedor y que se le paga. Cerrar una de las
+    // dos y dejar la otra abierta no protegia nada -- solo hacia falta pedir el
+    // dato por la puerta de al lado.
     if (req.method === 'GET' && pathname === '/v1/nodes') {
+      const motivoNodos = rechazoPorKey(req)
+      if (motivoNodos) return sendError(res, 401, motivoNodos)
+
       // `swarm: null` es la señal que usa el panel Proveedor para mostrar el
       // bloque de onboarding: este gateway corre (`serve`/`serve --demo`)
       // pero no se unio a la red P2P todavia.
@@ -1586,7 +1605,14 @@ async function onRequest(req, res) {
       console.log(`[upstream] opt-in ${upstreamOptIn ? 'PRENDIDO' : 'apagado'} por HTTP`)
       return sendJson(res, 200, upstreamStatus())
     }
+    // B12 -- y esta es la que mas expone de las tres. Ademas del proveedor y su
+    // precio, cada entrada lleva `costMicros` -- el gasto en dolares, request
+    // por request -- y `degradado`, que es el rastro de las decisiones de plata.
+    // Era la unica ruta del sistema desde la que se podia leer cuanto gasta el
+    // operador sin presentar nada.
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
+      const motivoLog = rechazoPorKey(req)
+      if (motivoLog) return sendError(res, 401, motivoLog)
       return sendJson(res, 200, { log: store.getLog() })
     }
 

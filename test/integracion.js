@@ -173,6 +173,50 @@ test('las rutas que gastan o mutan siguen pidiendo la key', async (t) => {
 })
 
 // ---------------------------------------------------------------------------
+// B12 — las rutas que solo LEEN tambien cuentan
+//
+// B7 le puso credencial a GET /v1/upstream porque, sin secretos y todo, decia
+// quien es el proveedor, que modelos se le pagan y si hay cuenta del otro lado.
+// El razonamiento era correcto y estaba incompleto: /v1/nodes devuelve el mismo
+// `operator` y ademas el `pricing`, y /v1/routing-log devuelve `costMicros`
+// -- el gasto en dolares, request por request -- que es MAS de lo que /v1/upstream
+// llega a decir. Cerrar una de las tres puertas y dejar dos abiertas no protege
+// nada.
+//
+// La tercera, /v1/models, NO se cierra: es el catalogo del protocolo de OpenAI
+// y un cliente tiene que poder leerlo antes de tener key. Se le saca el dato en
+// vez de la puerta.
+// ---------------------------------------------------------------------------
+
+test('las rutas que solo leen plata o proveedor tambien piden la key', async (t) => {
+  const nodos = await pedir('GET', '/v1/nodes')
+  t.is(nodos.status, 401, 'el marketplace dice operador y precio: no es publico')
+
+  const log = await pedir('GET', '/v1/routing-log')
+  t.is(log.status, 401, 'y el rastro dice cuanto se gasto, que es peor')
+
+  const conKeyMala = await pedir('GET', '/v1/routing-log', { key: 'qvac_sk_inventada' })
+  t.is(conKeyMala.status, 401, 'una key que no existe tampoco pasa')
+
+  // La contracara: con credencial siguen contestando lo de siempre. Un gate que
+  // rompe al panel no es un gate, es una regresion.
+  const conKey = await pedir('GET', '/v1/nodes', { key: KEY })
+  t.is(conKey.status, 200, 'con key sigue siendo el mismo marketplace')
+  t.ok(Array.isArray(conKey.json.nodes), 'y con la misma forma')
+})
+
+test('/v1/models sigue abierto pero ya no dice quien es el proveedor', async (t) => {
+  const r = await pedir('GET', '/v1/models')
+  t.is(r.status, 200, 'un cliente OpenAI descubre el catalogo antes de tener key')
+  t.ok(r.json.data.length > 0)
+
+  // `owned_by` decia "Proveedor de prueba (externo)" y con eso cualquiera que
+  // llegara al puerto sabia contra que API paga este nodo.
+  const delatores = r.json.data.filter((m) => m.owned_by !== 'pyrusllm')
+  t.is(delatores.length, 0, 'ninguna fila nombra al operador: ' + JSON.stringify(delatores))
+})
+
+// ---------------------------------------------------------------------------
 // Las dos extensiones propias del request. `local` es vieja y `node` entro en
 // la fase 8: lo que se prueba es que no se pisen.
 // ---------------------------------------------------------------------------
@@ -400,7 +444,7 @@ test('se configura un asistente externo como una fila mas del registro', async (
     maxConcurrentRequests: 4
   })
 
-  const r = await pedir('GET', '/v1/nodes')
+  const r = await pedir('GET', '/v1/nodes', { key: KEY })
   const fila = r.json.nodes.find((n) => n.kind === 'upstream')
   t.ok(fila, 'aparece en el marketplace sin tocar el panel')
   t.is(fila.modelId, MODELO_EXTERNO)
@@ -483,7 +527,7 @@ test('con opt-in el externo contesta, y la respuesta dice que fue el externo', a
 })
 
 test('el rastro registra el externo con lo que costo de verdad', async (t) => {
-  const r = await pedir('GET', '/v1/routing-log')
+  const r = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = r.json.log.find((e) => e.target === 'upstream')
 
   t.ok(entrada, 'el ruteo al externo queda en el mismo rastro que el resto')
@@ -564,7 +608,7 @@ test('agotado el presupuesto se contesta local, nunca el externo', async (t) => 
   t.is(r.status, 200, 'no se niega el servicio: se degrada')
   t.not(r.headers['x-pyrus-kind'], 'upstream', 'y NO fue el externo')
 
-  const log = await pedir('GET', '/v1/routing-log')
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
   t.ok(entrada.degradado, 'la degradacion queda auditada, no se confunde con una eleccion normal')
   t.ok(
@@ -783,7 +827,7 @@ test('un proveedor que no manda usage se liquida por la reserva, no por los delt
   })
   t.is(r.status, 200, 'el request se contesta igual: esto no es un error del usuario')
 
-  const log = await pedir('GET', '/v1/routing-log')
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
   t.is(entrada.target, 'upstream')
 
@@ -865,7 +909,7 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
   t.is(despues.reserved, antes.reserved, 'la reserva se libero: no quedo saldo comprometido')
   t.is(despues.spent, antes.spent, 'y no se cobro nada: no llego un solo token')
 
-  const log = await pedir('GET', '/v1/routing-log')
+  const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
   t.is(entrada.ok, false, 'el fallo queda en el rastro')
   t.is(entrada.costMicros, 0, 'cobrar la cota superior aca seria cobrar un request que no ocurrio')
