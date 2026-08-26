@@ -385,6 +385,20 @@ test('sin opt-in el prompt NO sale a un tercero, y el error dice como prenderlo'
 })
 
 test('el opt-in se prende por HTTP y pide credencial', async (t) => {
+  // B7: LEER el estado del externo tambien pide credencial. No lleva secretos
+  // -- va el nombre de la variable de entorno, nunca su valor -- pero dice
+  // quien es el proveedor y si hay una cuenta cargada del otro lado.
+  const leerSinKey = await pedir('GET', '/v1/upstream')
+  t.is(leerSinKey.status, 401, 'ni siquiera mirar el estado es publico')
+
+  const leerConKey = await pedir('GET', '/v1/upstream', { key: KEY })
+  t.is(leerConKey.status, 200)
+  t.ok(leerConKey.json.upstreams[0].apiKeyEnv, 'va el NOMBRE de la variable...')
+  t.absent(
+    JSON.stringify(leerConKey.json).indexOf('clave-de-prueba') !== -1,
+    '...y nunca su valor'
+  )
+
   const sinKey = await pedir('POST', '/v1/upstream/opt-in', { body: { enabled: true } })
   t.is(sinKey.status, 401, 'autorizar gasto no puede quedar abierto al puerto')
 

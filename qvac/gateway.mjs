@@ -1540,6 +1540,14 @@ async function onRequest(req, res) {
     // hacer por HTTP es configurar un upstream nuevo ni cambiarle la
     // credencial: eso vive en el disco del operador.
     if (req.method === 'GET' && pathname === '/v1/upstream') {
+      // B7 -- pide credencial igual que el POST. La respuesta no lleva
+      // secretos (el NOMBRE de la variable de entorno, nunca su valor), pero si
+      // lleva quien es el proveedor, que modelos se le pagan y si la credencial
+      // esta cargada. Con eso, cualquiera que llegue al puerto sabe si hay una
+      // cuenta con saldo del otro lado y contra que API. El resto de las rutas
+      // que hablan de plata ya piden key; esta se habia quedado afuera.
+      const rechazoLectura = rechazoPorKey(req)
+      if (rechazoLectura) return sendError(res, 401, rechazoLectura)
       return sendJson(res, 200, upstreamStatus())
     }
     if (req.method === 'POST' && pathname === '/v1/upstream/opt-in') {
