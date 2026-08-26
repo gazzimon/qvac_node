@@ -447,12 +447,18 @@ npm run test:unit           # cada módulo aislado
 npm run test:integracion    # el gateway de verdad, por HTTP, en un proceso y sin red
 ```
 
-**56 tests, 234 asserts, verde** (46/193 unitarios + 10/41 de integración). La
-suite de integración existe porque lo que se rompe al juntar ramas casi nunca es
-un módulo: es el cable entre dos. Encontró un defecto que ninguna prueba unitaria
-podía ver —los headers de procedencia se aplicaban solo en los caminos con
-`stream`— y una comilla invertida en un comentario que cerraba el template
-literal del chat y rompía la página entera.
+**129 tests, 604 asserts, verde** (82/388 unitarios + 47/216 de integración),
+medidos el 2026-08-26. La suite de integración existe porque lo que se rompe al
+juntar ramas casi nunca es un módulo: es el cable entre dos. Encontró un defecto
+que ninguna prueba unitaria podía ver —los headers de procedencia se aplicaban
+solo en los caminos con `stream`— y una comilla invertida en un comentario que
+cerraba el template literal del chat y rompía la página entera.
+
+No son tests de humo: cortan por el borde. `EL TOPE CORTA: el gasto real nunca
+supera el declarado` corre cien vueltas contra un tope de USD 0,10;
+`la seed de la wallet no queda en claro` busca **palabra por palabra** la frase
+de respaldo adentro del keystore; y los de la Fase 8 están verificados contra el
+criterio de precio **desactivado**, para probar que sin él fallan.
 
 Detalles de por qué (Protomux sobre una sola conexión, D1–D7, el updater OTA en
 su propio hilo, verificación con dos máquinas) están en [NOTES.md](NOTES.md).
