@@ -395,9 +395,13 @@ cerró el ruteo, en [NOTES-SATURACION.md](NOTES-SATURACION.md).
 
 - `serve` arranca con el registro **vacío**. `--demo` lo puebla con 1 nodo real
   - 3 mocks marcados como `simulado`.
-- `economic` del manifiesto es mock (wallet en ceros, con `_mock: true`
-  explícito). WDK, recibos y liquidación no están implementados. `directory`
-  **no** es mock: ahí se firma la clave real del Hyperbee.
+- `economic` del manifiesto **ya no es mock cuando el nodo tiene wallet**
+  (`pyrusllm wallet --crear`): se firma la dirección de cobro real que genera
+  WDK, en `plasma`/`stable`. Un nodo sin wallet sigue anunciando el bloque
+  marcado con `_mock`, y eso ahora significa "este nodo no declara dirección de
+  cobro" y no "no está implementado". `directory` tampoco es mock: ahí se firma
+  la clave real del Hyperbee. **Recibos y liquidación siguen sin implementar**
+  (Fases 9 y 10): el manifiesto dice a quién pagarle, todavía no se le paga.
 - `Auto` elige por **carga**, no por precio: no es una subasta. El precio viaja
   en el manifiesto pero todavía no participa del ruteo.
 - **El ledger corta, y con un asistente externo configurado deja de dar cero.**

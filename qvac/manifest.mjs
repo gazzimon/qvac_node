@@ -84,23 +84,64 @@ function isHex(s, bytes) {
 // Armado
 // ---------------------------------------------------------------------------
 
-// MOCK MARCADO A PROPOSITO (D2 del ROADMAP).
+// El `economic` DEJO DE SER UN MOCK cuando el nodo tiene wallet (Fase 7).
 //
-// El schema congelado (manifest-v0.json) pide `economic` y `directory` como
-// required, pero WDK/recibos/liquidacion y el directorio append-only estan
-// FUERA DE ALCANCE de este track. Estos valores existen solo para que el
-// manifiesto valide contra el schema: ni el nodo ni el gateway los leen nunca.
+// Hasta la Fase 7 este bloque era un valor fijo con la direccion cero, marcado
+// con `_mock` aca, en el README y en el propio manifiesto. Ahora, cuando el
+// nodo abre su wallet, lo que se firma es la direccion de cobro REAL que
+// devolvio WDK -- la arma `wallet.economicDe()`, que ademas es quien sabe de
+// chains y de settlement (D15).
 //
-// Quedan marcados aca, en el README y en el propio manifiesto (el campo
-// `_mock`) por la misma razon por la que el proyecto no tapa fallas del SDK con
-// un stub silencioso: si el jurado abre el manifiesto y ve una wallet con plata
+// El mock QUEDA, y no por comodidad: hay caminos legitimos sin wallet y tienen
+// que poder anunciarse igual. Un nodo que solo consume, uno que todavia no
+// creo su wallet, `peers` sin storage, y los tests del manifiesto, que no
+// tienen por que cargar el stack de una wallet para probar una firma.
+//
+// Lo que NO puede pasar es que los dos casos se vean iguales. Por eso el mock
+// sigue marcado: si alguien abre el manifiesto y ve una wallet con plata
 // aparentemente real sin ninguna aclaracion, la lectura es peor que si el campo
 // directamente no estuviera.
 const ECONOMIC_MOCK = {
-  _mock: 'NO IMPLEMENTADO — valores fijos para validar el schema. Ver ROADMAP D2.',
+  _mock: 'SIN WALLET — este nodo no declaro direccion de cobro. Ver ROADMAP Fase 7.',
   walletAddress: '0x0000000000000000000000000000000000000000',
   chains: ['ethereum-sepolia'],
   settlement: 'batch-receipts'
+}
+
+// Se valida la forma antes de firmarla, por lo mismo que `directorySection`: un
+// `economic` mal armado FIRMADO es peor que ninguno. Un consumidor lo verifica
+// bien, le manda la plata a lo que diga, y el error aparece cuando ya se pago.
+//
+// El pattern es el del schema congelado (manifest-v0.json:84) y admite las dos
+// familias que soporta el stack: EVM y Tron. Se chequea aca igual que alla
+// porque este es el ultimo punto antes de la firma.
+function economicSection(economic) {
+  if (!economic) return ECONOMIC_MOCK
+
+  const { walletAddress, chains, settlement } = economic
+  const evm = /^0x[a-fA-F0-9]{40}$/.test(String(walletAddress || ''))
+  const tron = /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(walletAddress || ''))
+  if (!evm && !tron) {
+    throw new Error('buildManifest: economic.walletAddress no es una direccion EVM ni Tron')
+  }
+  // La direccion cero pasa el pattern y no es una direccion: es el valor que
+  // tenia el mock. Firmarla seria mandar a pagar a un pozo.
+  if (/^0x0{40}$/.test(String(walletAddress))) {
+    throw new Error('buildManifest: economic.walletAddress es la direccion cero')
+  }
+  if (!Array.isArray(chains) || chains.length === 0) {
+    throw new Error('buildManifest: economic.chains necesita al menos una red')
+  }
+  for (const c of chains) {
+    if (typeof c !== 'string' || !/^[a-z0-9-]{3,40}$/.test(c)) {
+      throw new Error('buildManifest: economic.chains tiene un identificador invalido: ' + c)
+    }
+  }
+  if (!['prepaid-balance', 'batch-receipts', 'onchain-per-job'].includes(settlement)) {
+    throw new Error('buildManifest: economic.settlement no es uno de los del schema')
+  }
+
+  return { walletAddress, chains: [...chains], settlement }
 }
 
 // El directorio DEJO de ser un mock cuando el nodo abre su Hyperbee: la clave
@@ -141,6 +182,9 @@ export function buildManifest({
   tags = [],
   region = 'sa-east',
   directory = null,
+  // La direccion de cobro de ESTE nodo, o null si todavia no tiene wallet.
+  // La arma wallet.economicDe(); aca solo se valida y se firma.
+  economic = null,
   ttlMs = 24 * 60 * 60 * 1000,
   now = Date.now()
 }) {
@@ -172,7 +216,7 @@ export function buildManifest({
       endpoint: { baseUrl: '', openaiCompatible: false },
       region
     },
-    economic: ECONOMIC_MOCK,
+    economic: economicSection(economic),
     models: models.map((m) => ({
       modelId: m.modelId,
       displayName: m.displayName || m.modelId,

@@ -1,6 +1,7 @@
 import { command, flag, arg, summary, description } from 'paparam'
 import { persistent } from 'bare-storage'
 import process from 'bare-process'
+import env from 'bare-env'
 import os from 'bare-os'
 import { isWindows } from 'which-runtime'
 import path from 'bare-path'
@@ -150,6 +151,27 @@ const filesCmd = command(
   }
 )
 
+const walletCmd = command(
+  'wallet',
+  summary('Ver, crear o restaurar la wallet de cobro de este nodo'),
+  description(
+    'Sin flags muestra la direccion de cobro, o dice que todavia no hay wallet.\n' +
+      '\n' +
+      'La seed se guarda CIFRADA con la passphrase de PYRUS_WALLET_PASSPHRASE\n' +
+      '(se puede poner en el .env). Limite honesto: si ese .env vive al lado del\n' +
+      'keystore, el cifrado protege de un backup o de un repo, no de alguien que\n' +
+      'ya tiene acceso a esta maquina.\n' +
+      '\n' +
+      '--crear muestra las 24 palabras UNA vez. Anotalas: sin ellas y sin el\n' +
+      'keystore, la wallet se pierde. --restaurar <frase> las vuelve a usar.'
+  ),
+  flag('--crear', 'generar una wallet nueva para este nodo'),
+  flag('--restaurar <frase>', 'restaurar desde las 24 palabras de un respaldo'),
+  () => {
+    pending = runWallet()
+  }
+)
+
 const cmd = command(
   appName,
   summary(pkg.description),
@@ -166,6 +188,7 @@ const cmd = command(
   sendCmd,
   fetchCmd,
   filesCmd,
+  walletCmd,
   () => {
     pending = runNode()
   }
@@ -565,6 +588,10 @@ async function startGateway(opts = {}) {
     // a un par y publicar los que se suben.
     gw.setSwarm(nodeSwarm)
     if (data && data.files) gw.setFiles(data.files)
+    // FASE 7 — para que /node pueda mostrar a donde cobra este nodo. Se toma
+    // del swarm y no del keystore: el gateway nunca abre la wallet ni ve la
+    // seed, solo repite lo que ya viaja publico en el manifiesto firmado.
+    gw.setEconomic(nodeSwarm.economic)
 
     return nodeSwarm
   }
@@ -730,6 +757,105 @@ async function openData(dir, { files = true } = {}) {
   }
 }
 
+// FASE 7 — la direccion de cobro del nodo, si tiene una.
+//
+// Devuelve el bloque `economic` listo para el manifiesto, o null. Que no haya
+// wallet es el caso NORMAL de un nodo que todavia no cobra: se sigue sin ella y
+// el manifiesto lleva el mock, marcado. Lo que SI se avisa fuerte es la wallet
+// que existe y no se puede abrir, porque ahi alguien la configuro y el nodo la
+// esta ignorando -- y "no cobro nunca" no puede verse igual que "no pude abrir
+// mi wallet".
+async function economicDelNodo(dir) {
+  const wallet = await import('./qvac/wallet.mjs')
+  if (!wallet.existe(dir)) return null
+
+  try {
+    const abierta = await wallet.abrir(dir, env[wallet.VAR_PASSPHRASE])
+    console.log(`  [wallet] direccion de cobro: ${abierta.address}`)
+    console.log(`  [wallet] redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
+    return wallet.economicDe(abierta.address)
+  } catch (err) {
+    console.error(`  [wallet] ${(err && err.message) || err}`)
+    console.error('  [wallet] el nodo se anuncia SIN direccion de cobro (economic queda en mock)')
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// pyrusllm wallet
+// ---------------------------------------------------------------------------
+
+async function runWallet() {
+  await cargarEnv()
+  const wallet = await import('./qvac/wallet.mjs')
+  const dir = swarmStorageDir()
+  const passphrase = env[wallet.VAR_PASSPHRASE]
+  const restaurar = walletCmd.flags.restaurar
+
+  if (walletCmd.flags.crear || restaurar) {
+    if (!passphrase) {
+      console.error(`  falta ${wallet.VAR_PASSPHRASE}: es con lo que se cifra la seed.`)
+      console.error(`  Ponela en el .env de este directorio y volve a correr esto.`)
+      process.exitCode = 1
+      return
+    }
+    try {
+      const r = await wallet.crear(dir, passphrase, {
+        frase: typeof restaurar === 'string' ? restaurar : null
+      })
+      console.log('')
+      console.log(`  direccion de cobro: ${r.address}`)
+      console.log(`  redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
+      console.log('')
+      if (r.restaurada) {
+        console.log('  wallet RESTAURADA desde el respaldo.')
+      } else {
+        // Se muestran UNA vez y no vuelven a estar disponibles sin la
+        // passphrase. Decirlo con todas las letras es parte del trabajo: quien
+        // no las anote se entera el dia que pierda el keystore.
+        console.log('  ANOTA ESTAS 24 PALABRAS. No se vuelven a mostrar:')
+        console.log('')
+        const p = r.frase.split(' ')
+        for (let i = 0; i < p.length; i += 6) {
+          console.log('    ' + p.slice(i, i + 6).join(' '))
+        }
+        console.log('')
+        console.log('  Sin ellas Y sin el keystore, la wallet se pierde.')
+      }
+      console.log('')
+      console.log(`  keystore: ${path.join(dir, 'wallet.json')} (cifrado)`)
+      console.log('')
+    } catch (err) {
+      console.error(`  ${(err && err.message) || err}`)
+      process.exitCode = 1
+    }
+    return
+  }
+
+  if (!wallet.existe(dir)) {
+    console.log('')
+    console.log('  Este nodo todavia no tiene wallet, asi que no declara direccion de cobro.')
+    console.log('  Su manifiesto anuncia `economic` como mock, y eso esta marcado.')
+    console.log('')
+    console.log(`  Para crear una:  ${appName} wallet --crear`)
+    console.log('')
+    return
+  }
+
+  try {
+    const abierta = await wallet.abrir(dir, passphrase)
+    console.log('')
+    console.log(`  direccion de cobro: ${abierta.address}`)
+    console.log(`  redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
+    console.log('')
+  } catch (err) {
+    console.error('')
+    console.error(`  ${(err && err.message) || err}`)
+    console.error('')
+    process.exitCode = 1
+  }
+}
+
 async function joinSwarm({ operator, store = null, data = null }) {
   const { loadOrCreateIdentity } = await import('./qvac/identity.mjs')
   const { NodeSwarm, TOPIC_NAME } = await import('./qvac/swarm.mjs')
@@ -738,6 +864,7 @@ async function joinSwarm({ operator, store = null, data = null }) {
   const identity = loadOrCreateIdentity(dir)
 
   const models = swarmModels()
+  const economic = await economicDelNodo(dir)
 
   const nodeSwarm = new NodeSwarm({
     identity,
@@ -747,7 +874,8 @@ async function joinSwarm({ operator, store = null, data = null }) {
     store,
     corestore: data ? data.corestore : null,
     directory: data ? data.directory : null,
-    files: data ? data.files : null
+    files: data ? data.files : null,
+    economic
   })
 
   console.log('')

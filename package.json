@@ -25,6 +25,9 @@
         "/.gitignore",
         "/.gitattributes",
         "/.prettierrc",
+        "/.env",
+        "/wallet.json",
+        "/upstreams.json",
         "/cli.js",
         "/node_modules",
         "/old",
@@ -61,8 +64,10 @@
   "dependencies": {
     "@qvac/bare-sdk": "^0.17.1",
     "@qvac/llm-llamacpp": "^0.46.0",
-    "bare-env": "^3.0.0",
+    "@scure/bip39": "^2.3.0",
+    "@tetherto/wdk-wallet-evm": "^1.0.0-beta.17",
     "bare-abort-controller": "^1.1.2",
+    "bare-env": "^3.0.0",
     "bare-fetch": "^3.2.0",
     "bare-fs": "^4.5.1",
     "bare-http1": "^4.5.8",
@@ -84,6 +89,7 @@
     "pear-runtime": "^1.3.1",
     "protomux": "^3.11.0",
     "ready-resource": "^1.2.0",
+    "sodium-native": "^5.1.0",
     "which-runtime": "^1.4.0"
   },
   "devDependencies": {

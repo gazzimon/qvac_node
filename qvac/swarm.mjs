@@ -62,6 +62,10 @@ export class NodeSwarm {
     corestore = null,
     directory = null,
     files = null,
+    // Fase 7 — el bloque `economic` con la direccion de cobro real, o null si
+    // este nodo no tiene wallet. Llega ya armado desde bin.mjs (wallet.mjs sabe
+    // de chains y settlement); aca solo viaja hasta buildManifest.
+    economic = null,
     onPeerChange = () => {}
   } = {}) {
     this.identity = identity || crypto.keyPair()
@@ -77,6 +81,7 @@ export class NodeSwarm {
     this.corestore = corestore
     this.directory = directory
     this.files = files
+    this.economic = economic
 
     this.swarm = null
     // key hex del peer -> { channel, manifest, status, socket, filesKey }
@@ -151,7 +156,12 @@ export class NodeSwarm {
           // El campo `directory` del schema deja de ser un mock (D2) cuando hay
           // un Hyperbee de verdad detras: la clave que se firma aca es la que
           // el par usa para replicarlo.
-          directory: this.directory ? this.directory.descriptor() : null
+          directory: this.directory ? this.directory.descriptor() : null,
+          // Y el campo `economic` deja de serlo cuando el nodo tiene wallet
+          // (Fase 7). Es lo que ata la identidad de RED -- la que firma esto --
+          // con la identidad de COBRO: un par que verifica la firma sabe que
+          // ESTE nodo declaro ESA direccion.
+          economic: this.economic
         }),
         this.identity.secretKey
       )

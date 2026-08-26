@@ -422,6 +422,29 @@ export function setSwarm(swarm) {
   swarmRef = swarm
 }
 
+// FASE 7 — la direccion de cobro de ESTE nodo, o null si no tiene wallet.
+//
+// Llega ya armada desde bin.mjs, que es el dueño del directorio de storage y el
+// unico que conoce la passphrase. El gateway NUNCA abre el keystore ni ve la
+// seed: solo muestra lo que ya viaja publico en el manifiesto firmado.
+let economicPropio = null
+
+export function setEconomic(economic) {
+  economicPropio = economic || null
+  return economicPropio
+}
+
+export function walletStatus() {
+  return {
+    // `false` no es un error: un nodo que solo consume no necesita wallet, y su
+    // manifiesto anuncia el bloque marcado como mock.
+    configurada: !!economicPropio,
+    address: economicPropio ? economicPropio.walletAddress : null,
+    chains: economicPropio ? economicPropio.chains : [],
+    settlement: economicPropio ? economicPropio.settlement : null
+  }
+}
+
 // ---------------------------------------------------------------------------
 // FASE 8.5 — el asistente externo
 //
@@ -1610,6 +1633,18 @@ async function onRequest(req, res) {
     // por request -- y `degradado`, que es el rastro de las decisiones de plata.
     // Era la unica ruta del sistema desde la que se podia leer cuanto gasta el
     // operador sin presentar nada.
+    // FASE 7 — a donde cobra este nodo.
+    //
+    // Pide credencial por el mismo criterio que B12: es informacion de plata.
+    // El limite honesto es que la direccion NO es un secreto -- viaja en el
+    // manifiesto firmado que se le anuncia a toda la red, y tiene que viajar,
+    // porque es a quien hay que pagarle. Lo que el gate protege es que un
+    // tercero cualquiera pueda preguntarle al puerto si esta maquina cobra.
+    if (req.method === 'GET' && pathname === '/v1/wallet') {
+      const motivoWallet = rechazoPorKey(req)
+      if (motivoWallet) return sendError(res, 401, motivoWallet)
+      return sendJson(res, 200, walletStatus())
+    }
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
       const motivoLog = rechazoPorKey(req)
       if (motivoLog) return sendError(res, 401, motivoLog)

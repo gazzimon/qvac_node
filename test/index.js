@@ -245,10 +245,201 @@ test('buildManifest rechaza entradas invalidas y marca los mocks', async (t) => 
 
   // D2 exige que el mock quede marcado donde se pueda VER. Si alguien lo
   // "limpia" en un refactor de ultimo momento, este test lo caza.
+  //
+  // Desde la Fase 7 el de `economic` ya no significa "no implementado" sino
+  // "este nodo no declaro direccion de cobro", que es un estado legitimo: un
+  // nodo que solo consume, o uno que todavia no creo su wallet. Lo que no puede
+  // pasar es que ese caso se vea igual que uno con wallet de verdad.
   const m = buildManifest({ publicKey: id.publicKey, models: MODELS })
-  t.ok(m.economic._mock, 'economic esta marcado como mock')
+  t.ok(m.economic._mock, 'sin wallet, economic esta marcado como mock')
   t.ok(m.directory._mock, 'directory esta marcado como mock')
   t.is(m.node.endpoint.openaiCompatible, false, 'D1: no hay baseUrl P2P al que apuntar')
+})
+
+// ---------------------------------------------------------------------------
+// FASE 7 — la wallet de cobro, y el `economic` que deja de ser mock
+//
+// Son DOS claves distintas y esa es toda la fase: `identity.mjs` guarda la de
+// RED, en claro, y con eso el nodo firma; `wallet.mjs` guarda la de COBRO,
+// cifrada (D13), y es lo que el manifiesto declara. El manifiesto firmado es lo
+// que ata una a la otra.
+//
+// Lo que estos tests protegen no es que "ande": es que no se pueda firmar una
+// direccion que el nodo no controla, en ninguno de los caminos por los que eso
+// podria pasar.
+// ---------------------------------------------------------------------------
+
+function dirWalletTmp() {
+  const fs = require('bare-fs')
+  const os = require('bare-os')
+  const path = require('bare-path')
+  const dir = path.join(
+    os.tmpdir(),
+    'qvac-wallet-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  )
+  fs.mkdirSync(dir, { recursive: true })
+  return {
+    dir,
+    limpiar() {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+      } catch {}
+    }
+  }
+}
+
+test('la seed de la wallet no queda en claro, y la passphrase equivocada no abre', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const fs = await import('bare-fs')
+  const path = await import('bare-path')
+  const tmp = dirWalletTmp()
+
+  t.is(wallet.existe(tmp.dir), false, 'un nodo sin wallet es el caso normal, no un error')
+
+  const creada = await wallet.crear(tmp.dir, 'la-passphrase-buena')
+  t.ok(/^0x[a-fA-F0-9]{40}$/.test(creada.address), 'la direccion matchea el pattern del schema')
+  t.is(creada.frase.split(' ').length, 24, 'la frase de respaldo son 24 palabras')
+
+  // D13: en disco no puede quedar NADA legible. Ni la frase ni la direccion --
+  // guardar la direccion dejaria que alguien sin la passphrase leyera igual a
+  // donde cobra este nodo, y eso solo lo tiene que decir el manifiesto firmado.
+  const crudo = fs.default.readFileSync(path.default.join(tmp.dir, 'wallet.json'), 'utf8')
+  for (const palabra of creada.frase.split(' ')) {
+    t.absent(
+      crudo.includes(palabra),
+      'la palabra "' + palabra + '" no esta en claro en el keystore'
+    )
+  }
+  t.absent(crudo.includes(creada.address), 'la direccion tampoco se guarda')
+
+  // Fallar CERRADO. Si abriera con basura derivaria otra direccion, y el nodo
+  // anunciaria en un manifiesto firmado una wallet que no controla -- o sea
+  // mandaria a pagar a una direccion de la que nadie tiene la clave.
+  await t.exception(
+    () => wallet.abrir(tmp.dir, 'la-passphrase-equivocada'),
+    /no abre el keystore/,
+    'la passphrase equivocada falla, no devuelve otra direccion'
+  )
+  await t.exception(() => wallet.abrir(tmp.dir, null), /falta la passphrase/)
+
+  const abierta = await wallet.abrir(tmp.dir, 'la-passphrase-buena')
+  t.is(abierta.address, creada.address, 'con la passphrase correcta vuelve LA MISMA direccion')
+
+  tmp.limpiar()
+})
+
+test('la frase de respaldo restaura la misma direccion en otra maquina', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const uno = dirWalletTmp()
+  const otro = dirWalletTmp()
+
+  const original = await wallet.crear(uno.dir, 'passphrase-de-la-maquina-vieja')
+
+  // Otra maquina, otra passphrase, MISMA frase. Es lo que hace que mostrar las
+  // 24 palabras una vez sirva de algo: sin esto, perder el keystore seria
+  // perder la wallet aunque el operador las tenga anotadas.
+  const restaurada = await wallet.crear(otro.dir, 'otra-passphrase-distinta', {
+    frase: original.frase
+  })
+  t.is(restaurada.address, original.address, 'la misma frase da la misma direccion de cobro')
+  t.ok(restaurada.restaurada, 'y se sabe que fue una restauracion, no una wallet nueva')
+
+  // En un directorio LIMPIO: si se reusara `otro.dir`, saltaria primero "ya hay
+  // una wallet" y este assert pasaria por el motivo equivocado.
+  const limpio = dirWalletTmp()
+  await t.exception(
+    () => wallet.crear(limpio.dir, 'x', { frase: 'esto no es un mnemonic bip39 valido' }),
+    /BIP-39/,
+    'una frase que no valida no entra: seria una wallet que nadie puede restaurar'
+  )
+  await t.exception(
+    () => wallet.crear(otro.dir, 'x'),
+    /ya hay una wallet/,
+    'y no se pisa una wallet existente'
+  )
+
+  uno.limpiar()
+  otro.limpiar()
+  limpio.limpiar()
+})
+
+test('dos nodos con wallet anuncian direcciones distintas, y la firma las ata', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
+  const a = dirWalletTmp()
+  const b = dirWalletTmp()
+
+  const walletA = await wallet.crear(a.dir, 'pass-a')
+  const walletB = await wallet.crear(b.dir, 'pass-b')
+  t.not(walletA.address, walletB.address, 'dos nodos no cobran en la misma direccion')
+
+  const idA = createIdentity()
+  const manifiesto = signManifest(
+    buildManifest({
+      publicKey: idA.publicKey,
+      models: MODELS,
+      economic: wallet.economicDe(walletA.address)
+    }),
+    idA.secretKey
+  )
+
+  t.absent(manifiesto.economic._mock, 'con wallet, el _mock se va')
+  t.is(manifiesto.economic.walletAddress, walletA.address)
+  t.alike(manifiesto.economic.chains, ['plasma', 'stable'], 'D15: plasma default, stable fallback')
+  t.is(manifiesto.economic.settlement, 'batch-receipts')
+
+  t.ok(verifyManifest(manifiesto, { expectedPublicKey: idA.publicKey }).ok, 'un par lo verifica')
+
+  // ESTO es lo que ata la identidad de red con la de cobro: cambiarle la
+  // direccion al manifiesto firmado tiene que romper la firma. Sin esta
+  // propiedad, cualquiera podria reenviar el manifiesto de otro nodo con su
+  // propia wallet adentro y cobrar el trabajo ajeno.
+  const manoseado = JSON.parse(JSON.stringify(manifiesto))
+  manoseado.economic.walletAddress = walletB.address
+  const r = verifyManifest(manoseado, { expectedPublicKey: idA.publicKey })
+  t.is(r.ok, false, 'cambiarle la wallet a un manifiesto firmado lo invalida')
+
+  a.limpiar()
+  b.limpiar()
+})
+
+test('un economic invalido no se firma: firmarlo es mandar a pagar a cualquier lado', async (t) => {
+  const { createIdentity, buildManifest } = await manifestMod()
+  const id = createIdentity()
+  const base = { publicKey: id.publicKey, models: MODELS }
+  const ok = {
+    walletAddress: '0x' + 'ab'.repeat(20),
+    chains: ['plasma'],
+    settlement: 'batch-receipts'
+  }
+
+  // La direccion cero PASA el pattern del schema y no es una direccion: es
+  // justo el valor que tenia el mock. Firmarla seria mandar la plata a un pozo.
+  t.exception(
+    () => buildManifest({ ...base, economic: { ...ok, walletAddress: '0x' + '0'.repeat(40) } }),
+    /direccion cero/
+  )
+  t.exception(
+    () => buildManifest({ ...base, economic: { ...ok, walletAddress: 'no-es-una-direccion' } }),
+    /EVM ni Tron/
+  )
+  t.exception(() => buildManifest({ ...base, economic: { ...ok, chains: [] } }), /al menos una red/)
+  t.exception(
+    () => buildManifest({ ...base, economic: { ...ok, chains: ['Plasma Mainnet'] } }),
+    /identificador invalido/,
+    'el kebab-case del schema se chequea antes de firmar, no despues'
+  )
+  t.exception(
+    () => buildManifest({ ...base, economic: { ...ok, settlement: 'a-mano' } }),
+    /settlement/
+  )
+
+  // Y una direccion Tron valida SI entra: el schema admite las dos familias.
+  const tron = buildManifest({
+    ...base,
+    economic: { ...ok, walletAddress: 'T' + 'J'.repeat(33) }
+  })
+  t.is(tron.economic.walletAddress, 'T' + 'J'.repeat(33))
 })
 
 // ---------------------------------------------------------------------------

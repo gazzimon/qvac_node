@@ -1136,6 +1136,15 @@ export const NODE_HTML = page(
     </div>
   </div>
 
+  <div class="card" style="cursor:default; margin-top:1.5rem" id="wallet-card">
+    <h3>Where this node gets paid</h3>
+    <p class="sub">Your payment address travels inside the <b>signed</b> manifest, so a peer that
+      checks the signature knows this machine &mdash; and no other &mdash; declared it. It is a
+      different key from the one that identifies you on the network: that one lives in the clear,
+      this one does not.</p>
+    <div id="wallet-estado"></div>
+  </div>
+
   <div class="card" style="cursor:default; margin-top:1.5rem" id="up-card">
     <h3>External assistant</h3>
     <p class="sub">The one path where a prompt leaves the P2P network and goes to a company&rsquo;s
@@ -1715,6 +1724,44 @@ ${CONNECT_JS}
     // sabe si es un estado o una accion, y este en particular decide si el
     // prompt de alguien sale de la maquina.
     // -------------------------------------------------------------------
+    // FASE 7 — la direccion de cobro. Que NO haya wallet es un estado normal y
+    // se dice como tal: un nodo que solo consume no necesita una. Lo que no
+    // puede pasar es que se lea como si algo estuviera roto.
+    async function refrescarWallet() {
+      const estado = document.getElementById('wallet-estado')
+      if (!estado) return
+      try {
+        const r = await authFetch('/v1/wallet')
+        if (!r.ok) return
+        const w = await r.json()
+
+        if (!w.configurada) {
+          estado.innerHTML =
+            '<p class="hint">This node has no wallet yet, so its manifest announces ' +
+            '<code>economic</code> as a marked mock &mdash; it declares no payment address. ' +
+            'That is fine for a node that only consumes.</p>' +
+            '<p class="hint">To create one: <code>pyrusllm wallet --crear</code>. It prints ' +
+            '24 words <b>once</b> &mdash; write them down. The seed is stored encrypted with ' +
+            '<code>PYRUS_WALLET_PASSPHRASE</code>.</p>'
+          return
+        }
+
+        estado.innerHTML =
+          '<p class="econ-big" style="font-size:1rem; word-break:break-all">' +
+          esc(w.address) +
+          '</p>' +
+          '<p class="hint">Networks: ' +
+          w.chains.map((c) => '<code>' + esc(c) + '</code>').join(', ') +
+          ' &mdash; settlement: <code>' +
+          esc(w.settlement) +
+          '</code></p>' +
+          '<p class="hint">Nothing is charged yet: the manifest says who to pay, paying is ' +
+          'still to come. <b>Plasma is not a testnet</b> &mdash; whatever lands here is real.</p>'
+      } catch (e) {
+        /* sin gateway el resto de la pagina ya lo dice */
+      }
+    }
+
     async function refrescarUpstream() {
       try {
         const r = await authFetch('/v1/upstream')
@@ -1778,6 +1825,7 @@ ${CONNECT_JS}
       refrescarCuota()
       refrescarGasto()
       refrescarUpstream()
+      refrescarWallet()
     }
 
     cargarKeys()
