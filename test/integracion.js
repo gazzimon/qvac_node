@@ -268,6 +268,11 @@ const PUERTO_EXTERNO = 8898
 let servidorExterno = null
 let ultimoPedidoExterno = null
 
+// B2: un proveedor que NO manda `usage` no es un caso raro, es el default del
+// protocolo -- `usage` en streaming hay que pedirlo-. Se apaga desde el test
+// para poder ejercitar el modo de falla y no solo el camino feliz.
+let mandaUsage = true
+
 // Un proveedor compatible con OpenAI en veinte lineas: dos deltas, un `usage`
 // con tokens que NO coinciden con los contados de este lado -- a proposito,
 // para probar que se liquida con los del proveedor -- y el [DONE].
@@ -285,7 +290,9 @@ function levantarProveedorFalso () {
         // lo leyera, el pensamiento del modelo saldria al chat.
         chunk({ choices: [{ delta: { reasoning_content: 'primero pienso...', content: 'hola ' } }] })
         chunk({ choices: [{ delta: { content: 'desde afuera' } }] })
-        chunk({ choices: [{ delta: {} }], usage: { prompt_tokens: 1000, completion_tokens: 500 } })
+        if (mandaUsage) {
+          chunk({ choices: [{ delta: {} }], usage: { prompt_tokens: 1000, completion_tokens: 500 } })
+        }
         res.write('data: [DONE]\n\n')
         res.end()
       })
@@ -507,6 +514,140 @@ test('agotado el presupuesto se contesta local, nunca el externo', async (t) => 
   for (const n of propios) {
     for (let i = 0; i < n.maxConcurrentRequests; i++) store.endRequest(n.id)
   }
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
+// ---------------------------------------------------------------------------
+// B2 y B4 — los dos agujeros por los que el tope dejaba de ser un tope
+// ---------------------------------------------------------------------------
+
+test('el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el tope', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  // Una config hostil: pide diez mil tokens de salida y apaga el streaming.
+  // Los dos campos son exactamente los que el nodo necesita controlar -- uno
+  // acota la reserva, el otro es el formato que sabe parsear-.
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'hostil',
+        label: 'Config hostil',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [
+          {
+            modelId: 'proveedor/hostil',
+            maxTokens: 256,
+            pricePerMTok: { input: 1, output: 2 },
+            extraBody: {
+              max_tokens: 10000,
+              stream: false,
+              stream_options: { include_usage: false },
+              chat_template_kwargs: { enable_thinking: false }
+            }
+          }
+        ]
+      }
+    ]
+  })
+  costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'proveedor/hostil',
+    displayName: 'Hostil',
+    operator: 'Config hostil (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'proveedor/hostil', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(r.status, 200)
+
+  t.is(ultimoPedidoExterno.max_tokens, 256, 'gana el tope del nodo, no el de la config')
+  t.is(ultimoPedidoExterno.stream, true, 'la config no puede apagar el streaming')
+  t.is(
+    ultimoPedidoExterno.stream_options.include_usage,
+    true,
+    'el usage lo pide el codigo: no es un campo que se pueda olvidar ni apagar'
+  )
+  t.alike(
+    ultimoPedidoExterno.chat_template_kwargs,
+    { enable_thinking: false },
+    'y lo demas de la config sigue pasando: extiende, no sobreescribe'
+  )
+
+  store.clearUpstreams()
+  costs.olvidarPreciosExternos()
+  gw.setUpstreams([])
+  gw.setUpstreamOptIn(false)
+})
+
+test('un proveedor que no manda usage se liquida por la reserva, no por los deltas', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const costs = await import('../qvac/costs.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  mandaUsage = false
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'mudo',
+        label: 'Proveedor mudo',
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        apiKeyEnv: 'PYRUS_TEST_KEY',
+        models: [
+          {
+            modelId: 'proveedor/mudo',
+            maxTokens: 256,
+            pricePerMTok: { input: 1, output: 2 }
+          }
+        ]
+      }
+    ]
+  })
+  costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
+  gw.setUpstreams(ups)
+  gw.setUpstreamOptIn(true)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'proveedor/mudo',
+    displayName: 'Mudo',
+    operator: 'Proveedor mudo (externo)',
+    maxConcurrentRequests: 4
+  })
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'proveedor/mudo', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(r.status, 200, 'el request se contesta igual: esto no es un error del usuario')
+
+  const log = await pedir('GET', '/v1/routing-log')
+  const entrada = log.json.log[0]
+  t.is(entrada.target, 'upstream')
+
+  // La reserva: 'hola' son 4 bytes -> ceil(4/2) = 2 tokens de entrada a USD 1
+  // por millon, mas los 256 de tope de salida a USD 2 por millon.
+  //   2 * 1 + 256 * 2 = 514 micro-dolares.
+  //
+  // Liquidar con lo contado de este lado habria dado 4 micros -- dos deltas de
+  // SSE a tarifa de salida, y la entrada gratis-: 128 veces menos. Ese era el
+  // agujero: no un error de redondeo, dos ordenes de magnitud por request.
+  t.is(entrada.costMicros, 514, 'se cobra la cota superior con la que se autorizo el gasto')
+
+  mandaUsage = true
   store.clearUpstreams()
   costs.olvidarPreciosExternos()
   gw.setUpstreams([])

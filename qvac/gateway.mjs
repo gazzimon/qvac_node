@@ -463,10 +463,24 @@ function topeDeSalida(node, pedido) {
 // ~4 caracteres por token que es la regla habitual: la reserva es una cota
 // SUPERIOR, y equivocarse para arriba corta antes de tiempo mientras que
 // equivocarse para abajo deja pasar gasto por encima del tope.
+//
+// SE CUENTAN BYTES UTF-8, NO CARACTERES, y ese es el arreglo de B6. La version
+// anterior dividia caracteres por 3 y se declaraba cota superior, que en ingles
+// es cierto y en chino, japones, coreano, arabe o hindi es falso: ahi la
+// relacion se acerca a 1 token por caracter y la reserva quedaba muy por debajo
+// del gasto, justo donde el comentario prometia lo contrario. En UTF-8 esos
+// alfabetos ocupan 3 bytes por caracter, asi que contar bytes hace que un solo
+// divisor los cubra a todos.
+//
+// No se afirma que sea una cota superior DEMOSTRABLE: un tokenizador con
+// byte-fallback puede, en el peor caso patologico, emitir un token por byte. Es
+// una estimacion deliberadamente conservadora -- ~2 bytes por token cubre con
+// margen el texto real en cualquiera de esos alfabetos-, y el `usage` del
+// proveedor corrige el numero al liquidar.
 function estimarPromptTokens(messages) {
-  let chars = 0
-  for (const m of messages || []) chars += String((m && m.content) || '').length
-  return Math.ceil(chars / 3)
+  let bytes = 0
+  for (const m of messages || []) bytes += Buffer.byteLength(String((m && m.content) || ''), 'utf8')
+  return Math.ceil(bytes / 2)
 }
 
 // ---------------------------------------------------------------------------
@@ -1250,15 +1264,35 @@ async function handleChat(req, res) {
     // request que revienta a mitad de stream igual gasto lo que gasto, y una
     // reserva que no se liquida queda comprometiendo saldo hasta que reinicie
     // el proceso.
-    const completionReales =
-      usoExterno && Number.isFinite(Number(usoExterno.completion_tokens))
-        ? Number(usoExterno.completion_tokens)
-        : tokens
-    const costoReal = costs.real({
-      model: claveDePrecio(node),
-      promptTokens: usoExterno ? Number(usoExterno.prompt_tokens) || 0 : 0,
-      completionTokens: completionReales
-    })
+    // Con `usage` del proveedor se liquida con los tokens REALES, contados por
+    // SU tokenizador. Sin `usage`, el camino externo NO se liquida con lo
+    // contado de este lado: `tokens` cuenta deltas de SSE, que no son tokens, y
+    // los de entrada directamente no se ven -- liquidar asi subfactura casi
+    // todo el request, y el tope deja de cortar donde tiene que cortar (B2).
+    //
+    // El lado seguro es cobrar la RESERVA entera, que es la cota superior con
+    // la que se autorizo el gasto. Se equivoca para arriba, que es el unico
+    // error que no se pasa del tope. Y se dice en voz alta: un proveedor que no
+    // manda `usage` es algo que el operador tiene que poder ver y arreglar, no
+    // una diferencia silenciosa entre este ledger y la factura que le llega a
+    // fin de mes.
+    let costoReal
+    if (node.kind === 'upstream' && !usoExterno) {
+      costoReal = reserva.micros || 0
+      console.error(
+        `[${node.id}] el proveedor no mando "usage": se liquida por la reserva ` +
+          `(${costs.formatUSD(costoReal)}), que es la cota superior y no el costo real`
+      )
+    } else {
+      costoReal = costs.real({
+        model: claveDePrecio(node),
+        promptTokens: usoExterno ? Number(usoExterno.prompt_tokens) || 0 : 0,
+        completionTokens:
+          usoExterno && Number.isFinite(Number(usoExterno.completion_tokens))
+            ? Number(usoExterno.completion_tokens)
+            : tokens
+      })
+    }
     budget.settle(reserva.id, costoReal)
     // El motivo dice lo que REALMENTE pasó, y desde la Fase 8 eso incluye por
     // que se eligio este candidato: lo arma pickCandidate mirando la carga de

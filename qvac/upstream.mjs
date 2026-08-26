@@ -123,12 +123,30 @@ export class Upstream {
     const mod = await import('bare-fetch')
     const fetch = mod.default || mod.fetch || mod
 
+    // El orden importa y antes estaba al reves: `extraBody` iba ULTIMO, asi que
+    // un `max_tokens` escrito en la config pisaba el tope del nodo -- el unico
+    // numero con el que se calculo la reserva-, y un `stream: false` rompia el
+    // parser de SSE sin decir por que. Lo que el nodo necesita para acotar el
+    // gasto y para entender la respuesta va DESPUES: la config extiende, no
+    // sobreescribe.
+    const extra = { ...(this.extraBody || {}) }
+
+    // `usage` en streaming es OPCIONAL en el protocolo de OpenAI: sin pedirlo,
+    // la enorme mayoria de los proveedores no lo manda. Y sin `usage` la
+    // liquidacion se queda sin los tokens reales -- sobre todo los de entrada,
+    // que de este lado no hay forma de contar-. Lo pide el CODIGO y no la
+    // config: era un campo de un archivo que se podia olvidar, y olvidarlo
+    // salia barato en la factura y caro en el tope.
+    const streamOptions = { ...(extra.stream_options || {}), include_usage: true }
+    delete extra.stream_options
+
     const body = {
+      ...extra,
       model: this.model,
       messages,
       stream: true,
-      max_tokens: tope,
-      ...(this.extraBody || {})
+      stream_options: streamOptions,
+      max_tokens: tope
     }
 
     let res = null
