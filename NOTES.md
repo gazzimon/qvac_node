@@ -999,3 +999,108 @@ Dos detalles del diseño que no son adorno:
 **Pendiente de la primera corrida en CI:** si los runners de GitHub pueden
 alcanzar el swarm del registry de QVAC para bajar los pesos. Si no pueden, el
 modelo va a tener que llegar por otra vía y el `actions/cache` no alcanza.
+
+### D7 entre redes separadas: atravesar dos NAT no cuesta nada
+
+Medido el 27/8/2026 con el nodo de la K16 corriendo como servicio de systemd, y
+el segundo nodo en Windows moviéndose de red entre corridas. Mismo par en las
+cuatro (`eea6107f…` ↔ `1749ebae…`).
+
+| Escenario | primer par (D7) |
+| --- | ---: |
+| Nodo virgen (clave nueva, store vacío), misma LAN | **297 167 ms** |
+| Directorio caliente, misma LAN (ethernet ↔ wifi) | 4 357 ms |
+| Directorio caliente, misma LAN | 6 787 ms |
+| Directorio caliente, misma LAN | 4 513 ms |
+| **Directorio caliente, REDES DISTINTAS** (fibra ↔ red móvil) | **6 459 ms** |
+
+**Los 297 s no eran la red.** Era un nodo virgen descubriendo todo desde cero en
+la DHT. Un nodo con pares en el directorio se reconecta en 4–7 s. Son dos
+números distintos que hoy se reportan con la misma etiqueta, y conviene
+separarlos antes de sacar conclusiones sobre el descubrimiento.
+
+**Y cruzar dos NAT cae dentro del rango de la misma LAN**, no fuera. No es un
+caso fácil: la red móvil es casi con seguridad CGNAT, donde el teléfono no tiene
+IP pública propia. El holepunch lo resolvió solo, sin un puerto abierto de
+ningún lado.
+
+### Inferencia remota sobre holepunch, medida
+
+Chat fijado al nodo de la K16 desde el hotspot del teléfono, con el operador sin
+acceso SSH a esa máquina en ese momento — el nodo sirvió solo:
+
+| | TTFT | tok/s |
+| --- | ---: | ---: |
+| Primer request (arranque en frío, carga del modelo) | 6 091 ms | 2 |
+| Segundo request (modelo ya cargado) | **271 ms** | **28** |
+| Referencia: el mismo modelo local en la K16 | 70 ms | — |
+
+Cruzar internet costó **~200 ms** de TTFT. El resto es la máquina.
+
+### El nodo declara precio y NO cobra: `no charge`
+
+Con la wallet activa (`0xDc0f…3404`, redes `plasma, stable`, liquidación
+`batch-receipts`) y el manifiesto anunciando 1.000.000 QVAC por 1M de tokens de
+salida, **las dos respuestas remotas se sirvieron con `no charge`**.
+
+`cobroDe()` (`qvac/gateway.mjs:1458`) devuelve null en dos casos, y ninguno es un
+error:
+
+1. el manifiesto del par llegó sin `economic.walletAddress` → no se sabe a quién
+   pagarle;
+2. `x402.desafio()` devolvió null → el nodo no tiene **ninguna red de pago
+   usable**. Plasma está apagada mientras no se declare
+   `PYRUS_X402_PLASMA_ASSET_VERIFICADO=1`, así que dependería enteramente de que
+   `@x402/evm` traiga activo por defecto para `eip155:988`.
+
+**No era ninguna de las dos.** El manifiesto llegó completo — `GET /v1/nodes` en
+el par muestra `economic.walletAddress`, `chains` y `settlement` — y la red
+`stable` sí resuelve activo (`@x402/evm` devuelve USDT0
+`0x779Ded…3736` para `eip155:988`; Plasma tira `No default asset configured`,
+que es por lo que el código la declara a mano).
+
+La respuesta está en la **condición que llama** a `cobroDe`, no adentro
+(`qvac/gateway.mjs:1689`):
+
+```js
+if (sinCredencial) {
+  const cobro = await cobroDe({ node, ... })
+```
+
+**El 402 solo existe para quien llega sin API key.** El panel se autentica con la
+key del panel, así que `sinCredencial` es falso y el camino del cobro ni se
+evalúa. Con credencial sos un cliente autenticado de este nodo y no pagás; sin
+credencial, el nodo te ofrece pagar en vez de rechazarte.
+
+#### El 402, medido
+
+Mismo request sin `Authorization`, fijado a cada nodo:
+
+| Fijado a | Respuesta |
+| --- | --- |
+| Par con wallet (K16) | **402** con el desafío |
+| Nodo propio sin wallet usable | **401** pidiendo API key |
+
+El desafío que devuelve:
+
+```json
+{"scheme":"exact","network":"eip155:988","amount":"1000",
+ "payTo":"0xDc0f5891bBA48941bb02213fAB6Bc70721253404",
+ "asset":"0x779Ded0c9e1022225f8E0630b35a9b54bE713736",
+ "extra":{"name":"USDT0","version":"1"},"outputTokenLimit":2048}
+```
+
+**D10 cumplido:** el `payTo` es la dirección del PROVEEDOR, no la del gateway que
+contesta. No hay intermediario. Y Plasma no se ofrece, correctamente.
+
+#### Lo anunciado y lo cobrado no coinciden
+
+El header de la misma respuesta dice `X-Pyrus-Cost-Estimate-Micros: 0`. El precio
+del ledger para P2P es cero, así que el 402 cae al piso declarado:
+`amount: "1000"` = **US$ 0,001** (USDT0, 6 decimales).
+
+O sea: la tarjeta del panel anuncia "1M QVAC por 1M de tokens de salida", y el
+402 pide un **mínimo fijo de un milésimo de dólar**, sin importar ese precio ni
+cuántos tokens se pidan. Está escrito en el código —"un 402 que pide cero no es
+un cobro"— y no es un bug oculto, pero **hoy lo que se anuncia y lo que se firma
+son dos números distintos**, y el panel no lo dice.
