@@ -294,6 +294,25 @@ centralized corporation aggregates your data at scale", not "nobody sees your
 prompt": end-to-end encryption is out of scope, and confidential inference is
 the next step on that path, not a property of today's build.
 
+That next step is measured, not aspirational — confidential LLM inference on GPU
+costs **4–8% of throughput** on H100 CC ([arXiv:2509.18886](https://arxiv.org/abs/2509.18886)),
+under 7% for typical queries — and it is still not "nobody can see anything",
+for three reasons that belong in the same sentence as the number: **HBM memory
+is not encrypted, NVLink between GPUs is not encrypted, and inter-token timings
+leak the length and structure of the text even when everything else is
+encrypted**. For a single GPU the threat model closes; for a model split across
+several, it does not.
+
+A node's **model declaration is only partly provable, and the split is
+deliberate**. Known-answer probes detect **model substitution** — announcing 14B
+and serving 1.5B — and that is what phase 10.5 will build. They do **not** detect
+**quantization substitution**: text-based detectors are ineffective at realistic
+sampling budgets ([arXiv:2504.04715](https://arxiv.org/abs/2504.04715)) and there
+is no published black-box solution. So `quantization` and `runtime` are declared
+in the **signed manifest** and backed by **stake and arbitration** — covered
+economically, not technically. Neither the probes nor the stake exist yet; what
+exists today is the signature over the declaration.
+
 Retrying a streaming POST is not idempotent yet; the nonce that fixes it is
 scheduled with the agentic layer.
 

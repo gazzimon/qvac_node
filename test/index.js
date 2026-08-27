@@ -2415,3 +2415,214 @@ test('FASE 9: Plasma no se cobra sin que alguien verifique su contrato', async (
 
   delete env[x402.VAR_PLASMA_OK]
 })
+
+// ---------------------------------------------------------------------------
+// FASE 9 / D24 — la atestacion del proveedor
+//
+// El recibo de x402 prueba que alguien PAGO. Esto es el otro lado: el artefacto
+// donde el que sirvio se compromete con lo que entrego. Los tests de aca prueban
+// las propiedades del artefacto AISLADO; que el gateway lo emita en los tres
+// casos de corte de D27 esta en test/integracion.js.
+//
+// La wallet es la misma frase publica de prueba que usa el resto de la suite y
+// que NUNCA se fondea. La firma es real; la plata no existe.
+// ---------------------------------------------------------------------------
+
+const FRASE_DE_PRUEBA = 'test test test test test test test test test test test junk'
+
+async function walletDePrueba() {
+  const wdk = await import('@tetherto/wdk-wallet-evm')
+  const WM = wdk.default || wdk
+  const cuenta = await new WM(FRASE_DE_PRUEBA, {
+    provider: 'http://127.0.0.1:1/no-existe'
+  }).getAccount()
+  return {
+    address: await cuenta.getAddress(),
+    firmar: (mensaje) => cuenta.sign(mensaje)
+  }
+}
+
+async function atestacionDePrueba(address, pisar = {}) {
+  const at = await import('../qvac/atestacion.mjs')
+  return at.construir({
+    requestId: 'chatcmpl-prueba',
+    ts: 1700000000000,
+    nonce: 'ab'.repeat(16),
+    modelId: 'Qwen3-4B-Q4_K_M',
+    quantization: 'Q4_K_M',
+    runtime: 'llamacpp',
+    promptHash: at.hashDe('hola'),
+    outputHash: at.hashDe('respuesta'),
+    tokensPrefill: 12,
+    tokensDecode: 34,
+    finishReason: 'stop',
+    providerPubkey: address,
+    ...pisar
+  })
+}
+
+test('D24: la atestacion se firma con la wallet y verifica contra su contenido', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  const w = await walletDePrueba()
+
+  const firmada = await at.firmar(await atestacionDePrueba(w.address), w.firmar)
+  t.ok(firmada, 'se firmo')
+  t.ok(firmada.signature.startsWith('0x'), 'con una firma EVM: ' + firmada.signature.slice(0, 12))
+  t.is(firmada.providerPubkey, w.address, 'y dice ser de la direccion que efectivamente firmo')
+
+  const v = await at.verificar(firmada)
+  t.ok(v.ok, 'verifica: ' + (v.reason || ''))
+  t.is(v.firmante.toLowerCase(), w.address.toLowerCase())
+})
+
+test('D24: cambiar UN campo despues de firmar invalida la atestacion', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  const w = await walletDePrueba()
+  const firmada = await at.firmar(await atestacionDePrueba(w.address), w.firmar)
+
+  // El campo que importa es `outputHash`, porque es el que cierra el agujero:
+  // el ataque de D24 no es reportar de mas -- el gateway ya cuenta por su
+  // cuenta -- sino inflar el conteo del OTRO troceando el stream. El hash es
+  // sobre el texto completo y el texto no depende del troceo, asi que quien
+  // quiera sostener un conteo inflado tiene que tocar este campo. Y no puede.
+  const otroTexto = { ...firmada, outputHash: at.hashDe('otra respuesta') }
+  const v1 = await at.verificar(otroTexto)
+  t.absent(v1.ok, 'un outputHash cambiado no verifica')
+  t.ok(String(v1.reason).indexOf('dice ser de') !== -1, v1.reason)
+
+  // Y lo mismo con los tokens, que es lo que la Fase 10 va a querer liquidar.
+  const masTokens = { ...firmada, tokensDecode: 9999 }
+  t.absent((await at.verificar(masTokens)).ok, 'tampoco un tokensDecode inflado')
+
+  // Un campo AGREGADO tambien: la canonicalizacion JCS es sobre el objeto
+  // entero menos `signature`, no sobre una lista de campos que alguien tenga
+  // que acordarse de mantener.
+  const conExtra = { ...firmada, extra: 'lo que sea' }
+  t.absent((await at.verificar(conExtra)).ok, 'ni un campo que no estaba')
+})
+
+test('D24: firmar con TU wallet no te deja atestiguar como OTRO nodo', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  const w = await walletDePrueba()
+
+  // El ataque: armar una atestacion que dice ser del nodo de al lado y firmarla
+  // con la propia. La firma valida perfecto -- es una firma de verdad -- y no
+  // prueba nada util si no se la ata a quien dice haber servido. Es el mismo
+  // razonamiento que `verifyManifest` con `expectedPublicKey`.
+  const ajena = await atestacionDePrueba('0x' + 'cd'.repeat(20))
+  const firmada = await at.firmar(ajena, w.firmar)
+
+  const v = await at.verificar(firmada)
+  t.absent(v.ok, 'no verifica aunque la firma sea buena')
+  t.ok(String(v.reason).indexOf(w.address) !== -1, 'y dice quien firmo de verdad: ' + v.reason)
+})
+
+test('D24: el orden en que se arma el objeto no cambia la firma', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  const w = await walletDePrueba()
+
+  const a = await at.firmar(await atestacionDePrueba(w.address), w.firmar)
+
+  // El mismo contenido con las claves insertadas al reves. JCS las ordena, asi
+  // que los bytes firmados son una funcion del CONTENIDO y no del orden en que
+  // se armo el objeto -- que es todo el motivo por el que se canonicaliza.
+  const alReves = {}
+  for (const k of Object.keys(a).reverse()) alReves[k] = a[k]
+
+  t.absent(
+    Object.keys(alReves).join() === Object.keys(a).join(),
+    'el objeto de prueba realmente tiene otro orden'
+  )
+  t.ok((await at.verificar(alReves)).ok, 'y verifica igual')
+})
+
+test('D24: sin firmante no sale una atestacion sin firmar', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  const base = await atestacionDePrueba('0x' + 'ab'.repeat(20))
+
+  // Un artefacto que parece una prueba y no lo es es peor que uno ausente. La
+  // ausencia se ve; una atestacion sin firma se lee como una atestacion.
+  t.is(await at.firmar(base, null), null, 'sin firmante no hay artefacto')
+  t.is(
+    await at.firmar(base, () => 'no-es-una-firma'),
+    null,
+    'ni con un firmante que devuelve cualquier cosa'
+  )
+  t.is(
+    await at.firmar(base, () => {
+      throw new Error('la wallet se cayo')
+    }),
+    null,
+    'ni cuando la wallet tira'
+  )
+})
+
+test('D24: el hash dice con que se computo', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+
+  // Un `promptHash: "3a5f…"` suelto no lo puede recomputar un tercero: hay que
+  // saber con que algoritmo. Va pegado al valor y no en un campo aparte para que
+  // no se puedan desincronizar.
+  const h = at.hashDe('hola')
+  t.ok(h.startsWith('blake2b-256:'), h)
+  t.is(h.split(':')[1].length, 64, '32 bytes en hex')
+  t.is(at.hashDe('hola'), h, 'determinista')
+  t.absent(at.hashDe('holaa') === h, 'y sensible a un caracter')
+
+  // El del prompt es sobre los mensajes canonicalizados: el proveedor recibio la
+  // conversacion entera, no el ultimo turno, y es eso lo que el cliente puede
+  // recomputar de su lado.
+  const msgs = [{ role: 'user', content: 'hola' }]
+  t.is(at.hashDeMensajes(msgs), at.hashDeMensajes([{ content: 'hola', role: 'user' }]))
+  t.absent(at.hashDeMensajes(msgs) === at.hashDe('hola'))
+})
+
+test('D24/D26: la cuantizacion sale del nombre del modelo, y dice unknown cuando no', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+
+  // Los nombres del registry de QVAC la llevan adentro, asi que no hay que
+  // tocar el schema congelado del manifiesto (D2) para declararla. Los de abajo
+  // son los del catalogo real, no inventados.
+  t.is(at.cuantizacionDe('Qwen3-4B-Q4_K_M'), 'Q4_K_M')
+  t.is(at.cuantizacionDe('llama_3.2_1b_intruct_tool_calling_v2.Q4_K'), 'Q4_K')
+  t.is(at.cuantizacionDe('smollm2-360m-instruct-q8_0'), 'Q8_0')
+  t.is(at.cuantizacionDe('Qwen3-1.7B-Q4_0'), 'Q4_0')
+
+  // D26: esto es una DECLARACION derivada de otra declaracion. Cuando el nombre
+  // no dice nada, decir 'unknown' es mas honesto que suponer F16 -- no hay forma
+  // black-box publicada de medirlo, asi que inventar un default seria afirmar
+  // algo que nadie verifico.
+  t.is(at.cuantizacionDe('gpt-4o-mini'), 'unknown')
+  t.is(at.cuantizacionDe(''), 'unknown')
+  t.is(at.cuantizacionDe(null), 'unknown')
+})
+
+test('D24: este nodo NO atestigua lo que sirvio otro', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  const yo = { kind: 'real', modelId: 'llama1b' }
+  const dir = '0x' + 'ab'.repeat(20)
+
+  t.is(
+    at.porQueNoSeFirma({ node: yo, walletAddress: dir, tieneFirmante: true }),
+    null,
+    'lo que corrio en esta maquina, si'
+  )
+
+  // El caso que importa. D24 pide que atestigue EL PROVEEDOR, y cuando contesto
+  // un par el proveedor no somos nosotros: no corrimos el modelo, y ademas el
+  // payTo del 402 apunto a SU wallet (D10), no a la nuestra. Firmar aca una
+  // atestacion sobre trabajo ajeno seria un artefacto que parece una prueba y no
+  // lo es. La del par la firma el, por Protomux, y eso es la Fase 10.
+  const delPar = at.porQueNoSeFirma({
+    node: { kind: 'peer', modelId: 'llama1b' },
+    walletAddress: dir,
+    tieneFirmante: true
+  })
+  t.ok(delPar, 'lo que sirvio un par, NO')
+  t.ok(delPar.indexOf('Fase 10') !== -1, 'y dice de quien es y cuando llega: ' + delPar)
+
+  // Los otros dos motivos, para que la ausencia siempre sea legible.
+  t.ok(at.porQueNoSeFirma({ node: yo, walletAddress: null, tieneFirmante: true }))
+  t.ok(at.porQueNoSeFirma({ node: yo, walletAddress: dir, tieneFirmante: false }))
+  t.ok(at.porQueNoSeFirma({ node: null, walletAddress: dir, tieneFirmante: true }))
+})

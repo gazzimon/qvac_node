@@ -506,7 +506,11 @@ async function startGateway(opts = {}) {
   //
   // La wallet no depende del swarm: es de esta maquina. `joinSwarm` la vuelve a
   // leer para el manifiesto, que es otra cosa -- ahi va FIRMADA.
-  gw.setEconomic(await economicDelNodo(budgetDir))
+  const cobro = await economicDelNodo(budgetDir)
+  gw.setEconomic(cobro.economic)
+  // D24 — sin firmante no hay atestacion, y eso es lo correcto: se prefiere no
+  // emitirla a emitirla sin firma. El gateway lo dice en el recibo.
+  gw.setWalletSigner(cobro.firmar)
 
   // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
   // registro tiene que decirlo desde el arranque. Si la fila local recien
@@ -774,19 +778,29 @@ async function openData(dir, { files = true } = {}) {
 // que existe y no se puede abrir, porque ahi alguien la configuro y el nodo la
 // esta ignorando -- y "no cobro nunca" no puede verse igual que "no pude abrir
 // mi wallet".
+// Devuelve `{ economic, firmar }`: el bloque publico que va al manifiesto, y una
+// FUNCION que firma con la wallet (D24). La cuenta no sale de acá y la seed
+// menos: el gateway pide firmas, no llaves.
 async function economicDelNodo(dir) {
   const wallet = await import('./qvac/wallet.mjs')
-  if (!wallet.existe(dir)) return null
+  if (!wallet.existe(dir)) return { economic: null, firmar: null }
 
   try {
     const abierta = await wallet.abrir(dir, env[wallet.VAR_PASSPHRASE])
     console.log(`  [wallet] direccion de cobro: ${abierta.address}`)
     console.log(`  [wallet] redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
-    return wallet.economicDe(abierta.address)
+    return {
+      economic: wallet.economicDe(abierta.address),
+      // FASE 9 / D24 — `account.sign` de WDK es un personal_sign EIP-191 sobre
+      // el mensaje, que es lo que `recoverMessageAddress` verifica del otro
+      // lado. Se envuelve en una closure para que lo unico que cruce a
+      // gateway.mjs sea la capacidad de firmar, no la cuenta ni la frase.
+      firmar: (mensaje) => abierta.cuenta.sign(mensaje)
+    }
   } catch (err) {
     console.error(`  [wallet] ${(err && err.message) || err}`)
     console.error('  [wallet] el nodo se anuncia SIN direccion de cobro (economic queda en mock)')
-    return null
+    return { economic: null, firmar: null }
   }
 }
 
@@ -873,7 +887,9 @@ async function joinSwarm({ operator, store = null, data = null }) {
   const identity = loadOrCreateIdentity(dir)
 
   const models = swarmModels()
-  const economic = await economicDelNodo(dir)
+  // Solo el bloque publico: al manifiesto va la direccion, nunca la capacidad de
+  // firmar. El firmante lo recibe el gateway, en runServe.
+  const { economic } = await economicDelNodo(dir)
 
   const nodeSwarm = new NodeSwarm({
     identity,

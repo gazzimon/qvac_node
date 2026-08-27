@@ -363,6 +363,19 @@ let finishReasonFalso = null
 // de fallar de OpenRouter cuando el proveedor de atras se cae a mitad.
 let errorEnStreamModelo = null
 
+// D24 — el proveedor devuelve UN texto fijo, y elige COMO lo trocea.
+//
+// Es el vector del ataque que D24 cierra: el gateway cuenta un delta a la vez,
+// y quien decide cuantos deltas son es el proveedor. `{ modelo, texto,
+// porCaracter }` sirve el mismo texto en dos troceos distintos para poder
+// comparar que cambia y que no.
+let respuestaModelo = null
+
+// D27 caso 1 — el proveedor manda un pedazo, espera, y manda el resto. La pausa
+// es la ventana en la que el cliente corta: sin ella no hay forma de que el test
+// sepa que el segundo pedazo NO alcanzo a entrar al contenido atestiguado.
+let pausaModelo = null
+
 // Un proveedor compatible con OpenAI en veinte lineas: dos deltas, un `usage`
 // con tokens que NO coinciden con los contados de este lado -- a proposito,
 // para probar que se liquida con los del proveedor -- y el [DONE].
@@ -402,6 +415,48 @@ function levantarProveedorFalso() {
           res.write('data: [DONE]\n\n')
           return res.end()
         }
+        // D24 — el mismo texto, troceado como el proveedor quiera. Sale por su
+        // propio camino y termina ahi: lo que se compara es el troceo, y meterle
+        // el `usage` y los demas flags de abajo mezclaria variables.
+        if (respuestaModelo && ultimoPedidoExterno.model === respuestaModelo.modelo) {
+          const partes = respuestaModelo.porCaracter
+            ? respuestaModelo.texto.split('')
+            : [respuestaModelo.texto]
+          for (const p of partes) chunk({ choices: [{ delta: { content: p } }] })
+          chunk({
+            choices: [{ delta: {} }],
+            usage: { prompt_tokens: 7, completion_tokens: 11 }
+          })
+          res.write('data: [DONE]\n\n')
+          return res.end()
+        }
+
+        // D27 casos 1 y 2 — un pedazo, una pausa, y despues el resto o la
+        // muerte.
+        //
+        // La PAUSA es la pieza que hace deterministas a los dos casos, y no es
+        // decoracion: `cortaModelo` destruye el socket en el mismo tick en que
+        // escribe, y entonces bare-fetch descarta la respuesta entera y falla
+        // con NETWORK_ERROR antes de que el gateway alcance a leer un solo
+        // delta -- o sea, `started` en false y un 500 sin que nada haya llegado
+        // al cliente, que es OTRO caso. Para probar "cae A MITAD" hay que
+        // asegurarse de que la primera mitad efectivamente llego.
+        if (pausaModelo && ultimoPedidoExterno.model === pausaModelo.modelo) {
+          chunk({ choices: [{ delta: { content: pausaModelo.primero } }] })
+          const t = setTimeout(() => {
+            try {
+              if (pausaModelo.corta) return res.destroy()
+              chunk({ choices: [{ delta: { content: pausaModelo.segundo } }] })
+              res.write('data: [DONE]\n\n')
+              res.end()
+            } catch (e) {
+              /* el cliente ya se fue: es exactamente el caso que se prueba */
+            }
+          }, pausaModelo.ms)
+          if (t.unref) t.unref()
+          return
+        }
+
         // `reasoning_content` en el MISMO delta que el contenido: si el cliente
         // lo leyera, el pensamiento del modelo saldria al chat.
         chunk({
@@ -2254,6 +2309,521 @@ test('si la liquidacion falla, la respuesta que ya salio no se cae', async (t) =
   facilitatorFalla = false
   gw.setEconomic(null)
   delete env[x402.VAR_FACILITATOR]
+})
+
+// ---------------------------------------------------------------------------
+// FASE 9 / D24, D25, D27 — la atestacion del proveedor, colgada del recibo
+//
+// El recibo de x402 que los tests de arriba verifican prueba que alguien PAGO.
+// Lo que falta es el otro lado: QUE SIRVIO el que cobro. D24 lo cuelga del mismo
+// recibo que D12 ya obliga a construir, firmado con la WALLET y no con la clave
+// de red -- mismo criterio que la Fase 10 y que manifest-v0.json:84.
+//
+// En esta fase el artefacto solo se emite y se guarda. Nada lo consume: eso es
+// la Fase 10. Es deliberado -- hacia atras no se firma, y cada dia de la Fase 9
+// sin esto es historia que no vuelve.
+// ---------------------------------------------------------------------------
+
+// El proveedor firma con la cuenta 1, NO con la 0.
+//
+// La 0 es la del `pagador()` de los tests de arriba. Si las dos puntas usaran la
+// misma direccion, un bug que confundiera al que paga con el que cobra pasaria
+// desapercibido: todo verificaria igual porque serian el mismo.
+async function proveedorFirmante() {
+  const wdk = await import('@tetherto/wdk-wallet-evm')
+  const WM = wdk.default || wdk
+  const cuenta = await new WM('test test test test test test test test test test test junk', {
+    provider: 'http://127.0.0.1:1/no-existe'
+  }).getAccount(1)
+  return {
+    address: await cuenta.getAddress(),
+    firmar: (mensaje) => cuenta.sign(mensaje)
+  }
+}
+
+// Deja el gateway con wallet Y firmante. Las dos cosas: con direccion y sin
+// firmante hay 402 y no hay atestacion, que es un caso legitimo y se prueba
+// aparte.
+async function conProveedorQueFirma() {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+
+  const p = await proveedorFirmante()
+  env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  gw.setEconomic(wallet.economicDe(p.address))
+  gw.setWalletSigner(p.firmar)
+  return p
+}
+
+async function soltarProveedor() {
+  const gw = await import('../qvac/gateway.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+  gw.setEconomic(null)
+  gw.setWalletSigner(null)
+  delete env[x402.VAR_FACILITATOR]
+}
+
+// Paga y sirve en un paso: 402, firma, reenvia. Devuelve la respuesta servida.
+async function pagarYPedir(cuerpo) {
+  const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
+  if (desafio.status !== 402) return { desafio, r: desafio }
+  const pago = await firmarPago(desafio.json)
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+  return { desafio, r }
+}
+
+// El id de la completion, sacado de un cuerpo SSE. Es la clave de /v1/receipts.
+function idDeSSE(body) {
+  for (const bloque of String(body || '').split('\n\n')) {
+    const s = bloque.replace(/^data: /, '').trim()
+    if (!s || s === '[DONE]') continue
+    try {
+      const o = JSON.parse(s)
+      if (o && o.id) return o.id
+    } catch (e) {
+      /* el evento del recibo no trae id: se sigue */
+    }
+  }
+  return null
+}
+
+// Un POST que CORTA la conexion apenas ve el primer delta con contenido.
+//
+// `pedir` lee hasta el final, asi que no sirve para D27 caso 1: el caso es
+// justamente el cliente que se va antes. Resuelve con lo que alcanzo a leer.
+function pedirYCortar(ruta, opts) {
+  const o = opts || {}
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(o.body)
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+    Object.assign(headers, o.headers || {})
+
+    let data = ''
+    let listo = false
+    const terminar = () => {
+      if (listo) return
+      listo = true
+      resolve({ body: data })
+    }
+
+    const req = http.request(BASE + ruta, { method: 'POST', headers }, (res) => {
+      res.on('data', (c) => {
+        data += c
+        if (!listo && data.indexOf('"content"') !== -1) {
+          req.destroy()
+          terminar()
+        }
+      })
+      res.on('end', terminar)
+      res.on('error', terminar)
+    })
+    req.on('error', (e) => {
+      if (!listo) reject(e)
+    })
+    req.write(payload)
+    req.end()
+  })
+}
+
+test('D24: el recibo lleva la atestacion de lo que se sirvio, firmada con la wallet', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  const p = await conProveedorQueFirma()
+
+  const messages = [{ role: 'user', content: 'hola' }]
+  const { r } = await pagarYPedir({ model: 'facturas-ar', messages })
+  t.is(r.status, 200)
+
+  const rec = await pedir('GET', '/v1/receipts/' + r.json.id)
+  t.is(rec.status, 200, 'el recibo se recupera por el id de la completion')
+
+  const a = rec.json.attestation
+  t.ok(a, 'y lleva la atestacion del proveedor (D24)')
+
+  // La firma es de la WALLET, no de la clave de red, y la verificacion usa la
+  // MISMA canonicalizacion que el firmado -- que es la unica forma de que no
+  // puedan divergir.
+  const v = await at.verificar(a)
+  t.ok(v.ok, 'verifica: ' + (v.reason || ''))
+  t.is(a.providerPubkey, p.address, 'firmada por la direccion de cobro de este nodo')
+
+  // ESTE es el campo que cierra el agujero de D24: el hash es del TEXTO, y el
+  // texto es exactamente el que recibio el cliente.
+  t.is(
+    a.outputHash,
+    at.hashDe(r.json.choices[0].message.content),
+    'el outputHash es el de lo que el cliente efectivamente recibio'
+  )
+  t.is(a.promptHash, at.hashDeMensajes(messages), 'y el promptHash, el de la conversacion entera')
+
+  // Un mock firmado con una wallet real sigue siendo un mock. Que lo diga el
+  // artefacto, y no solo el README, es la regla del proyecto sobre los mocks.
+  t.is(a.runtime, 'mock', 'el artefacto dice con que se genero: ' + a.runtime)
+  t.is(a.finishReason, 'stop')
+  t.ok(a.nonce && a.ts > 0, 'con nonce y timestamp')
+
+  await soltarProveedor()
+})
+
+test('D24: troceando el stream cambia el conteo del gateway y NO cambia el hash', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+  await conProveedorQueFirma()
+
+  // El ataque de D24, montado. El gateway incrementa su contador UNA VEZ POR
+  // DELTA con contenido, y quien decide cuantos deltas son es el proveedor: el
+  // mismo texto servido de a un caracter infla ese contador sin mentir en
+  // ningun campo y sin romper ninguna validacion. No falsea el numero, falsea
+  // la señal que el otro cuenta.
+  const TEXTO = 'una respuesta cualquiera'
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'troceo',
+        label: 'Trocea como quiere',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'tr', as: 'troceo-9', maxTokens: 256 }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'troceo-9',
+    displayName: 'Troceo',
+    operator: 'Trocea como quiere',
+    local: true,
+    maxConcurrentRequests: 4
+  })
+
+  const cuerpo = { model: 'troceo-9', messages: [{ role: 'user', content: 'hola' }] }
+
+  respuestaModelo = { modelo: 'tr', texto: TEXTO, porCaracter: false }
+  const entero = await pagarYPedir(cuerpo)
+  const recEntero = await pedir('GET', '/v1/receipts/' + entero.r.json.id)
+  const logEntero = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
+
+  respuestaModelo = { modelo: 'tr', texto: TEXTO, porCaracter: true }
+  const troceado = await pagarYPedir(cuerpo)
+  const recTroceado = await pedir('GET', '/v1/receipts/' + troceado.r.json.id)
+  const logTroceado = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
+
+  t.is(entero.r.json.choices[0].message.content, TEXTO, 'los dos sirvieron el mismo texto')
+  t.is(troceado.r.json.choices[0].message.content, TEXTO)
+
+  // El ataque funciona contra el contador: 1 delta contra 24.
+  t.is(logEntero.tokens, 1, 'entero: el gateway conto 1')
+  t.is(logTroceado.tokens, TEXTO.length, 'troceado: conto ' + TEXTO.length + ' por el mismo texto')
+
+  // Y no funciona contra el hash, que es toda la razon por la que D24 lo pide.
+  // Cualquiera puede recontar los tokens desde el texto atestiguado.
+  t.is(
+    recEntero.json.attestation.outputHash,
+    recTroceado.json.attestation.outputHash,
+    'el outputHash es el mismo: el texto no depende de en cuantos pedazos viajo'
+  )
+
+  respuestaModelo = null
+  store.clearUpstreams()
+  gw.setUpstreams([])
+  await soltarProveedor()
+})
+
+test('D25: el rastro separa prefill de decode, y dice de donde salio cada numero', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+
+  // 1. Con `usage` del proveedor: son los tokens REALES, contados por SU
+  //    tokenizador. El proveedor falso manda 1000/500 a proposito, numeros que
+  //    no coinciden con nada que se pueda contar de este lado.
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'd25',
+        label: 'Manda usage',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'u', as: 'd25-9', maxTokens: 256 }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'd25-9',
+    displayName: 'D25',
+    operator: 'Manda usage',
+    local: true,
+    maxConcurrentRequests: 4
+  })
+
+  const conUsage = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'd25-9', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(conUsage.status, 200)
+
+  const e1 = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
+  t.is(e1.tokensPrefill, 1000, 'prefill del proveedor')
+  t.is(e1.tokensDecode, 500, 'decode del proveedor')
+  t.is(e1.tokensFuente, 'proveedor', 'y el rastro dice que fue medido, no estimado')
+
+  // Los campos VIEJOS no cambian de significado. Hay panel e historial leyendo
+  // `tokens`, y redefinirlo convertiria las entradas anteriores en otra cosa sin
+  // que nadie se entere. D25 AGREGA.
+  t.is(typeof e1.tokens, 'number', '`tokens` sigue siendo lo que era')
+  t.absent(e1.tokens === e1.tokensDecode, 'y sigue sin ser lo mismo que el decode real')
+
+  store.clearUpstreams()
+  gw.setUpstreams([])
+
+  // 2. Sin `usage`: lo que queda es una ESTIMACION del prompt y un conteo de
+  //    DELTAS, que no son tokens. Decirle 'proveedor' a eso seria hacer creer
+  //    que hay una medicion donde hay una cuenta de chunks de SSE.
+  const sinUsage = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(sinUsage.status, 200)
+
+  const e2 = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
+  t.is(e2.tokensFuente, 'gateway', 'un mock no manda usage: la fuente lo dice')
+  t.ok(e2.tokensPrefill > 0, 'el prefill sale del estimador del prompt')
+  t.is(e2.tokensDecode, e2.tokens, 'y el decode es el conteo de deltas, que es lo unico que hay')
+})
+
+test('D9/D27 caso 3: el tope que declara el 402 ahora se APLICA, y dice length', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  await conProveedorQueFirma()
+
+  const messages = [{ role: 'user', content: 'hola' }]
+
+  // Sin tope pedido, el 402 declara el techo del nodo y la respuesta sale
+  // entera. Es el control: sin el, un test del tope pasaria aunque el mock
+  // contestara corto por su cuenta.
+  const libre = await pagarYPedir({ model: 'facturas-ar', messages })
+  t.is(libre.r.status, 200)
+  t.is(libre.r.json.choices[0].finish_reason, 'stop', 'sin tope, termina normal')
+  const largoEntero = libre.r.json.choices[0].message.content.length
+
+  // Con tope. El numero que se DECLARA en el accepts[] y el que se APLICA son
+  // el mismo: declarar uno y recortar con otro es cobrar por un trabajo
+  // distinto del que se acordo.
+  const cortado = await pagarYPedir({ model: 'facturas-ar', messages, max_tokens: 4 })
+  t.is(cortado.desafio.json.accepts[0].outputTokenLimit, 4, 'el 402 declara el tope')
+  t.is(cortado.r.status, 200)
+
+  const texto = cortado.r.json.choices[0].message.content
+  t.ok(texto.length > 0, 'algo sirvio')
+  t.ok(
+    texto.length < largoEntero,
+    'y se corto: ' + texto.length + ' contra ' + largoEntero + ' sin tope'
+  )
+
+  // La condicion que D9 llama NO NEGOCIABLE. Cobrar por un tope y reportar
+  // terminacion normal es mentir en el unico campo que el cliente mira para
+  // saber si le falta texto -- y el que mira un agente para decidir si pedir la
+  // continuacion.
+  t.is(cortado.r.json.choices[0].finish_reason, 'length', 'y lo DICE: length, no stop')
+
+  // D27 caso 3: atestacion COMPLETA, y se cobra.
+  const rec = await pedir('GET', '/v1/receipts/' + cortado.r.json.id)
+  t.is(rec.json.success, true, 'se cobra: la respuesta termino como se acordo')
+  t.is(rec.json.attestation.finishReason, 'length', 'la atestacion dice lo mismo')
+  t.is(rec.json.attestation.outputHash, at.hashDe(texto), 'sobre el prefijo servido')
+
+  await soltarProveedor()
+})
+
+test('D27 caso 2: el proveedor cae a mitad de stream y NO se cobra', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+  await conProveedorQueFirma()
+
+  // Un solo candidato para este modelo: con otro atras el request se salvaria
+  // por el reintento y no se estaria probando la caida.
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'cae',
+        label: 'Se cae a mitad',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'c9', as: 'cae-9', maxTokens: 256 }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'cae-9',
+    displayName: 'Cae',
+    operator: 'Se cae a mitad',
+    local: true,
+    maxConcurrentRequests: 4
+  })
+
+  // El proveedor abre 200, manda un delta, y despues avisa que se rompio con un
+  // objeto `error` EN EL CUERPO. Es el modo normal de caerse a mitad cuando los
+  // headers ya viajaron -- el status salio antes del primer token y no se puede
+  // corregir --, y es el que B15 enseño a detectar.
+  //
+  // Se usa este y no un `res.destroy()` a proposito: ver la nota de arriba de
+  // `pausaModelo`. Un socket destruido despues de una pausa NO llega como falla,
+  // asi que un test montado sobre eso probaria lo contrario de lo que dice.
+  errorEnStreamModelo = 'c9'
+  const cuerpo = {
+    model: 'cae-9',
+    messages: [{ role: 'user', content: 'hola' }],
+    // Con stream, D4 ya no puede reintentar: al cliente le salio un token.
+    stream: true
+  }
+  const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
+  t.is(desafio.status, 402)
+  const pago = await firmarPago(desafio.json)
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+
+  const id = idDeSSE(r.body)
+  t.ok(id, 'el stream alcanzo a abrir, asi que hay un id')
+  t.absent(r.body.indexOf('paymentResponse') !== -1, 'NO hay recibo: no se liquido nada')
+
+  // Este es el DoD de la Fase 9 que mas importa y el que mas facil se rompe:
+  // la verificacion protege al proveedor de gastar GPU gratis, la falta de
+  // liquidacion protege al cliente de pagar por lo que no recibio.
+  const rec = await pedir('GET', '/v1/receipts/' + id)
+  t.is(rec.status, 404, 'y no hay nada que recuperar: no se cobro')
+
+  // D27: ninguna atestacion tampoco. El nodo no puede comprometerse con una
+  // respuesta que no termino de entregar.
+  t.absent(r.body.indexOf('attestation') !== -1, 'ni atestacion')
+
+  errorEnStreamModelo = null
+  store.clearUpstreams()
+  gw.setUpstreams([])
+  await soltarProveedor()
+})
+
+test('D27 caso 1: el cliente corta, se atestigua el prefijo emitido y SI se cobra', async (t) => {
+  const at = await import('../qvac/atestacion.mjs')
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+  await conProveedorQueFirma()
+
+  const PRIMERO = 'lo que el cliente si recibio'
+  const SEGUNDO = ' — y esto ya no'
+
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'pausa',
+        label: 'Manda, espera, manda',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'p9', as: 'pausa-9', maxTokens: 256 }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'pausa-9',
+    displayName: 'Pausa',
+    operator: 'Manda, espera, manda',
+    local: true,
+    maxConcurrentRequests: 4
+  })
+
+  pausaModelo = { modelo: 'p9', primero: PRIMERO, segundo: SEGUNDO, ms: 900 }
+
+  const cuerpo = {
+    model: 'pausa-9',
+    messages: [{ role: 'user', content: 'hola' }],
+    stream: true
+  }
+  const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
+  t.is(desafio.status, 402)
+  const pago = await firmarPago(desafio.json)
+
+  const parcial = await pedirYCortar('/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+  const id = idDeSSE(parcial.body)
+  t.ok(id, 'el cliente alcanzo a ver el primer delta antes de irse')
+  t.ok(parcial.body.indexOf(PRIMERO) !== -1, 'y ese delta es el primer pedazo')
+
+  // La liquidacion y la firma ocurren DESPUES de que el socket ya se cerro.
+  await esperar(1600)
+
+  const rec = await pedir('GET', '/v1/receipts/' + id)
+  t.is(rec.status, 200, 'hay recibo: el trabajo se hizo y el prefijo llego (D27 caso 1)')
+  t.is(rec.json.success, true, 'y SI se cobra, hasta ahi')
+
+  const a = rec.json.attestation
+  t.ok(a, 'con atestacion PARCIAL')
+  t.ok((await at.verificar(a)).ok, 'firmada y verificable como cualquier otra')
+  t.is(a.finishReason, 'client_cancelled', 'que dice como termino, sin aplanarlo a stop')
+
+  // Lo que hace verificable a la parcial: el hash es del prefijo que el cliente
+  // EFECTIVAMENTE recibio, no el de la respuesta que se hubiera generado. Antes
+  // el gateway seguia acumulando en `contenido` lo que llegaba despues del
+  // corte, asi que el hash cubria texto que nadie vio.
+  t.is(a.outputHash, at.hashDe(PRIMERO), 'sobre el prefijo emitido, no sobre la respuesta entera')
+  t.absent(
+    a.outputHash === at.hashDe(PRIMERO + SEGUNDO),
+    'y NO sobre lo que el proveedor mando despues de que el cliente se fue'
+  )
+
+  pausaModelo = null
+  store.clearUpstreams()
+  gw.setUpstreams([])
+  await soltarProveedor()
+})
+
+test('D24: sin firmante NO sale una atestacion, y el recibo dice por que', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+
+  // Con wallet -- asi que se cobra -- y sin firmante. Es el estado real de un
+  // nodo cuya passphrase no abrio el keystore: puede anunciar direccion desde el
+  // manifiesto viejo y no puede firmar nada.
+  env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletSigner(null)
+
+  const { r } = await pagarYPedir({
+    model: 'facturas-ar',
+    messages: [{ role: 'user', content: 'hola' }]
+  })
+  t.is(r.status, 200, 'el request se sirve igual: la atestacion no es una puerta')
+
+  const rec = await pedir('GET', '/v1/receipts/' + r.json.id)
+  t.is(rec.json.attestation, null, 'y no sale una atestacion sin firma')
+  t.ok(rec.json.attestationMissing, 'la ausencia viene con motivo: ' + rec.json.attestationMissing)
+  t.ok(
+    String(rec.json.attestationMissing).indexOf('firm') !== -1,
+    'que dice cual de los motivos posibles fue'
+  )
+
+  await soltarProveedor()
 })
 
 test('cierra el facilitator falso', async (t) => {

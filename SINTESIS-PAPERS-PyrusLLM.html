@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Sintesis de cuatro papers sobre inferencia LLM descentralizada y que se desprende de ellos para PyrusLLM: orden de implementacion y decisiones abiertas.">
+<meta name="description" content="Estudio de cuatro papers sobre inferencia LLM descentralizada, la ronda de busqueda asistida que los amplio, y que se desprende de todo eso para PyrusLLM.">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   body { margin: 0; }
@@ -17,48 +17,24 @@
 
 <style>
   :root {
-    --bg: #F1F4F0;
-    --surface: #FFFFFF;
-    --surface-2: #E8EDE6;
-    --ink: #171E21;
-    --ink-2: #5C6A6C;
-    --line: #D6DED4;
-    --line-strong: #BCC7BA;
-    --accent: #22505F;
-    --accent-ink: #FFFFFF;
-    --accent-soft: #E1EBEE;
-    --pass: #4A7A1B;
-    --fail: #A63B2B;
-    --block: #96690F;
-    --pass-soft: #E9F1DC;
-    --fail-soft: #F8E5E1;
-    --block-soft: #F7EDD8;
-    --shadow: 0 1px 2px rgba(23, 30, 33, .06), 0 8px 24px -16px rgba(23, 30, 33, .35);
+    --bg: #F1F4F0; --surface: #FFFFFF; --surface-2: #E8EDE6;
+    --ink: #171E21; --ink-2: #5C6A6C; --line: #D6DED4; --line-strong: #BCC7BA;
+    --accent: #22505F; --accent-ink: #FFFFFF; --accent-soft: #E1EBEE;
+    --pass: #4A7A1B; --fail: #A63B2B; --block: #96690F;
+    --pass-soft: #E9F1DC; --fail-soft: #F8E5E1; --block-soft: #F7EDD8;
+    --shadow: 0 1px 2px rgba(23,30,33,.06), 0 8px 24px -16px rgba(23,30,33,.35);
     --radius: 10px;
   }
-
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #101618;
-      --surface: #182023;
-      --surface-2: #1F292C;
-      --ink: #E6ECE6;
-      --ink-2: #97A5A3;
-      --line: #2A3538;
-      --line-strong: #3B494D;
-      --accent: #86BCCB;
-      --accent-ink: #0E1417;
-      --accent-soft: #1D2E34;
-      --pass: #A3CB60;
-      --fail: #E4826C;
-      --block: #DEB25A;
-      --pass-soft: #1E2A16;
-      --fail-soft: #2E1B17;
-      --block-soft: #2C2413;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -18px rgba(0, 0, 0, .8);
+      --bg: #101618; --surface: #182023; --surface-2: #1F292C;
+      --ink: #E6ECE6; --ink-2: #97A5A3; --line: #2A3538; --line-strong: #3B494D;
+      --accent: #86BCCB; --accent-ink: #0E1417; --accent-soft: #1D2E34;
+      --pass: #A3CB60; --fail: #E4826C; --block: #DEB25A;
+      --pass-soft: #1E2A16; --fail-soft: #2E1B17; --block-soft: #2C2413;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -18px rgba(0,0,0,.8);
     }
   }
-
   :root[data-theme="dark"] {
     --bg: #101618; --surface: #182023; --surface-2: #1F292C;
     --ink: #E6ECE6; --ink-2: #97A5A3; --line: #2A3538; --line-strong: #3B494D;
@@ -69,21 +45,17 @@
   }
 
   body {
-    background: var(--bg);
-    color: var(--ink);
+    background: var(--bg); color: var(--ink);
     font-family: "Source Sans 3", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-size: 16.5px;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
+    font-size: 16.5px; line-height: 1.55; -webkit-font-smoothing: antialiased;
   }
-
-  h1, h2, h3 { font-family: Bitter, ui-serif, Georgia, serif; text-wrap: balance; margin: 0; line-height: 1.2; }
+  h1, h2, h3, h4 { font-family: Bitter, ui-serif, Georgia, serif; text-wrap: balance; margin: 0; line-height: 1.2; }
   code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  code { font-size: .9em; }
   a { color: var(--accent); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
   .wrap { max-width: 1180px; margin: 0 auto; padding: 0 22px 110px; }
-
   header.top { border-bottom: 1px solid var(--line); background: var(--surface); }
   .top-inner {
     max-width: 1180px; margin: 0 auto; padding: 34px 22px 30px;
@@ -119,13 +91,13 @@
   nav.jump a span { color: var(--ink-2); font-variant-numeric: tabular-nums; font-size: 13px; }
 
   main { display: flex; flex-direction: column; gap: 30px; min-width: 0; }
-
   .block {
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
     padding: 24px 26px; box-shadow: var(--shadow);
   }
   .block h2 { font-size: 23px; margin-bottom: 10px; }
-  .block h3 { font-size: 17px; margin: 22px 0 8px; }
+  .block h3 { font-size: 17.5px; margin: 24px 0 8px; }
+  .block h4 { font-size: 15px; margin: 18px 0 6px; font-family: "Source Sans 3", sans-serif; font-weight: 600; letter-spacing: .02em; }
   .block p { color: var(--ink-2); margin: 0 0 12px; }
   .block p:last-child { margin-bottom: 0; }
   .block ul, .block ol { color: var(--ink-2); padding-left: 20px; margin: 10px 0; }
@@ -133,19 +105,27 @@
   .block strong { color: var(--ink); font-weight: 600; }
 
   .tablewrap { overflow-x: auto; margin: 16px 0 4px; border: 1px solid var(--line); border-radius: 8px; }
-  table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 680px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 640px; }
   th, td { text-align: left; padding: 10px 13px; border-bottom: 1px solid var(--line); vertical-align: top; }
   thead th {
     background: var(--surface-2); font-family: "Source Sans 3", sans-serif; font-weight: 600;
     font-size: 12px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap;
   }
   tbody tr:last-child td { border-bottom: none; }
-  td.num, th.num { font-variant-numeric: tabular-nums; }
   tr.gap td { background: var(--accent-soft); }
   tr.gap td:first-child { font-weight: 600; color: var(--ink); }
+  tr.bad td { background: var(--fail-soft); }
   .yes { color: var(--pass); font-weight: 600; }
   .no  { color: var(--fail); font-weight: 600; }
   .mid { color: var(--block); font-weight: 600; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .tier { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+    padding: 2px 7px; border-radius: 4px; margin-right: 7px; vertical-align: 1px; }
+  .tier.a { background: var(--accent); color: var(--accent-ink); }
+  .tier.b { background: var(--pass-soft); color: var(--pass); border: 1px solid var(--pass); }
+  .tier.c { background: var(--block-soft); color: var(--block); border: 1px solid var(--block); }
+  .tier.d { background: var(--fail-soft); color: var(--fail); border: 1px solid var(--fail); }
 
   .stack { display: grid; gap: 7px; margin: 18px 0 6px; }
   .layer {
@@ -165,10 +145,8 @@
   .item { border: 1px solid var(--line); border-radius: 9px; padding: 16px 18px; background: var(--surface-2); }
   .item.first { border-color: var(--accent); border-width: 2px; background: var(--accent-soft); }
   .item-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
-  .rank {
-    font-family: Bitter, serif; font-size: 22px; font-weight: 700; color: var(--accent);
-    font-variant-numeric: tabular-nums; line-height: 1;
-  }
+  .rank { font-family: Bitter, serif; font-size: 22px; font-weight: 700; color: var(--accent);
+    font-variant-numeric: tabular-nums; line-height: 1; }
   .item-head h3 { margin: 0; font-size: 18px; }
   .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
   .tag {
@@ -180,14 +158,13 @@
   .item p { margin: 0 0 9px; }
   .item p:last-child { margin-bottom: 0; }
 
-  .dec { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 0 9px 9px 0; padding: 15px 18px; background: var(--surface-2); margin-bottom: 13px; }
+  .dec { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 0 9px 9px 0;
+    padding: 15px 18px; background: var(--surface-2); margin-bottom: 13px; }
   .dec:last-child { margin-bottom: 0; }
   .dec h3 { margin: 0 0 6px; font-size: 17px; }
   .dec .opts { font-size: 14px; color: var(--ink-2); margin-bottom: 9px; }
-  .rec {
-    font-size: 14.5px; background: var(--surface); border: 1px solid var(--line);
-    border-radius: 7px; padding: 9px 12px; color: var(--ink);
-  }
+  .rec { font-size: 14.5px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 7px; padding: 9px 12px; color: var(--ink); }
   .rec b { color: var(--accent); letter-spacing: .05em; font-size: 11px; text-transform: uppercase; display: block; margin-bottom: 3px; }
 
   .dont { display: grid; gap: 10px; margin-top: 14px; }
@@ -207,12 +184,11 @@
   .card dd { margin: 1px 0 0; color: var(--ink); }
   .card dd.warn { color: var(--fail); }
 
-  .callout {
-    border: 1px solid var(--accent); background: var(--accent-soft);
-    border-radius: 9px; padding: 16px 18px; margin: 16px 0;
-  }
+  .callout { border: 1px solid var(--accent); background: var(--accent-soft);
+    border-radius: 9px; padding: 16px 18px; margin: 16px 0; }
   .callout p { color: var(--ink); margin: 0; }
   .callout p + p { margin-top: 9px; }
+  .callout.warn { border-color: var(--fail); background: var(--fail-soft); }
 
   footer.end { color: var(--ink-2); font-size: 13.5px; padding-top: 26px; border-top: 1px solid var(--line); margin-top: 34px; }
 
@@ -229,15 +205,15 @@
 <header class="top">
   <div class="top-inner">
     <div>
-      <div class="eyebrow">PyrusLLM &middot; Revisi&oacute;n de literatura</div>
+      <div class="eyebrow">PyrusLLM &middot; Estudio de literatura</div>
       <h1>Cuatro papers, una arquitectura</h1>
-      <p class="lede">S&iacute;ntesis de los cuatro trabajos que cubren el espacio de PyrusLLM &mdash; calidad, sistemas, precio y token &mdash; con lo que se desprende de ellos: qu&eacute; construir primero, qu&eacute; no construir, y qu&eacute; hay que decidir antes de seguir.</p>
+      <p class="lede">Cuatro trabajos le&iacute;dos completos, una ronda de b&uacute;squeda asistida que los ampli&oacute;, y un episodio de citas fabricadas que result&oacute; ser el hallazgo m&aacute;s &uacute;til de todos. Lo que se desprende est&aacute; en <a href="ROADMAP_REVISION-EVIDENCIA.md">ROADMAP_REVISION-EVIDENCIA.md</a>.</p>
     </div>
     <div class="meta">
-      <div><span>Papers</span><b>4</b></div>
-      <div><span>Con c&oacute;digo p&uacute;blico</span><b>3 de 4</b></div>
-      <div><span>Con despliegue real</span><b>2 de 4</b></div>
-      <div><span>Que cierran el matching</span><b>0 de 4</b></div>
+      <div><span>Le&iacute;dos completos</span><b>4</b></div>
+      <div><span>Verificados uno a uno</span><b>4</b></div>
+      <div><span>Citas fabricadas</span><b>3 de 4</b></div>
+      <div><span>Huecos confirmados</span><b>5</b></div>
     </div>
   </div>
 </header>
@@ -251,18 +227,22 @@
       <nav class="jump">
         <a href="#hallazgo">El hallazgo central <span>1</span></a>
         <a href="#pila">La pila, por capas <span>2</span></a>
-        <a href="#comparativa">Comparativa <span>3</span></a>
-        <a href="#cruzadas">Seis conclusiones <span>4</span></a>
-        <a href="#primero">Qu&eacute; construir primero <span>5</span></a>
-        <a href="#decidir">Qu&eacute; hay que decidir <span>6</span></a>
-        <a href="#nocontruir">Qu&eacute; no construir <span>7</span></a>
-        <a href="#aplicacion">Cambios a la aplicaci&oacute;n <span>8</span></a>
-        <a href="#fichas">Fichas de los papers <span>9</span></a>
+        <a href="#corpus">El corpus y su evidencia <span>3</span></a>
+        <a href="#fabricacion">El episodio de fabricaci&oacute;n <span>4</span></a>
+        <a href="#huecos">Los cinco huecos <span>5</span></a>
+        <a href="#comparativa">Comparativa <span>6</span></a>
+        <a href="#cruzadas">Conclusiones cruzadas <span>7</span></a>
+        <a href="#correccion">Donde me corrijo <span>8</span></a>
+        <a href="#primero">Qu&eacute; construir primero <span>9</span></a>
+        <a href="#decidir">Qu&eacute; hay que decidir <span>10</span></a>
+        <a href="#nocontruir">Qu&eacute; no construir <span>11</span></a>
+        <a href="#aplicacion">Cambios a la aplicaci&oacute;n <span>12</span></a>
+        <a href="#fichas">Fichas <span>13</span></a>
       </nav>
     </div>
     <div class="panel">
-      <h3>La conclusi&oacute;n en una l&iacute;nea</h3>
-      <p style="margin:0;font-size:14.5px;color:var(--ink-2)">Los cuatro dejan vac&iacute;a la misma casilla: <strong style="color:var(--ink)">el matching sin due&ntilde;o</strong>. Es el producto.</p>
+      <h3>En una l&iacute;nea</h3>
+      <p style="margin:0;font-size:14.5px;color:var(--ink-2)">Los cuatro papers dejan vac&iacute;a la misma casilla: <strong style="color:var(--ink)">el matching sin due&ntilde;o</strong>. Cuando fuimos a buscar m&aacute;s, un modelo tuvo que <strong style="color:var(--ink)">inventar</strong> los papers que faltaban. Eso lo confirma.</p>
     </div>
   </aside>
 
@@ -273,13 +253,13 @@
       <p>Los cuatro papers vienen de grupos independientes y de disciplinas distintas: seguridad (PolyU Hong Kong), sistemas distribuidos (UC&nbsp;Berkeley), teor&iacute;a de subastas (Exeter) y teor&iacute;a de control (Oxford + FLock.io). Ninguno cita a los otros. Y los cuatro, por caminos distintos, terminan en el mismo lugar.</p>
 
       <div class="callout">
-        <p><strong>Los tres papers que tienen que emparejar un pedido con una m&aacute;quina, dejan ese rol centralizado &mdash; y dos lo admiten por escrito.</strong></p>
+        <p><strong>Los tres papers que tienen que emparejar un pedido con una m&aacute;quina dejan ese rol centralizado &mdash; y dos lo admiten por escrito.</strong></p>
         <p>PolyLink corre su <em>API server</em> que batchea y rutea en una instancia cloud de 4&nbsp;cores. DeServe dice, en Open Problems: <em>&laquo;matching compute resources with tasks remains centralized&raquo;</em>. AERIA no lo deja centralizado por descuido: <strong>el subastador es el dise&ntilde;o</strong>, y el paper detalla exactamente qu&eacute; tiene que saber para funcionar &mdash; el presupuesto de cada usuario, su requisito de latencia, su requisito de precisi&oacute;n y qu&eacute; modelo pide.</p>
       </div>
 
-      <p>Esa &uacute;ltima observaci&oacute;n es la m&aacute;s valiosa de toda la revisi&oacute;n. AERIA no describe una fuga de privacidad accidental: describe <strong>el perfil completo que el coordinador de un mercado de inferencia necesita como entrada</strong>. No se puede cifrar, porque el algoritmo lo lee. No se puede evitar, porque sin eso no hay asignaci&oacute;n. Solo se puede mover a un lugar donde nadie lo vea.</p>
+      <p>Esa &uacute;ltima observaci&oacute;n es la m&aacute;s valiosa del estudio. AERIA no describe una fuga de privacidad accidental: describe <strong>el perfil completo que el coordinador de un mercado de inferencia necesita como entrada</strong>. No se puede cifrar, porque el algoritmo lo lee. No se puede evitar, porque sin eso no hay asignaci&oacute;n. Solo se puede mover a un lugar donde nadie lo vea.</p>
 
-      <p>Es exactamente el argumento que ya est&aacute; escrito en <code>PyrusLLM-application.md</code>: <em>&laquo;You cannot have an ownerless market if the piece that decides and charges belongs to someone&raquo;</em>. La diferencia es que ahora hay tres estados del arte independientes que lo confirman, uno de ellos con el detalle t&eacute;cnico de qu&eacute; datos exactamente quedan expuestos.</p>
+      <p>Es el argumento que ya est&aacute; escrito en <code>PyrusLLM-application.md</code>: <em>&laquo;You cannot have an ownerless market if the piece that decides and charges belongs to someone&raquo;</em>. La diferencia es que ahora hay tres estados del arte independientes que lo confirman, uno con el detalle t&eacute;cnico de qu&eacute; datos quedan expuestos.</p>
     </section>
 
     <section class="block" id="pila">
@@ -287,307 +267,431 @@
       <p>Puesto uno arriba del otro, los cuatro papers arman casi todo un producto. Casi.</p>
 
       <div class="stack">
-        <div class="layer"><b>Motor de inferencia</b><div class="chips"><span class="chip">DeServe &mdash; pipeline + KV offload</span><span class="chip">PolyLink &mdash; vLLM / llama.cpp / Ollama</span></div></div>
+        <div class="layer"><b>Motor de inferencia</b><div class="chips"><span class="chip">DeServe &mdash; pipeline + KV offload</span><span class="chip">PolyLink &mdash; vLLM / llama.cpp</span></div></div>
         <div class="layer"><b>Verificaci&oacute;n de integridad</b><div class="chips"><span class="chip">DeServe &mdash; optimista + stake</span><span class="chip">PolyLink &mdash; TIQE (comit&eacute;)</span></div></div>
         <div class="layer"><b>Calidad y reputaci&oacute;n</b><div class="chips"><span class="chip">PolyLink &mdash; cross-encoder + LLM-judge</span></div></div>
         <div class="layer"><b>Descubrimiento de precio</b><div class="chips"><span class="chip">AERIA &mdash; subasta de precio uniforme</span></div></div>
         <div class="layer"><b>Pol&iacute;tica monetaria</b><div class="chips"><span class="chip">DCBM &mdash; PID sobre buyback</span></div></div>
+        <div class="layer empty"><b>Medici&oacute;n confiable</b><div class="chips"><span class="chip you">PyrusLLM &mdash; V2</span><span class="chip">nadie m&aacute;s</span></div></div>
         <div class="layer empty"><b>Matching sin due&ntilde;o</b><div class="chips"><span class="chip you">PyrusLLM</span><span class="chip">nadie m&aacute;s</span></div></div>
         <div class="layer empty"><b>Privacidad del pedido</b><div class="chips"><span class="chip you">PyrusLLM</span><span class="chip">nadie m&aacute;s</span></div></div>
       </div>
 
-      <p style="margin-top:14px">Las dos capas de abajo est&aacute;n vac&iacute;as en los cuatro papers. No es que las resuelvan mal: no las intentan. DeServe llega a presentar como <em>feature</em> anti&#8209;DoS que <em>&laquo;the peer-to-peer communication for each task is always between the same pair of peers&raquo;</em> &mdash; o sea, enlazabilidad m&aacute;xima por dise&ntilde;o. Ah&iacute; hay una tensi&oacute;n real (anti&#8209;DoS contra no&#8209;linkability) que vas a tener que resolver y que ninguno de los cuatro ve.</p>
+      <p style="margin-top:14px">Las tres capas de abajo est&aacute;n vac&iacute;as en los cuatro papers. No es que las resuelvan mal: no las intentan. DeServe llega a presentar como <em>feature</em> anti&#8209;DoS que <em>&laquo;the peer-to-peer communication for each task is always between the same pair of peers&raquo;</em> &mdash; o sea, enlazabilidad m&aacute;xima por dise&ntilde;o. Ah&iacute; hay una tensi&oacute;n real (anti&#8209;DoS contra no&#8209;linkability) que ninguno de los cuatro ve.</p>
+    </section>
+
+    <section class="block" id="corpus">
+      <h2>3 &middot; El corpus y su nivel de evidencia</h2>
+      <p>El estudio tuvo dos etapas: cuatro papers le&iacute;dos completos, y una ronda de b&uacute;squeda asistida para cubrir los huecos. La segunda etapa oblig&oacute; a clasificar por confianza, porque no todo lo que lleg&oacute; era real.</p>
+
+      <h3><span class="tier a">NIVEL A</span> Le&iacute;dos completos</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Paper</th><th>Qu&eacute; aporta</th><th>Vale para</th></tr></thead>
+          <tbody>
+            <tr><td><strong>PolyLink</strong><br><code>2510.02395</code></td><td>TIQE. Cross-encoder TP 66&nbsp;% / FP 2&nbsp;%; LLM-judge TP 98&nbsp;% / FP 12&nbsp;%. Comit&eacute; con &beta;=0,3</td><td>Qu&eacute; <strong>no</strong> hacer: comit&eacute; permanente, 30&nbsp;% de tax, recompensa decreciente en calidad</td></tr>
+            <tr><td><strong>DeServe</strong><br><code>2501.14784</code></td><td>445&nbsp;tok/s planos de 0 a 256&nbsp;ms. Brecha de costo 40x. Tres criterios de descarte</td><td>Carril batch, verificaci&oacute;n optimista, segmentaci&oacute;n de la oferta</td></tr>
+            <tr><td><strong>AERIA</strong><br><code>2503.04521</code></td><td>Subasta de precio uniforme. Veracidad y envy-freeness probadas. <strong>3&nbsp;ms</strong> de clearing</td><td>Clearing por ventana en enclave, precio de reserva</td></tr>
+            <tr><td><strong>DCBM</strong><br><code>2601.09961</code></td><td>PID sobre buyback. Solvencia asint&oacute;tica. Cotas estructurales &gt; calibraci&oacute;n</td><td>Subsidio como fracci&oacute;n de tesorer&iacute;a. <strong>No</strong> estabilizar el token</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3><span class="tier b">NIVEL B</span> Verificados contra arXiv, uno por uno</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Paper</th><th class="num">El n&uacute;mero</th><th>Estado</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Token Inflation</strong><br><code>2605.30040</code></td><td class="num"><strong>1.469&nbsp;%</strong> de inflaci&oacute;n sin detecci&oacute;n; 50,85&nbsp;% por ambig&uuml;edad de tokenizaci&oacute;n</td><td><span class="yes">exacto</span></td></tr>
+            <tr><td><strong>UCCI</strong><br><code>2605.18796</code></td><td class="num"><strong>31&nbsp;%</strong> de ahorro (IC 95&nbsp;%: 27&ndash;35), 75.000 queries, ECE 0,12&rarr;0,03</td><td><span class="yes">exacto</span></td></tr>
+            <tr><td><strong>Confidential LLM Inference</strong><br><code>2509.18886</code></td><td class="num">H100 CC: <strong>4&ndash;8&nbsp;%</strong>. CPU TEE &lt;10&nbsp;%. <strong>HBM y NVLink sin cifrar</strong></td><td><span class="yes">confirmado</span> &mdash; el ID no ven&iacute;a en el informe</td></tr>
+            <tr><td><strong>Hopper CC</strong><br><code>2409.03992</code></td><td class="num"><strong>&lt;7&nbsp;%</strong> en queries t&iacute;picas. El cuello es el PCIe</td><td><span class="mid">el informe dijo &laquo;&lt;9&nbsp;%&raquo;</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3><span class="tier c">NIVEL C</span> Citados y plausibles, sin verificar</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Paper</th><th>Qu&eacute; afirma</th><th>Por qu&eacute; importa</th></tr></thead>
+          <tbody>
+            <tr><td><code>2504.04715</code><br>Model substitution</td><td>Los detectores de texto <strong>no</strong> detectan cuantizaci&oacute;n con presupuestos realistas</td><td><strong>Contradice mi recomendaci&oacute;n original.</strong> Base de D26 &mdash; hay que abrirlo</td></tr>
+            <tr><td><code>2505.13778</code><br>CoIn</td><td>94,7&nbsp;% detectando inflaci&oacute;n, pero con auditor externo confiable</td><td>Confirma que sin TEE no hay soluci&oacute;n trustless</td></tr>
+            <tr><td>Fingerprinting<br><code>2505.16723</code> &middot; <code>2509.25448</code> &middot; <code>2508.19843</code></td><td>Identidad de modelo robusta a fine-tuning y cuantizaci&oacute;n</td><td>Sostiene el canario para sustituci&oacute;n de modelo</td></tr>
+            <tr><td>Cryptobazaar<br>ePrint 2024/1410</td><td>128 pujadores en &lt;0,5&nbsp;s, ~32&nbsp;KB por pujador</td><td>Dimensiona el clearing por ventana</td></tr>
+            <tr><td><strong>RouteLLM</strong><br><code>2406.18665</code></td><td><span class="yes">Real</span>, pero dice <strong>&laquo;over 2x&raquo;</strong>, no el &laquo;85&nbsp;% con 95&nbsp;% de calidad&raquo; reportado</td><td>Cuidado con el n&uacute;mero que se cite</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="block" id="fabricacion">
+      <h2>4 &middot; El episodio de fabricaci&oacute;n</h2>
+      <p>Una segunda ronda de b&uacute;squeda, con otro modelo, devolvi&oacute; un informe impecable en apariencia: venues prestigiosos, DOIs, repos, n&uacute;meros con dos decimales, tabla de calidad de evidencia y hasta una secci&oacute;n de contradicciones entre papers.</p>
+      <p>Verifiqu&eacute; cuatro citas. <strong>Tres eran fabricadas.</strong></p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Cita del informe</th><th>Qu&eacute; hay realmente en ese identificador</th></tr></thead>
+          <tbody>
+            <tr class="bad"><td><code>2502.04112</code> &mdash; &laquo;PoEx: Verifiable Token Metering&raquo;</td><td><em>Estimation of large approximate dynamic matrix factor models</em> &mdash; <strong>econometr&iacute;a</strong></td></tr>
+            <tr class="bad"><td><code>2411.05210</code> &mdash; &laquo;Benchmarking CC on H100&raquo;</td><td><em>Algorithmic Autonomy in Data-Driven AI</em> &mdash; <strong>&eacute;tica de algoritmos</strong></td></tr>
+            <tr class="bad"><td><code>2502.11890</code> &mdash; &laquo;Economics of Consumer GPU&raquo;</td><td><em>Revisiting Classification Taxonomy for Grammatical Errors</em> &mdash; <strong>ling&uuml;&iacute;stica</strong></td></tr>
+            <tr><td><code>2406.18665</code> &mdash; RouteLLM</td><td><span class="yes">Real</span>, con el t&iacute;tulo y los n&uacute;meros cambiados</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin-top:14px"><strong>Los identificadores exist&iacute;an. Apuntaban a papers reales. Ninguno era el paper descrito.</strong> Es la forma m&aacute;s dif&iacute;cil de detectar: si solo verificabas que el link resolviera, pasaba.</p>
+
+      <h3>Los tres patrones que se ve&iacute;an sin navegar</h3>
+      <ul>
+        <li><strong>Los repos.</strong> <code>pride-anon/&hellip;</code>, <code>fastbid-anon/&hellip;</code>, <code>poex-project/poex-core</code>, <code>volatileserve/vserve</code>. El sufijo <code>-anon</code> es de submission anonimizado &mdash; no sobrevive como repo p&uacute;blico. Y el resto sigue un molde: nombre-del-paper barra nombre-del-paper.</li>
+        <li><strong>Un venue imposible.</strong> &laquo;VolatileServe &mdash; PETS 2025&raquo;. PETS es el simposio de tecnolog&iacute;as de privacidad, y el trabajo descrito es scheduling especulativo: cero contenido de privacidad.</li>
+        <li><strong>Tecnolog&iacute;a real, cita falsa.</strong> RLN existe y su repo es de la Ethereum Foundation &mdash; pero no es un paper de IEEE&nbsp;S&amp;P&nbsp;2024. Ese patr&oacute;n es peor que inventar todo: la parte verificable te convence de la que no lo es.</li>
+      </ul>
+
+      <div class="callout warn">
+        <p><strong>La regla que sale de esto, y que vale m&aacute;s all&aacute; de este estudio: un link que resuelve no es verificaci&oacute;n. Hay que leer el t&iacute;tulo.</strong></p>
+      </div>
+    </section>
+
+    <section class="block" id="huecos">
+      <h2>5 &middot; Los cinco huecos, confirmados por dos v&iacute;as</h2>
+      <p>Ac&aacute; es donde el episodio anterior deja de ser una an&eacute;cdota y pasa a ser el hallazgo m&aacute;s s&oacute;lido del estudio. Las fabricaciones no aparecieron en cualquier lado: <strong>aparecieron exactamente sobre las cinco preguntas que la primera b&uacute;squeda hab&iacute;a declarado vac&iacute;as.</strong></p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Hueco</th><th>B&uacute;squeda 1</th><th>B&uacute;squeda 2</th><th>Veredicto</th></tr></thead>
+          <tbody>
+            <tr class="gap"><td>Matching confidencial de inferencia</td><td>&laquo;no encontr&eacute;&raquo;</td><td>invent&oacute; 2 papers</td><td><strong>Vac&iacute;o</strong></td></tr>
+            <tr class="gap"><td>Medici&oacute;n trustless de tokens</td><td>&laquo;no hay soluci&oacute;n&raquo;</td><td>invent&oacute; &laquo;PoEx&raquo;</td><td><strong>Vac&iacute;o</strong></td></tr>
+            <tr class="gap"><td>Sondas indistinguibles</td><td>&laquo;no existe&raquo;</td><td>invent&oacute; tasa 3,2&ndash;5,8&nbsp;%</td><td><strong>Vac&iacute;o</strong></td></tr>
+            <tr class="gap"><td>Scheduling tolerante a churn</td><td>&laquo;problema abierto&raquo;</td><td>invent&oacute; &laquo;VolatileServe&raquo;</td><td><strong>Vac&iacute;o</strong></td></tr>
+            <tr class="gap"><td>Stablecoin vs. token, emp&iacute;rico</td><td>&laquo;todo es te&oacute;rico&raquo;</td><td>invent&oacute; 42&nbsp;% vs 6,1&nbsp;%</td><td><strong>Vac&iacute;o</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin-top:14px">Una b&uacute;squeda con acceso web dijo &laquo;no hay&raquo;. Otro modelo <strong>tuvo que inventarla</strong>. Un modelo alucina donde no hay nada que recuperar, as&iacute; que <strong>la fabricaci&oacute;n marca el vac&iacute;o con la misma precisi&oacute;n que la ausencia</strong> &mdash; y es una se&ntilde;al independiente de la primera.</p>
+
+      <p>Para el pitch, eso se traduce en una frase que ahora se puede defender: <strong>no es que no buscamos bien. No existe.</strong> Tres de esos cinco huecos son casillas del producto.</p>
     </section>
 
     <section class="block" id="comparativa">
-      <h2>3 &middot; Comparativa</h2>
+      <h2>6 &middot; Comparativa de los cuatro</h2>
       <div class="tablewrap">
         <table>
-          <thead>
-            <tr>
-              <th>Dimensi&oacute;n</th>
-              <th>PolyLink</th>
-              <th>DeServe</th>
-              <th>AERIA</th>
-              <th>DCBM</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Dimensi&oacute;n</th><th>PolyLink</th><th>DeServe</th><th>AERIA</th><th>DCBM</th></tr></thead>
           <tbody>
-            <tr><td>Disciplina</td><td>Seguridad / cripto</td><td>Sistemas distribuidos</td><td>Dise&ntilde;o de mecanismos</td><td>Teor&iacute;a de control</td></tr>
-            <tr><td>Throughput y motor</td><td><span class="no">d&eacute;bil</span> &mdash; 7 tok/s en 14B repartido</td><td><span class="yes">fuerte</span> &mdash; 445 tok/s, plano vs. latencia</td><td>no aplica</td><td>no aplica</td></tr>
-            <tr><td>Verificaci&oacute;n</td><td><span class="mid">comit&eacute;</span> &mdash; 30&nbsp;% de tax permanente</td><td><span class="yes">optimista</span> &mdash; ~0&nbsp;% en camino honesto</td><td><span class="no">ausente</span></td><td>no aplica</td></tr>
-            <tr><td>Calidad medida</td><td><span class="yes">s&iacute;</span> &mdash; TP 66&nbsp;% / 98&nbsp;% con datos</td><td><span class="no">ausente</span></td><td>&sigma; declarado, no verificado</td><td>no aplica</td></tr>
-            <tr><td>Precio</td><td>&delta; sin definir</td><td>referencia fija de Together.ai</td><td><span class="yes">subasta con propiedades probadas</span></td><td>estabiliza la <em>unidad</em>, no el precio</td></tr>
-            <tr><td>Modelo de costos del proveedor</td><td>f&oacute;rmulas con incentivo invertido</td><td><span class="yes">tabla real, 40x de brecha</span></td><td>reserva atada a la luz</td><td>tesorer&iacute;a con <code>C_ops</code></td></tr>
-            <tr><td>Despliegue real</td><td><span class="yes">20 equipos, 4 ciudades</span></td><td><span class="yes">GCP este&ndash;oeste, 58,4&nbsp;ms</span></td><td><span class="no">solo simulaci&oacute;n</span></td><td><span class="no">solo simulaci&oacute;n</span></td></tr>
+            <tr><td>Disciplina</td><td>Seguridad</td><td>Sistemas</td><td>Mecanismos</td><td>Control</td></tr>
+            <tr><td>Throughput y motor</td><td><span class="no">d&eacute;bil</span> &mdash; 7&nbsp;tok/s</td><td><span class="yes">fuerte</span> &mdash; 445&nbsp;tok/s</td><td>n/a</td><td>n/a</td></tr>
+            <tr><td>Verificaci&oacute;n</td><td><span class="mid">comit&eacute;</span> &mdash; 30&nbsp;% de tax</td><td><span class="yes">optimista</span> &mdash; ~0&nbsp;%</td><td><span class="no">ausente</span></td><td>n/a</td></tr>
+            <tr><td>Calidad medida</td><td><span class="yes">s&iacute;</span>, con datos</td><td><span class="no">ausente</span></td><td>&sigma; declarado, no verificado</td><td>n/a</td></tr>
+            <tr><td>Precio</td><td>&delta; sin definir</td><td>referencia fija</td><td><span class="yes">subasta probada</span></td><td>estabiliza la <em>unidad</em></td></tr>
+            <tr><td>Costos del proveedor</td><td>incentivo invertido</td><td><span class="yes">tabla real, 40x</span></td><td>reserva atada a la luz</td><td>tesorer&iacute;a con <code>C_ops</code></td></tr>
+            <tr><td>Despliegue real</td><td><span class="yes">20 equipos</span></td><td><span class="yes">GCP este&ndash;oeste</span></td><td><span class="no">simulaci&oacute;n</span></td><td><span class="no">simulaci&oacute;n</span></td></tr>
             <tr><td>C&oacute;digo p&uacute;blico</td><td><span class="yes">s&iacute;</span></td><td><span class="yes">s&iacute;</span></td><td><span class="yes">s&iacute;</span></td><td><span class="no">no</span></td></tr>
-            <tr><td>&iquest;Aplica a LLM autorregresivo?</td><td><span class="yes">s&iacute;</span></td><td><span class="yes">s&iacute;</span></td><td><span class="no">no</span> &mdash; costo de una sola pasada</td><td>no aplica</td></tr>
-            <tr class="gap"><td>Matching descentralizado</td><td>no</td><td>no (admitido)</td><td>no (es el subastador)</td><td>no aplica</td></tr>
-            <tr class="gap"><td>Privacidad del pedido</td><td>ninguna</td><td>ninguna (y enlazabilidad como feature)</td><td>ninguna (define el perfil expuesto)</td><td>no aplica</td></tr>
+            <tr><td>&iquest;Aplica a LLM autorregresivo?</td><td><span class="yes">s&iacute;</span></td><td><span class="yes">s&iacute;</span></td><td><span class="no">no</span></td><td>n/a</td></tr>
+            <tr class="gap"><td>Medici&oacute;n confiable</td><td>no</td><td>no</td><td>no</td><td>n/a</td></tr>
+            <tr class="gap"><td>Matching descentralizado</td><td>no</td><td>no (admitido)</td><td>no (es el subastador)</td><td>n/a</td></tr>
+            <tr class="gap"><td>Privacidad del pedido</td><td>ninguna</td><td>ninguna</td><td>ninguna</td><td>n/a</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
     <section class="block" id="cruzadas">
-      <h2>4 &middot; Seis conclusiones que solo aparecen cruzando los cuatro</h2>
+      <h2>7 &middot; Conclusiones cruzadas</h2>
 
       <h3>1. El sharding ingenuo est&aacute; muerto; el pipelineado funciona, pero solo en batch</h3>
-      <p>PolyLink parte un 14B entre dos GPUs y saca <strong>7,12&nbsp;tok/s con 160&nbsp;s de latencia</strong> &mdash; contra 55,73&nbsp;tok/s y 17,3&nbsp;s en una sola 4090. DeServe parte un 70B entre las dos costas de EE.&nbsp;UU. y saca <strong>445&nbsp;tok/s</strong>. La diferencia no es la red: es la cola. Con suficientes microbatches en vuelo y KV cache descargado a RAM, DeServe hace el throughput <em>independiente de la latencia</em> (445 centralizado &rarr; 434 a 58&nbsp;ms &rarr; 443 a 256&nbsp;ms).</p>
-      <p>Lo que se recupera con ingenier&iacute;a es el <strong>throughput</strong>. Lo que no se recupera con nada es la <strong>latencia por request</strong>. De ah&iacute; sale todo lo dem&aacute;s.</p>
+      <p>PolyLink parte un 14B entre dos GPUs y saca <strong>7,12&nbsp;tok/s con 160&nbsp;s de latencia</strong>, contra 55,73&nbsp;tok/s y 17,3&nbsp;s en una sola 4090. DeServe parte un 70B entre las dos costas de EE.&nbsp;UU. y saca <strong>445&nbsp;tok/s</strong>, plano de 0 a 256&nbsp;ms. La diferencia no es la red: es la cola. Lo que se recupera con ingenier&iacute;a es el throughput; lo que no se recupera con nada es la latencia por request.</p>
 
-      <h3>2. El carril batch no es un modo secundario: es donde la descentralizaci&oacute;n gana</h3>
-      <p>Y aparece dos veces, por caminos distintos. DeServe lo argumenta desde sistemas: renunci&aacute; a competir en latencia, compet&iacute; en throughput, cobr&aacute; la mitad como la batch API de OpenAI. AERIA lo produce <em>solo</em>, desde la subasta: como la densidad de puja es <code>d&#8339; = &beta;&#8339; / &#257;&#8339;</code> y <code>&#257;&#8339;</code> baja cuando el plazo <code>t&#8339;</code> sube, <strong>el usuario paciente gana m&aacute;s seguido y m&aacute;s barato</strong>. El descuento por esperar no hay que cablearlo: lo fija el mercado.</p>
+      <h3>2. El carril batch aparece dos veces, por caminos independientes</h3>
+      <p>DeServe lo argumenta desde sistemas: renunci&aacute; a competir en latencia. AERIA lo produce <em>solo</em> desde la subasta: como <code>d&#8339; = &beta;&#8339;/&#257;&#8339;</code> y <code>&#257;&#8339;</code> baja cuando el plazo sube, <strong>el usuario paciente gana m&aacute;s seguido y m&aacute;s barato</strong>. El descuento por esperar no hay que cablearlo.</p>
 
-      <h3>3. El carril batch tambi&eacute;n resuelve el riesgo t&eacute;cnico principal de PyrusLLM</h3>
-      <p>La aplicaci&oacute;n a Vela deja una pregunta abierta honesta: <em>&laquo;a round trip to the enclave per request may not be viable&raquo;</em>. Cruz&aacute; dos datos: AERIA cierra una subasta de ~100 pujas en <strong>3&nbsp;ms</strong>, y en batch el presupuesto de latencia son horas. El overhead del enclave contra un SLA de 24&nbsp;h es ruido estad&iacute;stico.</p>
-      <p>El patr&oacute;n concreto: <strong>no hagas matching por request &mdash; hac&eacute; clearing por ventana adentro del enclave</strong>. Una invocaci&oacute;n por ventana, N pedidos emparejados. Es la hip&oacute;tesis que vos mismo listaste (&laquo;batching matches, precomputing assignments&raquo;) con el mecanismo formal ya escrito y con c&oacute;digo p&uacute;blico.</p>
+      <h3>3. El carril batch resuelve el riesgo t&eacute;cnico principal</h3>
+      <p>La aplicaci&oacute;n a Vela deja abierto que <em>&laquo;a round trip to the enclave per request may not be viable&raquo;</em>. AERIA cierra ~100 pujas en <strong>3&nbsp;ms</strong>, y Cryptobazaar hace 128 pujadores sellados en <strong>&lt;0,5&nbsp;s</strong>. En batch, con SLA de horas, eso es ruido. El patr&oacute;n: <strong>clearing por ventana, no matching por pedido</strong>.</p>
 
-      <h3>4. Tu segmento de oferta no es el que dice la aplicaci&oacute;n</h3>
-      <p>La tabla de costos de DeServe, a 0,90&nbsp;USD por mill&oacute;n de tokens: para no perder plata con 8&nbsp;GPUs hacen falta 4.283&nbsp;tok/s a precio GCP, 1.139 a precio io.net, y <strong>108 a tasa de miner&iacute;a</strong>. Su sistema hace 445. Es decir: <strong>cierra a costo de oportunidad de miner&iacute;a, no cierra a precio de alquiler</strong>.</p>
-      <p>Sacando la cuenta hasta el final: a esa tasa la GPU rinde ~0,044&nbsp;USD/hora; una 4090 de ~1.800&nbsp;USD tarda unas 41.000&nbsp;horas &mdash; <strong>4,7 a&ntilde;os</strong> &mdash; en repagarse. <strong>Comprar hardware para servir en esta red no repaga.</strong> El segmento que cierra es el que ya tiene el fierro parado y cuyo costo marginal es la luz.</p>
+      <h3>4. El segmento de oferta de la aplicaci&oacute;n no es el que cierra</h3>
+      <p>Con la tabla de DeServe a 0,90&nbsp;USD/MTok: hacen falta 4.283&nbsp;tok/s a precio GCP, 1.139 a precio io.net, y <strong>108 a tasa de miner&iacute;a</strong>. Su sistema hace 445. Cierra <strong>solo</strong> a costo de oportunidad de miner&iacute;a. Sacando la cuenta: ~0,044&nbsp;USD/GPU-hora, una 4090 de ~1.800&nbsp;USD tarda ~41.000&nbsp;horas &mdash; <strong>4,7 a&ntilde;os</strong> &mdash; en repagarse. <strong>Comprar hardware para esto no repaga.</strong></p>
 
-      <h3>5. Verificar identidad del modelo y verificar calidad son dos problemas, y confundirlos sale caro</h3>
-      <p>TIQE promete detectar &laquo;model degradation&raquo; pero su prompt de juez dice literalmente <em>&laquo;rate the quality of the following LLM inference result&raquo;</em> &mdash; nunca menciona qu&eacute; modelo deb&iacute;a correr. Un worker que anuncia 14B y sirve 1.5B con respuestas decentes saca 5. Por eso el cross-encoder detecta apenas el 66&nbsp;%: mide relevancia, no procedencia.</p>
-      <p>Y el LLM-judge, que s&iacute; llega al 98&nbsp;%, tiene <strong>12&nbsp;% de falsos positivos</strong> &mdash; con <code>R_worker = &alpha;(1&minus;&beta;)R_batch</code>, eso es 1 de cada 8 lotes honestos castigado. Justo lo que rompe la promesa de &laquo;tu hardware es un activo que rinde&raquo;.</p>
+      <h3>5. Verificar identidad y verificar calidad son dos problemas distintos</h3>
+      <p>El prompt de juez de TIQE dice <em>&laquo;rate the quality of the following LLM inference result&raquo;</em> &mdash; nunca menciona qu&eacute; modelo deb&iacute;a correr. Un worker que anuncia 14B y sirve 1.5B con respuestas decentes saca 5. Por eso el cross-encoder detecta apenas el 66&nbsp;%. Y el LLM-judge, que llega al 98&nbsp;%, tiene <strong>12&nbsp;% de falsos positivos</strong> &mdash; con <code>R = &alpha;(1&minus;&beta;)R_batch</code>, uno de cada ocho lotes honestos castigado.</p>
 
-      <h3>6. Restricciones estructurales le ganan a par&aacute;metros bien calibrados</h3>
-      <p>Es el resultado m&aacute;s limpio de DCBM: bajo ataque sostenido, el PID con cotas duras (Lipschitz + saturaci&oacute;n) contiene el 4,2&nbsp;% de &eacute;xito adversario, el PID entrenado adversarialmente el 12,5&nbsp;%, y el PID calibrado por grid search <strong>se deja drenar el 94,1&nbsp;% de las veces</strong>.</p>
-      <p>Y explica retroactivamente la peor falla de PolyLink. Su f&oacute;rmula de recompensa a validadores es <code>&beta; + (1&minus;&alpha;)(1&minus;&beta;)</code>: <strong>estrictamente decreciente en la calidad</strong>. Con &alpha;=1 cobran 0,3; con &alpha;=0 cobran el lote entero. Y el slashing solo castiga desviarse de la mediana, as&iacute; que un comit&eacute; que puntúa bajo de forma uniforme gana m&aacute;s y nadie se desv&iacute;a. Una cota estructural del tipo <em>&laquo;ning&uacute;n rol cobra m&aacute;s cuando la calidad cae&raquo;</em> hac&iacute;a imposible escribir esa f&oacute;rmula.</p>
+      <h3>6. Restricciones estructurales le ganan a par&aacute;metros calibrados</h3>
+      <p>Bajo ataque sostenido, el PID con cotas duras contiene el 4,2&nbsp;% de &eacute;xito adversario; el entrenado adversarialmente, 12,5&nbsp;%; el calibrado por grid search <strong>se deja drenar el 94,1&nbsp;%</strong>. Explica retroactivamente la peor falla de PolyLink: su recompensa al validador es <code>&beta; + (1&minus;&alpha;)(1&minus;&beta;)</code>, <strong>estrictamente decreciente en la calidad</strong>, y el slashing solo castiga desviarse de la mediana. Una cota del tipo <em>&laquo;ning&uacute;n rol cobra m&aacute;s cuando la calidad cae&raquo;</em> hac&iacute;a imposible escribir esa f&oacute;rmula.</p>
+
+      <h3>7. La medici&oacute;n de tokens es un fraude medido, no una hip&oacute;tesis</h3>
+      <p>Es el aporte de la segunda etapa, y es el m&aacute;s accionable. <strong>Token Inflation mide 1.469&nbsp;% de inflaci&oacute;n promedio sin detecci&oacute;n</strong> en tokens de razonamiento, y 50,85&nbsp;% aprovechando ambig&uuml;edad de tokenizaci&oacute;n: un cobro honesto de USD&nbsp;100 convertido en USD&nbsp;1.569 sobre la misma consulta. Y su conclusi&oacute;n nombra la salida: <em>&laquo;evidence outside provider control, such as trusted execution attestation&raquo;</em>.</p>
+      <p>El roadmap del proyecto ya nombraba el agujero &mdash; <em>&laquo;un nodo que reporta 900 tokens cuando sirvi&oacute; 400 no tiene hoy qui&eacute;n lo contradiga&raquo;</em>. Ahora tiene cita, n&uacute;mero, y una soluci&oacute;n nombrada que coincide con el Track&nbsp;V.</p>
+
+      <h3>8. La inferencia confidencial con GPU dej&oacute; de ser aspiraci&oacute;n</h3>
+      <p><strong>4&ndash;8&nbsp;%</strong> de overhead de throughput en H100 en modo confidential computing; <strong>&lt;7&nbsp;%</strong> para consultas t&iacute;picas, y el cuello es el PCIe, no el c&oacute;mputo. Con dos l&iacute;mites que hay que decir en la misma frase: <strong>la memoria HBM no est&aacute; cifrada y NVLink entre GPUs tampoco</strong>. Para un GPU el modelo de amenaza cierra; para un modelo repartido, no. Y un tercero independiente: <strong>los tiempos entre tokens filtran longitud y estructura</strong> aunque todo lo dem&aacute;s est&eacute; cifrado.</p>
+    </section>
+
+    <section class="block" id="correccion">
+      <h2>8 &middot; Donde el estudio me corrige a m&iacute;</h2>
+      <p>La primera versi&oacute;n de este documento recomendaba sondas de respuesta conocida como respuesta al problema de <em>&laquo;a node declares which model it runs, and that declaration has to be provable&raquo;</em>. La literatura acota eso, y conviene decirlo antes de construirlo.</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Qu&eacute; se quiere detectar</th><th>&iquest;Funciona la sonda?</th><th>Con qu&eacute; se cubre entonces</th></tr></thead>
+          <tbody>
+            <tr><td>Anuncia 14B, sirve 1.5B</td><td><span class="yes">S&iacute;</span> &mdash; el fingerprinting anda</td><td>Sondas (Fase 10.5)</td></tr>
+            <tr><td>Mismo modelo, m&aacute;s cuantizado</td><td><span class="no">No</span> &mdash; sin soluci&oacute;n black-box publicada</td><td><strong>Declaraci&oacute;n firmada + stake + arbitraje</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin-top:14px">O sea: <strong>la cuantizaci&oacute;n se cubre econ&oacute;micamente, no t&eacute;cnicamente</strong>. Es exactamente el rol que DeServe le da a la verificaci&oacute;n optimista, y es m&aacute;s honesto que prometer una detecci&oacute;n que hoy nadie sabe hacer. Queda como <strong>D26</strong> en el roadmap.</p>
+      <p>Una salvedad de m&eacute;todo: la cita que sostiene esto (<code>2504.04715</code>) es la &uacute;nica del estudio que no verifiqu&eacute; y de la que depende un alcance. Hay que abrirla antes de comprometer la Fase&nbsp;10.5.</p>
     </section>
 
     <section class="block" id="primero">
-      <h2>5 &middot; Qu&eacute; construir primero</h2>
-      <p>Ordenado por una sola regla: <strong>costo bajo &times; desbloquea mucho &times; imposible de agregar despu&eacute;s</strong>. Los tres primeros no necesitan enclave, ni blockchain, ni token, ni que Vela conteste.</p>
+      <h2>9 &middot; Qu&eacute; construir primero</h2>
+      <p>Ordenado por: <strong>costo bajo &times; desbloquea mucho &times; imposible de agregar despu&eacute;s</strong>. El detalle acoplado a las fases est&aacute; en <a href="ROADMAP_REVISION-EVIDENCIA.md">ROADMAP_REVISION-EVIDENCIA.md</a>.</p>
 
       <div class="prio">
-
         <div class="item first">
-          <div class="item-head">
-            <span class="rank">01</span>
-            <h3>Recibo de inferencia firmado</h3>
-            <div class="tags"><span class="tag lo">costo m&iacute;nimo</span><span class="tag hi">no se retrofittea</span></div>
-          </div>
-          <p>Que el proveedor firme cada respuesta. El recibo lleva: <code>pubkey</code> del proveedor, <code>model_id</code> tal como figura en su manifiesto firmado, <code>hash(prompt)</code>, <code>hash(output)</code>, tokens de entrada y salida, cuantizaci&oacute;n y runtime declarados, timestamp y nonce.</p>
-          <p><strong>Por qu&eacute; primero.</strong> Es el &aacute;tomo del que dependen las cinco cosas que vienen despu&eacute;s: la facturaci&oacute;n (los tokens), la verificaci&oacute;n (los hashes), la reputaci&oacute;n (la serie temporal por proveedor), el arbitraje (no repudio) y la subasta (saber qu&eacute; se entreg&oacute;). DeServe lo se&ntilde;ala como <em>el &uacute;nico costo por request</em> de su esquema optimista: una firma.</p>
-          <p><strong>Y es la &uacute;nica pieza que no se puede agregar despu&eacute;s.</strong> Los requests que ya pasaron no se firman retroactivamente. Cada d&iacute;a sin esto es historia no auditable que no vuelve.</p>
+          <div class="item-head"><span class="rank">01</span><h3>La atestaci&oacute;n del proveedor en el recibo</h3>
+            <div class="tags"><span class="tag lo">+0,5 d&iacute;a</span><span class="tag hi">no se retrofittea</span></div></div>
+          <p>La Fase&nbsp;10 dice, con raz&oacute;n, que <em>&laquo;la firma EIP-3009 ya es el recibo&raquo;</em>. Pero cubre <strong>una sola direcci&oacute;n</strong>: el cliente autorizando el pago. Falta el proveedor atestiguando qu&eacute; sirvi&oacute; &mdash; <code>model_id</code>, cuantizaci&oacute;n, <code>hash(prompt)</code>, <code>hash(output)</code>, tokens de prefill y decode, nonce, firmado con la wallet.</p>
+          <p><strong>Y es justo la direcci&oacute;n explotable.</strong> Token Inflation lo mide en 1.469&nbsp;%. El c&oacute;digo ya lo admite: <code>recordPeerResult</code> le cree al nodo.</p>
+          <p><strong>Cu&aacute;ndo se vuelve explotable, exactamente:</strong> no en la Fase&nbsp;9 &mdash; D9 cobra un tope fijo declarado. En la <strong>Fase&nbsp;10</strong>, cuando el lote acumula consumo real. <strong>Por eso el artefacto nace en la 9:</strong> D12 ya obliga a construir el recibo como evento SSE final, y colgarle campos cuesta una fracci&oacute;n de construirlo aparte. Los requests que ya pasaron no se firman hacia atr&aacute;s.</p>
         </div>
 
         <div class="item">
-          <div class="item-head">
-            <span class="rank">02</span>
-            <h3>Medici&oacute;n y libro de consumo, con la forma que va a tener adentro del enclave</h3>
-            <div class="tags"><span class="tag lo">costo bajo</span></div>
-          </div>
-          <p>Contabilidad determin&iacute;stica de tokens servidos por proveedor y por ventana, alimentada por los recibos del punto 1. Corr&eacute;la fuera del enclave al principio &mdash; pero con <strong>la estructura de datos y las entradas exactas</strong> que va a tener el <em>confidential job</em>.</p>
-          <p><strong>Por qu&eacute; ac&aacute;.</strong> Te da los primeros n&uacute;meros reales de la red, que es lo que necesit&aacute;s para la etapa de validaci&oacute;n que vos mismo describ&iacute;s. Y cuando llegue el enclave, mudarlo es un <em>lift and shift</em>, no un redise&ntilde;o. El error caro ser&iacute;a medir ahora de una forma y tener que reescribir la l&oacute;gica econ&oacute;mica cuando entre Vela.</p>
+          <div class="item-head"><span class="rank">02</span><h3>Separar prefill de decode en la medici&oacute;n</h3>
+            <div class="tags"><span class="tag lo">+0,5 d&iacute;a</span></div></div>
+          <p>El prefill est&aacute; limitado por c&oacute;mputo y es paralelo; el decode est&aacute; limitado por ancho de banda de memoria y es secuencial; el KV cache ocupa memoria proporcional al contexto durante toda la generaci&oacute;n. Una tarifa &uacute;nica mezcla tres costos que no escalan igual.</p>
+          <p><strong>Registrar ahora, tarifar despu&eacute;s.</strong> D22 no se toca; <code>pushLog</code> gana campos. Antes de que la Fase&nbsp;10 congele la contabilidad en una dimensi&oacute;n.</p>
         </div>
 
         <div class="item">
-          <div class="item-head">
-            <span class="rank">03</span>
-            <h3>Sondas de identidad de modelo (canarios)</h3>
-            <div class="tags"><span class="tag lo">costo bajo</span><span class="tag">cierra tu challenge #2</span></div>
-          </div>
-          <p>Un porcentaje peque&ntilde;o del tr&aacute;fico son prompts con respuesta conocida, inyectados por el coordinador e indistinguibles de tr&aacute;fico real. La respuesta del proveedor se contrasta contra el fingerprint esperado del modelo que declar&oacute;.</p>
-          <p><strong>Por qu&eacute; ac&aacute;, y por qu&eacute; solo vos pod&eacute;s hacerlo bien.</strong> Es la respuesta al problema que tu aplicaci&oacute;n plantea textualmente: <em>&laquo;a node declares which model it runs, and that declaration has to be provable&raquo;</em>. PolyLink no puede: su API server es visible y el worker sabe de d&oacute;nde viene todo. En tu arquitectura el pedido llega <strong>desacoplado de la identidad</strong>, as&iacute; que el proveedor no puede distinguir una sonda de un usuario.</p>
-          <p><strong>Tu capa de privacidad es lo que hace posible la verificaci&oacute;n.</strong> Eso no es una coincidencia c&oacute;moda: es un argumento de dise&ntilde;o que vale la pena poner por escrito en la aplicaci&oacute;n a Vela.</p>
+          <div class="item-head"><span class="rank">03</span><h3>Sondas de identidad de modelo</h3>
+            <div class="tags"><span class="tag lo">~1 d&iacute;a</span><span class="tag">alcance acotado por D26</span></div></div>
+          <p>Prompts con respuesta conocida inyectados por el gateway, indistinguibles del tr&aacute;fico real <strong>porque el pedido ya llega desacoplado de la identidad</strong>. PolyLink no puede hacerlo: su API server es visible y el worker sabe de d&oacute;nde viene todo.</p>
+          <p><strong>Tu capa de privacidad es lo que hace posible la verificaci&oacute;n</strong> &mdash; y eso merece estar por escrito en la aplicaci&oacute;n a Vela, porque es un argumento de dise&ntilde;o, no una coincidencia.</p>
         </div>
 
         <div class="item">
-          <div class="item-head">
-            <span class="rank">04</span>
-            <h3>Precio de reserva por proveedor</h3>
-            <div class="tags"><span class="tag lo">costo m&iacute;nimo</span></div>
-          </div>
-          <p>Cada proveedor declara un piso &mdash; <code>p_res = (1+&gamma;) &middot; costo</code> &mdash; atado a su tarifa el&eacute;ctrica local. Debajo de eso no sirve.</p>
-          <p><strong>Por qu&eacute;.</strong> Es la pieza m&aacute;s barata de AERIA y ni PolyLink ni DeServe la tienen. Sin piso, un proveedor sirve a p&eacute;rdida en un pico de tarifa y se va de la red &mdash; que es exactamente el <em>churn</em> que DCBM mide como la m&eacute;trica de muerte de estas redes. La subasta completa puede esperar; el piso no.</p>
+          <div class="item-head"><span class="rank">04</span><h3>Precio de reserva por proveedor</h3>
+            <div class="tags"><span class="tag lo">costo m&iacute;nimo</span></div></div>
+          <p>Un piso <code>(1+&gamma;)&middot;costo</code> atado a la tarifa el&eacute;ctrica local. Es la pieza m&aacute;s barata de AERIA y ni PolyLink ni DeServe la tienen. Sin piso, un proveedor sirve a p&eacute;rdida en un pico de tarifa y se va &mdash; que es el <em>churn</em> que DCBM mide como la m&eacute;trica de muerte de estas redes.</p>
         </div>
 
         <div class="item">
-          <div class="item-head">
-            <span class="rank">05</span>
-            <h3>Clearing por ventana dentro del enclave &mdash; primero en el carril batch</h3>
-            <div class="tags"><span class="tag hi">depende de Vela</span><span class="tag">es el diferenciador</span></div>
-          </div>
-          <p>Acumular pedidos durante una ventana, correr una subasta de precio uniforme adentro del enclave, devolver asignaciones y precio. Empezar por el carril donde la latencia sobra.</p>
-          <p><strong>Por qu&eacute; quinto y no primero.</strong> Es tu producto y tu diferenciador, pero depende de un calendario que no control&aacute;s. Los cuatro puntos anteriores son sus insumos: sin recibos firmados no hay qu&eacute; liquidar, sin medici&oacute;n no hay qu&eacute; cobrar, sin sondas no hay reputaci&oacute;n que ponderar, sin piso no hay restricci&oacute;n que respetar. Hacerlos primero significa que el d&iacute;a que arranque Vela, el enclave tiene todo lo que necesita.</p>
+          <div class="item-head"><span class="rank">05</span><h3>Clearing por ventana dentro del enclave</h3>
+            <div class="tags"><span class="tag hi">depende de Vela</span><span class="tag">es el diferenciador</span></div></div>
+          <p>Es tu producto, pero depende de un calendario externo. Los cuatro puntos anteriores son sus insumos: sin atestaci&oacute;n no hay qu&eacute; recomputar, sin medici&oacute;n no hay qu&eacute; cobrar, sin sondas no hay reputaci&oacute;n, sin piso no hay restricci&oacute;n. Hacerlos primero significa que el d&iacute;a que arranque Vela, el enclave tiene todo.</p>
         </div>
 
         <div class="item">
-          <div class="item-head">
-            <span class="rank">06</span>
-            <h3>Ruteo en cascada</h3>
-            <div class="tags"><span class="tag">mayor impacto en margen</span></div>
-          </div>
-          <p>Modelo chico en un nodo barato primero, chequeo de confianza, escalar al grande solo si hace falta. El equivalente LLM del multi&#8209;exit de AERIA.</p>
-          <p><strong>Por qu&eacute; vale.</strong> AERIA mide 18&ndash;48&nbsp;% de muestras resueltas temprano, y ME&#8209;BART result&oacute; <strong>1,10&nbsp;% m&aacute;s preciso</strong> que el modelo completo &mdash; correr todas las capas sobre entradas f&aacute;ciles a veces empeora la respuesta. Cruzado con DeServe (445&nbsp;tok/s contra 1.139 de equilibrio a precio de alquiler): <strong>la forma m&aacute;s barata de servir un modelo grande es no correrlo en un tercio de los pedidos</strong>. Mueve el punto de equilibrio m&aacute;s que cualquier optimizaci&oacute;n de kernel.</p>
+          <div class="item-head"><span class="rank">06</span><h3>Cascada de modelos</h3>
+            <div class="tags"><span class="tag">mayor impacto en margen</span></div></div>
+          <p>UCCI: <strong>31&nbsp;% de ahorro</strong> (IC 95&nbsp;%: 27&ndash;35) sobre 75.000 queries reales en H100, con c&oacute;digo. Cruzado con DeServe &mdash;445&nbsp;tok/s contra 1.139 de equilibrio a precio de alquiler&mdash; <strong>la forma m&aacute;s barata de servir un modelo grande es no correrlo en un tercio de los pedidos</strong>.</p>
+          <p>Va despu&eacute;s de la Fase&nbsp;11.5, que no es opcional.</p>
         </div>
-
       </div>
     </section>
 
     <section class="block" id="decidir">
-      <h2>6 &middot; Qu&eacute; hay que decidir</h2>
-      <p>Las tres primeras bloquean: cambian qu&eacute; se construye, a qui&eacute;n se le vende y c&oacute;mo cierran los n&uacute;meros. Las otras cuatro son de dise&ntilde;o y se pueden tomar sobre la marcha, pero conviene tomarlas a conciencia.</p>
+      <h2>10 &middot; Qu&eacute; hay que decidir</h2>
 
-      <h3 style="margin-top:20px">Las tres que bloquean</h3>
+      <h3 style="margin-top:6px">Las tres que bloquean</h3>
 
       <div class="dec">
         <h3>D1 &middot; &iquest;En qu&eacute; se denomina la econom&iacute;a operativa?</h3>
         <p class="opts">Todo en $QVAC &mdash; o riel de pago en stablecoin y token nativo solo para incentivos.</p>
-        <div class="rec"><b>Recomendaci&oacute;n</b>Separalas. El proveedor cobra en stable, porque planifica contra su factura de luz; el token queda para staking, bonos de reputaci&oacute;n, slashing, gobernanza y subsidio de arranque. Todo el aparato de DCBM existe para resolver un problema que se crea al denominar la econom&iacute;a real en un activo vol&aacute;til &mdash; y el paper nunca considera la alternativa simple. Con esta separaci&oacute;n, la volatilidad golpea la capa especulativa y no la operativa, y <strong>nunca necesit&aacute;s un PID para mantener las luces prendidas</strong>.</div>
+        <div class="rec"><b>Recomendaci&oacute;n &mdash; sin evidencia emp&iacute;rica, es un argumento</b>Separalas. El proveedor cobra en stable, porque planifica contra su factura de luz. Todo el aparato de DCBM existe para resolver un problema que se crea al denominar la econom&iacute;a real en un activo vol&aacute;til. <strong>Ojo:</strong> ninguna de las dos b&uacute;squedas encontr&oacute; un solo estudio que compare retenci&oacute;n de operadores entre las dos opciones &mdash; y la segunda invent&oacute; uno. Present&aacute; esto como razonamiento, no como dato.</div>
       </div>
 
       <div class="dec">
         <h3>D2 &middot; &iquest;Qui&eacute;n es el proveedor objetivo?</h3>
-        <p class="opts">Inversores que compran hardware para la red &mdash; o due&ntilde;os de fierro ya ocioso.</p>
-        <div class="rec"><b>Recomendaci&oacute;n</b>Fierro ocioso. La cuenta de DeServe dice que comprar hardware para esto no repaga (~4,7 a&ntilde;os por GPU), y que la red solo cierra a costo de oportunidad de miner&iacute;a. Hoy la aplicaci&oacute;n dice <em>&laquo;investors with the capacity to acquire hardware&raquo;</em>: ese segmento no cierra con los n&uacute;meros publicados. Cambia el pitch, el precio y a qui&eacute;n le habl&aacute;s.</div>
+        <p class="opts">Inversores que compran hardware &mdash; o due&ntilde;os de fierro ya ocioso.</p>
+        <div class="rec"><b>Recomendaci&oacute;n</b>Fierro ocioso. Comprar una GPU para esto tarda ~4,7 a&ntilde;os en repagarse. Hoy la aplicaci&oacute;n apunta al segmento que no cierra.</div>
       </div>
 
       <div class="dec">
-        <h3>D3 &middot; &iquest;Verificaci&oacute;n optimista o comit&eacute; permanente?</h3>
-        <p class="opts">Comit&eacute; de validadores con stake que puntúa cada lote &mdash; o firma + stake + arbitraje solo en disputa.</p>
-        <div class="rec"><b>Recomendaci&oacute;n</b>Optimista, con <strong>el enclave como &aacute;rbitro</strong>. PolyLink reserva &beta;=0,3 &mdash; <strong>30&nbsp;% de todos los ingresos</strong> &mdash; para validadores, de forma permanente, lo que contradice de frente tu propia frase <em>&laquo;the margin stays with whoever contributes the actual compute&raquo;</em>. DeServe paga cero en el camino honesto y deja el m&oacute;dulo de arbitraje enchufable porque no tiene con qu&eacute; llenarlo. Vos s&iacute;: el TEE adjudica, sin bisecci&oacute;n estilo opML ni pruebas ZK.</div>
+        <h3>D3 &middot; &iquest;Verificaci&oacute;n optimista o comit&eacute;?</h3>
+        <p class="opts">Comit&eacute; con stake que punt&uacute;a cada lote &mdash; o firma + stake + arbitraje solo en disputa.</p>
+        <div class="rec"><b>Recomendaci&oacute;n &mdash; reforzada</b>Optimista, con <strong>el enclave como &aacute;rbitro</strong>. PolyLink reserva 30&nbsp;% de todos los ingresos para validadores, permanentemente. Y Token Inflation muestra que el comit&eacute; <strong>tampoco</strong> resuelve el metering: puntuar calidad no detecta un conteo inflado.</div>
       </div>
 
-      <h3 style="margin-top:24px">Las cuatro de dise&ntilde;o</h3>
+      <h3 style="margin-top:26px">Las cuatro de dise&ntilde;o</h3>
 
       <div class="dec">
         <h3>D4 &middot; &iquest;Un carril o dos?</h3>
-        <p class="opts">Solo interactivo (la &laquo;single chat bar&raquo; de hoy) &mdash; o interactivo + batch.</p>
-        <div class="rec"><b>Recomendaci&oacute;n</b>Dos, y lanzar el matching confidencial en batch primero. Batch tolera hardware intermitente, que es la naturaleza del fierro ocioso; y el presupuesto de latencia vuelve gratis el round&#8209;trip al enclave.</div>
+        <p class="opts">Solo interactivo &mdash; o interactivo + batch.</p>
+        <div class="rec"><b>Recomendaci&oacute;n</b>Dos, y lanzar el matching confidencial en batch primero. Batch tolera hardware intermitente, que es la naturaleza del fierro ocioso.</div>
       </div>
 
       <div class="dec">
         <h3>D5 &middot; &iquest;La calidad afecta el pago o el ruteo?</h3>
-        <p class="opts">Multiplicador por request al estilo PolyLink &mdash; o reputaci&oacute;n EWMA que pondera el ruteo.</p>
-        <div class="rec"><b>Recomendaci&oacute;n</b>Ruteo. El pago se calcula sobre tokens entregados, determin&iacute;stico y auditable; la calidad se acumula lento y define prioridad y expulsi&oacute;n. Con 12&nbsp;% de falsos positivos, un multiplicador por lote es varianza pura sobre el ingreso de un proveedor honesto. Un mal proveedor tiene que perder <strong>tr&aacute;fico</strong>, no plata por request.</div>
+        <p class="opts">Multiplicador por request &mdash; o reputaci&oacute;n EWMA que pondera el ruteo.</p>
+        <div class="rec"><b>Recomendaci&oacute;n</b>Ruteo. Con 12&nbsp;% de falsos positivos, un multiplicador por lote es varianza pura sobre el ingreso de un proveedor honesto. Un mal proveedor pierde <strong>tr&aacute;fico</strong>, no plata por request.</div>
       </div>
 
       <div class="dec">
         <h3>D6 &middot; &iquest;Cu&aacute;l es la unidad de recurso?</h3>
-        <p class="opts">FLOPS asignados (como AERIA) &mdash; o tokens m&aacute;s memoria de KV cache.</p>
-        <div class="rec"><b>Recomendaci&oacute;n</b>Tokens y memoria. El modelo de costos de AERIA es <code>T = FLOPs / FLOPS</code>, que asume <strong>una sola pasada forward</strong>. Un LLM autorregresivo son <em>r</em> pasadas secuenciales y est&aacute; limitado por ancho de banda de memoria, no por FLOPs. Tom&aacute; el mecanismo de subasta; descart&aacute; la unidad.</div>
+        <p class="opts">FLOPS asignados &mdash; tokens planos &mdash; o prefill, decode y ocupaci&oacute;n de memoria.</p>
+        <div class="rec"><b>Recomendaci&oacute;n &mdash; refinada</b>La tercera. El modelo de AERIA asume una sola pasada forward y no transfiere. Pero &laquo;tokens&raquo; a secas tampoco alcanza: son <strong>tokens de entrada, tokens de salida y ocupaci&oacute;n de memoria por duraci&oacute;n</strong>. Registralas ya; tarif&aacute; cuando tengas datos propios.</div>
       </div>
 
       <div class="dec">
         <h3>D7 &middot; &iquest;Qu&eacute; maximiza tu subasta?</h3>
-        <p class="opts">Ingreso del intermediario (lo que hace AERIA) &mdash; ingreso del proveedor de c&oacute;mputo &mdash; bienestar total.</p>
-        <div class="rec"><b>Recomendaci&oacute;n</b>Decidilo expl&iacute;citamente y <strong>publicalo</strong>. El mecanismo funciona igual con cualquier objetivo; AERIA enchufa &laquo;ingreso del subastador&raquo; y eso lo convierte en un vendedor extrayendo excedente. Con la subasta adentro del enclave y el c&oacute;digo publicado, <strong>cualquiera puede verificar cu&aacute;l objetivo est&aacute;s maximizando</strong> &mdash; y una subasta con objetivo auditable es un objeto econ&oacute;mico distinto de una que administra una empresa. Eso no lo tiene nadie.</div>
+        <p class="opts">Ingreso del intermediario &mdash; del proveedor de c&oacute;mputo &mdash; o bienestar total.</p>
+        <div class="rec"><b>Recomendaci&oacute;n</b>Decidilo y <strong>publicalo</strong>. El mecanismo funciona con cualquier objetivo; AERIA enchufa &laquo;ingreso del subastador&raquo; y eso lo vuelve un vendedor extrayendo excedente. Con la subasta en el enclave y el c&oacute;digo publicado, <strong>cualquiera puede verificar cu&aacute;l objetivo est&aacute;s maximizando</strong>. Eso no lo tiene nadie.</div>
       </div>
     </section>
 
     <section class="block" id="nocontruir">
-      <h2>7 &middot; Qu&eacute; no construir</h2>
-      <p>Tan &uacute;til como la lista anterior. Cada una tiene evidencia publicada en contra.</p>
+      <h2>11 &middot; Qu&eacute; no construir</h2>
       <div class="dont">
-        <div class="dont-row"><b>Sharding cross-device ingenuo</b><span>PolyLink: 160&nbsp;s y 7,12&nbsp;tok/s para un 14B, contra 17,3&nbsp;s en una sola 4090. Rute&aacute; al que tenga el modelo entero. Si alg&uacute;n d&iacute;a hace falta partir, es con pipelining profundo y solo en batch.</span></div>
-        <div class="dont-row"><b>Comit&eacute; permanente de validadores</b><span>30&nbsp;% de los ingresos, de forma permanente, m&aacute;s tres superficies de ataque (colusi&oacute;n a la baja, elecci&oacute;n VRF por conteo y no por stake, consenso por mediana sobre enteros de 1 a 5).</span></div>
-        <div class="dont-row"><b>Estabilizaci&oacute;n PID del token</b><span>El propio teorema de DCBM lo proh&iacute;be a tu escala: con <code>&alpha; = 2/y</code>, un pool delgado manda al controlador a la regi&oacute;n inestable. Es un problema de Fase&nbsp;N, y desaparece del todo si toman D1.</span></div>
-        <div class="dont-row"><b>Pruebas ZK de inferencia</b><span>zkLLM: 803&nbsp;s por prueba y 986&nbsp;s de commitment para un 13B. Los tres criterios de DeServe lo descartan solo, igual que a opML y spML.</span></div>
-        <div class="dont-row"><b>El motor de serving desde cero</b><span>Si van al carril batch, <code>CoLearn-Dev/deserve</code> es punto de partida. Advertencia: c&oacute;digo de investigaci&oacute;n de enero 2025, probablemente sin mantenimiento &mdash; verificar antes de apoyarse.</span></div>
+        <div class="dont-row"><b>Sharding cross-device ingenuo</b><span>160&nbsp;s y 7,12&nbsp;tok/s para un 14B, contra 17,3&nbsp;s en una sola 4090.</span></div>
+        <div class="dont-row"><b>Comit&eacute; permanente de validadores</b><span>30&nbsp;% de los ingresos, m&aacute;s tres superficies de ataque &mdash; y no resuelve el metering igual.</span></div>
+        <div class="dont-row"><b>Metering criptogr&aacute;fico propio</b><span>El esquema con 2,3&nbsp;% de overhead que circul&oacute; <strong>no existe</strong>: ese identificador es un paper de econometr&iacute;a. El camino real es el enclave (V2).</span></div>
+        <div class="dont-row"><b>Estabilizaci&oacute;n PID del token</b><span>El propio teorema lo proh&iacute;be a tu escala: con <code>&alpha; = 2/y</code>, un pool delgado manda al controlador a la regi&oacute;n inestable.</span></div>
+        <div class="dont-row"><b>Pruebas ZK de inferencia</b><span>zkLLM: 803&nbsp;s por prueba, 986&nbsp;s de commitment para un 13B.</span></div>
+        <div class="dont-row"><b>El motor de serving desde cero</b><span><code>CoLearn-Dev/deserve</code> es punto de partida &mdash; c&oacute;digo de investigaci&oacute;n de enero 2025, verificar antes de apoyarse.</span></div>
       </div>
 
       <h3>Los tres criterios de descarte de DeServe</h3>
-      <p>Vale la pena adoptarlos como filtro permanente. Ante cualquier mecanismo de verificaci&oacute;n, preguntar:</p>
+      <p>Vale la pena adoptarlos como filtro permanente ante cualquier mecanismo de verificaci&oacute;n:</p>
       <ol>
         <li>&iquest;Le carga c&oacute;mputo pesado al proveedor? <em>(mata a opML, spML y zkLLM)</em></li>
-        <li>&iquest;Pone entradas o salidas on&#8209;chain? El gas puede superar el costo de la inferencia misma. <em>(mata a opML)</em></li>
+        <li>&iquest;Pone entradas o salidas on&#8209;chain? El gas puede superar el costo de la inferencia. <em>(mata a opML)</em></li>
         <li>&iquest;Obliga al proveedor a responder desaf&iacute;os de cualquiera? Es un vector de DoS. <em>(mata a opML)</em></li>
       </ol>
     </section>
 
     <section class="block" id="aplicacion">
-      <h2>8 &middot; Cambios concretos a la aplicaci&oacute;n</h2>
-      <p>Cuatro ediciones a <code>PyrusLLM-application.md</code> que salen directo de esta revisi&oacute;n.</p>
+      <h2>12 &middot; Cambios concretos a la aplicaci&oacute;n</h2>
       <div class="tablewrap">
         <table>
           <thead><tr><th>Secci&oacute;n</th><th>Dice hoy</th><th>Deber&iacute;a decir</th></tr></thead>
           <tbody>
             <tr>
               <td><strong>2. Target audience</strong></td>
-              <td><em>&laquo;investors with the capacity to acquire hardware for AI processing&raquo;</em></td>
-              <td>Due&ntilde;os de hardware ya instalado y ocioso, cuyo costo marginal es la electricidad. Comprar fierro para esto no repaga con los n&uacute;meros publicados.</td>
+              <td><em>&laquo;investors with the capacity to acquire hardware&raquo;</em></td>
+              <td>Due&ntilde;os de hardware ya instalado y ocioso, cuyo costo marginal es la electricidad. Comprar fierro para esto no repaga.</td>
             </tr>
             <tr>
               <td><strong>3. Value proposition</strong></td>
               <td>Un solo carril: <em>&laquo;a single chat bar&raquo;</em></td>
-              <td>Dos carriles. Interactivo con precio premium, y batch con SLA de horas donde el descuento lo fija la subasta. Batch es el &uacute;nico modo que tolera hardware intermitente.</td>
+              <td>Dos carriles. Interactivo premium, y batch con SLA de horas donde el descuento lo fija la subasta.</td>
             </tr>
             <tr>
-              <td><strong>4. Challenges &mdash; calidad verificable</strong></td>
+              <td><strong>4. Challenges &mdash; calidad</strong></td>
               <td><em>&laquo;we need an entry benchmark and a reputation score&raquo;</em></td>
-              <td>Sondas de respuesta conocida, indistinguibles del tr&aacute;fico real <strong>porque el enclave desacopla la identidad</strong>. La privacidad es lo que hace posible la verificaci&oacute;n &mdash; no un costo, una ventaja.</td>
+              <td>Sondas indistinguibles <strong>porque el enclave desacopla la identidad</strong>, con alcance acotado: detectan sustituci&oacute;n de modelo, no cuantizaci&oacute;n. Esa se cubre con stake y arbitraje.</td>
+            </tr>
+            <tr>
+              <td><strong>4. Challenges &mdash; privacidad</strong></td>
+              <td><em>&laquo;we protect who sent it but not what it says&raquo;</em></td>
+              <td>Igual, pero agregando que hay camino medido: <strong>4&ndash;8&nbsp;%</strong> de overhead en H100 CC. Con los tres l&iacute;mites: HBM sin cifrar, NVLink sin cifrar, y tiempos entre tokens que filtran longitud.</td>
+            </tr>
+            <tr>
+              <td><strong>Vela &mdash; el argumento</strong></td>
+              <td>El centro que ve las dos puntas</td>
+              <td>Eso, <strong>m&aacute;s un fraude medido de tres cifras</strong>: 1.469&nbsp;% de inflaci&oacute;n de tokens sin detecci&oacute;n, y el paper que lo mide nombra la atestaci&oacute;n en enclave como la salida.</td>
             </tr>
             <tr>
               <td><strong>Vela &mdash; pregunta abierta</strong></td>
-              <td><em>&laquo;a round trip to the enclave per request may not be viable&raquo;</em></td>
-              <td>Clearing por ventana, no matching por request. Subasta de precio uniforme adentro del enclave: ~3&nbsp;ms para ~100 pujas, con mecanismo formal y c&oacute;digo p&uacute;blico. Deja de ser pregunta abierta y pasa a ser plan.</td>
+              <td><em>&laquo;a round trip per request may not be viable&raquo;</em></td>
+              <td>Clearing por ventana, no matching por pedido. ~3&nbsp;ms para ~100 pujas. Deja de ser pregunta y pasa a ser plan.</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:14px">La cuarta es la m&aacute;s importante: convierte tu principal riesgo t&eacute;cnico declarado en una hoja de ruta con el primer paso ya resuelto por terceros.</p>
+      <p style="margin-top:14px">Las dos de Vela son las importantes: una convierte el riesgo t&eacute;cnico declarado en hoja de ruta, y la otra reemplaza una postura de dise&ntilde;o por un fraude cuantificado que solo el c&oacute;mputo confidencial cierra.</p>
     </section>
 
     <section class="block" id="fichas">
-      <h2>9 &middot; Fichas de los papers</h2>
+      <h2>13 &middot; Fichas</h2>
       <div class="cards">
-
         <div class="card">
           <h3>PolyLink</h3>
-          <p class="src">arXiv <code>2510.02395v1</code> &middot; cs.CR &middot; 1-oct-2025<br>PolyU Hong Kong + China Mobile HK</p>
+          <p class="src"><code>2510.02395</code> &middot; cs.CR &middot; 1-oct-2025<br>PolyU Hong Kong + China Mobile HK</p>
           <dl>
-            <dt>Aporta</dt><dd>TIQE: evaluaci&oacute;n de calidad trustless. Cross-encoder + LLM-as-a-Judge. Recompensas a tres roles.</dd>
-            <dt>Datos duros</dt><dd>Cross-encoder TP 66&nbsp;% / FP 2&nbsp;%. LLM-judge TP 98&nbsp;% / FP 12&nbsp;%. 20 equipos, 4 ciudades. Sepolia.</dd>
-            <dt>Falla</dt><dd class="warn">Recompensa al validador decreciente en la calidad. Colusi&oacute;n a la baja impune.</dd>
+            <dt>Aporta</dt><dd>TIQE: calidad trustless. Cross-encoder + LLM-judge. Recompensa a tres roles.</dd>
+            <dt>Datos</dt><dd>TP 66&nbsp;% / FP 2&nbsp;%; TP 98&nbsp;% / FP 12&nbsp;%. 20 equipos, 4 ciudades.</dd>
+            <dt>Falla</dt><dd class="warn">Recompensa al validador decreciente en calidad. Colusi&oacute;n a la baja impune.</dd>
             <dt>C&oacute;digo</dt><dd>IMCL-PolyLink/PolyLink</dd>
           </dl>
         </div>
-
         <div class="card">
           <h3>DeServe</h3>
-          <p class="src">arXiv <code>2501.14784v1</code> &middot; cs.DC &middot; 4-ene-2025<br>UC Berkeley (Dawn Song)</p>
+          <p class="src"><code>2501.14784</code> &middot; cs.DC &middot; 4-ene-2025<br>UC Berkeley (Dawn Song)</p>
           <dl>
-            <dt>Aporta</dt><dd>Serving batch en redes de alta latencia. KV offload + microbatch scheduling. Tres criterios de verificaci&oacute;n.</dd>
-            <dt>Datos duros</dt><dd>445&nbsp;tok/s planos de 0 a 256&nbsp;ms de latencia. vLLM con tensor parallelism <em>fall&oacute;</em> entre regiones. Brecha de costo 40x.</dd>
-            <dt>Falla</dt><dd class="warn">Matching centralizado, admitido. Enlazabilidad presentada como feature.</dd>
+            <dt>Aporta</dt><dd>Serving batch en alta latencia. KV offload + microbatch. Tres criterios de descarte.</dd>
+            <dt>Datos</dt><dd>445&nbsp;tok/s planos de 0 a 256&nbsp;ms. vLLM con tensor parallelism <em>fall&oacute;</em>. Brecha 40x.</dd>
+            <dt>Falla</dt><dd class="warn">Matching centralizado, admitido. Enlazabilidad como feature.</dd>
             <dt>C&oacute;digo</dt><dd>CoLearn-Dev/deserve</dd>
           </dl>
         </div>
-
         <div class="card">
           <h3>AERIA</h3>
-          <p class="src">arXiv <code>2503.04521v2</code> &middot; IEEE TMC<br>Exeter + HUST + China Univ. of Petroleum</p>
+          <p class="src"><code>2503.04521</code> &middot; IEEE TMC<br>Exeter + HUST + CUP</p>
           <dl>
-            <dt>Aporta</dt><dd>Subasta de precio uniforme con veracidad y envy-freeness probadas. Multi-exit para demanda personalizada.</dd>
-            <dt>Datos duros</dt><dd>3&nbsp;ms de runtime, plano. +60&nbsp;% de ingreso vs. baselines. 18&ndash;48&nbsp;% de salidas tempranas; ME-BART +1,10&nbsp;% de precisi&oacute;n.</dd>
-            <dt>Falla</dt><dd class="warn">Modelo de costos de una sola pasada: no transfiere a LLM autorregresivo. Solo simulaci&oacute;n, sobre CPU.</dd>
+            <dt>Aporta</dt><dd>Subasta de precio uniforme, veracidad y envy-freeness probadas. Multi-exit.</dd>
+            <dt>Datos</dt><dd>3&nbsp;ms de runtime, plano. +60&nbsp;% de ingreso. 18&ndash;48&nbsp;% de salidas tempranas.</dd>
+            <dt>Falla</dt><dd class="warn">Costo de una sola pasada: no transfiere a autorregresivo. Simulaci&oacute;n sobre CPU.</dd>
             <dt>C&oacute;digo</dt><dd>songyuanli/AERIA</dd>
           </dl>
         </div>
-
         <div class="card">
           <h3>DCBM</h3>
-          <p class="src">arXiv <code>2601.09961v1</code> &middot; cs.GT &middot; 15-ene-2026<br>FLock.io + Oxford</p>
+          <p class="src"><code>2601.09961</code> &middot; cs.GT &middot; 15-ene-2026<br>FLock.io + Oxford</p>
           <dl>
-            <dt>Aporta</dt><dd>Buyback-and-burn como controlador PID. Solvencia asint&oacute;tica por construcci&oacute;n: gast&aacute; una fracci&oacute;n, nunca un monto.</dd>
-            <dt>Datos duros</dt><dd>&sigma; de 0,89 a 0,30; churn de 19,5&nbsp;% a 8,1&nbsp;%. MPC le gana en todo pero cuesta &gt;40M de gas.</dd>
-            <dt>Falla</dt><dd class="warn">Secci&oacute;n de experimentos en tiempo futuro; se contradice sobre cu&aacute;ntos baselines corri&oacute;; sin c&oacute;digo; conflicto de inter&eacute;s no declarado.</dd>
+            <dt>Aporta</dt><dd>Buyback como PID. Solvencia asint&oacute;tica: gast&aacute; una fracci&oacute;n, nunca un monto.</dd>
+            <dt>Datos</dt><dd>&sigma; 0,89&rarr;0,30; churn 19,5&rarr;8,1&nbsp;%. MPC gana en todo pero cuesta &gt;40M de gas.</dd>
+            <dt>Falla</dt><dd class="warn">Experimentos en tiempo futuro; se contradice sobre cu&aacute;ntos baselines corri&oacute;; sin c&oacute;digo; conflicto de inter&eacute;s no declarado.</dd>
             <dt>C&oacute;digo</dt><dd>no publicado</dd>
           </dl>
         </div>
-
+        <div class="card">
+          <h3>Token Inflation</h3>
+          <p class="src"><code>2605.30040</code> &middot; 28-may-2026 &middot; <span class="yes">verificado</span><br>Hoque, Zhang, Sun, Suya</p>
+          <dl>
+            <dt>Aporta</dt><dd>El billing por token es inauditable por dise&ntilde;o cuando el proveedor reporta su propio consumo.</dd>
+            <dt>Datos</dt><dd><strong>1.469&nbsp;%</strong> de inflaci&oacute;n sin detecci&oacute;n. USD&nbsp;100 &rarr; USD&nbsp;1.569.</dd>
+            <dt>Nombra la salida</dt><dd>Atestaci&oacute;n en TEE o prueba criptogr&aacute;fica &mdash; o sea, V2.</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h3>UCCI</h3>
+          <p class="src"><code>2605.18796</code> &middot; 11-may-2026 &middot; <span class="yes">verificado</span><br>Varun Kotte</p>
+          <dl>
+            <dt>Aporta</dt><dd>Cascada calibrada: regresi&oacute;n isot&oacute;nica sobre incertidumbre a nivel token.</dd>
+            <dt>Datos</dt><dd><strong>31&nbsp;%</strong> de ahorro (IC 95&nbsp;%: 27&ndash;35), 75.000 queries en H100. ECE 0,12&rarr;0,03.</dd>
+            <dt>L&iacute;mite</dt><dd>Evaluado sobre NER, no sobre serving general.</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h3>Confidential LLM Inference</h3>
+          <p class="src"><code>2509.18886</code> &middot; IEEE IISWC 2025 &middot; <span class="yes">verificado</span></p>
+          <dl>
+            <dt>Aporta</dt><dd>Llama2 7B/13B/70B en Intel TDX, SGX+AMX y H100 CC.</dd>
+            <dt>Datos</dt><dd>CPU TEE &lt;10&nbsp;% throughput, &lt;20&nbsp;% latencia. <strong>H100 CC: 4&ndash;8&nbsp;%</strong>, y baja con batches grandes.</dd>
+            <dt>El l&iacute;mite</dt><dd class="warn"><strong>HBM sin cifrar. NVLink sin cifrar.</strong> Multi-GPU confidencial es m&aacute;s d&eacute;bil.</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h3>Hopper CC</h3>
+          <p class="src"><code>2409.03992</code> &middot; nov-2024 &middot; <span class="yes">verificado</span></p>
+          <dl>
+            <dt>Aporta</dt><dd>Benchmark emp&iacute;rico de TEE en Hopper para inferencia LLM.</dd>
+            <dt>Datos</dt><dd><strong>&lt;7&nbsp;%</strong> en queries t&iacute;picas; casi cero con modelos grandes y secuencias largas.</dd>
+            <dt>El cuello</dt><dd>La transferencia por PCIe, no el c&oacute;mputo en GPU.</dd>
+          </dl>
+        </div>
       </div>
-
-      <h3>Lo que se rescata de DCBM aunque no emitas token</h3>
-      <p>El patr&oacute;n <code>J = T &middot; &gamma; &middot; tanh(u)</code> no tiene nada que ver con tokens: sirve para cualquier programa financiado por tesorer&iacute;a. Vos nombraste el arranque de dos lados como tu cuarto problema, y eso se resuelve subsidiando proveedores. Entonces: <strong>hac&eacute; el subsidio una fracci&oacute;n de la tesorer&iacute;a, no un monto fijo por proveedor</strong>. El programa no puede fundirte &mdash; garant&iacute;a estructural, no calibraci&oacute;n &mdash; se autofrena cuando las reservas bajan y acelera cuando est&aacute;n llenas. Aplicable hoy, sin token, sin blockchain, sin PID.</p>
-      <p>Y dos m&aacute;s: incluir siempre <code>C_ops</code> en la ecuaci&oacute;n de tesorer&iacute;a con una cifra de <em>time-to-ruin</em>, y usar <strong>promedios ponderados por tiempo, nunca valores instant&aacute;neos</strong>, en cualquier m&eacute;trica que condicione un pago &mdash; incluida la reputaci&oacute;n.</p>
     </section>
 
     <footer class="end">
-      Fuentes: los cuatro PDF en <code>Fundaci&oacute;n Iniciativa Urbana Inteligente/pyrusllm/</code>. Todas las cifras est&aacute;n tomadas de los papers; las cuentas derivadas &mdash; repago de la 4090, margen contra el punto de equilibrio, direcci&oacute;n del incentivo al validador, porcentajes contra baseline realista &mdash; son propias y se pueden rehacer con los n&uacute;meros citados.
+      Fuentes: los cuatro PDF en <code>Fundaci&oacute;n Iniciativa Urbana Inteligente/pyrusllm/</code>, m&aacute;s una ronda de b&uacute;squeda asistida cuyos resultados de Nivel&nbsp;B fueron abiertos y confirmados uno por uno contra arXiv. Las cuentas derivadas &mdash; repago de la 4090, margen contra el punto de equilibrio, direcci&oacute;n del incentivo al validador, momento exacto en que la inflaci&oacute;n de tokens se vuelve explotable &mdash; son propias y se pueden rehacer con los n&uacute;meros citados. El plan de acci&oacute;n acoplado a las fases est&aacute; en <a href="ROADMAP_REVISION-EVIDENCIA.md">ROADMAP_REVISION-EVIDENCIA.md</a>.
     </footer>
 
   </main>

@@ -34,6 +34,7 @@ import * as store from './store.mjs'
 import * as apikeys from './apikeys.mjs'
 import * as budget from './budget.mjs'
 import * as x402 from './x402.mjs'
+import * as atestacion from './atestacion.mjs'
 import * as costs from './costs.mjs'
 import * as quota from './quota.mjs'
 import { pickCandidate, estaSaturado } from './routing.mjs'
@@ -470,6 +471,23 @@ export function setEconomic(economic) {
   return economicPropio
 }
 
+// FASE 9 / D24 — con que se firma la atestacion de lo que este nodo sirvio.
+//
+// Es una FUNCION, no una clave: bin.mjs abre el keystore, se queda con la
+// cuenta y le pasa acá un `(mensaje) => Promise<firma>`. La invariante de arriba
+// no se afloja — el gateway sigue sin ver la seed —, pero ahora puede pedir una
+// firma sin tenerla.
+//
+// Sin esto no hay atestacion. NO se emite una sin firmar: un artefacto que
+// parece una prueba y no lo es es peor que uno ausente, y es exactamente la
+// forma de "quedar completo" siendo deshonesto.
+let firmarConWallet = null
+
+export function setWalletSigner(fn) {
+  firmarConWallet = typeof fn === 'function' ? fn : null
+  return !!firmarConWallet
+}
+
 export function walletStatus() {
   return {
     // `false` no es un error: un nodo que solo consume no necesita wallet, y su
@@ -587,6 +605,29 @@ function estimarPromptTokens(messages) {
   return Math.ceil(bytes / 2)
 }
 
+// FASE 9 / D9 — tokens de SALIDA estimados desde el TEXTO acumulado.
+//
+// No es el mismo estimador que el de arriba y no puede serlo: aquel es una cota
+// SUPERIOR deliberada, porque equivocarse para arriba en una reserva corta antes
+// de tiempo y equivocarse para abajo deja pasar gasto. Este decide DONDE SE
+// CORTA una respuesta, y ahi la asimetria se da vuelta: sobreestimar le recorta
+// texto al cliente que ya pago por el.
+//
+// Y sobre todo: se cuenta desde el TEXTO, no desde los deltas. El gateway
+// incrementa su contador una vez por delta con contenido, y quien decide como se
+// trocea el stream es el proveedor -- un par que emite un caracter por delta
+// haria saltar un tope contado en deltas a los 2048 caracteres. El texto no
+// depende del troceo. Es el mismo argumento por el que la atestacion de D24
+// lleva `outputHash` y no un conteo.
+//
+// Es una ESTIMACION y no coincide con el tokenizador del modelo: ~4 bytes por
+// token es la regla habitual para texto latino y se queda corta en CJK. Por eso
+// el numero que se declara en el 402 y el que se aplica son el mismo, pero
+// ninguno de los dos es una medicion. Queda dicho en el README, no escondido.
+function estimarTokensDeSalida(texto) {
+  return Math.floor(Buffer.byteLength(String(texto || ''), 'utf8') / 4)
+}
+
 // ---------------------------------------------------------------------------
 // Lanzar el agente local desde la pagina.
 //
@@ -645,7 +686,7 @@ function currentModelEntry() {
 // Un intento contra UN par. Resuelve siempre (nunca rechaza) con el resultado,
 // incluyendo si alcanzo a emitir algun chunk -- que es el dato con el que D4
 // decide si se puede reintentar en otro candidato.
-function streamFromPeer({ node, model, messages, onChunk, onStart }) {
+function streamFromPeer({ node, model, messages, onChunk, onStart, signal = null }) {
   return new Promise((resolve) => {
     let started = false
     let finished = false
@@ -656,12 +697,35 @@ function streamFromPeer({ node, model, messages, onChunk, onStart }) {
       if (finished) return
       finished = true
       clearTimeout(timer)
+      if (signal) signal.removeEventListener('abort', onAbort)
       // Si se corta por timeout o error, se le avisa al par para que deje de
       // generar: seguir gastando su CPU en tokens que ya no tienen destino es
       // justo lo que chat:cancel existe para evitar.
       if (!r.ok && requestId) swarmRef.cancelChat(requestId)
       resolve({ ...r, started })
     }
+
+    // FASE 9 / D27 — un corte DELIBERADO no es una falla del par.
+    //
+    // Hay dos: el cliente cerró la pestaña (caso 1) y se tocó el tope de tokens
+    // que declaró el 402 (caso 3). En los dos, lo que el par emitió hasta acá
+    // es válido, el cliente lo recibió, y D27 decide que se cobra. Sin esto el
+    // request se quedaba esperando el reloj de inactividad —60 segundos— y
+    // terminaba como `peer_stalled`, o sea como si el par hubiera fallado:
+    // ni se cobraba ni se atestiguaba lo que sí se había servido.
+    //
+    // Con `started` en false es al revés: no salió un solo token, no hay nada
+    // que cobrar ni que atestiguar, y eso es un corte sin resultado.
+    const onAbort = () => {
+      if (finished) return
+      if (requestId) swarmRef.cancelChat(requestId)
+      finish(
+        started
+          ? { ok: true, cortado: true, code: null, message: null }
+          : { ok: false, code: 'aborted', message: 'el request se corto antes del primer token' }
+      )
+    }
+    if (signal) signal.addEventListener('abort', onAbort, { once: true })
 
     const arm = (ms, message, code) => {
       clearTimeout(timer)
@@ -801,6 +865,24 @@ async function streamFromLocal({
     }
     return { ok: true, started, code: null, message: null }
   } catch (err) {
+    // FASE 9 / D27 — si el que corto fuimos NOSOTROS, no es una falla del
+    // proveedor.
+    //
+    // B3 cableo este signal al fetch del externo, asi que abortar no hace salir
+    // al `for await` por el `break` de arriba: hace TIRAR al generador. Sin esta
+    // guarda, un cliente que cierra la pestaña o un tope de D9 que salta se
+    // reportaban como `upstream_error`, y con eso no se liquidaba ni se
+    // atestiguaba un prefijo que el cliente SI habia recibido -- justo al reves
+    // de lo que decide D27.
+    //
+    // `started` es la condicion: sin un solo token no hay prefijo que cobrar, y
+    // ahi el corte sigue siendo un request sin resultado. Y el signal es SOLO
+    // nuestro -- los relojes del protocolo con el proveedor viven adentro de
+    // `completar()` con su propio controlador (B16)--, asi que un proveedor
+    // colgado no entra por aca.
+    if (signal.aborted && started) {
+      return { ok: true, started, cortado: true, code: null, message: null }
+    }
     const message = String((err && err.message) || err)
     return {
       ok: false,
@@ -843,7 +925,85 @@ const recibos = new Map()
 // SSE pueda recuperarlo en los minutos siguientes.
 const MAX_RECIBOS = 200
 
-async function liquidarYRegistrar(pago, id) {
+// FASE 9 / D25 — prefill y decode, separados, y de dónde salió cada número.
+//
+// D22 (precio plano) NO se toca: esto REGISTRA, no tarifa. Y no cambia la
+// matemática de ruteo, que sigue preguntándole el precio al ledger en
+// micro-dólares como cerró la Fase 8 — ni `estimarRequest` ni `costoDelIntento`
+// leen nada de acá.
+//
+// El campo que importa tanto como los dos números es `tokensFuente`, y está por
+// una razón que el propio gateway ya tenía escrita: lo que este proceso cuenta
+// son CHUNKS DE SSE, no tokens, y los de entrada directamente no los ve. Cuando
+// el proveedor manda `usage` esos son los tokens reales, contados por su
+// tokenizador; cuando no lo manda, lo que queda es una estimación del prompt y
+// un conteo de deltas. Son dos cosas distintas y sin el campo se leen iguales:
+// la Fase 10 va a querer liquidar sobre esta serie y tiene que poder separarlas.
+function tokensD25({ usoExterno, tokens, promptTokens }) {
+  const decodeReal = usoExterno && Number.isFinite(Number(usoExterno.completion_tokens))
+  const prefillReal = usoExterno && Number.isFinite(Number(usoExterno.prompt_tokens))
+
+  return {
+    tokensPrefill: prefillReal ? Number(usoExterno.prompt_tokens) : promptTokens,
+    tokensDecode: decodeReal ? Number(usoExterno.completion_tokens) : tokens,
+    // 'proveedor' solo si los DOS salieron del usage. Con uno solo el par ya no
+    // es comparable con otro, y decir "proveedor" a medias sería peor que decir
+    // "gateway": haría creer que hay una medición donde hay una estimación.
+    tokensFuente: 'proveedor'
+  }
+}
+
+// FASE 9 / D24 — el artefacto donde el proveedor atestigua QUE SIRVIO.
+//
+// Devuelve `{ atestacion }` o `{ sinAtestacion: motivo }`. Nunca una atestación
+// a medias: el motivo viaja en el recibo para que la ausencia sea LEGIBLE, que
+// es la diferencia entre un campo faltante y un mock que parece funcional.
+//
+// La regla de QUIEN puede firmar vive en `atestacion.porQueNoSeFirma` -- y en
+// particular la del par, que es la que más importa y la que más fácil se
+// afloja: este nodo no atestigua trabajo ajeno.
+async function atestacionDe({ id, node, messages, contenido, d25, finishReason }) {
+  const payTo = economicPropio && economicPropio.walletAddress
+  const motivo = atestacion.porQueNoSeFirma({
+    node,
+    walletAddress: payTo,
+    tieneFirmante: !!firmarConWallet
+  })
+  if (motivo) return { sinAtestacion: motivo }
+
+  const sinFirmar = atestacion.construir({
+    requestId: id,
+    modelId: node.modelId || null,
+    // Declarados, no medidos. `runtime` distingue el motor embebido de una API
+    // de un tercero y del teatro del modo --demo: un mock firmado con una wallet
+    // real sigue siendo un mock, y el artefacto tiene que decirlo donde se vea.
+    quantization: atestacion.cuantizacionDe(node.modelId),
+    runtime: runtimeDe(node),
+    promptHash: atestacion.hashDeMensajes(messages),
+    outputHash: atestacion.hashDe(contenido),
+    tokensPrefill: d25.tokensPrefill,
+    tokensDecode: d25.tokensDecode,
+    finishReason,
+    providerPubkey: payTo
+  })
+
+  const firmada = await atestacion.firmar(sinFirmar, firmarConWallet)
+  if (!firmada) return { sinAtestacion: 'la wallet no pudo firmar la atestacion' }
+  return { atestacion: firmada }
+}
+
+// Con qué se generó, para el campo `runtime` de la atestación. Es lo que este
+// nodo puede afirmar de primera mano, a diferencia de `quantization`, que sale
+// del nombre del modelo y por lo tanto es una declaración sobre otra.
+function runtimeDe(node) {
+  if (!node) return 'unknown'
+  if (node.kind === 'real') return 'llamacpp'
+  if (node.kind === 'upstream') return 'upstream:' + node.id
+  if (node.kind === 'mock') return 'mock'
+  return node.kind || 'unknown'
+}
+
+async function liquidarYRegistrar(pago, id, extra = null) {
   const recibo = await x402.liquidar({ pago, requisito: pago.requisito })
 
   if (recibo.success) {
@@ -862,7 +1022,12 @@ async function liquidarYRegistrar(pago, id) {
     console.error(`[x402] no se pudo codificar el recibo: ${(err && err.message) || err}`)
   }
 
-  recibos.set(id, { recibo, at: Date.now() })
+  // D24 — la atestacion se GUARDA junto al recibo de liquidacion, que es donde
+  // D12 ya obligaba a construir algo. Los dos artefactos prueban mitades
+  // distintas del mismo intercambio: el recibo, que alguien pago; la atestacion,
+  // que este nodo entrego esto. En esta fase NADIE la consume todavia -- eso es
+  // la Fase 10 --, y es deliberado: hacia atras no se firma.
+  recibos.set(id, { recibo, ...(extra || {}), at: Date.now() })
   // Se poda al escribir y no con un timer: un timer no corre si el proceso
   // estuvo quieto, y ademas mantendria vivo un Map que a nadie le importa.
   if (recibos.size > MAX_RECIBOS) {
@@ -874,7 +1039,7 @@ async function liquidarYRegistrar(pago, id) {
     }
   }
 
-  return { recibo, cabecera }
+  return { recibo, cabecera, ...(extra || {}) }
 }
 
 async function handleChatConReintentos({
@@ -896,7 +1061,18 @@ async function handleChatConReintentos({
   decision = null,
   motivo = null,
   // FASE 9 — el pago verificado, si el cliente pago en vez de traer key.
-  pago = null
+  pago = null,
+  // FASE 9 / D9(a) — el tope de salida que el 402 DECLARO, en tokens.
+  //
+  // Es el mismo numero que viajo en `accepts[].outputTokenLimit` y tiene que
+  // serlo: declarar uno y recortar con otro es cobrar por un trabajo distinto
+  // del que se acordo. Cero cuando no hubo cobro -- el camino con API key no
+  // tiene techo por este lado, lo acota el presupuesto.
+  //
+  // Va como escalar y no se recalcula por candidato: el cliente FIRMO contra el
+  // numero que se le declaro, y si el reintento cae en otro candidato el trato
+  // sigue siendo ese.
+  topeCobrado = 0
 }) {
   const id = completionId()
   const created = Math.floor(Date.now() / 1000)
@@ -927,13 +1103,54 @@ async function handleChatConReintentos({
   // distintos, el header tiene que decir el del que efectivamente contesto.
   let costoEstimado = 0
 
+  // FASE 9 / D27 caso 3 — se llego al tope de tokens que declaro el 402.
+  //
+  // Es una variable aparte de `cancelado` porque significan cosas opuestas para
+  // el cobro: `cancelado` es que el cliente se fue, esto es que la respuesta
+  // termino como se habia acordado. Las dos cortan el stream y las dos SE
+  // COBRAN (D27), pero la atestacion sale con `finishReason` distinto y eso es
+  // justo lo que la hace servir para algo.
+  let cortadoPorTope = false
+
   const emit = (delta) => {
+    // FASE 9 / D27 — despues de un corte, lo que siga llegando NO entra.
+    //
+    // Antes se seguia acumulando en `contenido` aunque ya no se escribiera
+    // nada: el cliente veia N tokens y el gateway guardaba N+k. Con la
+    // atestacion de D24 eso deja de ser un detalle contable — D27 pide que el
+    // hash de la parcial sea el del prefijo que el cliente EFECTIVAMENTE
+    // recibio, porque si no, no hay contra que verificarlo.
+    if (cancelado || cortadoPorTope) return
+
     // El primer delta con contenido es el primer token, no el chunk de
     // apertura: ese solo trae {role} y llegaria antes, midiendo de menos.
     if (ttftMs === null) ttftMs = Date.now() - startedAt
     tokens++
     contenido += delta
-    if (!stream || cancelado) return
+
+    // FASE 9 / D9(a) — el tope que el 402 declaro, aplicado.
+    //
+    // Esto FALTABA: `topeDeSalidaCobrado` armaba el `outputTokenLimit` del
+    // `accepts[]` y despues no lo aplicaba nadie -- el camino de generacion
+    // usaba `topeDeSalida`, que para un par, el motor local y un mock devuelve
+    // lo que pidio el cliente, o sea cero, o sea sin techo. El 402 cobraba un
+    // precio fijo declarando "hasta N tokens" y generaba sin limite.
+    //
+    // D9 lo llama no negociable por el lado del `finish_reason`: si se recorta
+    // por el tope, tiene que decir `length` y no `stop`. Se marca acá y lo
+    // reporta `finishReasonDe` mas abajo.
+    if (topeCobrado > 0 && estimarTokensDeSalida(contenido) >= topeCobrado) {
+      cortadoPorTope = true
+      finReal = 'length'
+      // Se corta de los dos lados: al par por su propio canal, al motor local y
+      // al externo por el signal. No es un fallo -- `streamFromPeer` resuelve
+      // ok:true si ya habia empezado, y el `for await` de `streamFromLocal`
+      // sale por el break y devuelve ok:true igual.
+      if (requestIdEnVuelo) swarmRef.cancelChat(requestIdEnVuelo)
+      cancelacion.abort()
+    }
+
+    if (!stream) return
     // Escribir en una respuesta que el cliente ya cerro puede tirar. Esta
     // funcion la llama el handler del FramedStream del swarm, asi que una
     // excepcion que se escape de aca sube hasta el 'data' del pipe y se lleva
@@ -1081,7 +1298,12 @@ async function handleChatConReintentos({
                 // ya mismo, sin esperar a que el par empiece a generar.
                 if (cancelado) swarmRef.cancelChat(rid)
               },
-              onChunk: emit
+              onChunk: emit,
+              // D27 — el mismo signal que corta al motor local y al externo.
+              // Sin esto un corte del cliente o del tope dejaba al par
+              // generando hasta que saltara el reloj de inactividad, y el
+              // request terminaba como si el par hubiera fallado.
+              signal: cancelacion.signal
             })
           : await streamFromLocal({
               node: cand,
@@ -1147,6 +1369,28 @@ async function handleChatConReintentos({
     }
   }
 
+  // FASE 9 / D25 — las dos dimensiones, calculadas una sola vez: las miran la
+  // atestacion de D24 y el rastro del final, y tienen que ser el mismo numero.
+  const d25 = tokensD25({ usoExterno, tokens, promptTokens })
+
+  // FASE 9 / D27 — QUIEN CORTO decide, y decide dos cosas distintas: si se cobra
+  // y que dice la atestacion. Los tres casos, en el orden en que se distinguen:
+  //
+  //   1. el cliente cerro la pestaña  -> atestacion PARCIAL sobre el prefijo que
+  //      efectivamente recibio, y SI se cobra hasta ahi;
+  //   2. el proveedor se cayo         -> NINGUNA atestacion y NO se cobra. Sale
+  //      solo: sin `ultimo.ok` no se entra a este bloque y nunca se liquida;
+  //   3. se toco el tope de D9        -> atestacion completa, `length`, se cobra.
+  //
+  // El caso 2 no aparece como rama porque no puede: es la ausencia de las otras
+  // dos. Que se lea asi es a proposito -- un caso de "no cobrar" que dependiera
+  // de una condicion escrita seria un caso que alguien puede borrar sin querer.
+  const finAtestado = cortadoPorTope
+    ? 'length'
+    : cancelado
+      ? 'client_cancelled'
+      : finishReasonDe(finReal)
+
   try {
     if (ultimo && ultimo.ok) {
       // B14 — la guarda del 200 vacio va ANTES de partir los dos caminos.
@@ -1167,7 +1411,20 @@ async function handleChatConReintentos({
         // D12 — en el camino SIN stream no hay problema: la respuesta se arma
         // entera antes de escribir un byte, asi que se liquida ACA y el recibo
         // viaja en `X-PAYMENT-RESPONSE` como manda el spec, sin desviacion.
-        const recibo = pago ? await liquidarYRegistrar(pago, id) : null
+        const recibo = pago
+          ? await liquidarYRegistrar(
+              pago,
+              id,
+              await atestacionDe({
+                id,
+                node: elegido,
+                messages,
+                contenido,
+                d25,
+                finishReason: finAtestado
+              })
+            )
+          : null
 
         // Los mismos headers de procedencia que el camino con stream. Sin
         // esto, quien pide sin `stream:true` -- un curl, Open WebUI, cualquier
@@ -1207,21 +1464,48 @@ async function handleChatConReintentos({
       // encuentre tiene que poder enterarse de POR QUE. De ahi `x402Note` y el
       // `receiptUrl`, que no son parte del spec y estan a proposito.
       if (pago) {
-        const recibo = await liquidarYRegistrar(pago, id)
-        res.write(
-          `data: ${JSON.stringify({
-            x402Version: 2,
-            x402Note:
-              'El recibo viaja como evento SSE final y no en X-PAYMENT-RESPONSE: ' +
-              'en streaming los headers salen antes del primer token, asi que liquidar ' +
-              'para poder escribirlo pondria una transaccion on-chain delante del TTFT. ' +
-              'Ver D12 del roadmap. Tambien se puede recuperar por receiptUrl.',
-            paymentResponse: recibo.recibo,
-            receiptUrl: `/v1/receipts/${id}`
-          })}
+        const recibo = await liquidarYRegistrar(
+          pago,
+          id,
+          await atestacionDe({
+            id,
+            node: elegido,
+            messages,
+            contenido,
+            d25,
+            finishReason: finAtestado
+          })
+        )
+        // El cliente puede haberse ido: D27 caso 1 dice que igual se liquida y
+        // se atestigua -- el trabajo se hizo y el prefijo llego --, pero
+        // escribirle a un socket cerrado tira, y esa excepcion se llevaria
+        // puesto el `res.end()` ordenado del finally. La liquidacion ya ocurrio
+        // arriba: lo unico que se pierde es el aviso, y queda en /v1/receipts.
+        if (!cancelado) {
+          try {
+            res.write(
+              `data: ${JSON.stringify({
+                x402Version: 2,
+                x402Note:
+                  'El recibo viaja como evento SSE final y no en X-PAYMENT-RESPONSE: ' +
+                  'en streaming los headers salen antes del primer token, asi que liquidar ' +
+                  'para poder escribirlo pondria una transaccion on-chain delante del TTFT. ' +
+                  'Ver D12 del roadmap. Tambien se puede recuperar por receiptUrl.',
+                paymentResponse: recibo.recibo,
+                // D24 — la atestacion viaja con el recibo, o el motivo por el
+                // que no hay. Una ausencia con motivo es un dato; una ausencia
+                // muda es un agujero que alguien va a leer como "no hace falta".
+                attestation: recibo.atestacion || null,
+                attestationMissing: recibo.sinAtestacion || undefined,
+                receiptUrl: `/v1/receipts/${id}`
+              })}
 
 `
-        )
+            )
+          } catch (err) {
+            console.log(`[gateway] el recibo no se pudo escribir: ${(err && err.message) || err}`)
+          }
+        }
       }
 
       const close = chunkEvent({
@@ -1326,7 +1610,25 @@ async function handleChatConReintentos({
       tokens,
       ttftMs,
       tokensPerSec: tokensPerSec({ tokens, ttftMs, ms }),
-      ms
+      ms,
+      // FASE 9 / D25 — los campos NUEVOS. `tokens`, `ttftMs` y `ms` quedan como
+      // estaban: hay panel y rastro historico leyendolos, y cambiarles el
+      // significado convertiria las entradas viejas en otra cosa sin avisar.
+      //
+      // El prefill procesa el prompt en paralelo y lo limita el computo; el
+      // decode genera token a token y lo limita el ancho de banda de memoria.
+      // Una tarifa unica mezcla dos costos que no escalan igual. D22 igual NO se
+      // toca: registrar es barato y es la unica forma de tener despues con que
+      // informar esa decision -- cambiar el precio hoy seria decidirlo sin datos.
+      tokensPrefill: d25.tokensPrefill,
+      tokensDecode: d25.tokensDecode,
+      tokensFuente: d25.tokensFuente,
+      // D27 — como termino, en el vocabulario de la atestacion y no en el de
+      // OpenAI. Sin esto, en el rastro un corte del cliente y una respuesta
+      // completa se ven identicos, que es justo el caso mas frecuente del uso
+      // real y donde un proveedor tiene mas margen para reclamar tokens que
+      // nadie recibio.
+      finishReason: finAtestado
     })
 
     // Contadores por par en el directorio. La funcion existia desde que se
@@ -1686,6 +1988,9 @@ async function handleChat(req, res) {
 
   // FASE 9 — el pago, recien acá, porque antes no se sabia ni cuanto ni a quien.
   let pagoVerificado = null
+  // D9(a) — el tope que se DECLARO en el 402, para poder APLICARLO despues.
+  // Cero mientras no haya cobro: el camino con API key lo acota el presupuesto.
+  let topeDeclarado = 0
   if (sinCredencial) {
     const cobro = await cobroDe({ node, maxTokensPedido: norm.maxTokens || 0, req })
 
@@ -1720,6 +2025,10 @@ async function handleChat(req, res) {
       `[x402] pago verificado de ${verificado.payer.slice(0, 10)}… por ${cobro.micros} micros`
     )
     pagoVerificado = { ...verificado, requisito: requisitoDe(cobro, verificado.red) }
+    // El MISMO numero que viajo en el `accepts[]`, no uno recalculado. D9 lo
+    // dice sin vuelta: se declara antes de generar y se aplica despues, y tienen
+    // que ser el mismo. Hasta acá se declaraba y no se aplicaba.
+    topeDeclarado = cobro.maxTokens
   }
   // El orden puntuado, no el de llegada: si el mejor falla antes del primer
   // token, D4 reintenta en el segundo MEJOR, no en el siguiente de la lista.
@@ -1775,7 +2084,8 @@ async function handleChat(req, res) {
     decision,
     motivo: motivoRuteo,
     // FASE 9 — el pago ya verificado, para liquidarlo DESPUES de servir (D12).
-    pago: pagoVerificado
+    pago: pagoVerificado,
+    topeCobrado: topeDeclarado
   })
 }
 
@@ -2025,7 +2335,19 @@ async function onRequest(req, res) {
       if (!guardado) {
         return sendError(res, 404, 'no hay recibo para ese id', { code: 'receipt_not_found' })
       }
-      return sendJson(res, 200, { id, ...guardado.recibo })
+      // El recibo de liquidacion se sigue devolviendo APLANADO en la raiz: es la
+      // forma que ya leen los clientes y el test, y anidarlo ahora romperia a
+      // quien busca `transaction` donde estaba. La atestacion de D24 entra al
+      // lado, en su propia clave.
+      return sendJson(res, 200, {
+        id,
+        ...guardado.recibo,
+        // D24 — que sirvio este nodo, firmado por su wallet. `null` con motivo
+        // cuando no la hay: el caso normal es que el que sirvio haya sido un
+        // par, y ahi la atestacion la firma el (Fase 10), no nosotros.
+        attestation: guardado.atestacion || null,
+        attestationMissing: guardado.sinAtestacion || undefined
+      })
     }
     if (req.method === 'GET' && pathname === '/v1/routing-log') {
       const motivoLog = rechazoPorKey(req)
