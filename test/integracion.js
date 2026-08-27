@@ -2826,6 +2826,185 @@ test('D24: sin firmante NO sale una atestacion, y el recibo dice por que', async
   await soltarProveedor()
 })
 
+// ---------------------------------------------------------------------------
+// FASE 9 — el DoD contra un PAR, no contra un upstream
+//
+// Los tres casos de D27 de mas arriba corren contra el asistente externo, que es
+// HTTP. El DoD de la Fase 9 habla de "matar EL NODO a mitad de stream", y un
+// nodo no es HTTP: es el canal del swarm, con su propio framing y su propio
+// chat:cancel. Son dos transportes con garantias distintas y hace falta
+// ejercitar los dos.
+//
+// El swarm falso es el minimo que `streamFromPeer` le pide -- chatRequest,
+// cancelChat, y los cuatro callbacks --, y existe sobre todo por UNA propiedad
+// que HTTP no puede reproducir: **un chat:cancel tarda un round trip, y el par
+// sigue generando mientras tanto**. Los chunks que ya venian en camino llegan
+// DESPUES de que el gateway decidio cortar, y lo que se haga con ellos decide si
+// el outputHash de D27 caso 1 vale o no.
+// ---------------------------------------------------------------------------
+
+const PEER_KEY = 'ee'.repeat(32)
+const MODELO_PAR = 'par-9'
+const WALLET_DEL_PAR = '0x' + '5c'.repeat(20)
+
+function manifiestoDelPar() {
+  return {
+    metadata: { operator: 'Par de prueba', tags: ['general'] },
+    // D10 — el payTo del 402 sale de ACA, del manifiesto firmado del par, no de
+    // una constante nuestra. Es la wallet DEL PAR, no la de este gateway.
+    economic: { walletAddress: WALLET_DEL_PAR, chains: ['stable'], settlement: 'batch-receipts' },
+    models: [
+      { modelId: MODELO_PAR, displayName: 'Modelo del par', qos: { maxConcurrentRequests: 4 } }
+    ]
+  }
+}
+
+// `guion` recibe los callbacks y un objeto con el que puede colgar un chunk
+// "en vuelo": el que va a llegar cuando el cancel ya salio.
+function swarmFalso(guion) {
+  let n = 0
+  const enVuelo = new Map()
+  return {
+    operator: 'Yo mismo',
+    identity: { publicKey: Buffer.alloc(32, 7) },
+    models: [],
+    verifiedPeers: () => [{ peerKey: PEER_KEY }],
+    chatRequest(peerKey, pedido, cbs) {
+      const id = 'req-' + ++n
+      const estado = { cbs, tardio: null }
+      enVuelo.set(id, estado)
+      // Asincronico como el de verdad: el par contesta despues de que
+      // chatRequest devolvio, no adentro.
+      const t = setTimeout(() => guion(cbs, estado), 0)
+      if (t.unref) t.unref()
+      return id
+    },
+    cancelChat(id) {
+      const e = enVuelo.get(id)
+      if (!e || e.cortado) return
+      e.cortado = true
+      // EL PUNTO DE TODO ESTO. En una red real el chat:cancel tarda un round
+      // trip y el par no para en seco: lo que ya habia salido llega igual,
+      // DESPUES de que este lado decidio cortar. Aca eso es sincronico y
+      // deterministico en vez de una carrera.
+      if (e.tardio) e.cbs.onChunk(e.tardio)
+    }
+  }
+}
+
+async function conParRegistrado(guion) {
+  const store = await import('../qvac/store.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+  // El facilitator falso se apunta ACA y no en cada test: sin esto `liquidar`
+  // sale al de verdad por internet, el test pasa por el motivo equivocado -- el
+  // recibo se guarda igual cuando la liquidacion falla -- y ademas `npm test`
+  // deja de correr sin red.
+  env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  store.upsertFromManifest(PEER_KEY, manifiestoDelPar())
+  gw.setSwarm(swarmFalso(guion))
+}
+
+async function soltarPar() {
+  const store = await import('../qvac/store.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+  gw.setSwarm(null)
+  store.removeByPeer(PEER_KEY, { hard: true })
+  delete env[x402.VAR_FACILITATOR]
+}
+
+test('FASE 9 DoD: matar el nodo a mitad de stream NO cobra', async (t) => {
+  // El par acepta, manda un token, y se muere. Es la tercera linea del DoD de la
+  // Fase 9 y la que el propio roadmap marca como la que mas facil se rompe:
+  // la verificacion protege al proveedor de gastar GPU gratis, la FALTA de
+  // liquidacion protege al cliente de pagar por lo que no recibio.
+  await conParRegistrado((cbs) => {
+    cbs.onAccepted()
+    cbs.onChunk('empiezo a contestar')
+    cbs.onError('el par se cayo', 'peer_gone')
+  })
+
+  const cuerpo = {
+    model: MODELO_PAR,
+    messages: [{ role: 'user', content: 'hola' }],
+    stream: true
+  }
+  const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
+  t.is(desafio.status, 402, 'el 402 sale con la wallet DEL PAR (D10)')
+  t.is(desafio.json.accepts[0].payTo, WALLET_DEL_PAR, 'no la de este gateway')
+
+  const pago = await firmarPago(desafio.json)
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+
+  t.ok(r.body.indexOf('empiezo a contestar') !== -1, 'el cliente vio lo que alcanzo a llegar')
+  t.absent(r.body.indexOf('paymentResponse') !== -1, 'y NO hay recibo: no se liquido')
+
+  const id = idDeSSE(r.body)
+  const rec = await pedir('GET', '/v1/receipts/' + id)
+  t.is(rec.status, 404, 'no hay nada que recuperar, porque no se cobro')
+
+  await soltarPar()
+})
+
+test('D27 caso 1: los chunks que llegan DESPUES del cancel no entran al hash', async (t) => {
+  const VISTO = 'esto lo recibio el cliente'
+  const TARDIO = ' y esto llego despues del cancel'
+
+  await conParRegistrado((cbs, estado) => {
+    cbs.onAccepted()
+    cbs.onChunk(VISTO)
+    // Cuelga el chunk tardio: sale cuando el gateway mande el chat:cancel.
+    estado.tardio = TARDIO
+  })
+
+  const cuerpo = {
+    model: MODELO_PAR,
+    messages: [{ role: 'user', content: 'hola' }],
+    stream: true
+  }
+  const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
+  t.is(desafio.status, 402)
+  const pago = await firmarPago(desafio.json)
+
+  const parcial = await pedirYCortar('/v1/chat/completions', {
+    body: cuerpo,
+    headers: { 'X-PAYMENT': pago }
+  })
+  const id = idDeSSE(parcial.body)
+  t.ok(id, 'el cliente vio el primer chunk y se fue')
+  t.absent(parcial.body.indexOf(TARDIO) !== -1, 'el tardio NUNCA se le escribio al cliente')
+
+  await esperar(1200)
+
+  const rec = await pedir('GET', '/v1/receipts/' + id)
+  t.is(rec.status, 200, 'se cobra hasta ahi (D27 caso 1)')
+  t.is(rec.json.success, true, 'y la liquidacion salio bien, no solo se guardo el intento')
+
+  // El par NO firma acá: el 402 pago a SU wallet y el que corrio el modelo fue
+  // el. Este gateway no puede atestiguar trabajo ajeno.
+  t.is(rec.json.attestation, null, 'y este nodo no atestigua lo que sirvio otro (D24)')
+  t.ok(
+    String(rec.json.attestationMissing).indexOf('Fase 10') !== -1,
+    'la ausencia dice de quien es la firma y cuando llega: ' + rec.json.attestationMissing
+  )
+
+  // Lo que si se puede verificar de este lado: que el rastro no cuente el chunk
+  // tardio. Es el mismo invariante que el outputHash de una parcial servida por
+  // este nodo -- lo que se registra es lo que el cliente recibio, no lo que el
+  // proveedor siguio mandando despues de que se fue.
+  const e = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
+  t.is(e.finishReason, 'client_cancelled', 'el rastro dice quien corto')
+  t.is(e.tokens, 1, 'y conto UN chunk, no dos: el tardio se descarto')
+
+  await soltarPar()
+})
+
 test('cierra el facilitator falso', async (t) => {
   if (servidorFacilitator) servidorFacilitator.close()
   t.pass('apagado')

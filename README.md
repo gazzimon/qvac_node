@@ -154,6 +154,40 @@ USDT0. Plasma's asset address is **not verified against the chain**, so it stays
 disabled until the operator confirms it with `PYRUS_X402_PLASMA_ASSET_VERIFICADO=1`;
 sending USD₮ to a wrong contract has no undo.
 
+The `accepts[]` declares an output ceiling (`outputTokenLimit`) — "up to N
+output tokens for $X" — and **the gateway applies that same number**, cutting
+the response and reporting `finish_reason: "length"`, never `"stop"`. The number
+declared and the number applied are the same one by construction. Two honest
+limits: the cut is measured on an **estimate** (UTF-8 bytes ÷ 4), not on the
+model's tokenizer, which the gateway never sees; and it is measured on the
+**accumulated text**, not on the count of SSE deltas, because the provider is
+the one who decides how the stream is chopped.
+
+**What the provider attests.** Alongside the settlement receipt, the node signs
+an attestation of **what it served** — `requestId`, `nonce`, `ts`, `modelId`,
+`quantization`, `runtime`, `promptHash`, `outputHash`, `tokensPrefill`,
+`tokensDecode`, `finishReason`, `providerPubkey` — with the **payout wallet**,
+not the network key, over the JCS canonical form of everything except
+`signature`. It rides on the same receipt (`GET /v1/receipts/:id`, and the final
+SSE event when streaming). `outputHash` is the point: it is a hash of the text,
+and text does not depend on how many pieces it travelled in, so anyone can
+recount tokens from what was attested. Hashes carry their algorithm inline
+(`blake2b-256:…`) so a third party can recompute them.
+
+Three things it deliberately does **not** do. Nothing consumes it yet — phase 9
+only emits and stores it, because attestations cannot be signed backwards.
+`quantization` and `runtime` are **declarations**, not measurements (see the
+model-declaration limit below). And when the request was served by **a peer**,
+this node signs nothing and says so: the peer ran the model, the 402 paid _its_
+wallet, and its attestation travels over Protomux in phase 10. An attestation
+that is missing always says why; one is never emitted unsigned.
+
+**How a cut stream is recorded**, decided by who cut: the client closing the tab
+gets a partial attestation over the prefix it actually received — and is charged
+for it; the provider falling gets **no attestation and no charge**; the token
+ceiling gets a complete attestation with `finishReason: "length"`, and is
+charged.
+
 Two counters that look like one and are not — the principle is the same, the
 unit is not: the meter lives on the side that pays.
 
@@ -262,7 +296,10 @@ an audit that always says yes audits nothing.
   cuts, the free per-peer quota, the payout wallet inside the signed manifest,
   and x402 in the request path.
 - **Not built:** batched settlement and receipt aggregation (phase 10), the
-  agentic layer (phase 11). A multi-writer ledger of our own is **out of scope**
+  agentic layer (phase 11). The provider attestation is **emitted and stored,
+  and read by nothing** — that is phase 10, and it is deliberate: a node cannot
+  sign for requests that already happened, so the artefact starts accumulating
+  before anything needs it. A multi-writer ledger of our own is **out of scope**
   — the EIP-3009 signature already is the receipt, so on-chain settlement
   removes the need instead of adding one.
 - `serve` starts with an **empty** registry. `--demo` fills it with one real node
@@ -275,6 +312,13 @@ an audit that always says yes audits nothing.
 - The chat shows the **ceiling**, not the final cost: with SSE the headers travel
   before the first token, so it says `up to USD …`, or `no charge` when nothing
   is owed.
+- The routing trace records `tokensPrefill` and `tokensDecode` separately, plus
+  `tokensFuente` — and that third field is the one that matters. `proveedor`
+  means both numbers came from the provider's `usage`, counted by its own
+  tokenizer. `gateway` means the prefill is an estimate and the decode is a
+  count of **SSE deltas, which are not tokens**. Nothing prices off these yet:
+  the flat price stands, and this exists so that a future pricing decision has
+  data instead of an argument.
 - Peer-to-peer and local inference cost zero. That zero is not a placeholder: it
   is today's truth, and x402 is what starts changing it.
 - The role-based login in `qvac/auth.mjs` is dead code, not a gate. The gate is

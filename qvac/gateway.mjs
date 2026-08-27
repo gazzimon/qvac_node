@@ -949,7 +949,7 @@ function tokensD25({ usoExterno, tokens, promptTokens }) {
     // 'proveedor' solo si los DOS salieron del usage. Con uno solo el par ya no
     // es comparable con otro, y decir "proveedor" a medias sería peor que decir
     // "gateway": haría creer que hay una medición donde hay una estimación.
-    tokensFuente: 'proveedor'
+    tokensFuente: decodeReal && prefillReal ? 'proveedor' : 'gateway'
   }
 }
 
