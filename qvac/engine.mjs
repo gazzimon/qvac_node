@@ -96,7 +96,29 @@ export async function resolveModel(pick = DEFAULT_MODEL) {
 // setGlobalLogLevel('error') + setGlobalConsoleOutput(false) del SDK: siguen
 // saliendo. Redirigir el fd 1 es la unica via y no vale la pena: se llevaria
 // puesta la respuesta.
-export function loadModel({
+// El combo que no carga NINGUN modelo: Linux + binario standalone. El bundle
+// registra solo el backend Vulkan y nunca enumera las variantes de CPU, asi que
+// falla siempre -- medido y documentado en NOTES.md, "Nodo Linux 24/7".
+//
+// Existe esta funcion porque el error que sale del SDK es `failed to fit params
+// to free device memory`, que apunta a la memoria y no tiene NADA que ver: nos
+// costo una hora de descartes (el archivo, el hash, dos modelos, `--gpu-layers`,
+// Vulkan, el contexto, el montaje de /tmp) antes de dar con la causa. Un tercero
+// abandonaria mucho antes. Decir lo que sabemos, donde lo sabemos, es barato.
+function pistaLinuxStandalone() {
+  if (bareProcess.platform !== 'linux') return null
+  // Mismo criterio que bin.mjs: si argv[0] es el runtime `bare`, corremos desde
+  // el fuente y este problema no aplica.
+  if (path.basename(String(Bare.argv[0] || '')) === 'bare') return null
+  return (
+    'En Linux el binario standalone NO registra ningun backend de CPU, ' +
+    'asi que ningun modelo carga. No es tu maquina ni el archivo del modelo: ' +
+    'ver NOTES.md, "Nodo Linux 24/7". Mientras tanto corre desde el fuente ' +
+    '(`node_modules/bare-runtime-linux-x64/bin/bare bin.mjs ...`).'
+  )
+}
+
+export async function loadModel({
   modelSrc,
   ctxSize = DEFAULT_CTX_SIZE,
   gpuLayers,
@@ -108,7 +130,15 @@ export function loadModel({
   // Solo se manda si lo pidieron: sin la clave, el SDK aplica sus device
   // defaults, que son los correctos en una maquina con GPU decente.
   if (Number.isFinite(gpuLayers)) modelConfig.gpu_layers = gpuLayers
-  return sdk.loadModel({ modelSrc, modelConfig, onProgress })
+  try {
+    return await sdk.loadModel({ modelSrc, modelConfig, onProgress })
+  } catch (err) {
+    const pista = pistaLinuxStandalone()
+    if (!pista) throw err
+    const conPista = new Error(`${(err && err.message) || err}\n\n  ${pista}`)
+    conPista.cause = err
+    throw conPista
+  }
 }
 
 // Stream de texto. Devuelve un async iterable de strings (los deltas), para no

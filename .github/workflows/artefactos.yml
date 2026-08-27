@@ -1,0 +1,80 @@
+# Compila el binario de cada plataforma y LO EJECUTA.
+#
+# El gate de `scripts/release.js` solo puede probar el target del host: los
+# otros cuatro son cross-compilados y no corren en la maquina que publica. Por
+# eso `linux-x64` se publico release tras release sin poder cargar un modelo
+# (NOTES.md, "Nodo Linux 24/7"): compilar no es funcionar, y nadie lo ejecutaba.
+#
+# Esta matriz es lo unico que cierra ese agujero: cada sistema compila el suyo y
+# le corre el smoke encima.
+name: artefactos
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bin.mjs'
+      - 'app.js'
+      - 'qvac/**'
+      - 'workers/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/smoke.js'
+      - '.github/workflows/artefactos.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    # El modelo son 808 MB por hypercore la primera vez; despues sale del cache.
+    timeout-minutes: 45
+    # Un target roto no puede ocultar el estado de los otros tres.
+    continue-on-error: ${{ matrix.tolerado }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            bin: out/linux-x64/pyrusllm
+            # ROTO Y CONOCIDO: el standalone no registra backend de CPU. Se deja
+            # correr para que quede el registro en cada commit, pero no tumba el
+            # workflow. SACAR ESTA LINEA cuando el bug de empaquetado se arregle
+            # -- si no, el dia que vuelva a romperse nadie se va a enterar.
+            tolerado: true
+          - os: macos-latest
+            target: darwin-arm64
+            bin: out/darwin-arm64/pyrusllm
+            tolerado: false
+          - os: windows-latest
+            target: win32-x64
+            bin: out/win32-x64/pyrusllm.exe
+            tolerado: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # npm >= 10: el `file:` de overrides no lo entiende npm 9 y el error que
+      # da (`Invalid comparator`) no significa nada. Ver `engines`.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Sin esto cada corrida vuelve a bajar 808 MB por la red P2P de QVAC.
+      - name: cache de pesos
+        uses: actions/cache@v4
+        with:
+          path: ~/.qvac/models
+          key: qvac-models-${{ runner.os }}-llama1b
+
+      - run: npm ci
+
+      - name: build ${{ matrix.target }}
+        run: npm run make
+
+      # El veredicto: ¿este binario sirve un token? Un exit 0 no alcanza --
+      # scripts/smoke.js exige la linea de TTFT con un numero real.
+      - name: smoke ${{ matrix.target }}
+        run: npm run smoke -- --bin ${{ matrix.bin }} --gpu-layers 0 --timeout 1200

@@ -947,3 +947,55 @@ declarado en el comando raíz (`bin.mjs:179`). `serve --storage <dir>` muere con
 Importa para cualquier despliegue con `bare`: en modo dev el default es
 `os.tmpdir()`, así que un servicio mal invocado pierde la identidad de swarm en
 cada reinicio y se anuncia como un nodo nuevo cada vez.
+
+### El gate que faltaba: `npm run smoke`
+
+El bug de arriba sobrevivió meses por una razón de proceso, no de código:
+[`scripts/release.js`](scripts/release.js) compilaba los cinco targets, los
+stageaba y los publicaba **sin ejecutar ninguno**. Compilar no es funcionar.
+
+[`scripts/smoke.js`](scripts/smoke.js) corre un binario y exige que sirva un
+token. Corre como gate en `release.js` antes del `pear stage`, y en
+[`.github/workflows/artefactos.yml`](.github/workflows/artefactos.yml) sobre una
+matriz de tres sistemas — lo único que cubre los targets cross-compilados, que
+el gate del host no puede tocar.
+
+**Trampa que casi se cuela, y por eso queda escrita.** La primera versión del
+smoke corría con `--quiet` y daba OK si había salido *algún* texto. Pasó en
+Windows con esto como supuesta respuesta:
+
+```
+parse: load the model metadata from disk file. initFromConfig: load the model...
+```
+
+Eso es el logging nativo de llama.cpp, que **no se puede apagar** (ver más
+arriba, "El logging de llama.cpp no se puede apagar del todo"). Un smoke que
+mide "hubo salida" mide el ruido del addon, no el trabajo del modelo — y habría
+dado luz verde al binario roto, que es exactamente lo que vino a evitar.
+
+La versión que quedó corre **sin** `--quiet` y exige la línea de TTFT que
+imprime `bin.mjs:293`, con un número real: ese renglón dice `n/d` cuando el
+stream terminó sin un solo delta, así que un modelo que carga pero no emite nada
+también es FAIL.
+
+Verificado en las tres direcciones, que es lo mínimo que se le puede pedir a un
+gate:
+
+| Qué se probó | Resultado |
+| --- | --- |
+| `win32-x64` standalone | **OK** — TTFT 0.38 s |
+| `linux-x64` standalone | **FAIL** — "no pudo cargar el modelo" |
+| `bare bin.mjs` en Linux (lo que corre el nodo 24/7) | **OK** — TTFT 0.07 s |
+
+Dos detalles del diseño que no son adorno:
+
+- **Escribe a un archivo, no a un pipe.** El binario se cuelga para siempre si
+  su stdout es un pipe de libuv (ver arriba). Un smoke ingenuo se colgaba en la
+  primera corrida.
+- **Distingue "artefacto roto" de "hay un nodo corriendo".** El lock del registry
+  daría un FAIL que no dice nada sobre el binario. En un nodo 24/7 eso pasa cada
+  vez: hay que bajar el servicio para correr el smoke.
+
+**Pendiente de la primera corrida en CI:** si los runners de GitHub pueden
+alcanzar el swarm del registry de QVAC para bajar los pesos. Si no pueden, el
+modelo va a tener que llegar por otra vía y el `actions/cache` no alcanza.

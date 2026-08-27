@@ -15,6 +15,7 @@
 //
 //   node scripts/smoke.js                     el binario del host, en ./out
 //   node scripts/smoke.js --bin <ruta>        otro binario (p.ej. el instalado)
+//   node scripts/smoke.js --bin <bare> --entry bin.mjs    el camino de dev
 //   node scripts/smoke.js --gpu-layers 0      pasandole flags al CLI
 //   node scripts/smoke.js --timeout 900       mas margen en frio
 //
@@ -63,7 +64,16 @@ if (!fs.existsSync(bin)) {
 const salida = path.join(os.tmpdir(), `pyrusllm-smoke-${process.pid}.log`)
 const fd = fs.openSync(salida, 'w+')
 
-const args = ['prompt', prompt, '--quiet']
+// SIN --quiet, a proposito. El veredicto sale de la linea de TTFT que imprime
+// bin.mjs, y `--quiet` la silencia (bin.mjs:211). Ademas el logging nativo de
+// llama.cpp no se puede apagar (NOTES.md), asi que "hubo salida" no prueba
+// nada: la primera version de este script daba OK con puro ruido de log.
+// `--entry` cubre el camino de dev: `bare bin.mjs prompt ...`. No es un lujo,
+// es la configuracion de PRODUCCION del nodo Linux, que corre desde el fuente
+// porque el standalone no carga modelos. Sin esto el smoke solo sabria probar
+// el artefacto roto y no el que efectivamente sirve tokens.
+const entry = flag('--entry', null)
+const args = entry ? [entry, 'prompt', prompt] : ['prompt', prompt]
 if (gpuLayers !== null) args.push('--gpu-layers', String(gpuLayers))
 
 console.log(`\n  smoke: ${bin}`)
@@ -96,9 +106,10 @@ child.on('exit', (code) => {
   if (matado) {
     fallar(`colgado: no termino en ${timeoutMs / 1000}s, hubo que matarlo`, texto)
   }
-  if (code !== 0) {
-    fallar(`exit code ${code}`, texto)
-  }
+
+  // Las causas concretas van ANTES del exit code, no despues: un `exit code 1`
+  // como titular esconde el motivo que el propio log ya trae escrito. El codigo
+  // de salida es el ultimo recurso, para lo que no supimos clasificar.
 
   // Otro nodo vivo tiene tomado el lock del registry. NO es una falla del
   // artefacto y no puede reportarse como tal: solo hay un proceso por
@@ -118,17 +129,25 @@ child.on('exit', (code) => {
     fallar('el binario arranco pero NO pudo cargar el modelo', texto)
   }
 
-  // Con --quiet la unica salida es la respuesta. Si no hay texto util, no hubo
-  // token, y un nodo que no produce tokens no es un nodo.
-  const respuesta = texto
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .join(' ')
-  if (respuesta.length === 0) {
-    fallar('el binario termino con exit 0 pero no produjo ningun token', texto)
+  if (code !== 0) {
+    const como = code === null ? 'murio sin exit code (senal)' : `exit code ${code}`
+    fallar(`${como}, sin causa reconocida en el log`, texto)
   }
 
-  console.log(`  respuesta: ${respuesta.slice(0, 120)}`)
+  // El veredicto. `bin.mjs:293` imprime el TTFT medido, o el literal `n/d`
+  // cuando el stream termino sin un solo delta. Un modelo que carga pero no
+  // emite nada tiene que ser un FAIL igual que uno que no carga.
+  const ttft = texto.match(/primer token \(TTFT\)\s*:\s*(\S+)/)
+  if (!ttft) {
+    fallar(
+      'el binario termino con exit 0 pero nunca llego a medir el primer token',
+      texto
+    )
+  }
+  if (ttft[1] === 'n/d') {
+    fallar('el modelo cargo pero NO emitio ningun token (TTFT n/d)', texto)
+  }
+
+  console.log(`  TTFT: ${ttft[1]}`)
   console.log(`\n  SMOKE OK — token servido en ${(wallMs / 1000).toFixed(1)}s\n`)
 })

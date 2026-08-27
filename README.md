@@ -31,6 +31,22 @@ launches it. No Node, no npm, no Pear: the inference engine ships inside the
 binary. Direct downloads and their `.sha256` files are on the releases page;
 Windows ARM has no build (`@qvac/llm-llamacpp` publishes no prebuild for it).
 
+> **Linux: the standalone binary cannot load models.** `pyrusllm-linux-x64`
+> installs and starts, but it will **not serve a single token**: the standalone
+> bundle registers only the Vulkan backend and never enumerates the CPU
+> variants, so every model fails to load. Measured and isolated in
+> [NOTES.md](NOTES.md), section _Nodo Linux 24/7_ — the cause is in the
+> packaging, not in this repo.
+>
+> **On Linux, run from source meanwhile.** It works without reservations —
+> 0.07 s TTFT measured on a Ryzen with an integrated GPU:
+>
+> ```bash
+> git clone https://github.com/gazzimon/qvac_node.git && cd qvac_node
+> npm install                       # needs npm >= 10
+> npx bare bin.mjs prompt "hello" --gpu-layers 0
+> ```
+
 Installing through Pear instead adds automatic OTA updates, applied in ~10 s
 without user action:
 
