@@ -843,9 +843,42 @@ por uno, con evidencia:
 | `runtime: bare (dev)` — `bare bin.mjs` sobre el fuente | **carga en 4.2 s y responde** |
 
 Mismo GGUF, mismo hash, mismos flags, misma máquina, misma Vulkan enumerada.
-El empaquetado con `bare-build --standalone` es lo que rompe: presumiblemente
-algo que el addon de llamacpp necesita en disco y que el bundle no incluye para
-esa plataforma. **No está aislado todavía.**
+
+#### Dónde está exactamente, según `strace`
+
+Trazando `openat` en las dos corridas, la diferencia es de una línea:
+
+| | genéricos (`hexagon`, `musa`, `openvino`, `cpu`, `vulkan`) | las 14 variantes (`cpu-haswell`, `cpu-zen4`, …) |
+| --- | --- | --- |
+| standalone | los prueba todos | **ninguna** |
+| desde el fuente | los prueba todos | **las prueba una por una y carga `haswell`** |
+
+Los genéricos salen de una lista fija compilada en el addon. Las variantes solo
+pueden salir de **listar el directorio** — y el standalone **nunca lo abre**:
+`grep O_DIRECTORY` sobre su traza no devuelve una sola línea contra el directorio
+de backends; la del fuente lo abre quince veces.
+
+**El binario standalone registra únicamente el backend Vulkan.** Sin backend de
+CPU, `--gpu-layers 0` no tiene dónde poner los pesos. Eso explica los tres
+síntomas: que Vulkan enumerara igual, que `--gpu-layers 0` no ayudara, y que con
+`VK_DRIVER_FILES=/nonexistent` quedaran cero backends y el mensaje pasara a
+`no usable GPU found`. El texto sobre "free device memory" era engañoso: ggml no
+podía ajustar los parámetros porque no tenía dispositivo al cual ajustarlos.
+
+Descartado además, con evidencia:
+
+- **No es el renombre de la extracción.** Los 15 `.so` quedan en
+  `/tmp/pyrusllm-<hash>/…/qvac__llm-llamacpp/` con nombres limpios, tamaños
+  correctos y `rw-rw-r--`.
+- **No es `__dirname` ni `backendsDir`.** El standalone sondea la ruta real de
+  `/tmp`, así que `bare-build` sí reescribe `__dirname` a la carpeta extraída.
+- **No es `/tmp` con `noexec`.** Está montado `rw,nosuid,nodev`.
+- **`GGML_BACKEND_PATH` no lo arregla**, ni apuntando al directorio de los `.so`
+  ni a su padre.
+
+La rama de código que enumera el directorio simplemente no corre dentro del
+binario empaquetado. **Eso ya no es de este repo**: está en el addon nativo o en
+cómo `bare-build` lo empaqueta, y va aguas arriba con las dos trazas.
 
 Es el mismo eje que
 [«El binario CLI tiene 3x peor TTFT que el mismo código bajo `bare`»](#el-binario-cli-tiene-3x-peor-ttft-que-el-mismo-código-bajo-bare--sin-explicar),

@@ -28,6 +28,11 @@ const hostOnly = process.argv.includes('--host')
 const host = `${os.platform()}-${os.arch()}`
 const targets = hostOnly ? [host] : TARGETS
 
+// El smoke corre el binario del host antes de publicar. Se puede saltear, pero
+// tiene que ser una decision explicita: el default es que un artefacto roto no
+// llegue al hypercore. Ver el paso 1-bis y scripts/smoke.js.
+const skipSmoke = process.argv.includes('--skip-smoke')
+
 if (hostOnly && !TARGETS.includes(host)) {
   console.error(`Plataforma no soportada: ${host}`)
   process.exit(1)
@@ -61,6 +66,26 @@ console.log(`\n== qvac-node v${pkg.version} -> ${link}\n`)
 for (const t of targets) {
   console.log(`-- build ${t}`)
   run(isWindows ? 'npm.cmd' : 'npm', ['run', `make:${t}`])
+}
+
+// 1-bis. El binario del host tiene que servir un token ANTES de publicarse.
+//
+// Compilar no es funcionar: `linux-x64` se publico release tras release sin
+// poder cargar un modelo, y nadie lo noto porque este script nunca ejecuto lo
+// que estaba subiendo. Ver NOTES.md, "Nodo Linux 24/7".
+//
+// LO QUE ESTE GATE NO CUBRE, y hay que decirlo: solo prueba el target del host.
+// Los otros cuatro son cross-compilados y no corren aca. Para cubrirlos hace
+// falta una matriz de CI, o correr `npm run smoke -- --bin <ruta>` a mano en
+// cada plataforma antes de publicar.
+if (skipSmoke) {
+  console.log('\n!! smoke SALTEADO por --skip-smoke: se publica sin verificar el binario.')
+} else if (!targets.includes(host)) {
+  console.log(`\n!! el host (${host}) no esta entre los targets: no hay binario que probar aca.`)
+} else {
+  console.log(`\n-- smoke ${host}`)
+  const bin = path.join(root, 'out', host, isWindows ? 'pyrusllm.exe' : 'pyrusllm')
+  run('node', ['scripts/smoke.js', '--bin', bin, '--gpu-layers', '0'])
 }
 
 // 2. carpeta de deployment: pear install busca /by-arch/<plataforma>/app/<bin>
