@@ -805,3 +805,112 @@ que no hace falta un ledger multi-escritor propio. Queda escrito en
 [ROADMAP_FASE7-X402.md](ROADMAP_FASE7-X402.md), sección "Lo que sale del
 alcance". Si algún día vuelve, va a ser por un estado compartido que no sea
 plata —reputación agregada, metering verificable— y no por los pagos.
+
+---
+
+## Nodo Linux 24/7 — GMKtec K16 (Ubuntu 26.04)
+
+Segunda máquina de medición, y la primera con Linux: **Ryzen con Radeon 680M
+(RADV REMBRANDT, `uma: 1`), 25 GB de RAM, Ubuntu 26.04.1 LTS, kernel 7.0.0-30,
+Node 22.22.1, npm 11.19.1.** Corre `serve --swarm` bajo systemd, 24/7.
+
+### BUG: el binario standalone `linux-x64` no carga NINGÚN modelo
+
+`pyrusllm-linux-x64` de v0.12.0 falla siempre con el mismo error:
+
+```
+initFromConfig: load the model from disk file and apply lora adapter, if any.
+common_fit_params: encountered an error while trying to fit params to free device memory: failed to load model
+```
+
+El mensaje habla de memoria y **no es un problema de memoria**. Descartado uno
+por uno, con evidencia:
+
+| Hipótesis | Cómo se descartó |
+| --- | --- |
+| GGUF corrupto o truncado | Bajado dos veces, 807691648 bytes exactos las dos. `sha256` idéntico al de la máquina Windows donde el MISMO archivo carga bien: `406bd598…` |
+| Específico de un modelo | `smollm2-360m-instruct-q8_0` (386 MB, q8_0) falla igual que `llama_3.2_1b…Q4_K` (808 MB, Q4_K). Dos cuantizaciones distintas |
+| Offload a la iGPU | Falla con y sin `--gpu-layers 0`, por el camino de `prompt` y por el de `serve` |
+| Vulkan / RADV | Con `VK_DRIVER_FILES=/nonexistent` la corrida imprime `no usable GPU found` y **falla idéntico** |
+| Memoria del dispositivo | El carve-out de la 680M es de 5 GB (`mem_info_vram_total` = 5368709120), con 21 GB de RAM libre, para un modelo de 808 MB |
+| Contexto demasiado grande | `DEFAULT_CTX_SIZE` es 2048 (`qvac/models.mjs:62`) |
+
+**Lo único que cambia entre la corrida que falla y la que anda es el runtime:**
+
+|  | resultado |
+| --- | --- |
+| `runtime: pear (installed)` — binario standalone | `failed to load model` |
+| `runtime: bare (dev)` — `bare bin.mjs` sobre el fuente | **carga en 4.2 s y responde** |
+
+Mismo GGUF, mismo hash, mismos flags, misma máquina, misma Vulkan enumerada.
+El empaquetado con `bare-build --standalone` es lo que rompe: presumiblemente
+algo que el addon de llamacpp necesita en disco y que el bundle no incluye para
+esa plataforma. **No está aislado todavía.**
+
+Es el mismo eje que
+[«El binario CLI tiene 3x peor TTFT que el mismo código bajo `bare`»](#el-binario-cli-tiene-3x-peor-ttft-que-el-mismo-código-bajo-bare--sin-explicar),
+que quedó sin explicar en Fase 1. Allá degradaba; acá es fatal.
+
+**Alcance real:** cada release publica `pyrusllm-linux-x64` (269 MB en v0.12.0)
+e `install.sh` lo instala en Linux sin avisar de nada. Ese artefacto **nunca
+sirvió un token**. No se había notado porque todas las mediciones previas fueron
+en Windows y macOS.
+
+**Workaround en producción:** el nodo 24/7 corre desde el fuente
+(`node_modules/bare-runtime-linux-x64/bin/bare bin.mjs …`), no desde el binario.
+
+### El repo no se instala con npm 9
+
+`npm install` con npm 9.2.0 —el que empaqueta Ubuntu aparte de Node 22— muere con:
+
+```
+npm ERR! Invalid comparator: file:vendor/ws-stub
+```
+
+npm 9 no sabe resolver un spec `file:` dentro de `overrides`, y `package.json`
+usa exactamente eso para el stub de `ws`. Con npm 11 instala sin chistar.
+
+`package.json` no declara `engines`, así que el usuario recibe un mensaje que no
+significa nada. Cuatro líneas lo arreglan:
+
+```json
+"engines": { "node": ">=20", "npm": ">=10" }
+```
+
+### La 680M confirma lo de la iGPU: CPU gana
+
+Con `--gpu-layers 0`, Llama 3.2 1B, desde el fuente:
+
+|  |  |
+| --- | --- |
+| carga del modelo | 4.2 s |
+| **primer token (TTFT)** | **0.08 s** |
+| respuesta completa | 0.5 s |
+
+Para comparar: la máquina Windows de la demo, sirviendo por la red en esa misma
+sesión, dio **14.0 s de TTFT y 1 tok/s**. El hallazgo de la Intel UHD 620 se
+sostiene en AMD.
+
+### D7: «primer par» estaba midiendo dos cosas distintas
+
+Dos corridas del mismo nodo contra el mismo par:
+
+| Estado del nodo | primer par |
+| --- | --- |
+| clave recién generada, store vacío | **297.167 ms** |
+| `clave existente reusada`, `2 par/es del directorio` | **4.357 ms** |
+
+Los 297 s no eran la red ni el wifi: era un nodo virgen descubriendo todo desde
+cero en la DHT. Un nodo con el directorio caliente se reconecta en 4 s. **Son
+dos números distintos que hoy se reportan con la misma etiqueta**, y conviene
+separarlos antes de sacar cualquier conclusión sobre el descubrimiento.
+
+### `--storage` es flag de la raíz, no de `serve`
+
+`swarmStorageDir()` lo lee de `cmd.flags.storage` (`bin.mjs:729`), y el flag está
+declarado en el comando raíz (`bin.mjs:179`). `serve --storage <dir>` muere con
+`UNKNOWN_FLAG: storage`; el orden correcto es `bin.mjs --storage <dir> serve …`.
+
+Importa para cualquier despliegue con `bare`: en modo dev el default es
+`os.tmpdir()`, así que un servicio mal invocado pierde la identidad de swarm en
+cada reinicio y se anuncia como un nodo nuevo cada vez.
