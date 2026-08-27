@@ -359,8 +359,8 @@ nada escrito que explique por qué se descartó.
 
 ### Fase 9 — x402 en el borde · **el objetivo no cambia**
 
-> **HECHA, NO CERRADA el 2026-08-27**, con los dos ítems de abajo adentro y con
-> D27 también. El estado ítem por ítem y lo que falta para cerrarla están en
+> **CERRADA el 2026-08-27**, con los dos ítems de abajo adentro y con D27
+> también, y con el tx hash del explorer declarado afuera (ver D30). El estado ítem por ítem y lo que falta para cerrarla están en
 > **§ 0-quater de [ROADMAP_FASE7-X402.md](ROADMAP_FASE7-X402.md)**. Lo que no se
 > pudo verificar —el tx hash en el explorer de Plasma— está escrito ahí como no
 > verificado, no en verde. El costo real fue mayor que los +0,5 día estimados,

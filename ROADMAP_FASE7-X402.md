@@ -162,15 +162,15 @@ dejaron de apuntar a lo que citaban. Las de abajo están verificadas contra el
 partir de acá un bug no cuenta como cerrado sin uno, y sin haber comprobado que
 falla con el bug puesto.
 
-| Fase                    | Estado real                          | Qué falta exactamente                                                                                                                                                                                                                                                                                                                        |
-| ----------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 6.5 Presupuesto         | **CERRADA 2026-08-26**               | Descongelada y cerrada. B1, B2, B6, B13 y B14, los cinco con test verificado contra el bug puesto. B14 era la condición no negociable de D9 y la Fase 9 la necesitaba; B13 es lo que hace que el tope acote la factura y no a un cliente                                                                                                     |
-| 6.6 Cuota gratuita      | **Cerrada**                          | Nada. `quota.mjs` no lo tocó ninguno de los commits nuevos. No persiste, y eso está declarado                                                                                                                                                                                                                                                |
-| 7 Desmockear `economic` | **CERRADA 2026-08-26**               | El manifiesto firmado lleva la dirección de cobro real que genera WDK. D13 implementado: seed propia, nunca derivada de la de red, cifrada con Argon2id + secretbox. El `_mock` queda sólo para un nodo SIN wallet, y ahí significa "no declara dirección de cobro", no "no implementado". Desbloquea 9, 10 y 11                             |
-| 8 Precio que rutea      | **CERRADA 2026-08-26**               | El precio entra al score en el paso 4: después de la carga, antes del histórico. El log dice "mas barato" con los dos números, y el chat muestra el techo por respuesta (`up to USD …` / `no charge`). Los tests están verificados contra el criterio desactivado                                                                            |
-| 8.5 Asistente externo   | **CERRADA 2026-08-26 (segunda vez)** | B11, B12, B15 y B16 arreglados, los cuatro con test verificado contra el bug puesto. B5 sigue acotado y con dueño (D20 / Fase 11), que es de otra fase                                                                                                                                                                                       |
-| 9 x402 en el borde      | **HECHA, NO CERRADA** (2026-08-27)   | Tres de los cuatro ítems del DoD verificados con test; el cuarto —el tx hash en el explorer de Plasma— **no se puede verificar sin fondear** (D13) y **no se fondeó**. Lleva además D24, D25 y D27. Dos ítems abiertos que son decisión del dueño: B21 y B22. **El detalle está en § 0-quater, y ahí está lo que falta para poder cerrarla** |
-| 10–12, 11.5, Track V    | No empezadas                         | La 10 ya no está bloqueada: la 9 dejó emitiéndose el artefacto de D24 que la 10 necesita para liquidar en lote                                                                                                                                                                                                                               |
+| Fase                    | Estado real                                | Qué falta exactamente                                                                                                                                                                                                                                                                                                                        |
+| ----------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 6.5 Presupuesto         | **CERRADA 2026-08-26**                     | Descongelada y cerrada. B1, B2, B6, B13 y B14, los cinco con test verificado contra el bug puesto. B14 era la condición no negociable de D9 y la Fase 9 la necesitaba; B13 es lo que hace que el tope acote la factura y no a un cliente                                                                                                     |
+| 6.6 Cuota gratuita      | **Cerrada**                                | Nada. `quota.mjs` no lo tocó ninguno de los commits nuevos. No persiste, y eso está declarado                                                                                                                                                                                                                                                |
+| 7 Desmockear `economic` | **CERRADA 2026-08-26**                     | El manifiesto firmado lleva la dirección de cobro real que genera WDK. D13 implementado: seed propia, nunca derivada de la de red, cifrada con Argon2id + secretbox. El `_mock` queda sólo para un nodo SIN wallet, y ahí significa "no declara dirección de cobro", no "no implementado". Desbloquea 9, 10 y 11                             |
+| 8 Precio que rutea      | **CERRADA 2026-08-26**                     | El precio entra al score en el paso 4: después de la carga, antes del histórico. El log dice "mas barato" con los dos números, y el chat muestra el techo por respuesta (`up to USD …` / `no charge`). Los tests están verificados contra el criterio desactivado                                                                            |
+| 8.5 Asistente externo   | **CERRADA 2026-08-26 (segunda vez)**       | B11, B12, B15 y B16 arreglados, los cuatro con test verificado contra el bug puesto. B5 sigue acotado y con dueño (D20 / Fase 11), que es de otra fase                                                                                                                                                                                       |
+| 9 x402 en el borde      | **CERRADA 2026-08-27**, con un ítem afuera | Tres de los cuatro ítems del DoD verificados con test; el cuarto —el tx hash en el explorer de Plasma— **no se puede verificar sin fondear** (D13) y **no se fondeó**. Lleva además D24, D25 y D27. Dos ítems abiertos que son decisión del dueño: B21 y B22. **El detalle está en § 0-quater, y ahí está lo que falta para poder cerrarla** |
+| 10–12, 11.5, Track V    | No empezadas                               | La 10 ya no está bloqueada: la 9 dejó emitiéndose el artefacto de D24 que la 10 necesita para liquidar en lote                                                                                                                                                                                                                               |
 
 ### Los bugs, y de qué fase es cada uno
 
@@ -217,8 +217,8 @@ falla con el bug puesto.
    cuando empezó a tener la passphrase de la wallet.
 4. ~~**Fase 8 — la mitad que falta**: el precio en el score y el costo en el chat.~~
    **HECHA 2026-08-26.**
-5. ~~**Fase 9** en adelante, como estaba escrito.~~ **HECHA, NO CERRADA
-   2026-08-27.** Con D24, D25 y D27 adentro, y con B20 aparecido y cerrado en el
+5. ~~**Fase 9** en adelante, como estaba escrito.~~ **CERRADA 2026-08-27**, con
+   el tx hash declarado afuera (D30). Con D24, D25 y D27 adentro, y con B20 aparecido y cerrado en el
    camino. Lo que falta para poder cerrarla está en **§ 0-quater**.
 
 Y una regla nueva, que sale de B18 y no de ninguna fase: **una corrida verde no
@@ -230,13 +230,23 @@ bug-puesto`.
 
 ---
 
-## 0-quater · Fase 9, al 2026-08-27 — hecha, no cerrada
+## 0-quater · Fase 9 — CERRADA el 2026-08-27, con un ítem explícitamente afuera
 
-**No se declara cerrada, y el motivo es uno solo:** un ítem del DoD no se puede
-verificar sin fondear una wallet, y D13 dice que no se fondea. Declararla cerrada
-con eso pendiente sería exactamente lo que § 0-ter documenta que ya pasó dos
-veces — una declaración de cierre que queda escrita y se vuelve falsa. Lo que
-falta está abajo, y la decisión de cerrarla es del dueño.
+**Se cierra con tres de los cuatro ítems del DoD cumplidos y el cuarto —el tx
+hash en el explorer— DECLARADO AFUERA**, no dado por bueno. Las dos salidas eran
+legítimas: fondear, o cerrar dejando el ítem escrito como pendiente. La que no lo
+era es cerrarla sin decirlo, que es lo que § 0-ter documenta que ya pasó dos
+veces. Queda dicho acá, en la tabla de fases y en la Fase 9 misma.
+
+**Por qué se cierra igual.** El ítem no está bloqueado por trabajo nuestro sino
+por dos cosas externas y una decisión: no hay stablecoin en Plasma testnet, el
+facilitator hosted no responde, y D30 decidió que nada se estrena en mainnet.
+Dejar la fase abierta esperando eso convertiría "abierta" en un estado sin
+criterio de salida — y el resto de la fase sí está terminado y con test.
+
+**Los dos ítems de auditoría que quedan abiertos, y que NO son de esta fase:**
+B21 (superficie de la 8.5) y B22 (una entrada de la 8). Se cierran cuando el
+dueño decida si esas fases se reabren.
 
 ### El DoD, ítem por ítem
 
@@ -285,15 +295,21 @@ decidió cortar. Para un upstream HTTP el mismo ítem **no** se cumple hoy: ver
   D24: hacia atrás no se firma, así que el artefacto empieza a acumularse antes
   de que haga falta. Quien lo consume es la Fase 10.
 
-### Lo que falta para poder cerrarla
+### El ítem que quedó afuera, y qué haría falta para cumplirlo
 
-1. **Decidir B21** — el socket truncado que se lee como éxito. Reabre la 8.5.
-2. **Decidir B22** — el corte del cliente contando como éxito del par. Toca una
-   entrada del ruteo de la 8, aunque no su precio.
-3. **Decidir qué se hace con el tx hash**: fondear (con la dirección de Plasma
-   verificada antes), o cerrar la fase dejando ese ítem explícitamente afuera y
-   escrito como tal. Las dos son legítimas; lo que no lo es es cerrarla sin
-   decirlo.
+No se cierra por decreto: queda con su camino escrito, y ese camino es la
+Fase 10 más D30.
+
+1. **Un activo con EIP-3009 en Plasma testnet.** No existe: hay que desplegarlo
+   (D30.1). El criterio de aceptación ya es ejecutable — `npm run verificar-x402`
+   con `PYRUS_X402_PLASMA_TESTNET_ASSET` apuntando al contrato nuevo.
+2. **Un facilitator que soporte 9746**, o sea D14(b) self-hosted (D30.2).
+3. **Recién entonces**, el tx hash en `testnet.plasmascan.to`. Y mainnet
+   después, si alguna vez, como promoción de algo que ya funcionó.
+
+Mientras tanto **el ítem se reporta como no cumplido**, no como pendiente de
+mirar: `npm run verificar-x402` sale con exit 1 y dice cuál de las tres partes
+falta.
 
 **Cómo se firma la atestación, para poder repetirlo.** `bin.mjs` abre el
 keystore y le pasa al gateway **una función que firma**, no la cuenta ni la
@@ -811,6 +827,49 @@ la cuota es decorativa desde el día uno.
 
 ---
 
+### D30. Nunca se estrena en mainnet (operativa)
+
+**Problema.** D15 dejó una nota operativa que decía cómo empezar: _"Plasma no es
+una testnet. Se empieza con montos de $0.001 y una wallet con USD 2. El riesgo
+está acotado por el monto, no por el entorno."_ Eso es cierto y es insuficiente:
+el riesgo acotado por el monto sigue siendo riesgo, y sobre todo **no protege del
+modo de falla que apareció de verdad**, que no fue perder plata sino gastarla
+para descubrir que el camino no existía. El facilitator hosted de D14 devolvía
+500/503 el 2026-08-27; fondear antes de mirarlo habría sido pagar por esa
+información.
+
+**Decisión: todo camino que mueva valor se estrena en testnet. Sin excepción.**
+Mainnet es la promoción de algo que ya funcionó en otro lado, nunca el lugar
+donde se prueba si funciona.
+
+**Las tres consecuencias, porque ninguna es gratis y hay que aceptarlas juntas:**
+
+1. **En Plasma testnet (9746) no hay stablecoin que sirva.** Los faucets dan XPL,
+   que es gas nativo y no tiene contrato; el USD₮0 de testnet está "in
+   development" y los deployments oficiales de USDT0 no listan ninguna testnet.
+   Verificado por cinco vías independientes, incluido un `eth_getCode` contra la
+   cadena. **Así que el activo de prueba hay que desplegarlo nosotros**, con el
+   XPL del faucet pagando el gas. Es un ERC-20 con EIP-3009, y el criterio de
+   aceptación ya está escrito y es ejecutable: `npm run verificar-x402`.
+2. **D14(b) deja de ser plan B y pasa a ser obligatorio.** El facilitator hosted
+   no soporta 9746 —ni responde—, y menos va a conocer un token nuestro. El
+   self-hosted estaba presupuestado en la Fase 10 y en el riesgo #5; se adelanta.
+3. **Ese token NO se llama $QVAC**, y no es una cuestión de gusto: D28 decidió
+   que el riel de pago es stablecoin y que el token nativo vive en la capa de
+   incentivos. Como la atestación de D24 y el recibo de x402 **registran el
+   activo**, llamarlo $QVAC escribiría adentro de artefactos firmados la misma
+   contradicción que D28 acaba de borrar del pitch. Es un stand-in de stablecoin,
+   se llama como tal, y va marcado como prueba donde se vea.
+
+**Lo que esto NO cambia:** D15 sigue eligiendo Plasma, y la dirección de mainnet
+quedó verificada contra la cadena (ver 0-quater). Lo que cambia es el orden: se
+prueba en 9746 y recién después se toca 9745.
+
+**Impacto si no se decide:** vuelve a pasar lo del 2026-08-27, pero con la wallet
+ya fondeada.
+
+---
+
 ## 2 · Fases
 
 ### Fase 6.5 — Presupuesto, corte y degradación a local (~2 días) ← va primero
@@ -1172,8 +1231,9 @@ server lo registra en su log y la tarjeta cambia de estado y de color.
 
 ### Fase 9 — x402 en el borde (~2-3 días) ← el hito técnico
 
-> **HECHA, NO CERRADA el 2026-08-27.** El estado ítem por ítem, lo que quedó sin
-> verificar y qué falta para poder cerrarla están en **§ 0-quater**. Se le
+> **CERRADA el 2026-08-27**, con el tx hash del explorer **declarado afuera** y no
+> dado por bueno. El estado ítem por ítem y el camino de ese ítem están en
+> **§ 0-quater**; el orden testnet-primero que lo condiciona, en **D30**. Se le
 > sumaron D24, D25 y D27 —que son de
 > [ROADMAP_REVISION-EVIDENCIA.md](ROADMAP_REVISION-EVIDENCIA.md)— y apareció
 > **B20** en el camino: el tope de tokens que el 402 declaraba y no aplicaba
@@ -1463,7 +1523,7 @@ sección 0-ter, y manda esa. El estado de la Fase 9 en particular está en
 | 2     | Fase 7 — desmockear `economic` (incluye D13)    | **CERRADA 2026-08-26**                                            | Precondición de todo cobro. Desbloquea 9, 10 y 11                                                                                                         |
 | 3     | Fase 8 — precio comparable y que rutea          | **CERRADA 2026-08-26**                                            | Vale sola aunque x402 se caiga                                                                                                                            |
 | 4     | Fase 8.5 — el asistente externo como candidato  | **CERRADA 2026-08-26** (B3, B4, B7, y después B11, B12, B15, B16) | Chica, porque la 8 ya dejó el ruteo listo                                                                                                                 |
-| 5     | Fase 9 — x402 en el borde                       | **HECHA, NO CERRADA 2026-08-27** — ver 0-quater                   | El hito técnico. D9 exige `finish_reason: length` al recortar: eso es B14 (que lo REPORTA) más B20 (que hace que el recorte exista). Lleva D24, D25 y D27 |
+| 5     | Fase 9 — x402 en el borde                       | **CERRADA 2026-08-27**, con el tx hash afuera — ver 0-quater      | El hito técnico. D9 exige `finish_reason: length` al recortar: eso es B14 (que lo REPORTA) más B20 (que hace que el recorte exista). Lleva D24, D25 y D27 |
 | 6     | Fase 10 — recibos y lote                        | **desbloqueada, y con insumo** (la 9 dejó D24 emitiéndose)        | Mata la Fase 6. Ya no arranca de cero: liquida contra un artefacto firmado, no contra lo que un nodo afirma                                               |
 | 7     | Fase 11 — capa agéntica con harness             | **desbloqueada** (la 7 cerró)                                     | El pitch                                                                                                                                                  |
 | 8     | Fase 11.5 — evaluación adversarial              | no empezada                                                       | Pegada a la 11. No es opcional                                                                                                                            |
