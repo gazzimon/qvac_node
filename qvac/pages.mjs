@@ -2437,16 +2437,6 @@ const CHAT_JS = String.raw`
       el.scrollTop = el.scrollHeight
     }
 
-    // Micro-dolares a texto. SEIS decimales y no cuatro, y no es un detalle de
-    // estilo: con cuatro, cualquier turno de menos de 50 micros se muestra
-    // "USD 0.0000" -- o sea identico a gratis, que es exactamente la
-    // distincion que esta linea existe para hacer. Se recortan los ceros
-    // sobrantes para que un turno caro no se lea lleno de relleno.
-    function usd(micros) {
-      var s = (micros / 1000000).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
-      return 'USD ' + s
-    }
-
     // La linea de procedencia. Es lo que separa a esto de cualquier otro chat:
     // el nodo que contesto sale nombrado, no supuesto.
     function prov(m) {
@@ -2476,9 +2466,18 @@ const CHAT_JS = String.raw`
       // que a nadie se le cobra, porque el pago P2P todavia no existe. Y
       // "up to" tampoco es un adorno: este numero es el techo con el que se
       // autorizo el gasto, no lo que termino saliendo.
+      //
+      // El texto lo arma textoDeCostoEstimado, en panel-x402.mjs, y no una
+      // funcion de aca: es la MISMA regla que aplican las vistas nuevas de la
+      // Fase 9, y con dos implementaciones una de las dos se afloja sola. Los
+      // seis decimales viven ahi por la misma razon de siempre -- con cuatro,
+      // un turno de menos de 50 micros se muestra "USD 0.0000", identico a
+      // gratis, que es justo la distincion que esta linea existe para hacer.
+      //
+      // Un turno VIEJO, sin el campo, no dibuja nada: decirle "no charge" seria
+      // afirmar que fue gratis cuando lo unico cierto es que no se registro.
       if (m.cost === undefined || m.cost === null) { /* turno viejo, sin el dato */ }
-      else if (m.cost > 0) partes.push('<span class="cost">up to ' + usd(m.cost) + '</span>')
-      else partes.push('<span class="cost">no charge</span>')
+      else partes.push('<span class="cost">' + esc(textoDeCostoEstimado(m.cost).texto) + '</span>')
       return '<div class="prov">' + partes.join('') + '</div>'
     }
 

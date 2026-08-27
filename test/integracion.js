@@ -3350,6 +3350,16 @@ test('FASE 9 visible: los paneles servidos LLEVAN el codigo que dibuja todo esto
     '/node busca el recibo SIN credencial, que es la excepcion deliberada a B12'
   )
 
+  // Regla 5: el costo del header es el TECHO estimado -- con SSE los headers
+  // salen antes del primer token --, y el chat ya lo decia bien con "up to
+  // USD ..." / "no charge". Lo que cambia es que ahora esa regla vive en UN solo
+  // lugar, con las vistas nuevas: dos implementaciones de la misma frase es como
+  // una de las dos se afloja sin que nadie se entere.
+  t.ok(
+    chat.body.indexOf('textoDeCostoEstimado(m.cost)') !== -1,
+    'el costo del turno usa la misma regla que las vistas nuevas'
+  )
+
   // Los nueve terminos del grep, ahora en el HTML que se sirve.
   const terminos = [
     'attestation',

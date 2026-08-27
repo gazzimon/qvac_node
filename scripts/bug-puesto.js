@@ -302,6 +302,14 @@ const BUGS = [
     suite: 'integracion',
     espera: ['SIN credencial', 'excepcion deliberada a B12']
   },
+  {
+    n: 'panel regla 5: el costo del turno vuelve a tener su propia formula',
+    file: 'qvac/pages.mjs',
+    de: "partes.push('<span class=\"cost\">' + esc(textoDeCostoEstimado(m.cost).texto) + '</span>')",
+    a: "partes.push('<span class=\"cost\">USD ' + m.cost / 1000000 + '</span>')",
+    suite: 'integracion',
+    espera: ['la misma regla que las vistas nuevas']
+  },
 
   // ---- EL ARNES MISMO ----------------------------------------------------
   //
