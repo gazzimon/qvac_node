@@ -506,7 +506,8 @@ async function startGateway(opts = {}) {
   //
   // La wallet no depende del swarm: es de esta maquina. `joinSwarm` la vuelve a
   // leer para el manifiesto, que es otra cosa -- ahi va FIRMADA.
-  const cobro = await economicDelNodo(budgetDir)
+  // D30.1 — el keystore NO sale de `budgetDir`: ese puede estar en temp.
+  const cobro = await economicDelNodo(await walletStorageDir())
   gw.setEconomic(cobro.economic)
   // D24 — sin firmante no hay atestacion, y eso es lo correcto: se prefiere no
   // emitirla a emitirla sin firma. El gateway lo dice en el recibo.
@@ -734,6 +735,31 @@ function swarmStorageDir() {
   return cmd.flags.storage || path.join(isDev ? os.tmpdir() : persistent(), appName)
 }
 
+// D30.1 — EL KEYSTORE NO VA A %TEMP%, Y POR ESO NO SALE DE `swarmStorageDir`.
+//
+// Bajo `bare` —o sea en desarrollo, que es justo donde se va a probar el fondeo—
+// `swarmStorageDir()` manda todo a `os.tmpdir()`. Para el Corestore eso es
+// aceptable: se vuelve a bajar. Para una wallet no, porque Windows limpia temp y
+// ahi adentro lo que se pierde es la unica copia de una seed.
+//
+// La resolucion vive en `wallet.mjs` y no aca porque es la regla que hay que
+// poder probar sola; esto solo le pasa las tres rutas y grita si el resultado
+// quedo en temp igual. Un `--storage` explicito se respeta —es del operador—
+// pero no en silencio.
+async function walletStorageDir() {
+  const { directorioKeystore } = await import('./qvac/wallet.mjs')
+  const r = directorioKeystore({
+    storage: cmd.flags.storage || null,
+    persistente: persistent(),
+    app: appName
+  })
+  if (r.volatil) {
+    console.error(`  [wallet] OJO: ${r.motivo}`)
+    console.error('  [wallet] una wallet fondeada ahi puede desaparecer sin aviso')
+  }
+  return r.dir
+}
+
 // Abre el Corestore y lo que cuelga de el: el Hyperbee del directorio y el
 // Hyperdrive de archivos. Devuelve las tres cosas mas un `close()` que las
 // cierra en orden.
@@ -786,9 +812,20 @@ async function economicDelNodo(dir) {
   if (!wallet.existe(dir)) return { economic: null, firmar: null }
 
   try {
-    const abierta = await wallet.abrir(dir, env[wallet.VAR_PASSPHRASE])
+    // D30.2 — la red se resuelve del entorno y SE LE PASA. Antes `abrir` recibia
+    // un `rpc` que nadie completaba, asi que la constante de mainnet ganaba
+    // siempre y no habia forma de operar contra 9746.
+    const red = wallet.redDe(env)
+    const abierta = await wallet.abrir(dir, env[wallet.VAR_PASSPHRASE], { red })
     console.log(`  [wallet] direccion de cobro: ${abierta.address}`)
     console.log(`  [wallet] redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
+    console.log(`  [wallet] red: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
+    // D30 en una linea: mainnet no es donde se prueba. No corta —el operador
+    // puede querer estar ahi— pero no puede pasar desapercibido.
+    if (red.mainnet) {
+      console.log(`  [wallet] OJO: ${red.nombre} es MAINNET y mueve plata real.`)
+      console.log(`  [wallet] D30: se estrena en testnet. ${wallet.VAR_RED}=plasma-testnet`)
+    }
     return {
       economic: wallet.economicDe(abierta.address),
       // FASE 9 / D24 — `account.sign` de WDK es un personal_sign EIP-191 sobre
@@ -811,7 +848,8 @@ async function economicDelNodo(dir) {
 async function runWallet() {
   await cargarEnv()
   const wallet = await import('./qvac/wallet.mjs')
-  const dir = swarmStorageDir()
+  const dir = await walletStorageDir()
+  const red = wallet.redDe(env)
   const passphrase = env[wallet.VAR_PASSPHRASE]
   const restaurar = walletCmd.flags.restaurar
 
@@ -824,11 +862,13 @@ async function runWallet() {
     }
     try {
       const r = await wallet.crear(dir, passphrase, {
+        red,
         frase: typeof restaurar === 'string' ? restaurar : null
       })
       console.log('')
       console.log(`  direccion de cobro: ${r.address}`)
       console.log(`  redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
+      console.log(`  red activa: ${red.nombre} (eip155:${red.chainId})`)
       console.log('')
       if (r.restaurada) {
         console.log('  wallet RESTAURADA desde el respaldo.')
@@ -866,10 +906,17 @@ async function runWallet() {
   }
 
   try {
-    const abierta = await wallet.abrir(dir, passphrase)
+    const abierta = await wallet.abrir(dir, passphrase, { red })
     console.log('')
     console.log(`  direccion de cobro: ${abierta.address}`)
     console.log(`  redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
+    console.log(`  red activa: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
+    console.log(`  keystore: ${path.join(dir, 'wallet.json')} (cifrado)`)
+    if (red.mainnet) {
+      console.log('')
+      console.log(`  OJO: ${red.nombre} es MAINNET. D30: se estrena en testnet.`)
+      console.log(`  Para apuntar a la de prueba:  ${wallet.VAR_RED}=plasma-testnet`)
+    }
     console.log('')
   } catch (err) {
     console.error('')
@@ -889,7 +936,7 @@ async function joinSwarm({ operator, store = null, data = null }) {
   const models = swarmModels()
   // Solo el bloque publico: al manifiesto va la direccion, nunca la capacidad de
   // firmar. El firmante lo recibe el gateway, en runServe.
-  const { economic } = await economicDelNodo(dir)
+  const { economic } = await economicDelNodo(await walletStorageDir())
 
   const nodeSwarm = new NodeSwarm({
     identity,

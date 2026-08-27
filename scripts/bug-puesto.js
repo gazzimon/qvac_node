@@ -19,13 +19,18 @@
 // la cabeza de quien lo hizo y se perdia ahi mismo. Aca esta escrita y se puede
 // volver a correr.
 //
-// TRES RESULTADOS, y el del medio es el que mas informa:
+// CUATRO RESULTADOS, y los dos del medio son los que mas informan:
 //
 //   OK         rompio, y rompio el test que se esperaba.
 //   OTRO TEST  rompio, pero se cayo otra cosa: el arreglo esta acoplado a algo
 //              mas, o el test que se creia que lo vigilaba no lo vigila.
 //   NO ROMPIO  nadie lo mira. El arreglo esta sin red, y "la suite pasa" no
 //              dice nada sobre el.
+//   NO CORRIO  la suite no arranco. NO es un resultado sobre el arreglo: es la
+//              ausencia de uno, y se cuenta como fallo por eso mismo. Sin esta
+//              cuarta salida, una suite que moria antes del primer test se
+//              reportaba como NO ROMPIO -- o sea, este arnes inventando el mismo
+//              modo de falla que existe para atrapar. Ver `corrio()`.
 //
 // -----------------------------------------------------------------------------
 // COMO SE AGREGA UNO
@@ -123,16 +128,243 @@ const BUGS = [
     a: '  if (false) {',
     suite: 'unit',
     espera: ['lo que sirvio un par, NO']
+  },
+  // ---- D30 / BLOQUE 0 ----------------------------------------------------
+  //
+  // Las precondiciones de D30. Ninguna de estas es una funcionalidad nueva: son
+  // los cuatro lugares donde algo se podia perder o mandar a la red equivocada,
+  // y por eso lo que hay que comprobar no es que "anden" sino que alguien mire.
+  {
+    n: 'D30.1: el keystore vuelve a %TEMP%, que es de donde D30 lo saco',
+    file: 'qvac/wallet.mjs',
+    de: '  const dir = app ? path.join(persistente, app) : path.resolve(String(persistente))',
+    a: '  const dir = app ? path.join(temp, app) : path.resolve(String(temp))',
+    suite: 'unit',
+    espera: ['no cuelga de temp', 'no es volatil']
+  },
+  {
+    n: 'D30.1: sin persistente se cae a temp en vez de cortar',
+    file: 'qvac/wallet.mjs',
+    de: "    throw new Error('wallet: no hay directorio persistente donde poner el keystore')",
+    a: '    persistente = temp',
+    suite: 'unit',
+    espera: ['sin persistente se corta']
+  },
+  {
+    n: 'D30.2: el rpc elegido deja de llegar a la cuenta (vuelve a ganar mainnet)',
+    file: 'qvac/wallet.mjs',
+    de: '  const url = rpc || elegida.rpc',
+    a: '  const url = REDES[RED_DEFAULT].rpc',
+    suite: 'unit',
+    espera: ['contra el rpc que se pidio']
+  },
+  {
+    n: 'D30.2: mainnet deja de estar marcada como mainnet',
+    file: 'qvac/wallet.mjs',
+    de: "    explorer: 'https://plasmascan.to',\n    mainnet: true",
+    a: "    explorer: 'https://plasmascan.to',\n    mainnet: false",
+    suite: 'unit',
+    espera: ['marcada como MAINNET', 'las dos tablas coinciden']
+  },
+  {
+    n: 'D30.3: el artefacto deja de corresponder a la fuente que esta al lado',
+    file: 'scripts/activo-prueba.sol',
+    de: 'string public constant symbol = "tUSD";',
+    a: 'string public constant symbol = "tUSDX";',
+    suite: 'unit',
+    espera: ['se compilo de ESTA fuente']
+  },
+  {
+    n: 'D30: el guardia de redes pasa de lista blanca a "todo vale"',
+    file: 'scripts/redes-prueba.js',
+    de: '  if (TESTNETS[id]) return null',
+    a: '  return null',
+    suite: 'unit',
+    espera: ['NO se estrena', 'una cadena desconocida no se estrena']
+  },
+  {
+    // Sin el guardia el facilitator TAMPOCO arranca contra 9745 -- se cae mas
+    // adelante, cuando `testnetDe` devuelve null. Eso es defensa en profundidad y
+    // esta bien, pero lo que se pierde es el MOTIVO: en vez de "D30 dice que no",
+    // el operador ve un TypeError. Por eso lo que este ancla vigila es el mensaje,
+    // que es la parte que efectivamente desaparece.
+    n: 'D30.4: el facilitator deja de decir POR QUE no se levanta contra mainnet',
+    file: 'scripts/facilitator.js',
+    de: "  if (motivo) throw new Error('NO SE LEVANTA. ' + motivo)",
+    a: "  if (false) throw new Error('NO SE LEVANTA. ' + motivo)",
+    suite: 'integracion',
+    espera: ['y dice por que', 'nombrando la decision']
+  },
+  {
+    n: 'D30.4: el facilitator vuelve a anunciar las mainnets de fabrica',
+    file: 'scripts/facilitator.js',
+    de: '    const kinds = ((soportado && soportado.kinds) || []).filter((k) => k.network === red.caip2)',
+    a: '    const kinds = (soportado && soportado.kinds) || []',
+    suite: 'integracion',
+    espera: [
+      'no anuncia una sola red que no pueda servir',
+      'ninguna mainnet de la lista de fabrica'
+    ]
+  },
+
+  // ---- FASE 9 VISIBLE — los cuatro artefactos, mirables ------------------
+  //
+  // Estos no vigilan que la fase EMITA nada -- eso ya lo cubren los de arriba.
+  // Vigilan que lo emitido llegue a la pantalla CON SU SIGNIFICADO, que es un
+  // modo de falla distinto y mas silencioso: el panel se sigue sirviendo entero,
+  // la suite sigue verde, y lo que se pierde es la unica forma que tiene una
+  // persona de comprobar un mock, una ausencia o un hash.
+  {
+    n: 'panel: el BLAKE2b del panel se rompe en el limite de bloque',
+    file: 'qvac/panel-x402.mjs',
+    de: '  while (n - i > 128) {',
+    a: '  while (n - i >= 128) {',
+    suite: 'unit',
+    espera: ['mismo hash para una entrada de 128 chars']
+  },
+  {
+    n: 'panel regla 1: la ausencia de atestacion pierde el motivo',
+    file: 'qvac/panel-x402.mjs',
+    de: '      escaparHtml(v.motivo) +',
+    a: "      '—' +",
+    suite: 'unit',
+    espera: ['el motivo APARECE en lo que se dibuja']
+  },
+  {
+    n: 'panel regla 2: un runtime mock deja de verse como mock',
+    file: 'qvac/panel-x402.mjs',
+    de: "  const esMock = runtime === 'mock' || runtime.indexOf('mock') === 0",
+    a: '  const esMock = false',
+    suite: 'unit',
+    espera: ['un artefacto firmado con una wallet REAL', 'el mock sale nombrado en el dibujo']
+  },
+  {
+    n: 'panel regla 3: un conteo del gateway se afirma como medido',
+    file: 'qvac/panel-x402.mjs',
+    de: "  if (fuente === 'proveedor') {",
+    a: '  if (fuente !== null) {',
+    suite: 'unit',
+    espera: ['sin usage lo que hay es una estimacion', 'dos conteos de distinta procedencia']
+  },
+  {
+    n: 'panel regla 4: el tx del facilitator de pruebas pasa por bueno',
+    file: 'qvac/panel-x402.mjs',
+    de: '  const todosIguales =\n    bytes.length > 1 &&',
+    a: '  const todosIguales =\n    false &&',
+    suite: 'unit',
+    espera: ['se reconoce por lo que es']
+  },
+  {
+    n: 'panel: "no pude comparar" se dibuja como si coincidiera',
+    file: 'qvac/panel-x402.mjs',
+    de: "      estado: 'sin-material',",
+    a: "      estado: 'coincide',",
+    suite: 'unit',
+    espera: ['should be equal']
+  },
+  {
+    n: 'panel: el codigo deja de viajar al chat (se sirve el panel ciego)',
+    file: 'qvac/pages.mjs',
+    de: '${ESC}\n${FUENTE_EMBEBIDA}\n${MODAL_JS}\n${CHAT_JS}',
+    a: '${ESC}\n${MODAL_JS}\n${CHAT_JS}',
+    suite: 'integracion',
+    espera: ['lleva embebido el codigo de panel-x402.mjs']
+  },
+  {
+    n: 'panel: el chat deja de dibujar el 402 del turno',
+    file: 'qvac/pages.mjs',
+    de: "          (m.x402 ? htmlDeDesafio(m.x402) : '') +",
+    a: "          '' +",
+    suite: 'integracion',
+    espera: ['el chat dibuja el 402 del turno']
+  },
+  {
+    n: 'panel: el chat tira el evento SSE del recibo',
+    file: 'qvac/pages.mjs',
+    de: '              slot.recibo = ev',
+    a: '              slot.recibo = null',
+    suite: 'integracion',
+    espera: ['guardando el evento SSE final de D12']
+  },
+  {
+    n: 'panel: el rastro de /node pierde el split de D25',
+    file: 'qvac/pages.mjs',
+    de: '      const conteo = htmlDeConteo(vistaDeConteo(e))',
+    a: "      const conteo = ''",
+    suite: 'integracion',
+    espera: ['pinta el split de D25']
+  },
+  {
+    n: 'panel: el recibo se pide CON credencial, y se pierde la excepcion del 402',
+    file: 'qvac/pages.mjs',
+    de: "        const r = await fetch('/v1/receipts/' + encodeURIComponent(id))",
+    a: "        const r = await authFetch('/v1/receipts/' + encodeURIComponent(id))",
+    suite: 'integracion',
+    espera: ['SIN credencial', 'excepcion deliberada a B12']
+  },
+
+  // ---- EL ARNES MISMO ----------------------------------------------------
+  //
+  // La sonda de puertos no es una funcionalidad del producto: es lo que hace que
+  // la suite de integracion pueda correr dos veces seguidas, que es la condicion
+  // para que este arnes signifique algo. Si miente, `elegirPuertos` entrega un
+  // bloque ocupado, el gateway hace `Bare.exit(1)` y la corrida sale sin una
+  // sola linea de TAP -- que es el caso que `corrio()` ahora reporta como NO
+  // CORRIO en vez de como NO ROMPIO.
+  {
+    n: 'arnes: la sonda de puertos dice que un puerto ocupado esta libre',
+    file: 'test/integracion.js',
+    de: "    s.on('error', () => resolve(false))",
+    a: "    s.on('error', () => resolve(true))",
+    suite: 'integracion',
+    espera: ['un puerto con un listener encima NO esta libre']
   }
 ]
 
-function correr(suite) {
+function unaCorrida(suite) {
   try {
     return execSync('npm run test:' + suite, { cwd: RAIZ, encoding: 'utf8', stdio: 'pipe' })
   } catch (e) {
     // La suite roja sale por exit != 0: es el caso ESPERADO acá, no un error.
     return (e.stdout || '') + (e.stderr || '')
   }
+}
+
+// Una corrida que NO ARRANCÓ no es una corrida verde, y la diferencia importa
+// más acá que en ningún otro lado: este arnés lee "no salió ningún `not ok`"
+// como "nadie vigila este arreglo". O sea que una suite que ni siquiera llegó a
+// correr se reporta como un agujero de cobertura que no existe -- y al revés, un
+// agujero real se puede esconder detrás del mismo síntoma.
+//
+// Pasa de verdad y no es hipotético: `test:integracion` bindea 127.0.0.1:8899, y
+// entre dos corridas seguidas el puerto queda en TIME_WAIT. La segunda muere con
+// "el puerto 8899 ya esta en uso" ANTES del primer test, sin una sola línea TAP.
+// Con las entradas de la Fase 9 el arnés pasó a encadenar cinco corridas de
+// integración seguidas y el falso "NO ROMPIÓ" apareció en tres de ellas.
+//
+// La marca de que corrió es el plan de TAP (`1..N`): lo escribe brittle al
+// terminar de enumerar, y no existe si el proceso murió antes.
+function corrio(salida) {
+  return /^1\.\.\d+/m.test(salida) || /^# tests = /m.test(salida)
+}
+
+function dormir(ms) {
+  // Sincrónico a propósito: todo este script lo es, y meter async acá obligaría
+  // a volver asíncrono el loop que restaura los archivos en un `finally`.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function correr(suite) {
+  // Tres intentos, esperando a que el TIME_WAIT del puerto se vaya. Si igual no
+  // arranca, se devuelve lo último y `main` lo reporta como NO CORRIÓ -- nunca
+  // como si la suite hubiera pasado.
+  let salida = ''
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) dormir(5000)
+    salida = unaCorrida(suite)
+    if (corrio(salida)) return salida
+  }
+  return salida
 }
 
 // Los asserts que fallan salen INDENTADOS bajo su test y solo el contenedor sale
@@ -186,7 +418,16 @@ function main() {
     const rotos = loQueRompio(salida)
     const elCorrecto = b.espera.some((e) => rotos.some((l) => l.indexOf(e) !== -1))
 
-    if (rotos.length && elCorrecto) {
+    if (!corrio(salida)) {
+      // El cuarto resultado, y el unico que no dice nada sobre el arreglo: la
+      // suite no llego a correr. Se cuenta como fallo porque quedarse sin
+      // evidencia no es lo mismo que tenerla.
+      console.log('NO CORRIO  ' + b.n)
+      console.log('           la suite no llego a arrancar en 3 intentos; esto NO dice nada')
+      console.log('           sobre el arreglo. Ultimas lineas:')
+      for (const l of salida.trim().split('\n').slice(-3)) console.log('           | ' + l.trim())
+      fallos++
+    } else if (rotos.length && elCorrecto) {
       console.log('OK         ' + b.n)
       console.log('           rompio: ' + rotos.join(' | ').slice(0, 140))
     } else if (rotos.length) {

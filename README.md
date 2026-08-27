@@ -188,6 +188,97 @@ for it; the provider falling gets **no attestation and no charge**; the token
 ceiling gets a complete attestation with `finishReason: "length"`, and is
 charged.
 
+**Where you can look at all of this.** For a while these four artefacts existed
+only over HTTP — you needed `curl` to see any of them, which meant a claim like
+"a mock says it is a mock" was not something a person could check by looking. The
+panels now show them. A `402` in the chat is drawn as what it is — how much, to
+whom, on which chain, up to how many output tokens — instead of collapsing to an
+error string. `/node` looks a receipt up by completion id and puts the settlement
+receipt and the attestation side by side, and it will **recompute `outputHash` in
+the browser** against text you paste, which is the point of hashing the text
+rather than counting the pieces. The routing trace on `/node` and `/admin` shows
+the prefill/decode split with its provenance attached.
+
+Four things the panel refuses to smooth over, because smoothing them is how a
+missing datum turns into a fact: a missing attestation is shown with **the reason
+it is missing**, never a dash; `runtime: mock` is drawn as a mock even though the
+signature over it is real; `tokensFuente: "gateway"` never looks like
+`"proveedor"`, because the first is an estimate plus a count of SSE chunks; and a
+tx hash always says where it came from — against the test facilitator it is
+`0xfe…fe`, which exists in no explorer, and the panel says so. It verifies the
+hashes and **not** the signature (that needs keccak256 and secp256k1, and no CDN
+is loaded here), so it shows the exact JCS bytes that were signed and says which
+of the two it did.
+
+## Nothing premieres on mainnet
+
+Plasma is not a testnet, and the failure mode that actually happened was not
+losing money — it was **spending it to find out the path did not exist**. The
+hosted facilitator was returning 500/503 on every endpoint on 2026-08-27.
+Funding a wallet before looking would have been paying for that information.
+
+So: every path that moves value is exercised on testnet first. Mainnet is the
+promotion of something that already worked somewhere else, never the place where
+you find out whether it works. That costs three things, and none of them is free:
+
+**There is no stablecoin on Plasma testnet (9746).** The faucets hand out XPL,
+which is native gas and has no contract; testnet USD₮0 is "in development" and
+the official USDT0 deployments list no testnet. Verified five independent ways,
+including an `eth_getCode` against the chain. So the test asset is one we deploy:
+`scripts/activo-prueba.sol`, an ERC-20 with EIP-3009 — which is all the `exact`
+scheme needs to sign and settle.
+
+> **That token is a MOCK, and it is marked as one everywhere it shows.** Its
+> `name` is `PyrusLLM Test USD`, its symbol `tUSD`, it carries an on-chain
+> `AVISO` constant that says it is not a stablecoin and is worth nothing, and its
+> `mint` is open to anyone — which is the loudest possible way to say the same
+> thing. **It is deliberately not called $QVAC**: D28 put the payment rail on
+> stablecoin and the native token in the incentive layer, and since the D24
+> attestation and the x402 receipt both **record the asset**, naming it $QVAC
+> would write that contradiction inside signed artifacts.
+
+The repo gains no Solidity toolchain for this — no hardhat, no foundry. What
+ships in `scripts/` is the already-compiled bytecode plus a deploy script;
+`activo-prueba.artefacto.json` records the exact solc version, the settings and
+the SHA-256 of the source, and a test recomputes that hash so an edited `.sol`
+that was never recompiled breaks the suite instead of silently shipping.
+
+**The facilitator is self-hosted** (`scripts/facilitator.js`). The hosted one
+neither answers nor supports 9746, and would certainly not know a token of ours.
+It is Node, not Bare, so it does **not** enter the distributed binary — and that
+does not violate D11, which is about that binary: a facilitator is already a
+remote service today, and self-hosting swaps a remote service for a local one. It
+adds **no new dependency** (viem, `@x402/core` and `@x402/evm` were already in
+the tree). Its wallet is a **different** wallet from the node's payout wallet: it
+broadcasts transactions, so it needs native gas, which on testnet is free.
+
+**Neither will start against mainnet, and no flag overrides it.** The guard is a
+whitelist of known testnets, not a blacklist of mainnets: a chain nobody wrote
+down has to fall on the "no" side, because the cost of that omission is deploying
+to a live chain believing it was a rehearsal.
+
+```bash
+# 1. deploy the test asset (needs faucet XPL on a throwaway key)
+PYRUS_DESPLIEGUE_CLAVE=0x…  npm run desplegar-activo
+
+# 2. the acceptance criterion, which is executable and reads the chain
+PYRUS_X402_PLASMA_TESTNET_ASSET=0x… \
+PYRUS_X402_PLASMA_TESTNET_NAME="PyrusLLM Test USD" \
+npm run verificar-x402
+
+# 3. the facilitator, and the node pointed at it
+PYRUS_FACILITATOR_CLAVE=0x…  npm run facilitator
+PYRUS_X402_FACILITATOR=http://127.0.0.1:8402  PYRUS_WALLET_RED=plasma-testnet  npm run serve
+```
+
+Step 2 checks three things against the chain: that a contract is there, that
+`authorizationState` does not revert (so it really implements EIP-3009), and that
+the `DOMAIN_SEPARATOR` the contract returns equals the EIP-712 domain we sign
+with. The third is the one that fails quietly and the only one that proves a
+signature of ours would verify on the other side. It exits non-zero until all
+three hold. **Until then the on-chain tx hash is reported as not met — not as
+pending review.**
+
 Two counters that look like one and are not — the principle is the same, the
 unit is not: the meter lives on the side that pays.
 
@@ -257,7 +348,7 @@ candidate instead of failing, and the trace records it as a degradation.
 ```
 <storage>/identity.json     network seed (plaintext, by the same criterion as below)
 <storage>/apikeys.json      issued credentials, owner-only permissions
-<storage>/wallet.json       payout wallet keystore, Argon2id + secretbox
+<persistent>/wallet.json    payout wallet keystore, Argon2id + secretbox — never in temp
 <storage>/upstreams.json    which external providers this node uses
 <storage>/ledger            monthly spend, survives restarts
 .env                        secrets only — read from cwd and storage, env wins over file
@@ -271,6 +362,22 @@ against a backup, a repo and a `pear stage` — **not** against someone who
 already has access to the machine. Asking for it on every start would break
 unattended startup, and that trade was made deliberately.
 
+**The keystore does not live under `<storage>`.** Under `bare` — that is, in
+development, which is exactly where funding gets rehearsed — the storage
+directory is `os.tmpdir()`, and Windows cleans temp. For a Corestore that is
+fine: it can be re-fetched. For a wallet it is not, because what disappears there
+is the only copy of a seed. The keystore resolves to the persistent directory
+always, never to temp; an explicit `--storage` is honoured because it is the
+operator's call, but if it lands inside temp the node says so on startup.
+
+**Which chain the node signs for is chosen, not assumed.** `PYRUS_WALLET_RED`
+picks `plasma` (9745, the D15 default, **mainnet, real money**) or
+`plasma-testnet` (9746); `PYRUS_WALLET_RPC` overrides only the URL and never the
+chainId, because under EIP-155 the chainId is part of what gets signed — a
+transaction signed for 9745 is not valid on 9746, so a mis-pointed RPC must not
+be able to silently change the chain being signed for. Picking mainnet is
+allowed and says so loudly at startup; it is just not where anything premieres.
+
 ## Tests
 
 ```bash
@@ -279,8 +386,8 @@ npm run soak          # the real cycle N times, reporting the distribution
 npm run auditoria     # pull the trace, save it, and rule on whether inference happened
 ```
 
-**129 tests, 604 asserts green** (82/388 unit + 47/216 integration), plus a smoke
-check that the 2,115-module build graph still resolves. They cut at the edge, not
+**170 tests, 953 asserts green** (107/581 unit + 63/372 integration), plus a smoke
+check that the build graph still resolves. They cut at the edge, not
 at the happy path: the cap invariant runs 100 rounds against a USD 0.10 limit and
 asserts real spend never exceeds it; the wallet test searches the keystore
 **word by word** for the backup phrase; the phase-8 price tests are verified

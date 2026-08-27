@@ -52,7 +52,21 @@
 // `crypto_secretbox_open_easy` autentica antes de descifrar, así que eso no
 // pasa: o abre lo que se guardó, o no abre.
 
+// -----------------------------------------------------------------------------
+// D30.1 / D30.2 — LA FASE 7 SE REABRIO ACA, Y SE VOLVIO A CERRAR
+//
+// Este archivo es superficie de la Fase 7, que estaba cerrada. D30 la reabrio
+// por dos precondiciones suyas que no se pueden cumplir desde afuera:
+//
+//   D30.1  el keystore no puede vivir en %TEMP% -> `directorioKeystore`
+//   D30.2  el RPC tiene que ser configurable    -> `REDES` / `redDe` / `abrir({rpc})`
+//
+// Lo que NO cambio: el formato del archivo (VERSION sigue en 1), la derivacion,
+// el cifrado, ni la invariante de que la seed no sale del proceso que la abre.
+// Un keystore escrito antes de esto se abre igual.
+
 import fs from 'bare-fs'
+import os from 'bare-os'
 import path from 'bare-path'
 import sodium from 'sodium-native'
 import * as bip39 from '@scure/bip39'
@@ -84,6 +98,136 @@ const ENTROPIA_BYTES = 32
 // La variable de entorno con la passphrase. El NOMBRE vive acá; el valor no
 // toca el código ni el repo, igual que las credenciales de upstream.
 export const VAR_PASSPHRASE = 'PYRUS_WALLET_PASSPHRASE'
+
+// -----------------------------------------------------------------------------
+// D30.2 — LA RED, Y POR QUE NO ALCANZABA CON UNA CONSTANTE
+// -----------------------------------------------------------------------------
+//
+// Acá había un `RPC_DEFAULT = 'https://rpc.plasma.to'` y nada más: ni flag, ni
+// variable, ni forma de apuntar a otro lado. `abrir()` aceptaba un `rpc` que
+// nadie le pasaba. O sea que el nodo sólo sabía hablarle a MAINNET, y D30 —que
+// decide que nada se estrena ahí— no se podía cumplir ni queriendo.
+//
+// **Y no es que "la testnet sea la misma red con otra URL".** Por EIP-155 el
+// chainId entra en lo que se firma: una transacción firmada para 9745 no vale en
+// 9746 y viceversa. Son dos redes distintas y hay que poder decir cuál.
+//
+// El default NO cambia: D15 sigue eligiendo Plasma mainnet, y D30 no dice que el
+// nodo no pueda apuntar ahí — dice que no se ESTRENA ahí. Lo que cambia es que
+// ahora se puede elegir, y que cuando la elegida es mainnet el arranque lo grita
+// en vez de dejarlo implícito en una constante.
+//
+// EL LIMITE HONESTO: `chainId` acá es lo que la tabla DECLARA, no lo que la
+// cadena contesta. Si alguien pone `PYRUS_WALLET_RPC` apuntando al RPC de otra
+// red, este módulo no se entera — no habla con la red a propósito (ver
+// `cuentaDesde`). Quien compara lo declarado contra lo que responde la cadena es
+// `npm run verificar-x402`, y por eso ese script existe antes que el fondeo.
+export const REDES = {
+  plasma: {
+    chainId: 9745,
+    caip2: 'eip155:9745',
+    rpc: 'https://rpc.plasma.to',
+    explorer: 'https://plasmascan.to',
+    mainnet: true
+  },
+  'plasma-testnet': {
+    chainId: 9746,
+    caip2: 'eip155:9746',
+    rpc: 'https://testnet-rpc.plasma.to',
+    explorer: 'https://testnet.plasmascan.to',
+    mainnet: false
+  }
+}
+
+// D15 sin cambios: Plasma mainnet es el default.
+export const RED_DEFAULT = 'plasma'
+
+export const VAR_RED = 'PYRUS_WALLET_RED'
+export const VAR_RPC = 'PYRUS_WALLET_RPC'
+
+// Qué red usa este nodo, resuelta desde el entorno. Función pura: recibe el
+// `env` en vez de leerlo, para que se pueda probar sin ensuciar el proceso.
+//
+// `VAR_RPC` pisa SOLO la URL, nunca el chainId. Un RPC apuntado a mano no puede
+// cambiar en silencio la red para la que se firma: si querés otra red, se nombra.
+export function redDe(env = {}) {
+  const nombre = String(env[VAR_RED] || RED_DEFAULT).trim()
+  const red = REDES[nombre]
+  if (!red) {
+    throw new Error(
+      `wallet: ${VAR_RED}=${JSON.stringify(nombre)} no es una red conocida. ` +
+        `Las que hay: ${Object.keys(REDES).join(', ')}`
+    )
+  }
+  const rpc = String(env[VAR_RPC] || '').trim() || red.rpc
+  return { nombre, ...red, rpc, rpcPropio: rpc !== red.rpc }
+}
+
+// -----------------------------------------------------------------------------
+// D30.1 — DONDE VIVE EL KEYSTORE, Y POR QUE NO PUEDE SER %TEMP%
+// -----------------------------------------------------------------------------
+//
+// `swarmStorageDir()` mandaba TODO el storage a `os.tmpdir()` cuando el nodo
+// corre bajo `bare` —o sea, en desarrollo, que es exactamente donde se va a
+// probar el fondeo—. Para un Corestore que se puede volver a bajar eso es
+// aceptable. Para una wallet no: **Windows limpia temp**, y ahí adentro la
+// pérdida no es de caché sino de la única copia de una seed que quizá nadie
+// anotó. Es precondición de fondear cualquier cosa, testnet incluida.
+//
+// La regla es simple: el keystore va al directorio PERSISTENTE, siempre, aunque
+// el resto del storage esté en temp. Un `--storage` explícito se respeta —es una
+// decisión del operador y no nuestra— pero si cae adentro de temp se avisa, en
+// vez de dejar que se descubra el día que el archivo no está.
+//
+// Se separa del resto del storage a propósito: son dos cosas con vidas útiles
+// distintas y juntarlas fue lo que creó el problema.
+export function directorioKeystore({
+  storage = null,
+  persistente = null,
+  app = '',
+  temporal
+} = {}) {
+  const temp = temporal || os.tmpdir()
+
+  if (storage) {
+    const dir = path.resolve(String(storage))
+    return {
+      dir,
+      volatil: estaAdentroDe(dir, temp),
+      motivo: estaAdentroDe(dir, temp)
+        ? `el --storage apunta adentro de ${temp}, que el sistema operativo limpia`
+        : null
+    }
+  }
+
+  if (!persistente) {
+    throw new Error('wallet: no hay directorio persistente donde poner el keystore')
+  }
+
+  // NUNCA temp. Ni en dev. Ese es todo el arreglo de D30.1.
+  const dir = app ? path.join(persistente, app) : path.resolve(String(persistente))
+  return {
+    dir,
+    volatil: estaAdentroDe(dir, temp),
+    motivo: estaAdentroDe(dir, temp)
+      ? `el directorio persistente de esta plataforma cae adentro de ${temp}`
+      : null
+  }
+}
+
+// Windows compara rutas sin distinguir mayúsculas, y este chequeo tiene que
+// fallar hacia "sí es temp" y no hacia "no lo es": el costo de un aviso de más
+// es una línea en pantalla, y el de uno de menos es una wallet borrada.
+function estaAdentroDe(dir, contenedor) {
+  if (!contenedor) return false
+  const norm = (p) => {
+    const r = path.resolve(String(p)).replace(/[\\/]+$/, '')
+    return os.platform() === 'win32' ? r.toLowerCase() : r
+  }
+  const d = norm(dir)
+  const c = norm(contenedor)
+  return d === c || d.startsWith(c + path.sep) || d.startsWith(c + '/')
+}
 
 function rutaDe(dir) {
   return path.join(dir, ARCHIVO)
@@ -207,12 +351,16 @@ function descifrar(sobre, passphrase) {
 //
 // El `provider` se le pasa igual porque WDK lo pide en el constructor; no se usa
 // hasta que alguien mande una transacción, que es Fase 9 en adelante.
-const RPC_DEFAULT = 'https://rpc.plasma.to'
+// D30.2 — el RPC ya no es una constante escondida acá. `red` es lo que resolvió
+// `redDe()`, y `rpc` puede pisarlo para un caso puntual (los tests le pasan uno
+// que no existe, justamente para probar que no hace falta que exista).
+async function cuentaDesde(frase, rpc, red) {
+  const elegida = red || redDe({})
+  const url = rpc || elegida.rpc
 
-async function cuentaDesde(frase, rpc) {
   const mod = await import('@tetherto/wdk-wallet-evm')
   const WalletManagerEvm = mod.default || mod
-  const manager = new WalletManagerEvm(frase, { provider: rpc || RPC_DEFAULT })
+  const manager = new WalletManagerEvm(frase, { provider: url })
   const cuenta = await manager.getAccount()
   const address = await cuenta.getAddress()
   // El mismo pattern que exige el schema congelado. Si WDK cambiara de formato,
@@ -220,7 +368,9 @@ async function cuentaDesde(frase, rpc) {
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     throw new Error('wallet: WDK devolvio una direccion que no matchea el schema: ' + address)
   }
-  return { manager, cuenta, address }
+  // La red viaja de vuelta para que quien abrió pueda DECIRLA: un nodo que cobra
+  // contra 9745 y uno que cobra contra 9746 no se pueden ver igual en pantalla.
+  return { manager, cuenta, address, rpc: url, red: elegida }
 }
 
 // -----------------------------------------------------------------------------
@@ -232,7 +382,7 @@ async function cuentaDesde(frase, rpc) {
 // Devuelve la frase EN CLARO una única vez, para que quien llama pueda
 // mostrársela al operador y que la anote. No se vuelve a poder leer sin la
 // passphrase, y ese es el punto.
-export async function crear(dir, passphrase, { rpc = null, frase = null } = {}) {
+export async function crear(dir, passphrase, { rpc = null, red = null, frase = null } = {}) {
   if (!passphrase) throw new Error('wallet: hace falta una passphrase para cifrar la seed')
   if (existe(dir)) throw new Error('wallet: ya hay una wallet en ' + rutaDe(dir))
 
@@ -244,7 +394,7 @@ export async function crear(dir, passphrase, { rpc = null, frase = null } = {}) 
     throw new Error('wallet: la frase de respaldo no valida contra BIP-39')
   }
 
-  const { address } = await cuentaDesde(semilla, rpc)
+  const { address } = await cuentaDesde(semilla, rpc, red)
   guardar(dir, cifrar(semilla, passphrase))
   return { address, frase: semilla, restaurada: !!frase }
 }
@@ -255,7 +405,7 @@ export async function crear(dir, passphrase, { rpc = null, frase = null } = {}) 
 // Si hay wallet pero la passphrase falta o no abre, eso SÍ es un error y se
 // dice: alguien configuró una wallet y el nodo no la puede usar, y la diferencia
 // con "no hay wallet" tiene que verse.
-export async function abrir(dir, passphrase, { rpc = null } = {}) {
+export async function abrir(dir, passphrase, { rpc = null, red = null } = {}) {
   if (!existe(dir)) return null
 
   let sobre
@@ -280,7 +430,7 @@ export async function abrir(dir, passphrase, { rpc = null } = {}) {
     throw new Error('wallet: la passphrase de ' + VAR_PASSPHRASE + ' no abre el keystore')
   }
 
-  return cuentaDesde(frase, rpc)
+  return cuentaDesde(frase, rpc, red)
 }
 
 // El bloque `economic` del manifiesto, armado desde una dirección real.

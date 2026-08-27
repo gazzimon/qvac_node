@@ -2626,3 +2626,681 @@ test('D24: este nodo NO atestigua lo que sirvio otro', async (t) => {
   t.ok(at.porQueNoSeFirma({ node: yo, walletAddress: dir, tieneFirmante: false }))
   t.ok(at.porQueNoSeFirma({ node: null, walletAddress: dir, tieneFirmante: true }))
 })
+
+// ---------------------------------------------------------------------------
+// D30 / BLOQUE 0 — las precondiciones para poder demostrar la Fase 10
+//
+// D30 decidio que ningun camino que mueva valor se estrena en mainnet. Eso tiene
+// tres precondiciones que se pueden probar sin tocar una cadena, y estan aca:
+//
+//   D30.1  el keystore no puede quedar en %TEMP%
+//   D30.2  la red tiene que ser elegible, y el default tiene que decir que es mainnet
+//   D30.3  el activo de prueba tiene que existir como artefacto y ser EIP-3009
+//
+// La cuarta (el facilitator self-hosted) necesita un proceso node y esta en
+// test/integracion.js.
+//
+// NINGUNO DE ESTOS SALE A INTERNET. El artefacto se mira en disco, la red se
+// resuelve de una tabla, y el keystore de tres rutas.
+// ---------------------------------------------------------------------------
+
+test('D30.1: el keystore NUNCA cae en temp por su cuenta', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const os = require('bare-os')
+  const path = require('bare-path')
+  const temp = os.tmpdir()
+
+  // El bug que esto cierra: `swarmStorageDir()` manda TODO a os.tmpdir() bajo
+  // bare, o sea en desarrollo -- que es justo donde se va a probar el fondeo.
+  // Windows limpia temp, y ahi adentro lo que se pierde no es cache: es la
+  // unica copia de una seed.
+  const sano = wallet.directorioKeystore({
+    storage: null,
+    persistente: path.join(temp, '..', 'persistente-de-mentira'),
+    app: 'pyrusllm'
+  })
+  t.absent(sano.volatil, 'con un persistente sano el keystore no es volatil')
+  t.absent(sano.dir.indexOf(temp) === 0, 'y no cuelga de temp: ' + sano.dir)
+  t.ok(sano.dir.indexOf('pyrusllm') !== -1, 'y lleva el nombre de la app adentro')
+
+  // Un --storage explicito SI se respeta: es una decision del operador y no
+  // nuestra. Lo que no puede es pasar callado.
+  const elegido = wallet.directorioKeystore({
+    storage: path.join(temp, 'wallet-elegida'),
+    persistente: '/datos/persistentes',
+    app: 'pyrusllm'
+  })
+  t.is(elegido.dir, path.resolve(path.join(temp, 'wallet-elegida')), 'se respeta')
+  t.ok(elegido.volatil, 'pero queda marcado como volatil')
+  t.ok(String(elegido.motivo).indexOf('limpia') !== -1, 'y el motivo lo explica: ' + elegido.motivo)
+
+  // Y el caso patologico: si la propia plataforma dijera que su directorio
+  // persistente esta adentro de temp, tambien se avisa. El chequeo falla hacia
+  // "si es temp", que es el lado barato de equivocarse.
+  const raro = wallet.directorioKeystore({ storage: null, persistente: temp, app: 'pyrusllm' })
+  t.ok(raro.volatil, 'un persistente que cae en temp tampoco pasa desapercibido')
+
+  // Sin persistente NO se inventa uno. Devolver temp aca seria exactamente el
+  // bug con otro nombre.
+  t.exception(
+    () => wallet.directorioKeystore({ storage: null, persistente: null, app: 'pyrusllm' }),
+    /persistente/,
+    'sin persistente se corta en vez de caer a temp'
+  )
+})
+
+test('D30.2: la red se elige, y el default dice en la cara que es mainnet', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+
+  // D15 NO cambia: Plasma mainnet sigue siendo el default. Lo que cambia es que
+  // ahora se puede elegir otra y que el que elige mainnet lo sabe.
+  const porDefecto = wallet.redDe({})
+  t.is(porDefecto.nombre, 'plasma', 'D15 intacto: el default sigue siendo Plasma')
+  t.is(porDefecto.chainId, 9745)
+  t.ok(porDefecto.mainnet, 'y esta marcada como MAINNET, que es lo que permite avisarlo')
+
+  const prueba = wallet.redDe({ [wallet.VAR_RED]: 'plasma-testnet' })
+  t.is(prueba.chainId, 9746, 'la testnet de D30 es elegible')
+  t.absent(prueba.mainnet, 'y la testnet no esta marcada como mainnet')
+  t.absent(prueba.rpc === porDefecto.rpc, 'con OTRO rpc, no el de mainnet: ' + prueba.rpc)
+
+  // EIP-155: el chainId entra en lo que se firma. Que sean dos numeros distintos
+  // no es trivia -- es la razon por la que una tx de 9745 no vale en 9746, y por
+  // la que "la testnet es la misma red con otra URL" es falso.
+  t.absent(porDefecto.chainId === prueba.chainId, '9745 y 9746 no son la misma red')
+
+  // El RPC se puede pisar, pero SOLO la URL. Si pisar el rpc cambiara tambien la
+  // red para la que se firma, un RPC mal apuntado seria una firma para otra
+  // cadena sin que nadie lo pidiera.
+  const propio = wallet.redDe({
+    [wallet.VAR_RED]: 'plasma-testnet',
+    [wallet.VAR_RPC]: 'http://127.0.0.1:8545'
+  })
+  t.is(propio.rpc, 'http://127.0.0.1:8545', 'la URL se pisa')
+  t.is(propio.chainId, 9746, 'el chainId NO')
+  t.ok(propio.rpcPropio, 'y queda dicho que el rpc no es el de la tabla')
+
+  // Una red que no existe se corta con el nombre adentro del mensaje. Caer al
+  // default seria operar contra mainnet creyendo que se pidio otra cosa.
+  t.exception(() => wallet.redDe({ [wallet.VAR_RED]: 'ethereum' }), /no es una red conocida/)
+})
+
+test('D30.2: el rpc elegido llega hasta la cuenta, sin tocar la red', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const tmp = dirWalletTmp()
+
+  // Lo que estaba roto no era que `abrir` no aceptara un rpc: lo aceptaba. Era
+  // que NADIE se lo pasaba, asi que la constante de mainnet ganaba siempre. Se
+  // prueba de punta a punta: se crea con una red, se abre con la misma, y la
+  // cuenta devuelve el rpc con el que se armo.
+  const red = wallet.redDe({ [wallet.VAR_RED]: 'plasma-testnet' })
+  const creada = await wallet.crear(tmp.dir, 'passphrase-de-prueba', { red })
+  t.ok(/^0x[a-fA-F0-9]{40}$/.test(creada.address))
+
+  const abierta = await wallet.abrir(tmp.dir, 'passphrase-de-prueba', { red })
+  t.is(abierta.rpc, red.rpc, 'la cuenta se armo contra el rpc que se pidio')
+  t.is(abierta.red.chainId, 9746, 'y contra la red que se pidio')
+
+  // Y sin `red` sigue saliendo el default de D15, que es lo que un nodo que no
+  // configura nada tiene que seguir haciendo.
+  const porDefecto = await wallet.abrir(tmp.dir, 'passphrase-de-prueba')
+  t.is(porDefecto.red.chainId, 9745, 'sin elegir, D15: Plasma mainnet')
+  t.is(porDefecto.address, abierta.address, 'y la direccion no depende de la red')
+
+  // La derivacion NO habla con la red, y eso es precondicion de que un nodo sin
+  // internet pueda anunciarse. Un rpc que no existe tiene que dar lo mismo.
+  const inventado = await wallet.abrir(tmp.dir, 'passphrase-de-prueba', {
+    rpc: 'http://127.0.0.1:1/no-existe'
+  })
+  t.is(inventado.address, abierta.address, 'la direccion sale sin tocar la cadena')
+
+  tmp.limpiar()
+})
+
+test('D30.2: las dos tablas de redes no se pueden desincronizar', async (t) => {
+  // `qvac/wallet.mjs` corre bajo Bare y `scripts/redes-prueba.js` bajo Node, asi
+  // que la tabla esta escrita dos veces -- igual que en verificar-x402.js, y por
+  // el mismo motivo. La duplicacion que hace dano no es tener dos tablas: es que
+  // una diga testnet donde la otra dice mainnet. Eso es lo que se compara aca.
+  const wallet = await import('../qvac/wallet.mjs')
+  const redes = require('../scripts/redes-prueba.js')
+
+  for (const [nombre, red] of Object.entries(wallet.REDES)) {
+    const esTestnetAlla = redes.porQueNoSeEstrena(red.chainId) === null
+    t.is(
+      esTestnetAlla,
+      !red.mainnet,
+      nombre + ' (' + red.chainId + '): las dos tablas coinciden en si es de prueba'
+    )
+  }
+
+  // Y el que importa nombrado, porque es el que D30 elige.
+  t.is(redes.testnetDe(9746).caip2, wallet.REDES['plasma-testnet'].caip2)
+  t.ok(redes.porQueNoSeEstrena(9745), 'y 9745 sigue siendo mainnet de los dos lados')
+})
+
+test('D30.3: el activo de prueba existe compilado, y es EIP-3009 de verdad', async (t) => {
+  const fs = require('bare-fs')
+  const path = require('bare-path')
+  const sodium = require('sodium-native')
+
+  const raiz = path.join(__dirname, '..')
+  const fuente = fs.readFileSync(path.join(raiz, 'scripts', 'activo-prueba.sol'), 'utf8')
+  const artefacto = JSON.parse(
+    fs.readFileSync(path.join(raiz, 'scripts', 'activo-prueba.artefacto.json'), 'utf8')
+  )
+
+  // EL ARTEFACTO CORRESPONDE A LA FUENTE QUE ESTA AL LADO.
+  //
+  // Se despliega bytecode precompilado para que el repo no gane un toolchain, y
+  // el precio de esa decision es que recompilar no es `npm run` de nada. Sin
+  // este assert, alguien edita el .sol, no recompila, y lo que se despliega deja
+  // de ser lo que se lee -- que es la peor version de "hay codigo en el repo".
+  const h = Buffer.alloc(sodium.crypto_hash_sha256_BYTES)
+  sodium.crypto_hash_sha256(h, Buffer.from(fuente, 'utf8'))
+  t.is(
+    h.toString('hex'),
+    artefacto.fuenteSha256,
+    'el bytecode se compilo de ESTA fuente (si no: recompilar, ver el encabezado del .sol)'
+  )
+
+  t.ok(/^0x[0-9a-f]+$/.test(artefacto.bytecode), 'el bytecode de creacion es hex')
+  t.ok(/^0x[0-9a-f]+$/.test(artefacto.deployedBytecode), 'y el de runtime tambien')
+  t.ok(artefacto.solc.indexOf('0.8.') === 0, 'con la version de solc anotada: ' + artefacto.solc)
+
+  // QUE IMPLEMENTA EIP-3009, COMPROBADO CONTRA EL BYTECODE Y NO CONTRA EL ABI.
+  //
+  // El ABI lo escribe el compilador desde la fuente, asi que preguntarle al ABI
+  // si el contrato tiene una funcion es preguntarle a la fuente otra vez. Los
+  // selectores, en cambio, estan en el DISPATCHER del runtime: si estan ahi, la
+  // funcion es alcanzable en la cadena. Son los mismos cuatro bytes que
+  // `verificar-x402` va a llamar despues contra el contrato desplegado.
+  const runtime = artefacto.deployedBytecode.slice(2)
+  const SELECTORES = {
+    'authorizationState(address,bytes32)': 'e94a0102',
+    'transferWithAuthorization(...,uint8,bytes32,bytes32)': 'e3ee160e',
+    'transferWithAuthorization(...,bytes)': 'cf092995',
+    'DOMAIN_SEPARATOR()': '3644e515',
+    // `name` y `version` no son de EIP-3009 pero el facilitator de @x402/evm los
+    // LEE de la cadena antes de liquidar. El USD-0 de Plasma revierte en
+    // `version()`; este no puede.
+    'name()': '06fdde03',
+    'version()': '54fd4d50'
+  }
+  for (const nombre of Object.keys(SELECTORES)) {
+    const sel = SELECTORES[nombre]
+    t.ok(runtime.indexOf(sel) !== -1, nombre + ' es alcanzable en el runtime (0x' + sel + ')')
+  }
+
+  // D28/D30.3 — NO SE LLAMA $QVAC, Y ESO NO ES UNA CUESTION DE GUSTO.
+  //
+  // La atestacion de D24 y el recibo de x402 REGISTRAN EL ACTIVO. Ponerle el
+  // nombre del token nativo escribiria adentro de artefactos firmados la
+  // contradiccion que D28 borro del pitch: que el riel de pago se denomina en el
+  // activo especulativo. Es un stand-in de stablecoin y se llama como tal.
+  t.is(
+    artefacto.abi.filter((f) => f.name === 'name').length,
+    1,
+    'expone name(), que es lo que el facilitator lee'
+  )
+
+  // Se mira la DENOMINACION, no el archivo entero: el encabezado del .sol
+  // explica por que no se llama $QVAC, y esa explicacion tiene que poder
+  // mencionarlo. Lo que no puede llevar ese nombre es lo que va a quedar
+  // escrito adentro de la atestacion firmada, que es `name` y `symbol`.
+  const declarado = (campo) => {
+    const m = fuente.match(new RegExp('constant\\s+' + campo + '\\s*=\\s*"([^"]*)"'))
+    return m ? m[1] : null
+  }
+  t.is(declarado('name'), 'PyrusLLM Test USD', 'se llama como el stand-in de stablecoin que es')
+  t.is(declarado('symbol'), 'tUSD')
+  t.absent(/QVAC/i.test(declarado('name') + declarado('symbol')), 'y no lleva el token nativo')
+
+  // Y VA MARCADO COMO PRUEBA DONDE SE VEA. `name` y `symbol` son lo que muestra
+  // un explorer; `AVISO` es para el que abre el contrato.
+  t.ok(fuente.indexOf('NO ES UNA STABLECOIN') !== -1, 'el aviso esta en el contrato mismo')
+  t.ok(
+    artefacto.abi.some((f) => f.name === 'AVISO'),
+    'y expuesto en el ABI, no solo en un comentario'
+  )
+})
+
+test('D30: el guardia de red es lista blanca, y mainnet no tiene puerta', async (t) => {
+  const redes = require('../scripts/redes-prueba.js')
+
+  t.is(redes.porQueNoSeEstrena(9746), null, 'la testnet de Plasma se puede usar')
+  t.is(redes.porQueNoSeEstrena(31337), null, 'y una cadena local tambien')
+
+  // Lo que D30 dice textualmente es "sin excepcion". Estas tres tienen que
+  // devolver motivo, y el de 9745 tiene que nombrarla: es el default de D15, o
+  // sea el error mas facil de cometer.
+  const plasma = redes.porQueNoSeEstrena(9745)
+  t.ok(plasma, '9745, que es el default de D15, NO se estrena')
+  t.ok(String(plasma).indexOf('MAINNET') !== -1, 'y el motivo dice que es mainnet: ' + plasma)
+  t.ok(redes.porQueNoSeEstrena(988), 'Stable, el fallback de D15, tampoco')
+  t.ok(redes.porQueNoSeEstrena(1), 'ni Ethereum')
+
+  // LISTA BLANCA, NO LISTA NEGRA. Una cadena que nadie anoto tiene que caer del
+  // lado de "no", porque el modo de falla de la omision es desplegar en una red
+  // con plata real creyendo que era de prueba.
+  const rara = redes.porQueNoSeEstrena(424242)
+  t.ok(rara, 'una cadena desconocida no se estrena')
+  // `String(rara)` y no `rara.indexOf`: con el arreglo sacado esto es null, y un
+  // TypeError ABORTA la corrida en vez de fallar el assert -- o sea que el arnes
+  // no puede ver si el arreglo estaba vigilado. Es la leccion de B18 otra vez.
+  t.ok(String(rara).indexOf('lista de testnets') !== -1, 'y dice como agregarla: ' + rara)
+
+  // Basura tampoco pasa. `Number(undefined)` es NaN y un `if (TESTNETS[id])`
+  // solo no alcanzaria.
+  t.ok(redes.porQueNoSeEstrena(undefined), 'undefined no es una testnet')
+  t.ok(redes.porQueNoSeEstrena(0), 'ni el chainId cero')
+  t.ok(redes.porQueNoSeEstrena('9746; drop'), 'ni un string que empieza pareciendose a una')
+})
+
+// ---------------------------------------------------------------------------
+// FASE 9 — hacer visible lo que la fase ya emitia y nadie podia mirar.
+//
+// `qvac/panel-x402.mjs` es el codigo QUE CORRE EL PANEL: pages.mjs lo pega
+// adentro del <script> de cada pagina con `String(fn)`. Probarlo aca es
+// probarlo alla, y esa es toda la razon por la que vive en un modulo aparte en
+// vez de adentro de un string de HTML.
+//
+// Los tests de abajo son las cinco cosas que ese archivo existe para no dibujar
+// mal. Ninguno mira "que el HTML se sirva": miran que el dato llegue con el
+// significado que tenia.
+// ---------------------------------------------------------------------------
+
+test('el BLAKE2b del panel da lo MISMO que el que firma el nodo', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+  const at = await import('../qvac/atestacion.mjs')
+
+  // Esta es la comprobacion que sostiene todo lo demas. El panel recomputa el
+  // `outputHash` con una implementacion escrita a mano -- sodium no existe en el
+  // navegador y no entra un CDN -- y contra ese numero se decide si una
+  // atestacion "coincide". Un BLAKE2b propio que nadie contrasta diria NO
+  // COINCIDE sobre artefactos correctos: seria peor que no comparar nada.
+  const casos = [
+    '', // el bloque vacio, que es un caso aparte del algoritmo
+    'a',
+    'hola',
+    'nandu ' + String.fromCodePoint(0x1f986) + ' acentue', // UTF-8 multibyte y un par de surrogates
+    'x'.repeat(127),
+    'x'.repeat(128), // el limite de bloque EXACTO: el error clasico de esta funcion
+    'x'.repeat(129),
+    'y'.repeat(1000)
+  ]
+  for (const c of casos) {
+    t.is(px.hashDeTexto(c), at.hashDe(c), 'mismo hash para una entrada de ' + c.length + ' chars')
+  }
+
+  // Y el del prompt, que no es sobre el texto del ultimo turno sino sobre la
+  // conversacion ENTERA canonicalizada: si las dos canonicalizaciones divergen,
+  // el panel diria que un promptHash correcto no coincide.
+  const msgs = [
+    { role: 'user', content: 'hola' },
+    { role: 'assistant', content: 'que tal' }
+  ]
+  t.is(px.hashDeMensajes(msgs), at.hashDeMensajes(msgs), 'y el promptHash, igual')
+})
+
+test('el JCS del panel es el mismo JCS que firma el manifiesto', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+  const { canonicalize } = await import('../qvac/manifest.mjs')
+
+  // Se reescribe en vez de importarse porque el archivo viaja entero al
+  // navegador y un import no cruza esa frontera. Lo que impide que las dos
+  // copias se separen es esto.
+  const valores = [
+    { b: 1, a: 2 },
+    { z: [1, 'x', null, true], a: { d: 4, c: 3 } },
+    [],
+    { vacio: {}, texto: 'con comillas " y barra \\' },
+    { saltado: undefined, queda: 1 }
+  ]
+  for (const v of valores) {
+    t.is(px.canonicalizarJCS(v), canonicalize(v), 'mismo JCS: ' + JSON.stringify(v))
+  }
+
+  // Los bytes firmados son el artefacto SIN `signature`, que es lo que el panel
+  // muestra para que la firma se pueda verificar afuera.
+  const a = { v: 1, requestId: 'r', providerPubkey: '0xab', signature: '0xdead' }
+  t.is(px.bytesFirmados(a), canonicalize({ v: 1, requestId: 'r', providerPubkey: '0xab' }))
+  t.absent(px.bytesFirmados(a).indexOf('signature') !== -1, 'y la firma no se firma a si misma')
+})
+
+test('regla 1: una atestacion ausente muestra EL MOTIVO, nunca un guion', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  // El caso normal y el que mas importa: sirvio un par. La ausencia es lo
+  // CORRECTO -- este nodo no corrio el modelo y el 402 pago a la wallet del par
+  // --, y la atestacion del par viaja por Protomux en la Fase 10.
+  const motivoPar =
+    'el que sirvio fue otro nodo: su atestacion la firma el, y viaja por Protomux (Fase 10)'
+  const v = px.vistaDeAtestacion({ attestation: null, attestationMissing: motivoPar })
+  t.absent(v.hay)
+  t.is(v.motivo, motivoPar, 'el motivo viaja tal cual, sin resumir')
+  t.ok(v.motivoDeclarado)
+  t.ok(v.esDelPar, 'y se reconoce que esta ausencia no es una falla')
+
+  const html = px.htmlDeAtestacion(v)
+  t.ok(html.indexOf('Protomux') !== -1, 'el motivo APARECE en lo que se dibuja')
+  t.ok(html.indexOf('no hay atestacion') !== -1, 'y dice que no hay, en palabras')
+
+  // Y el caso feo, que es distinto: falta la atestacion Y falta el motivo. Eso
+  // es una respuesta incompleta, no una ausencia justificada, y se dice asi.
+  const mudo = px.vistaDeAtestacion({ attestation: null })
+  t.absent(mudo.motivoDeclarado, 'nadie dijo por que falta')
+  t.ok(mudo.motivo.indexOf('incompleta') !== -1, 'y eso se nombra: ' + mudo.motivo)
+  t.absent(mudo.esDelPar, 'y no se le adjudica al par sin que nadie lo haya dicho')
+})
+
+test('regla 2: runtime mock se VE como mock, aunque la firma sea real', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  const base = {
+    v: 1,
+    requestId: 'chatcmpl-1',
+    nonce: 'ab',
+    ts: 1,
+    modelId: 'facturas-ar',
+    quantization: 'unknown',
+    promptHash: 'blake2b-256:aa',
+    outputHash: 'blake2b-256:bb',
+    tokensPrefill: 3,
+    tokensDecode: 7,
+    finishReason: 'stop',
+    providerPubkey: '0x' + 'ab'.repeat(20),
+    signature: '0xfirma'
+  }
+
+  const mock = px.vistaDeAtestacion({ attestation: { ...base, runtime: 'mock' } })
+  t.ok(mock.esMock, 'un artefacto firmado con una wallet REAL sobre texto inventado es un mock')
+  t.ok(mock.avisoMock && mock.avisoMock.indexOf('demo') !== -1, mock.avisoMock)
+
+  const real = px.vistaDeAtestacion({ attestation: { ...base, runtime: 'llamacpp' } })
+  t.absent(real.esMock, 'y un motor de verdad no se marca')
+  t.is(real.avisoMock, null)
+
+  // Lo que importa es que se VEA, no que el campo exista en un objeto.
+  const htmlMock = px.htmlDeAtestacion(mock)
+  const htmlReal = px.htmlDeAtestacion(real)
+  t.ok(htmlMock.indexOf('runtime: mock') !== -1, 'el mock sale nombrado en el dibujo')
+  t.ok(htmlMock.indexOf('x-aviso malo') !== -1, 'y con el tono de lo que no es evidencia')
+  t.absent(htmlReal.indexOf('runtime: mock') !== -1, 'y el real no arrastra el aviso')
+
+  // D26: cuantizacion y runtime son DECLARACIONES firmadas, no mediciones. Que
+  // esten firmadas es lo que da contra que arbitrar, no una prueba de que sean
+  // ciertas -- y el panel no puede sugerir lo segundo.
+  t.ok(real.declarados.indexOf('DECLARACIONES') !== -1)
+  t.ok(htmlReal.indexOf('DECLARACIONES') !== -1, 'y eso se dibuja al lado de los dos campos')
+})
+
+test('regla 3: gateway y proveedor no son el mismo numero ni se pintan igual', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  const medido = px.vistaDeConteo({
+    tokensPrefill: 1000,
+    tokensDecode: 500,
+    tokensFuente: 'proveedor'
+  })
+  t.ok(medido.medido, 'con usage del proveedor son tokens contados por su tokenizador')
+  t.is(medido.etiqueta, 'medido')
+  t.is(medido.tono, 'medido')
+
+  const estimado = px.vistaDeConteo({ tokensPrefill: 3, tokensDecode: 9, tokensFuente: 'gateway' })
+  t.absent(estimado.medido, 'sin usage lo que hay es una estimacion y un conteo de chunks')
+  t.is(estimado.etiqueta, 'estimado')
+  t.is(estimado.tono, 'estimado')
+  t.ok(estimado.texto.indexOf('CHUNKS DE SSE') !== -1, estimado.texto)
+  t.ok(
+    estimado.texto.indexOf('bytes/4') !== -1,
+    'y que el prefill es una estimacion, no una medida'
+  )
+
+  // El dibujo tiene que separarlos: si compartieran clase, un conteo de chunks
+  // se leeria igual que una medicion, que es exactamente el ataque que D24
+  // cierra con el outputHash.
+  t.absent(
+    px.htmlDeConteo(medido) === px.htmlDeConteo(estimado),
+    'dos conteos de distinta procedencia no pueden dibujarse igual'
+  )
+  t.ok(px.htmlDeConteo(estimado).indexOf('tono-estimado') !== -1)
+  t.ok(px.htmlDeConteo(medido).indexOf('tono-medido') !== -1)
+
+  // Una entrada anterior a D25 no declara nada, y decirle "gateway" seria
+  // afirmar algo que el rastro no dice.
+  const viejo = px.vistaDeConteo({ tokens: 5 })
+  t.is(viejo.fuente, null)
+  t.is(viejo.etiqueta, 'sin procedencia')
+  t.absent(viejo.medido, 'y en la duda NO se afirma que sea medido')
+})
+
+test('regla 4: un tx hash siempre dice de donde salio', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  // El del facilitator de pruebas. No es una heuristica sobre "hashes que
+  // parecen falsos": 32 bytes todos iguales no es la salida de keccak sobre
+  // ninguna transaccion, y si es lo que emite un facilitator de juguete.
+  const falso = px.vistaDeLiquidacion({
+    success: true,
+    transaction: '0x' + 'fe'.repeat(32),
+    network: 'eip155:988',
+    payer: '0x1'
+  })
+  t.ok(falso.txSintetico, 'el 0xfe...fe se reconoce por lo que es')
+  t.ok(falso.txOrigen.indexOf('PRUEBAS') !== -1, falso.txOrigen)
+  t.ok(falso.txOrigen.indexOf('explorer') !== -1, 'y que en el explorer no existe')
+
+  // Uno que no lo es. Igual lleva su procedencia: NADIE lo verifico contra la
+  // cadena, ni el gateway ni el panel. Un hash pelado se lee como confirmado.
+  const comun = px.vistaDeLiquidacion({
+    success: true,
+    transaction: '0x9f2c1a4b7e0d3856',
+    network: 'eip155:9745',
+    payer: '0x1'
+  })
+  t.absent(comun.txSintetico)
+  t.ok(comun.txOrigen.indexOf('verificaron contra la cadena') !== -1, comun.txOrigen)
+  t.ok(comun.txOrigen.indexOf('facilitator') !== -1, 'y de quien salio')
+
+  const html = px.htmlDeLiquidacion(comun)
+  t.ok(html.indexOf('0x9f2c1a4b7e0d3856') !== -1, 'el hash se muestra')
+  t.ok(html.indexOf('verificaron contra la cadena') !== -1, 'y nunca solo')
+  t.ok(html.indexOf('eip155:9745') !== -1, 'con el CAIP-2 crudo al lado del nombre')
+  t.ok(html.indexOf('Plasma') !== -1)
+
+  // Una liquidacion fallida NO es un detalle de forma: el nodo sirvio y no
+  // cobro. Se dice fuerte, igual que lo dice el log del gateway.
+  const fallo = px.vistaDeLiquidacion({
+    success: false,
+    errorReason: 'settlement_failed',
+    errorMessage: 'el facilitator se cayo',
+    network: 'eip155:988'
+  })
+  t.absent(fallo.liquidado)
+  t.ok(fallo.error.indexOf('settlement_failed') !== -1)
+  t.ok(px.htmlDeLiquidacion(fallo).indexOf('NO se cobro') !== -1)
+})
+
+test('regla 5: el costo del header se dice como TECHO, no como cobro', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  // Con SSE los headers salen antes del primer token: ese numero es el tope con
+  // el que se autorizo el gasto y nunca lo que salio.
+  const caro = px.textoDeCostoEstimado(13500)
+  t.ok(caro.techo)
+  t.is(caro.texto.indexOf('up to'), 0, caro.texto)
+
+  // El cero se escribe con palabras. "USD 0.0000" se lee como "salio muy
+  // barato" y no es eso: es que a nadie se le cobra.
+  t.is(px.textoDeCostoEstimado(0).texto, 'no charge')
+  t.absent(px.textoDeCostoEstimado(0).techo)
+
+  // Seis decimales: con cuatro, cualquier turno de menos de 50 micros se
+  // mostraria identico a gratis, que es la distincion que este texto hace.
+  t.ok(
+    px.textoDeCostoEstimado(12).texto.indexOf('0.000012') !== -1,
+    px.textoDeCostoEstimado(12).texto
+  )
+
+  // Sin dato NO es cero: un turno viejo sin el campo no dice que fue gratis.
+  t.is(px.textoDeCostoEstimado(undefined).texto, 'sin dato de costo')
+})
+
+test('el outputHash se compara de verdad, y no-pude no es coincide', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+  const at = await import('../qvac/atestacion.mjs')
+
+  const texto = 'la respuesta que el cliente recibio'
+  const base = {
+    v: 1,
+    requestId: 'r',
+    nonce: 'n',
+    ts: 1,
+    modelId: 'm',
+    quantization: 'Q4_K_M',
+    runtime: 'llamacpp',
+    promptHash: 'blake2b-256:aa',
+    outputHash: at.hashDe(texto),
+    tokensPrefill: 1,
+    tokensDecode: 2,
+    finishReason: 'stop',
+    providerPubkey: '0xab',
+    signature: '0xfirma'
+  }
+
+  const ok = px.vistaDeAtestacion({ attestation: base }, { textoRecibido: texto })
+  const hOk = ok.hashes.filter((h) => h.campo === 'outputHash')[0]
+  t.is(hOk.estado, 'coincide', 'recomputado sobre lo recibido')
+
+  // Lo que D24 existe para atrapar: el texto no es el atestiguado.
+  const mal = px.vistaDeAtestacion({ attestation: base }, { textoRecibido: texto + '!' })
+  t.is(mal.hashes.filter((h) => h.campo === 'outputHash')[0].estado, 'no-coincide')
+  t.ok(px.htmlDeAtestacion(mal).indexOf('NO coincide') !== -1, 'y se dibuja como lo que es')
+
+  // Y el estado que NO se puede confundir con los otros dos: no hubo con que
+  // comparar. Un panel que dibuje esto como "coincide" convierte la falta de
+  // evidencia en evidencia.
+  const sin = px.vistaDeAtestacion({ attestation: base }, {})
+  const hSin = sin.hashes.filter((h) => h.campo === 'outputHash')[0]
+  t.is(hSin.estado, 'sin-material')
+  t.absent(hSin.estado === 'coincide')
+  t.ok(px.htmlDeAtestacion(sin).indexOf('no se recomputo') !== -1)
+
+  // La firma NO se verifica aca, y el panel no puede insinuar que si.
+  t.absent(ok.firmaVerificada, 'esto no recupera firmantes EIP-191')
+  t.ok(ok.avisoFirma.indexOf('NO verifica la firma') !== -1)
+  t.is(ok.firmadoSobre, px.bytesFirmados(base), 'pero deja los bytes para verificarla afuera')
+})
+
+test('el 402 se dibuja con los CUATRO datos, y el monto no se inventa en USD', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  const desafio = {
+    x402Version: 2,
+    error: 'X-PAYMENT header is required',
+    accepts: [
+      {
+        scheme: 'exact',
+        network: 'eip155:988',
+        amount: '1000',
+        resource: 'http://127.0.0.1:8787/v1/chat/completions',
+        description: 'Inferencia de facturas-ar en Nodo A, hasta 256 tokens de salida',
+        mimeType: 'application/json',
+        payTo: '0x' + 'ab'.repeat(20),
+        maxTimeoutSeconds: 300,
+        asset: '0x' + '11'.repeat(20),
+        extra: { name: 'USDT0', version: '1' },
+        outputTokenLimit: 256
+      }
+    ]
+  }
+
+  const v = px.vistaDeDesafio(desafio)
+  t.ok(v.esDesafio)
+  t.is(v.opciones.length, 1)
+  const o = v.opciones[0]
+  t.is(o.monto, '1000', 'CUANTO')
+  t.is(o.payTo, '0x' + 'ab'.repeat(20), 'A QUIEN')
+  t.is(o.red.id, 'eip155:988', 'EN QUE CADENA')
+  t.is(o.tope, 256, 'HASTA CUANTOS TOKENS')
+
+  // El primer 402 no lleva error de verdad: "X-PAYMENT header is required" es la
+  // frase del spec, no un rechazo, y mostrarla como si algo hubiera fallado
+  // diria que el cliente hizo algo mal cuando todavia no hizo nada.
+  t.is(v.error, null)
+  t.is(px.vistaDeDesafio({ ...desafio, error: 'red equivocada' }).error, 'red equivocada')
+
+  const html = px.htmlDeDesafio(v)
+  for (const etiqueta of ['CUANTO', 'A QUIEN', 'EN QUE RED', 'HASTA CUANTOS TOKENS']) {
+    t.ok(html.indexOf(etiqueta) !== -1, 'el dibujo nombra ' + etiqueta)
+  }
+  // El accepts[] declara `asset` y `extra.name` pero NO `decimals`: dividir por
+  // 1e6 seria inventar el dato que falta justo en el numero que la persona lee
+  // como "lo que me van a cobrar".
+  t.ok(html.indexOf('no declara los decimales') !== -1, 'se dice por que no hay USD')
+  t.absent(html.indexOf('USD 0.001') !== -1, 'y no se convierte igual')
+
+  // Un cuerpo que no es un desafio no se dibuja como uno: el 402 de presupuesto
+  // agotado (B13) no trae accepts y tiene que seguir por el camino de texto.
+  t.absent(px.vistaDeDesafio({ error: { message: 'presupuesto agotado' } }).esDesafio)
+  t.is(px.htmlDeDesafio(px.vistaDeDesafio(null)), '')
+})
+
+test('las dos formas del recibo se leen igual, y D27 se dice en palabras', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  // El gateway emite el mismo recibo con dos formas: aplanado en
+  // GET /v1/receipts/:id, y colgando de `paymentResponse` en el evento SSE
+  // final (D12). Las dos tienen que llegar al mismo dibujo.
+  const liq = { success: true, transaction: '0xabcdef', network: 'eip155:988', payer: '0x1' }
+  t.alike(
+    px.liquidacionDe({ id: 'x', ...liq }),
+    { id: 'x', ...liq },
+    'aplanado: es el recibo mismo'
+  )
+  t.alike(px.liquidacionDe({ x402Version: 2, paymentResponse: liq }), liq, 'y anidado')
+
+  // D27: el vocabulario es mas ancho que el de OpenAI a proposito. Aplanar un
+  // corte del cliente a "stop" afirmaria que la respuesta termino.
+  t.ok(px.textoDeFinishReason('client_cancelled').indexOf('lo corto el cliente') !== -1)
+  t.ok(px.textoDeFinishReason('length').indexOf('tope') !== -1)
+  t.is(px.textoDeFinishReason('stop'), 'termino sola')
+  t.is(px.textoDeFinishReason(null), 'no declarado')
+})
+
+test('el codigo que se embebe en el panel es el mismo, y CORRE', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  // pages.mjs no llama a estas funciones: pega su TEXTO adentro del <script> de
+  // cada pagina. Si el texto no parsea, el panel se rompe entero y ningun test
+  // de "el HTML se sirve" se entera -- el HTML se serviria igual, roto.
+  const api = new Function(
+    px.FUENTE_EMBEBIDA +
+      '\nreturn { hashDeTexto, vistaDeConteo, vistaDeAtestacion, vistaDeDesafio, ' +
+      'vistaDeLiquidacion, htmlDeRecibo, htmlDeConteo, htmlDeDesafio }'
+  )()
+
+  t.is(api.hashDeTexto('hola'), px.hashDeTexto('hola'), 'la copia embebida hashea igual')
+  const entrada = { tokensFuente: 'gateway', tokensPrefill: 1, tokensDecode: 2 }
+  t.is(
+    api.htmlDeConteo(api.vistaDeConteo(entrada)),
+    px.htmlDeConteo(px.vistaDeConteo(entrada)),
+    'y dibuja igual'
+  )
+
+  // Y todo lo que el panel necesita esta declarado: una funcion que quedo
+  // afuera de FUNCIONES_EMBEBIDAS explota aca y no en el navegador de alguien.
+  const html = api.htmlDeRecibo(
+    {
+      success: true,
+      transaction: '0x' + 'fe'.repeat(32),
+      network: 'eip155:988',
+      attestation: null,
+      attestationMissing: 'este nodo no tiene wallet con que firmar'
+    },
+    {}
+  )
+  t.ok(html.indexOf('no tiene wallet') !== -1, 'el motivo sobrevive el viaje al navegador')
+  t.ok(html.indexOf('facilitator de PRUEBAS') !== -1, 'y el sello del tx tambien')
+})

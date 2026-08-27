@@ -5,6 +5,15 @@
 // bin.mjs, y un archivo estatico fuera de ese grafo no viaja con el binario.
 // Un string exportado si viaja, sin tener que resolver paths a mano ni
 // depender de bare-fs para servir contenido estatico.
+//
+// FASE 9 — lo que la fase emitia y no se veia (el 402, el recibo, la atestacion
+// de D24 y el split de D25) se dibuja con `qvac/panel-x402.mjs`. Ese archivo NO
+// se importa para llamarlo desde aca: se importa para PEGAR SU CODIGO adentro
+// del <script> de cada pagina, y asi la suite prueba las mismas funciones que
+// corre el navegador. La nota larga de por que esta ahi y no aca vive en la
+// cabecera de ese archivo.
+
+import { FUENTE_EMBEBIDA } from './panel-x402.mjs'
 
 const NAV = `
 <nav class="nav">
@@ -411,6 +420,79 @@ const STYLE = `
   .adjunto button:hover { color: #e8ecf6; }
   .composer .note { margin-left: auto; font-size: .76rem; }
   .composer .note a { color: #9fd6ff; }
+
+  /* -------------------------------------------------------------------------
+     FASE 9 — los cuatro artefactos que la fase emite y que hasta ahora solo se
+     veian con curl. El HTML lo arma qvac/panel-x402.mjs; aca esta como se ve.
+
+     Los tres tonos son la parte que NO es decoracion, y por eso estan juntos:
+
+       bueno    un hecho comprobado ACA (un hash recomputado que coincide);
+       tibio    un dato con una salvedad que hay que leer -- una ausencia con
+                motivo, un tx hash que nadie verifico contra la cadena, una
+                firma que esta pagina no comprueba;
+       malo     algo que se lee como prueba y no lo es: un mock, un hash que no
+                coincide, un tx sintetico, una liquidacion que fallo.
+
+     Un mock pintado de verde seria exactamente el mock que parece funcional que
+     la regla del proyecto prohibe.
+     ------------------------------------------------------------------------- */
+  .x402 {
+    border: 1px solid #2c3348; border-left: 3px solid #5fa8ff; border-radius: 8px;
+    background: #141822; padding: .8rem .9rem; margin: .6rem 0; font-size: .8rem;
+  }
+  .x402.x-par { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; align-items: start; }
+  @media (max-width: 820px) { .x402.x-par { grid-template-columns: 1fr; } }
+  .x-tit {
+    font-weight: 600; color: #cfe0ff; margin-bottom: .5rem; font-size: .82rem;
+    letter-spacing: .01em;
+  }
+  .x-bloque { min-width: 0; }
+  .x-op { border-top: 1px solid #262b36; padding-top: .5rem; margin-top: .5rem; }
+  .x-fila {
+    display: flex; gap: .8rem; align-items: baseline; padding: .18rem 0;
+    border-bottom: 1px solid #1d2230;
+  }
+  .x-k {
+    color: #8b93a7; font-size: .72rem; min-width: 11ch; flex: 0 0 auto;
+    text-transform: none; letter-spacing: .02em;
+  }
+  /* overflow-wrap obligatorio: direcciones, hashes y firmas no tienen espacios
+     y se salian de la tarjeta cortadas a la mitad. */
+  .x-v { color: #dbe2ef; overflow-wrap: anywhere; min-width: 0; }
+  .x-v.mono, .x-pre { font-family: ui-monospace, monospace; font-size: .72rem; }
+  .x-v.malo { color: #f87171; }
+  .x-nota { color: #7c8699; font-size: .72rem; margin: .3rem 0 .1rem; line-height: 1.4; }
+  .x-aviso {
+    border-radius: 6px; padding: .35rem .5rem; margin: .35rem 0; font-size: .74rem;
+    line-height: 1.45; overflow-wrap: anywhere;
+  }
+  .x-aviso.bueno { background: #12291c; color: #86efac; border: 1px solid #1f4a31; }
+  .x-aviso.tibio { background: #2a2413; color: #fcd34d; border: 1px solid #4a3d18; }
+  .x-aviso.malo  { background: #2d1618; color: #fca5a5; border: 1px solid #542125; }
+  .x-det { margin-top: .5rem; }
+  .x-det summary { cursor: pointer; color: #8b93a7; font-size: .74rem; }
+  .x-pre {
+    background: #0f1218; border: 1px solid #262b36; border-radius: 6px; padding: .5rem;
+    margin: .4rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #a9b4cc;
+  }
+  /* D25 — "medido" y "estimado" NO comparten color. Es la regla entera: un
+     conteo de chunks de SSE pintado igual que un usage del proveedor es la
+     forma mas barata de convertir una estimacion en un numero. */
+  .x-conteo {
+    font-family: ui-monospace, monospace; font-size: .71rem; white-space: nowrap;
+    border-radius: 999px; padding: .05rem .5rem; border: 1px solid transparent;
+  }
+  .x-conteo.tono-medido   { color: #86efac; background: #12291c; border-color: #1f4a31; }
+  .x-conteo.tono-estimado { color: #fcd34d; background: #2a2413; border-color: #4a3d18; }
+  .x-conteo.tono-ausente  { color: #7c8699; background: #1a1e28; border-color: #262b36; }
+  .x-buscar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .8rem 0; }
+  .x-buscar input {
+    flex: 1; min-width: 16rem; background: #0f1218; color: #e6e6e6; font-size: .82rem;
+    border: 1px solid #2c3348; border-radius: 8px; padding: .5rem .65rem;
+    font-family: ui-monospace, monospace;
+  }
+  .x-buscar button { margin: 0; white-space: nowrap; }
 </style>`
 
 // Escapado de HTML, inyectado en el script de los 3 paneles.
@@ -1148,6 +1230,27 @@ export const NODE_HTML = page(
     <div id="wallet-estado"></div>
   </div>
 
+  <div class="card" style="cursor:default; margin-top:1.5rem" id="recibo-card">
+    <h3>A paid request, end to end</h3>
+    <p class="sub">Two artefacts prove two different halves of the same exchange, so they are
+      shown side by side: the <b>settlement receipt</b> says somebody paid, and the
+      <b>attestation</b> says what this node served &mdash; signed with the payout wallet over
+      the JCS form of everything except the signature. Paste the completion id
+      (<code>chatcmpl-&hellip;</code>) that came back with the answer.</p>
+    <div class="x-buscar">
+      <input id="recibo-id" placeholder="chatcmpl-…" autocomplete="off" spellcheck="false">
+      <button id="recibo-ver">Look it up</button>
+    </div>
+    <p class="hint" style="margin:0 0 .5rem">Optional, and it is the whole point of
+      <code>outputHash</code>: paste the answer you actually received and the hash gets
+      <b>recomputed here</b> and compared. The hash is over the text, and text does not depend on
+      how many pieces it travelled in &mdash; so a provider that inflates the gateway&rsquo;s count
+      by chopping the stream finer cannot move it.</p>
+    <textarea id="recibo-texto" rows="3" placeholder="the answer you received, verbatim (optional)"
+      style="width:100%;background:#0f1218;color:#e6e6e6;border:1px solid #2c3348;border-radius:8px;padding:.5rem .65rem;font-size:.82rem"></textarea>
+    <div id="recibo-box"></div>
+  </div>
+
   <div class="card" style="cursor:default; margin-top:1.5rem" id="up-card">
     <h3>External assistant</h3>
     <p class="sub">The one path where a prompt leaves the P2P network and goes to a company&rsquo;s
@@ -1180,6 +1283,7 @@ export const NODE_HTML = page(
     let swarmActive = false
     let catalogById = {} // alias -> {displayName, sizeGB, fits}, de /v1/swarm/manifest
 ${ESC}
+${FUENTE_EMBEBIDA}
 ${MODAL_JS}
 ${CONNECT_JS}
 
@@ -1611,9 +1715,22 @@ ${CONNECT_JS}
       if (e.tokensPerSec) bits.push(e.tokensPerSec + ' tok/s')
       bits.push(e.ms + 'ms')
       const fallo = e.ok === false ? ' <b style="color:#f87171">FAILED</b>' : ''
+      // FASE 9 / D25 \u2014 el split va en su propia columna y con su procedencia
+      // pegada. Sumar prefill y decode en el "tok" de al lado los volveria a
+      // mezclar, que es justo lo que D25 separo; y sin la procedencia, un
+      // conteo de chunks de SSE se lee igual que un usage del proveedor.
+      //
+      // D27 al lado: sin finishReason, en el rastro un corte del cliente y
+      // una respuesta completa se ven identicos.
+      const conteo = htmlDeConteo(vistaDeConteo(e))
+      const fin = e.finishReason
+        ? '<div class="x-nota" style="margin:.2rem 0 0">' +
+          esc(e.finishReason) + ' \u2014 ' + esc(textoDeFinishReason(e.finishReason)) + '</div>'
+        : ''
       return '<tr><td class="muted">' + hora + '</td><td>' + quien + '</td>' +
         '<td class="muted">' + esc(e.modelId || '') + '</td>' +
-        '<td class="muted">' + esc(bits.join(' \u00b7 ')) + fallo + '</td></tr>'
+        '<td class="muted">' + esc(bits.join(' \u00b7 ')) + fallo + '</td>' +
+        '<td>' + conteo + fin + '</td></tr>'
     }
 
     function pintarFlujo(log) {
@@ -1637,8 +1754,12 @@ ${CONNECT_JS}
         (entradas.length === 1 ? ' request' : ' requests') + ' \u00b7 ' + tokens + ' tokens</p>' +
         '<table><thead><tr><th>Time</th><th>' +
         (flow === 'in' ? 'Asked by' : 'Answered by') +
-        '</th><th>Model</th><th></th></tr></thead><tbody>' +
-        entradas.map(filaFlujo).join('') + '</tbody></table>'
+        '</th><th>Model</th><th></th><th>prefill / decode (D25)</th></tr></thead><tbody>' +
+        entradas.map(filaFlujo).join('') + '</tbody></table>' +
+        '<p class="x-nota">D25 registra las dos dimensiones por separado porque no escalan ' +
+        'igual: el prefill procesa el prompt en paralelo y lo limita el computo, el decode ' +
+        'genera token a token y lo limita el ancho de banda de memoria. El precio sigue siendo ' +
+        'plano (D22): esto se registra para poder decidir con datos, no para tarifar hoy.</p>'
     }
 
     document.querySelectorAll('#flow-tabs button').forEach(b => {
@@ -1658,6 +1779,64 @@ ${CONNECT_JS}
         pintarFlujo(log || [])
       } catch (e) { /* el poll siguiente reintenta */ }
     }
+
+    // -------------------------------------------------------------------
+    // FASE 9 — el recibo y la atestacion de un request cobrado.
+    //
+    // Va con fetch PELADO y no con authFetch, y no es un olvido: la ruta
+    // GET /v1/receipts/:id es la unica del sistema que NO pide credencial, a
+    // proposito. Quien pago por 402 no tiene ninguna -- ese es todo el punto
+    // del 402 --, asi que exigirle una para ver su propio recibo lo dejaria sin
+    // poder auditar justamente lo que pago. Mandarle la key del panel aca
+    // ademas escondería esa propiedad detras de un header que no hace falta.
+    //
+    // No hay ruta que LISTE recibos y no se inventa una: la Fase 9 esta cerrada
+    // y agregarle superficie la reabre. Se busca por id, que es el que vuelve
+    // con la respuesta.
+    // -------------------------------------------------------------------
+    async function verRecibo() {
+      const box = document.getElementById('recibo-box')
+      const id = document.getElementById('recibo-id').value.trim()
+      if (!id) {
+        box.innerHTML = '<p class="hint">Falta el id de la completion.</p>'
+        return
+      }
+      // Vacio es AUSENTE, no cadena vacia: el hash de "" es un hash valido, y
+      // compararlo contra el declarado diria "NO coincide" cuando lo cierto es
+      // que no hay con que comparar. Son dos estados distintos y la vista los
+      // distingue.
+      const texto = document.getElementById('recibo-texto').value
+      const ctx = texto.length ? { textoRecibido: texto } : {}
+
+      box.innerHTML = '<p class="hint">Buscando…</p>'
+      try {
+        const r = await fetch('/v1/receipts/' + encodeURIComponent(id))
+        if (r.status === 404) {
+          box.innerHTML =
+            '<div class="x402"><div class="x-aviso tibio">No hay recibo para ese id. ' +
+            'Los recibos viven en memoria del proceso y se guardan los ultimos 200: ' +
+            'no es un ledger, el ledger de verdad es la cadena. Un reinicio los borra.' +
+            '</div></div>'
+          return
+        }
+        if (!r.ok) {
+          box.innerHTML = '<div class="x402"><div class="x-aviso malo">HTTP ' + r.status +
+            '</div></div>'
+          return
+        }
+        box.innerHTML = htmlDeRecibo(await r.json(), ctx)
+      } catch (e) {
+        box.innerHTML = '<div class="x402"><div class="x-aviso malo">' +
+          esc((e && e.message) || e) + '</div></div>'
+      }
+    }
+
+    document.getElementById('recibo-ver').addEventListener('click', () => {
+      verRecibo().catch(() => {})
+    })
+    document.getElementById('recibo-id').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') verRecibo().catch(() => {})
+    })
 
     // -------------------------------------------------------------------
     // Los dos medidores (Fase 6.5 y 6.6). Se piden juntos porque son la misma
@@ -1881,6 +2060,7 @@ export const ADMIN_HTML = page(
 
   <script>
 ${ESC}
+${FUENTE_EMBEBIDA}
 
     async function refreshNodes() {
       const r = await authFetch('/v1/nodes')
@@ -1938,8 +2118,17 @@ ${ESC}
       const destino = e.target ? \` <b>[\${esc(e.target)}]</b>\` : ''
       const fallo = e.ok === false ? \` <b>FALLO\${e.code ? ' ' + esc(e.code) : ''}</b>\` : ''
 
+      // FASE 9 / D25 y D27. El split va con su procedencia y no sumado a
+      // "metricas": metido ahi seria un numero mas al lado de los tok/s, y la
+      // diferencia entre un token medido y un chunk de SSE contado se pierde
+      // exactamente en ese renglon.
+      const conteo = ' ' + htmlDeConteo(vistaDeConteo(e))
+      const fin = e.finishReason
+        ? \` <span class="muted">\${esc(e.finishReason)} — \${esc(textoDeFinishReason(e.finishReason))}</span>\`
+        : ''
+
       return \`<div>\${hora} — \${esc(e.modelId)}\${destino} → \${esc(e.operator)}\` +
-        \` (\${metricas.join(' · ')})\${fallo} \${detalle}</div>\`
+        \` (\${metricas.join(' · ')})\${conteo}\${fin}\${fallo} \${detalle}</div>\`
     }
 
     async function refreshLog() {
@@ -2229,6 +2418,20 @@ const CHAT_JS = String.raw`
           '<div class="who">' + quien + '</div>' +
           '<div class="' + clase + '">' + cuerpo + '</div>' +
           (m.meta ? prov(m.meta) : '') +
+          // FASE 9 — el desafio y el recibo van PEGADOS al turno que los
+          // produjo. En una pestaña aparte serian dos artefactos sueltos que
+          // hay que correlacionar a mano; aca la evidencia esta al lado de la
+          // respuesta sobre la que habla.
+          //
+          // El outputHash se recomputa contra m.content, que es exactamente
+          // el texto que este navegador acumulo delta a delta. Ese es el punto
+          // entero de D24: el hash es del TEXTO y no depende del troceo, asi
+          // que compararlo aca comprueba de verdad que lo atestiguado es lo que
+          // se recibio -- no que dos campos del mismo JSON coincidan.
+          (m.x402 ? htmlDeDesafio(m.x402) : '') +
+          (m.recibo
+            ? htmlDeRecibo(m.recibo, { textoRecibido: m.content, messages: m.enviado })
+            : '') +
           '</div>'
       }).join('')
       el.scrollTop = el.scrollHeight
@@ -2294,7 +2497,20 @@ const CHAT_JS = String.raw`
       var dest = destino()
 
       msgs.push({ role: 'user', content: texto })
-      var slot = { role: 'assistant', content: '', meta: null, streaming: true }
+      // x402 y recibo arrancan nulos y casi siempre se quedan asi: solo
+      // existen cuando el request paso por el camino de pago. enviado guarda
+      // los mensajes TAL CUAL viajaron, que es contra lo que se recomputa el
+      // promptHash de la atestacion -- el hash es sobre la conversacion entera
+      // canonicalizada, no sobre el ultimo turno.
+      var slot = {
+        role: 'assistant',
+        content: '',
+        meta: null,
+        streaming: true,
+        x402: null,
+        recibo: null,
+        enviado: null
+      }
       msgs.push(slot)
       ta.value = ''
       ta.style.height = 'auto'
@@ -2313,6 +2529,7 @@ const CHAT_JS = String.raw`
         var historial = msgs.filter(function (m) { return !m.streaming }).map(function (m) {
           return { role: m.role, content: m.content }
         })
+        slot.enviado = historial
 
         var resp = await authFetch('/v1/chat/completions', {
           method: 'POST',
@@ -2332,10 +2549,32 @@ const CHAT_JS = String.raw`
 
         if (!resp.ok) {
           var msj = 'HTTP ' + resp.status
+          var b = null
           try {
-            var b = await resp.json()
+            b = await resp.json()
             if (b && b.error && b.error.message) msj = b.error.message
           } catch (e) { /* el cuerpo no era JSON: queda el status */ }
+
+          // FASE 9 — un 402 con accepts[] NO es un error de texto: es el nodo
+          // diciendo cuanto cobra, a quien, en que red y hasta cuantos tokens.
+          // Aplanarlo a "[error] HTTP 402" tiraba los cuatro datos que el DoD
+          // de la fase le exige al desafio.
+          //
+          // Se llega aca cuando el request sale SIN credencial valida contra un
+          // nodo con wallet: la key del panel revocada desde /node, o el
+          // bootstrap de /v1/keys/panel que no contesto. Es el mismo 402 que ve
+          // un desconocido con curl, y ahora se lee igual.
+          //
+          // El otro 402 que existe -- presupuesto agotado (B13) -- no trae
+          // accepts y sigue por el camino de texto, que para ese caso es el
+          // correcto: no hay nada que pagar, hay un tope que se toco.
+          var vistaDesafio = vistaDeDesafio(b)
+          if (resp.status === 402 && vistaDesafio.esDesafio) {
+            slot.x402 = vistaDesafio
+            slot.content = ''
+            return
+          }
+
           slot.content = '[error] ' + msj
           return
         }
@@ -2367,6 +2606,19 @@ const CHAT_JS = String.raw`
             var ev = JSON.parse(carga)
             if (ev.error) {
               slot.content += '\n[error] ' + (ev.error.message || ev.error)
+              continue
+            }
+            // FASE 9 / D12 — el recibo viaja como EVENTO SSE FINAL y no en
+            // X-PAYMENT-RESPONSE, porque con stream los headers ya salieron
+            // antes del primer token. Se reconoce por paymentResponse, que es
+            // la clave que el gateway le cuelga; no es un chunk de completion y
+            // no tiene choices.
+            //
+            // Se guarda entero (recibo + atestacion + el motivo cuando falta) y
+            // se dibuja abajo de la respuesta. receiptUrl queda para poder
+            // volver a mirarlo desde /node despues.
+            if (ev.paymentResponse || ev.attestation || ev.attestationMissing) {
+              slot.recibo = ev
               continue
             }
             var d = ev.choices && ev.choices[0] && ev.choices[0].delta
@@ -2818,6 +3070,7 @@ export const CHAT_HTML = page(
 
   <script>
 ${ESC}
+${FUENTE_EMBEBIDA}
 ${MODAL_JS}
 ${CHAT_JS}
   </script>

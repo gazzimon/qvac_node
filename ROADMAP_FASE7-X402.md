@@ -319,6 +319,98 @@ que antes de la Fase 9. Verificado a mano contra la seed pública de prueba —
 
 ---
 
+## 0-quinquies · Bloque 0 de D30 — hecho el 2026-08-27. La Fase 7 se reabrió y se volvió a cerrar
+
+D30 se decidió el 2026-08-27 y dejó tres consecuencias escritas. Escritas no
+alcanzaba: sin ellas la Fase 10 se podía redactar pero no demostrar, porque no
+había activo con qué firmar, no había facilitator que aceptara 9746, y el nodo no
+sabía hablarle a otra cosa que a mainnet. Esto es lo que se ejecutó.
+
+### La Fase 7 se reabrió, y se dice acá porque la regla lo pide
+
+Dos de las cuatro precondiciones tocan `qvac/wallet.mjs` y `bin.mjs`, que son
+superficie de la **Fase 7 (cerrada el 2026-08-26)**. La regla del proyecto dice
+que una fase cerrada no se toca de costado: se reabre explícitamente y se vuelve
+a cerrar con lo que aparezca. **Se reabrió, se hicieron D30.1 y D30.2, y se
+cierra de nuevo con esto.** No se tocó nada más de la fase.
+
+Lo que **no** cambió, para que se pueda verificar rápido: el formato del keystore
+(`VERSION` sigue en 1, un archivo viejo se abre igual), la derivación, el
+cifrado, la invariante de que la seed no sale del proceso que la abre, y el
+default de D15 — que sigue siendo Plasma mainnet.
+
+**La Fase 9 NO se reabrió, y hay una consecuencia que hay que anotar.** Este
+bloque no toca `qvac/x402.mjs`, que es donde viven `CAIP2` y `activoDe()`. O sea
+que el nodo hoy puede **firmar** contra 9746 pero todavía no arma un `accepts[]`
+para esa red: `x402.mjs` sólo conoce `plasma` (9745) y `stable` (988). Esa
+entrada es trabajo de la Fase 10 y reabre la 9, así que es decisión del dueño y
+no se hizo por cuenta propia. Queda dicho como lo que falta entre "el camino
+existe" y "el `curl` cobra en testnet".
+
+### Los cuatro ítems
+
+| Ítem      | Qué era                                                                                             | Qué se hizo                                                                                                                                  | Cómo se comprueba                                                     |
+| --------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| **D30.1** | `swarmStorageDir()` mandaba el keystore a `os.tmpdir()` bajo `bare`, y Windows limpia temp          | `wallet.directorioKeystore()` lo resuelve al directorio **persistente**, nunca a temp; `bin.mjs` tiene `walletStorageDir()` aparte del resto | `D30.1: el keystore NUNCA cae en temp por su cuenta` · 2 anclas       |
+| **D30.2** | `RPC_DEFAULT` era una constante de mainnet y `economicDelNodo` nunca le pasaba un `rpc` a `abrir()` | tabla `REDES` + `redDe(env)` + `PYRUS_WALLET_RED` / `PYRUS_WALLET_RPC`, enhebrado hasta `cuentaDesde`                                        | 3 tests, incluido uno de punta a punta · 2 anclas                     |
+| **D30.3** | en 9746 no hay stablecoin; los faucets dan XPL, que es gas y no tiene contrato                      | `scripts/activo-prueba.sol` — ERC-20 con EIP-3009 — compilado a `activo-prueba.artefacto.json` y desplegable con `npm run desplegar-activo`  | selectores verificados **contra el bytecode**, no contra el ABI       |
+| **D30.4** | el hosted de D14 devolvía 500/503 en todos sus endpoints y no soporta 9746                          | `scripts/facilitator.js` — `/verify`, `/settle`, `/supported` — **sin una sola dependencia nueva**                                           | levanta en un proceso node de verdad y contesta `/supported` con 9746 |
+
+### Cinco decisiones de implementación que conviene tener escritas
+
+1. **El compilador no entró al repo.** D30 pedía bytecode precompilado desde
+   `scripts/` y sin hardhat ni foundry, y así quedó: la compilación pasó **una
+   vez, fuera del árbol**, con `solc` suelto. `package.json` no ganó ni una
+   dependencia. El precio hay que decirlo: recompilar no es `npm run` de nada, y
+   por eso el artefacto guarda la versión exacta del compilador, los settings y
+   el **SHA-256 de la fuente** — y un test lo recomputa. Alguien que edite el
+   `.sol` y no recompile rompe la suite en vez de desplegar en silencio algo que
+   no es lo que se lee al lado.
+2. **El facilitator no usa el adapter de SemanticPay, y no es capricho.**
+   `@semanticio/wdk-wallet-evm-x402-facilitator@1.0.0-beta.2` fija
+   `@x402/evm@2.2.0` y `@tetherto/wdk-wallet-evm@1.0.0-beta.7`, y este árbol
+   corre **2.23.0 y beta.17**. Instalarlo dejaría dos copias de `@x402/evm` en el
+   mismo proceso, y la que arma el 402 no sería la que lo liquida. Resultó
+   innecesario: `@x402/evm` 2.23 ya exporta `toFacilitatorEvmSigner`, que es
+   exactamente lo que ese adapter hacía, y los tres endpoints son un
+   `http.createServer`. Cero dependencias nuevas, Express incluido.
+   (De paso: el paquete que D30 nombraba como `@semanticpay/…` no existe con ese
+   scope; el real es `@semanticio/…`, que es como lo escribe D14.)
+3. **`registerExactEvmScheme` anuncia mainnets que nadie pidió.** Adentro llama a
+   `registerV1()` con su propia lista de fábrica, así que un `/supported` crudo
+   declara `ethereum`, `base`, `avalanche` y veinte más — redes que ese proceso no
+   puede servir, porque su signer y su RPC están en 9746. Anunciar lo que no se
+   puede cumplir es el modo de falla que este bloque existe para evitar, así que
+   `/supported` se filtra a la red configurada y `/verify`/`settle` rechazan
+   cualquier otra **antes** de mirar la firma. Encontrado probando, no leyendo.
+4. **El guardia de D30 es lista blanca, y no tiene flag.** Una lista negra de
+   mainnets cumple hasta el día que aparece una cadena que nadie anotó, y el modo
+   de falla de esa omisión es desplegar en una red con plata real creyendo que
+   era un ensayo. Con lista blanca la omisión falla del lado barato. Y no hay
+   variable que lo saltee a propósito: D30 dice "sin excepción", así que
+   promocionar a mainnet es un cambio de código con revisión, no un `export`.
+5. **El token no se llama $QVAC**, por lo que dice D30.3 y con la marca en los
+   tres lugares donde se ve: `name` = `PyrusLLM Test USD`, `symbol` = `tUSD`, y
+   una constante `AVISO` en el contrato que dice que no es una stablecoin y no
+   vale nada. El `mint` es **abierto** — cualquiera puede emitirlo — que además
+   de evitar custodiar una llave de emisión es la marca más fuerte posible de que
+   esto no es una stablecoin.
+
+### Lo que este bloque NO hace, y no se va a leer como si lo hiciera
+
+- **No hay un tx hash.** Nada de esto tocó una cadena: falta desplegar el activo
+  (necesita XPL de faucet en una clave desechable) y correr `verificar-x402`
+  contra el contrato desplegado. El ítem del DoD de la Fase 9 **sigue reportado
+  como no cumplido**, exactamente como lo dejó 0-quater.
+- **No hay 402 en testnet todavía**, por lo de `x402.mjs` de más arriba.
+- **Ningún test sale a internet, y no por suerte.** El facilitator se prueba con
+  un RPC apuntado a un puerto donde no hay nada: los tres endpoints que se
+  ejercitan se contestan sin tocar la cadena, y si alguno necesitara la red el
+  test colgaría — que es la señal, no el problema. El artefacto del token se mira
+  en disco y las redes salen de una tabla.
+
+---
+
 ## 1 · Decisiones bloqueantes
 
 Numeración continuada del roadmap anterior, que llegó hasta D7.
@@ -503,6 +595,15 @@ advertencias, no escondido.
 
 **Cuándo se revisa:** en la Fase 10, o antes si D17 se activa.
 
+**REVISADA el 2026-08-27, y el resultado es (b).** No por preferencia: el hosted
+devolvía 500/503 en todos sus endpoints ese día y no soporta 9746. D30 lo volvió
+obligatorio y el self-hosted está hecho — `scripts/facilitator.js`, ver
+0-quinquies. Los tres reparos de esta decisión envejecieron así: sigue en beta
+(cierto, y por eso corre contra testnet); necesita una wallet con gas nativo
+(cierto, y en testnet el faucet la fondea gratis); agrega un componente que no
+controlamos al camino crítico (**al revés**: reemplaza uno que no controlamos por
+uno que sí, y el que no controlábamos fue justo el que se cayó).
+
 ---
 
 ### D15. Chain
@@ -517,6 +618,13 @@ kebab-case del schema **sin tocarlo**, que era la condición de D2.
 **Nota sobre plata real:** Plasma no es una testnet. Se empieza con montos de
 $0.001 y una wallet con USD 2. El riesgo está acotado por el monto, no por el
 entorno, y eso hay que saberlo antes de la primera corrida (riesgo #2).
+
+**SUPERSEDIDA POR D30 en cuanto al orden.** Esa nota decía cómo empezar y D30
+decidió que no se empieza ahí: 9745 sigue siendo el default y la elección de
+D15 no cambia, pero se estrena en 9746. Desde 0-quinquies eso es operable —
+`PYRUS_WALLET_RED=plasma-testnet`— y el chainId no es un detalle de
+configuración: por EIP-155 entra en lo que se firma, así que una transacción
+firmada para 9745 no vale en 9746.
 
 ---
 
@@ -1514,21 +1622,22 @@ El estado real y el orden que se ejecuta desde el 2026-08-26 están en la
 sección 0-ter, y manda esa. El estado de la Fase 9 en particular está en
 **0-quater**, que es la que manda sobre esa fila.
 
-| Orden | Qué                                             | Estado                                                            | Por qué ahí                                                                                                                                               |
-| ----- | ----------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | **Aplicar al early access de VELA**             | pendiente                                                         | Es lo único que no controlamos. Se dispara y se sigue trabajando                                                                                          |
-| 1     | **Fase 6.5 — presupuesto, corte y degradación** | **CERRADA 2026-08-26**                                            | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza      |
-| 1'    | ~~Spike de D11~~ **HECHO**                      | cerrado                                                           | Pasó: WDK y x402 corren directo bajo Bare, con firma idéntica a Node                                                                                      |
-| 1''   | Fase 6.6 — cuota gratuita del proveedor         | **cerrada**                                                       | Misma forma que la 6.5 y tampoco depende de D11. El punto de control ya existe en provider.mjs                                                            |
-| 2     | Fase 7 — desmockear `economic` (incluye D13)    | **CERRADA 2026-08-26**                                            | Precondición de todo cobro. Desbloquea 9, 10 y 11                                                                                                         |
-| 3     | Fase 8 — precio comparable y que rutea          | **CERRADA 2026-08-26**                                            | Vale sola aunque x402 se caiga                                                                                                                            |
-| 4     | Fase 8.5 — el asistente externo como candidato  | **CERRADA 2026-08-26** (B3, B4, B7, y después B11, B12, B15, B16) | Chica, porque la 8 ya dejó el ruteo listo                                                                                                                 |
-| 5     | Fase 9 — x402 en el borde                       | **CERRADA 2026-08-27**, con el tx hash afuera — ver 0-quater      | El hito técnico. D9 exige `finish_reason: length` al recortar: eso es B14 (que lo REPORTA) más B20 (que hace que el recorte exista). Lleva D24, D25 y D27 |
-| 6     | Fase 10 — recibos y lote                        | **desbloqueada, y con insumo** (la 9 dejó D24 emitiéndose)        | Mata la Fase 6. Ya no arranca de cero: liquida contra un artefacto firmado, no contra lo que un nodo afirma                                               |
-| 7     | Fase 11 — capa agéntica con harness             | **desbloqueada** (la 7 cerró)                                     | El pitch                                                                                                                                                  |
-| 8     | Fase 11.5 — evaluación adversarial              | no empezada                                                       | Pegada a la 11. No es opcional                                                                                                                            |
-| 9     | Fase 12 — MCP toolkit                           | no empezada                                                       | Upside; se corta primero                                                                                                                                  |
-| —     | V2/V3 — enclave                                 | no empezada                                                       | Cuando haya acceso y D17 esté cerrada                                                                                                                     |
+| Orden | Qué                                             | Estado                                                                                       | Por qué ahí                                                                                                                                               |
+| ----- | ----------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | **Aplicar al early access de VELA**             | pendiente                                                                                    | Es lo único que no controlamos. Se dispara y se sigue trabajando                                                                                          |
+| 1     | **Fase 6.5 — presupuesto, corte y degradación** | **CERRADA 2026-08-26**                                                                       | **La única fase que no depende de D11.** Todo lo demás la hereda: el tope, el `--budget`, el límite de tokens y el límite de daño son la misma pieza      |
+| 1'    | ~~Spike de D11~~ **HECHO**                      | cerrado                                                                                      | Pasó: WDK y x402 corren directo bajo Bare, con firma idéntica a Node                                                                                      |
+| 1''   | Fase 6.6 — cuota gratuita del proveedor         | **cerrada**                                                                                  | Misma forma que la 6.5 y tampoco depende de D11. El punto de control ya existe en provider.mjs                                                            |
+| 2     | Fase 7 — desmockear `economic` (incluye D13)    | **CERRADA 2026-08-26** · reabierta y re-cerrada 2026-08-27 por D30.1/D30.2 — ver 0-quinquies | Precondición de todo cobro. Desbloquea 9, 10 y 11                                                                                                         |
+| 3     | Fase 8 — precio comparable y que rutea          | **CERRADA 2026-08-26**                                                                       | Vale sola aunque x402 se caiga                                                                                                                            |
+| 4     | Fase 8.5 — el asistente externo como candidato  | **CERRADA 2026-08-26** (B3, B4, B7, y después B11, B12, B15, B16)                            | Chica, porque la 8 ya dejó el ruteo listo                                                                                                                 |
+| 5     | Fase 9 — x402 en el borde                       | **CERRADA 2026-08-27**, con el tx hash afuera — ver 0-quater                                 | El hito técnico. D9 exige `finish_reason: length` al recortar: eso es B14 (que lo REPORTA) más B20 (que hace que el recorte exista). Lleva D24, D25 y D27 |
+| 5'    | **Bloque 0 de D30 — las precondiciones**        | **HECHO 2026-08-27** — ver 0-quinquies                                                       | Sin esto la 10 se escribe pero no se demuestra: no había activo, ni facilitator para 9746, ni forma de que el nodo firmara para otra red que mainnet      |
+| 6     | Fase 10 — recibos y lote                        | **desbloqueada, y con insumo** (la 9 dejó D24 emitiéndose)                                   | Mata la Fase 6. Ya no arranca de cero: liquida contra un artefacto firmado, no contra lo que un nodo afirma                                               |
+| 7     | Fase 11 — capa agéntica con harness             | **desbloqueada** (la 7 cerró)                                                                | El pitch                                                                                                                                                  |
+| 8     | Fase 11.5 — evaluación adversarial              | no empezada                                                                                  | Pegada a la 11. No es opcional                                                                                                                            |
+| 9     | Fase 12 — MCP toolkit                           | no empezada                                                                                  | Upside; se corta primero                                                                                                                                  |
+| —     | V2/V3 — enclave                                 | no empezada                                                                                  | Cuando haya acceso y D17 esté cerrada                                                                                                                     |
 
 **Trabajo que quedó fuera de toda fase y que hay que ubicar en alguna:** los 574
 LOC de RAG que no importa nadie (B8), el instalador sin verificación de

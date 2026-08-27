@@ -11,10 +11,61 @@
 const test = require('brittle')
 const http = require('bare-http1')
 
-// Un puerto alto y propio para no chocar con un nodo que el desarrollador
-// tenga abierto en 8787 mientras corre los tests.
-const PORT = 8899
-const BASE = 'http://127.0.0.1:' + PORT
+// Puertos altos y propios para no chocar con un nodo que el desarrollador tenga
+// abierto en 8787 mientras corre los tests.
+//
+// SE ELIGEN POR CORRIDA, y no es un gusto: esta suite abre cuatro listeners y
+// los cuatro quedan en TIME_WAIT cuando el proceso termina. En Windows eso
+// impide volver a bindearlos por hasta dos minutos, asi que DOS CORRIDAS
+// SEGUIDAS morian con "el puerto 8899 ya esta en uso".
+//
+// Y morian de la peor forma: `createGateway` hace `Bare.exit(1)` en EADDRINUSE
+// -- que es lo correcto para el producto, porque el operador tiene que
+// enterarse --, asi que el proceso se iba ANTES de la primera linea de TAP. Una
+// corrida sin una sola linea de salida no se distingue de una corrida verde
+// mirando el exit code, y `npm run bug-puesto` -- que encadena una corrida por
+// arreglo -- la leia como "nadie vigila este arreglo". Se vio: tres entradas de
+// la Fase 9 salieron NO ROMPIO con el bug puesto y el test rompiendo de verdad.
+//
+// El arnes ahora distingue ese caso (ver `corrio()` en scripts/bug-puesto.js).
+// Esto es la otra mitad: que no vuelva a pasar. Se prueba un bloque de puertos
+// y se usa el primero que este libre entero, que es determinista -- rotar al
+// azar solo hace el choque menos frecuente, no imposible.
+const PUERTOS_DESDE = 8800
+const PUERTOS_HASTA = 9700
+
+let PORT = 8899
+let BASE = 'http://127.0.0.1:' + PORT
+
+function puertoLibre(p) {
+  return new Promise((resolve) => {
+    const s = http.createServer(() => {})
+    s.on('error', () => resolve(false))
+    // Un listener que nunca acepto una conexion no deja TIME_WAIT al cerrarse,
+    // asi que si esta sonda bindea, el servidor de verdad tambien.
+    s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)))
+  })
+}
+
+// Reserva el bloque entero de una: los cuatro listeners tienen que caer juntos,
+// porque cada test los referencia por su offset.
+async function elegirPuertos() {
+  for (let base = PUERTOS_DESDE; base <= PUERTOS_HASTA; base += 10) {
+    const libres = []
+    for (const d of [4, 7, 8, 9]) libres.push(await puertoLibre(base + d))
+    if (libres.every(Boolean)) {
+      PORT = base + 9
+      BASE = 'http://127.0.0.1:' + PORT
+      PUERTO_EXTERNO = base + 8
+      PUERTO_FACILITATOR = base + 7
+      PUERTO_FACILITATOR_REAL = base + 4
+      return base
+    }
+  }
+  throw new Error(
+    'no hay un bloque de puertos libre entre ' + PUERTOS_DESDE + ' y ' + PUERTOS_HASTA
+  )
+}
 
 function pedir(metodo, ruta, opts) {
   const o = opts || {}
@@ -61,6 +112,10 @@ let KEY = null
 
 test('arranca el gateway y entrega la key del panel', async (t) => {
   const { createGateway } = await import('../qvac/gateway.mjs')
+
+  // Antes de bindear: ver la nota de PUERTOS_DESDE. Sin esto, la segunda
+  // corrida seguida se muere sin escribir una linea de TAP.
+  await elegirPuertos()
   server = createGateway({ port: PORT, demo: true })
 
   // listen es asincrono: se espera al primer request que conteste.
@@ -75,6 +130,38 @@ test('arranca el gateway y entrega la key del panel', async (t) => {
 
   t.ok(KEY, 'el bootstrap de la key no pide key: sin eso no habria primer acceso')
   t.ok(KEY.startsWith('qvac_sk_'), 'con el prefijo que pone apikeys.mjs')
+})
+
+test('la sonda de puertos distingue ocupado de libre', async (t) => {
+  // Lo que vigila esta prueba no es una funcionalidad del producto: es lo que
+  // hace que ESTA SUITE pueda correr dos veces seguidas. Ver la nota de
+  // PUERTOS_DESDE arriba -- el modo de falla es que el proceso se muera antes de
+  // la primera linea de TAP, y una corrida sin salida no se distingue de una
+  // verde mirando el exit code.
+  //
+  // Si `puertoLibre` dijera que si siempre, `elegirPuertos` entregaria un bloque
+  // ocupado y el gateway haria `Bare.exit(1)` -- o sea, la falla volveria
+  // exactamente como estaba y sin ruido. Por eso se prueba la sonda, que es la
+  // pieza que puede mentir en silencio.
+  const ocupado = await new Promise((resolve) => {
+    const s = http.createServer(() => {})
+    s.listen(0, '127.0.0.1', () => resolve(s))
+  })
+  const puerto = ocupado.address().port
+
+  t.absent(await puertoLibre(puerto), 'un puerto con un listener encima NO esta libre')
+
+  await new Promise((resolve) => ocupado.close(resolve))
+  t.ok(await puertoLibre(puerto), 'y cerrado vuelve a estarlo')
+
+  // Y que el bloque que se eligio sea coherente: los cuatro listeners tienen que
+  // caer juntos, porque cada test los referencia por su offset y un bloque
+  // mezclado apuntaria la mitad de la suite a un puerto de otra corrida.
+  const base = PORT - 9
+  t.is(PUERTO_EXTERNO, base + 8, 'el proveedor externo, en el mismo bloque')
+  t.is(PUERTO_FACILITATOR, base + 7, 'el facilitator falso tambien')
+  t.is(PUERTO_FACILITATOR_REAL, base + 4, 'y el self-hosted de D30.4')
+  t.ok(base >= PUERTOS_DESDE && base <= PUERTOS_HASTA, 'dentro del rango declarado')
 })
 
 // ---------------------------------------------------------------------------
@@ -315,7 +402,7 @@ test('el selector del chat ofrece los tres modos', async (t) => {
 // correr `npm test` y dejar la suite atada a la red y a una credencial.
 // ---------------------------------------------------------------------------
 
-const PUERTO_EXTERNO = 8898
+let PUERTO_EXTERNO = 8898
 let servidorExterno = null
 let ultimoPedidoExterno = null
 
@@ -2122,7 +2209,7 @@ test('un X-PAYMENT manoseado no compra nada', async (t) => {
 // una liquidacion fallida no se lleve puesta una respuesta que ya salio bien.
 // ---------------------------------------------------------------------------
 
-const PUERTO_FACILITATOR = 8897
+let PUERTO_FACILITATOR = 8897
 let servidorFacilitator = null
 let ultimoSettle = null
 let facilitatorFalla = false
@@ -3005,6 +3092,282 @@ test('D27 caso 1: los chunks que llegan DESPUES del cancel no entran al hash', a
   await soltarPar()
 })
 
+// ---------------------------------------------------------------------------
+// FASE 9 — QUE LO EMITIDO LLEGUE AL PANEL
+//
+// Los tests de arriba prueban que el gateway EMITE los cuatro artefactos. Estos
+// prueban lo otro, que es lo que faltaba: que ese dato, tal como sale por HTTP,
+// llega al panel CON SU SIGNIFICADO. No alcanza con que el HTML se sirva -- eso
+// ya lo miraba "los cuatro paneles siguen renderizando", y se seguia sirviendo
+// perfecto con los cuatro artefactos invisibles adentro.
+//
+// Se ejercita `qvac/panel-x402.mjs`, que es literalmente el codigo que pages.mjs
+// pega adentro del <script> de cada pagina. Alimentado, aca, con las respuestas
+// REALES del gateway y no con fixtures escritos a mano: un fixture que envejece
+// mal es exactamente como se pierde de vista que un campo cambio de forma.
+// ---------------------------------------------------------------------------
+
+test('FASE 9 visible: el 402 real llega al panel con los CUATRO datos', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const px = await import('../qvac/panel-x402.mjs')
+
+  const direccion = '0x' + 'ab'.repeat(20)
+  gw.setEconomic(wallet.economicDe(direccion))
+
+  const r = await pedir('POST', '/v1/chat/completions', {
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(r.status, 402, 'el nodo pide pago')
+
+  // Antes de esto, el chat aplanaba el 402 a "[error] HTTP 402" y los cuatro
+  // datos del DoD se perdian en el camino.
+  const v = px.vistaDeDesafio(r.json)
+  t.ok(v.esDesafio, 'el panel lo reconoce como un cobro y no como un error')
+  const o = v.opciones[0]
+  t.is(o.monto, r.json.accepts[0].amount, 'CUANTO, tal como salio del endpoint')
+  t.is(o.payTo, direccion, 'A QUIEN')
+  t.is(o.red.id, r.json.accepts[0].network, 'EN QUE CADENA, con el CAIP-2 crudo')
+  t.is(o.tope, r.json.accepts[0].outputTokenLimit, 'HASTA CUANTOS TOKENS')
+
+  const html = px.htmlDeDesafio(v)
+  t.ok(html.indexOf(direccion) !== -1, 'la direccion se dibuja entera, no recortada')
+  t.ok(html.indexOf(String(o.tope)) !== -1, 'y el tope tambien')
+  t.ok(html.indexOf(o.red.id) !== -1, 'con el id de la red, no solo el nombre')
+
+  gw.setEconomic(null)
+})
+
+test('FASE 9 visible: el recibo y la atestacion, con el outputHash comparado', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+  const p = await conProveedorQueFirma()
+
+  const messages = [{ role: 'user', content: 'hola' }]
+  const { r } = await pagarYPedir({ model: 'facturas-ar', messages })
+  t.is(r.status, 200)
+
+  const rec = await pedir('GET', '/v1/receipts/' + r.json.id)
+  t.is(rec.status, 200)
+
+  const contenido = r.json.choices[0].message.content
+  const vista = px.vistaDeAtestacion(rec.json, { textoRecibido: contenido, messages })
+
+  // ESTO es lo que hace que la atestacion sea evidencia y no un campo: el hash
+  // se recomputa en el panel sobre el texto que el cliente recibio. Que el
+  // gateway lo haya calculado bien ya se probaba; que una persona lo pueda
+  // COMPROBAR mirando, no.
+  const out = vista.hashes.filter((h) => h.campo === 'outputHash')[0]
+  t.is(out.estado, 'coincide', 'el outputHash recomputado en el panel coincide')
+  t.is(out.declarado, rec.json.attestation.outputHash)
+  const prompt = vista.hashes.filter((h) => h.campo === 'promptHash')[0]
+  t.is(prompt.estado, 'coincide', 'y el promptHash, sobre la conversacion entera')
+
+  // Regla 2: la corrida es en modo --demo, o sea que el texto es inventado y la
+  // firma es de una wallet real. El panel tiene que decir las dos cosas.
+  t.is(rec.json.attestation.runtime, 'mock', 'el artefacto lo declara')
+  t.ok(vista.esMock, 'y el panel lo levanta')
+  t.is(vista.providerPubkey, p.address, 'firmada por la direccion de cobro de este nodo')
+
+  const html = px.htmlDeRecibo(rec.json, { textoRecibido: contenido, messages })
+  t.ok(html.indexOf('runtime: mock') !== -1, 'un mock se VE como mock en la pantalla')
+  t.ok(html.indexOf('coincide') !== -1, 'y la comparacion de hash se dibuja')
+
+  // Regla 4: contra el facilitator falso el tx es 0xfe...fe, y en el explorer no
+  // existe. Es el estado REAL de este arbol -- el item del DoD que quedo afuera
+  // (0-quater) -- y el panel no lo puede presentar como una transaccion.
+  const liq = px.vistaDeLiquidacion(px.liquidacionDe(rec.json))
+  t.ok(liq.liquidado, 'el facilitator informo exito')
+  t.ok(liq.txSintetico, 'pero el hash es el sello de un facilitator de pruebas')
+  t.ok(html.indexOf('facilitator de PRUEBAS') !== -1, 'y eso se dibuja al lado del hash')
+
+  await soltarProveedor()
+})
+
+test('FASE 9 visible: la atestacion que falta llega al panel CON el motivo', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const px = await import('../qvac/panel-x402.mjs')
+  const env = (await import('bare-env')).default
+
+  // Con wallet -- asi que cobra -- y sin firmante: el estado real de un nodo
+  // cuya passphrase no abrio el keystore. No se emite una atestacion sin firma.
+  env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletSigner(null)
+
+  const { r } = await pagarYPedir({
+    model: 'facturas-ar',
+    messages: [{ role: 'user', content: 'hola' }]
+  })
+  const rec = await pedir('GET', '/v1/receipts/' + r.json.id)
+  t.is(rec.json.attestation, null)
+
+  const vista = px.vistaDeAtestacion(rec.json, {})
+  t.absent(vista.hay)
+  t.is(vista.motivo, rec.json.attestationMissing, 'el motivo del endpoint viaja SIN resumir')
+  t.ok(vista.motivoDeclarado, 'y consta que alguien lo declaro')
+
+  const html = px.htmlDeAtestacion(vista)
+  t.ok(html.indexOf(rec.json.attestationMissing) !== -1, 'el motivo se dibuja completo')
+  t.absent(html.indexOf('coincide') !== -1, 'y no se afirma nada sobre hashes que no existen')
+
+  await soltarProveedor()
+})
+
+test('FASE 9 visible: el rastro llega al panel con el split Y su procedencia', async (t) => {
+  const store = await import('../qvac/store.mjs')
+  const upstream = await import('../qvac/upstream.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+  const px = await import('../qvac/panel-x402.mjs')
+
+  // 1. Un proveedor que manda `usage`: son tokens contados por SU tokenizador.
+  const ups = upstream.cargarDesde({
+    upstreams: [
+      {
+        id: 'd25panel',
+        label: 'Manda usage',
+        local: true,
+        baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
+        models: [{ modelId: 'u', as: 'd25-panel', maxTokens: 256 }]
+      }
+    ]
+  })
+  gw.setUpstreams(ups)
+  store.registerUpstream({
+    id: ups[0].id,
+    modelId: 'd25-panel',
+    displayName: 'D25 panel',
+    operator: 'Manda usage',
+    local: true,
+    maxConcurrentRequests: 4
+  })
+
+  const conUsage = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'd25-panel', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(conUsage.status, 200)
+
+  const e1 = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
+  const medido = px.vistaDeConteo(e1)
+  t.is(medido.fuente, 'proveedor')
+  t.ok(medido.medido, 'el panel lo levanta como medido')
+  t.is(medido.prefill, e1.tokensPrefill, 'y muestra los numeros del rastro, no otros')
+  t.is(medido.decode, e1.tokensDecode)
+
+  store.clearUpstreams()
+  gw.setUpstreams([])
+
+  // 2. Un mock no manda `usage`. Lo que queda es una estimacion del prompt y un
+  //    conteo de deltas: NO se puede dibujar igual que lo de arriba.
+  const sinUsage = await pedir('POST', '/v1/chat/completions', {
+    key: KEY,
+    body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  })
+  t.is(sinUsage.status, 200)
+
+  const e2 = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
+  const estimado = px.vistaDeConteo(e2)
+  t.is(estimado.fuente, 'gateway')
+  t.absent(estimado.medido, 'un conteo de chunks de SSE no es una medicion')
+
+  t.absent(
+    px.htmlDeConteo(medido) === px.htmlDeConteo(estimado),
+    'y los dos rastros REALES no se dibujan igual'
+  )
+  t.ok(px.htmlDeConteo(estimado).indexOf('tono-estimado') !== -1)
+  t.ok(px.htmlDeConteo(medido).indexOf('tono-medido') !== -1)
+
+  // D27 tambien viaja en el rastro: sin esto, un corte del cliente y una
+  // respuesta completa se ven identicos en el panel.
+  t.ok(e2.finishReason, 'el rastro declara como termino: ' + e2.finishReason)
+  t.ok(px.textoDeFinishReason(e2.finishReason).length > 0, 'y el panel lo dice en palabras')
+})
+
+test('FASE 9 visible: los paneles servidos LLEVAN el codigo que dibuja todo esto', async (t) => {
+  const px = await import('../qvac/panel-x402.mjs')
+
+  // El grep que abrio este trabajo: `receipts`, `attestation`, `x402`, `402`,
+  // `tokensPrefill`, `tokensDecode`, `tokensFuente`, `finishReason` y
+  // `outputHash` daban CERO sobre pages.mjs. Los cuatro artefactos se servian
+  // por HTTP y solo se veian con curl.
+  //
+  // Se mira el HTML SERVIDO y no el modulo: entre los dos hay una interpolacion
+  // que puede quedar afuera sin que nada falle, y el panel se serviria igual --
+  // completo, y sin nada de la Fase 9 adentro.
+  const chat = await pedir('GET', '/')
+  const node = await pedir('GET', '/node')
+  const admin = await pedir('GET', '/admin')
+  for (const p of [chat, node, admin]) t.is(p.status, 200)
+
+  for (const [nombre, p] of [
+    ['/', chat],
+    ['/node', node],
+    ['/admin', admin]
+  ]) {
+    t.ok(
+      p.body.indexOf(px.FUENTE_EMBEBIDA) !== -1,
+      nombre + ' lleva embebido el codigo de panel-x402.mjs, entero'
+    )
+  }
+
+  // Y que ese codigo este CONECTADO a algo, que es lo que el HTML servido puede
+  // demostrar y el modulo solo no: pegarlo sin llamarlo seria pasar este test
+  // con los paneles igual de ciegos que antes.
+  //
+  // Se busca cada LUGAR DE LLAMADA y no el nombre de la funcion pelado, y la
+  // diferencia no es cosmetica: `FUENTE_EMBEBIDA` contiene las definiciones, o
+  // sea que un `indexOf('htmlDeDesafio(')` da positivo aunque nadie la llame
+  // nunca. Un test que se satisface con la definicion no vigila el cable.
+  //
+  // EL LIMITE, dicho: esto comprueba que el cable existe en el HTML servido, no
+  // que el navegador lo ejecute. Lo que corre de verdad son las funciones, y eso
+  // lo prueba la suite unitaria contra la MISMA fuente que se embebe aca. Un
+  // browser headless seria la unica forma de cerrar el ultimo tramo y no entra
+  // en este arbol.
+  t.ok(chat.body.indexOf('htmlDeDesafio(m.x402)') !== -1, 'el chat dibuja el 402 del turno')
+  t.ok(chat.body.indexOf('htmlDeRecibo(m.recibo,') !== -1, 'y el recibo con su atestacion')
+  t.ok(chat.body.indexOf('slot.recibo = ev') !== -1, 'guardando el evento SSE final de D12')
+  t.ok(
+    chat.body.indexOf('vistaDeDesafio(b)') !== -1,
+    'y leyendo el cuerpo del 402 en vez de aplanarlo'
+  )
+  t.ok(
+    node.body.indexOf('htmlDeRecibo(await r.json(), ctx)') !== -1,
+    '/node dibuja el recibo que busca'
+  )
+  t.ok(node.body.indexOf('htmlDeConteo(vistaDeConteo(e))') !== -1, '/node pinta el split de D25')
+  t.ok(admin.body.indexOf('htmlDeConteo(vistaDeConteo(e))') !== -1, 'y el log de admin tambien')
+
+  // Y esta, que es una propiedad y no un detalle: `GET /v1/receipts/:id` es la
+  // UNICA ruta que no pide credencial, porque quien pago por 402 no tiene
+  // ninguna -- ese es todo el punto del 402. Si el panel la pidiera con
+  // `authFetch`, esconderia esa propiedad detras de un header que no hace falta,
+  // y el dia que alguien copie el patron el gate se le colaria a la ruta.
+  t.ok(
+    node.body.indexOf("await fetch('/v1/receipts/") !== -1,
+    '/node busca el recibo SIN credencial, que es la excepcion deliberada a B12'
+  )
+
+  // Los nueve terminos del grep, ahora en el HTML que se sirve.
+  const terminos = [
+    'attestation',
+    'x402',
+    '402',
+    'tokensPrefill',
+    'tokensDecode',
+    'tokensFuente',
+    'finishReason',
+    'outputHash'
+  ]
+  for (const term of terminos) {
+    t.ok(chat.body.indexOf(term) !== -1, 'el chat menciona ' + term)
+    t.ok(node.body.indexOf(term) !== -1, '/node menciona ' + term)
+  }
+  t.ok(node.body.indexOf('receipts') !== -1, '/node menciona receipts')
+})
+
 test('cierra el facilitator falso', async (t) => {
   if (servidorFacilitator) servidorFacilitator.close()
   t.pass('apagado')
@@ -3020,4 +3383,203 @@ test('cierra el gateway sin dejar el puerto tomado', async (t) => {
   await shutdownGateway()
   if (server) server.close()
   t.pass('apagado ordenado')
+})
+
+// ---------------------------------------------------------------------------
+// D30.4 / D14(b) — EL FACILITATOR SELF-HOSTED
+//
+// D14 habia elegido el hosted de Semantic "hasta la Fase 10". D30 lo adelanto
+// por dos hechos: el hosted devolvia 500/503 en TODOS sus endpoints el
+// 2026-08-27, y no soporta 9746 -- ni va a conocer un token que desplegamos
+// nosotros. Sin facilitator no hay settlement, asi que sin esto la Fase 10 se
+// puede escribir pero no demostrar.
+//
+// ESTO NO SALE A INTERNET, y no es por suerte: los tres endpoints que se prueban
+// (`/supported`, y los dos rechazos) se contestan SIN tocar la cadena. El RPC
+// que se le pasa apunta a un puerto donde no hay nada, a proposito -- si alguna
+// de estas respuestas necesitara la red, el test colgaria y eso seria la senal.
+//
+// Corre en un proceso NODE aparte porque el facilitator es Node y no Bare. Eso
+// tambien es parte de lo que se prueba: que sea un servicio separado es
+// exactamente por que no viola D11 (ver el encabezado de scripts/facilitator.js).
+// ---------------------------------------------------------------------------
+
+// 8894 y 8895. NO 8897: ese es el del facilitator FALSO de mas arriba, y aunque
+// para entonces ya este cerrado, apoyarse en el orden de los tests para que dos
+// servidores no choquen es una intermitencia esperando a que alguien reordene.
+let PUERTO_FACILITATOR_REAL = 8894
+
+// Una clave de prueba conocida y publica (la #2 de anvil). NUNCA se fondea, y
+// aca ni siquiera firma nada: solo hace falta para que el signer tenga una
+// direccion que poner en `/supported`.
+const CLAVE_DE_PRUEBA = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
+
+function correrFacilitator(env) {
+  const { spawn } = require('bare-subprocess')
+  const path = require('bare-path')
+  const raiz = path.join(__dirname, '..')
+
+  const hijo = spawn('node', [path.join(raiz, 'scripts', 'facilitator.js')], {
+    cwd: raiz,
+    env: Object.assign({}, require('bare-env'), env),
+    stdio: 'pipe'
+  })
+
+  let salida = ''
+  hijo.stdout.on('data', (c) => {
+    salida += c
+  })
+  hijo.stderr.on('data', (c) => {
+    salida += c
+  })
+
+  return {
+    hijo,
+    salida: () => salida,
+    // Se espera a que DIGA que esta escuchando en vez de dormir un rato fijo:
+    // un sleep que alcanza en esta maquina no alcanza en la de al lado, y el
+    // test se vuelve intermitente en vez de romperse.
+    async listo(marca, ms = 20000) {
+      const hasta = Date.now() + ms
+      while (Date.now() < hasta) {
+        if (salida.indexOf(marca) !== -1) return true
+        if (hijo.exitCode !== null && hijo.exitCode !== undefined) return false
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      return false
+    },
+    matar() {
+      try {
+        hijo.kill()
+      } catch {}
+    }
+  }
+}
+
+function pedirle(url, metodo, cuerpo) {
+  return new Promise((resolve, reject) => {
+    const headers = {}
+    let payload = null
+    if (cuerpo !== undefined && cuerpo !== null) {
+      payload = typeof cuerpo === 'string' ? cuerpo : JSON.stringify(cuerpo)
+      headers['Content-Type'] = 'application/json'
+      headers['Content-Length'] = Buffer.byteLength(payload)
+    }
+    const req = http.request(url, { method: metodo, headers }, (res) => {
+      let d = ''
+      res.on('data', (c) => {
+        d += c
+      })
+      res.on('end', () => {
+        let json = null
+        try {
+          json = JSON.parse(d)
+        } catch {}
+        resolve({ status: res.statusCode, json, crudo: d })
+      })
+    })
+    req.on('error', reject)
+    if (payload) req.write(payload)
+    req.end()
+  })
+}
+
+test('D30.4: el facilitator self-hosted levanta y declara 9746, que ninguno hosted conoce', async (t) => {
+  const base = 'http://127.0.0.1:' + PUERTO_FACILITATOR_REAL
+  const f = correrFacilitator({
+    PYRUS_FACILITATOR_CLAVE: CLAVE_DE_PRUEBA,
+    PYRUS_FACILITATOR_PUERTO: String(PUERTO_FACILITATOR_REAL),
+    PYRUS_FACILITATOR_CHAINID: '9746',
+    // Un RPC que NO existe. Ver el encabezado: si algo de lo que se prueba
+    // necesitara la cadena, esto lo delata en vez de esconderlo.
+    PYRUS_FACILITATOR_RPC: 'http://127.0.0.1:1/no-existe'
+  })
+
+  try {
+    t.ok(await f.listo('facilitator  http://'), 'arranco: ' + f.salida().slice(0, 200))
+
+    const sup = await pedirle(base + '/supported', 'GET')
+    t.is(sup.status, 200, 'GET /supported contesta 200 -- que es lo que el hosted NO hacia')
+
+    const kinds = (sup.json && sup.json.kinds) || []
+    t.ok(
+      kinds.some((k) => k.network === 'eip155:9746' && k.scheme === 'exact'),
+      'y declara eip155:9746 con esquema exact: ' + JSON.stringify(kinds)
+    )
+
+    // LO QUE ANUNCIA TIENE QUE SER LO QUE PUEDE CUMPLIR.
+    //
+    // `registerExactEvmScheme` no registra solo lo que se le pide: adentro llama
+    // a `registerV1` con su propia lista de fabrica, que trae `ethereum`, `base`
+    // y demas. Un `/supported` crudo anunciaria MAINNETS que este proceso no
+    // puede servir -- el signer y el RPC estan en 9746 -- y que D30 dice que no
+    // se tocan. Alguien lee eso, manda un pago, y nadie lo liquida.
+    t.is(
+      kinds.filter((k) => k.network !== 'eip155:9746').length,
+      0,
+      'y NADA MAS: no anuncia una sola red que no pueda servir'
+    )
+    t.absent(
+      JSON.stringify(kinds).indexOf('ethereum') !== -1,
+      'en particular, ninguna mainnet de la lista de fabrica'
+    )
+
+    // El nodo lo apunta con la MISMA variable con la que apunta al hosted, asi
+    // que cambiar de uno al otro es configuracion y no codigo (D14 -> D14(b)).
+    const x402 = await import('../qvac/x402.mjs')
+    t.is(x402.VAR_FACILITATOR, 'PYRUS_X402_FACILITATOR', 'se apunta sin tocar codigo')
+
+    // Un pago de OTRA red se rechaza ANTES de mirar la firma, y con motivo. Que
+    // el motivo diga las dos redes es lo que hace debuggeable un settlement que
+    // no ocurrio.
+    const otraRed = await pedirle(base + '/settle', 'POST', {
+      paymentPayload: { x402Version: 2, scheme: 'exact', network: 'eip155:9745', payload: {} },
+      paymentRequirements: { network: 'eip155:9745' }
+    })
+    t.is(otraRed.status, 200)
+    t.absent(otraRed.json && otraRed.json.success, 'un pago de mainnet no se liquida aca')
+    t.is(otraRed.json && otraRed.json.errorReason, 'unsupported_network')
+    t.ok(
+      String(otraRed.json.errorMessage).indexOf('eip155:9746') !== -1,
+      'y el motivo nombra las dos redes: ' + otraRed.json.errorMessage
+    )
+
+    // Y basura no tira un 500 pelado: del otro lado hay un gateway que YA sirvio
+    // los tokens (D12 liquida despues) y necesita poder registrar por que no se
+    // liquido. Un 500 sin cuerpo se convierte en "settlement_failed" sin motivo.
+    const basura = await pedirle(base + '/verify', 'POST', '{no soy json')
+    t.is(basura.status, 200, 'contesta estructurado, no un 500 pelado')
+    t.absent(basura.json && basura.json.isValid, 'y no da por valido lo que no pudo leer')
+    t.ok(
+      basura.json && basura.json.errorMessage,
+      'con el motivo adentro: ' + basura.crudo.slice(0, 120)
+    )
+  } finally {
+    f.matar()
+  }
+})
+
+test('D30.4: el facilitator NO se levanta contra mainnet, y no hay flag que lo saltee', async (t) => {
+  // Un facilitator es, literalmente, el componente que mueve valor: es el que
+  // difunde la transaccion. Si hay un solo lugar donde el guardia de D30 no
+  // puede faltar, es este.
+  const f = correrFacilitator({
+    PYRUS_FACILITATOR_CLAVE: CLAVE_DE_PRUEBA,
+    PYRUS_FACILITATOR_PUERTO: String(PUERTO_FACILITATOR_REAL + 1),
+    // 9745 es el default de D15, o sea el error mas facil de cometer.
+    PYRUS_FACILITATOR_CHAINID: '9745',
+    PYRUS_FACILITATOR_RPC: 'http://127.0.0.1:1/no-existe'
+  })
+
+  try {
+    const arranco = await f.listo('facilitator  http://', 8000)
+    t.absent(arranco, 'no levanta contra 9745')
+    t.ok(f.salida().indexOf('MAINNET') !== -1, 'y dice por que: ' + f.salida().slice(0, 220))
+    t.ok(
+      f.salida().indexOf('D30') !== -1,
+      'nombrando la decision, para que se pueda discutir en vez de parchear'
+    )
+  } finally {
+    f.matar()
+  }
 })
