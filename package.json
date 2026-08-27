@@ -66,7 +66,8 @@
     "release": "node scripts/release.js",
     "release:host": "node scripts/release.js --host",
     "seed": "pear seed pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny",
-    "postinstall": "node scripts/parche-noble-bare.js"
+    "postinstall": "node scripts/parche-noble-bare.js",
+    "bug-puesto": "node scripts/bug-puesto.js"
   },
   "dependencies": {
     "@qvac/bare-sdk": "^0.17.1",

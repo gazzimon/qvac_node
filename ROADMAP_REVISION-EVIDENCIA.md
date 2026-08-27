@@ -359,6 +359,15 @@ nada escrito que explique por qué se descartó.
 
 ### Fase 9 — x402 en el borde · **el objetivo no cambia**
 
+> **HECHA, NO CERRADA el 2026-08-27**, con los dos ítems de abajo adentro y con
+> D27 también. El estado ítem por ítem y lo que falta para cerrarla están en
+> **§ 0-quater de [ROADMAP_FASE7-X402.md](ROADMAP_FASE7-X402.md)**. Lo que no se
+> pudo verificar —el tx hash en el explorer de Plasma— está escrito ahí como no
+> verificado, no en verde. El costo real fue mayor que los +0,5 día estimados,
+> por un motivo que no estaba previsto: apareció **B20**, el tope de tokens que
+> el 402 declaraba y no aplicaba nadie, y sin ese arreglo el caso 3 de D27 no
+> tenía caso que probar.
+
 Se le suman dos ítems de DoD. **Costo estimado: +0,5 día** sobre los 2-3 ya
 planificados.
 
@@ -463,9 +472,9 @@ proyecto ya aplica a los mocks y a la tasa de acierto.
 
 | Orden | Qué                                                | Cuándo                         | Costo      |
 | ----- | -------------------------------------------------- | ------------------------------ | ---------- |
-| **0** | **V1 — Token Inflation al deck de Horizen**        | **Antes de abrir la Fase 9**   | ~2 h       |
-| **0'**| **Corregir dos claims** (D26 y §4) en README y aplicación | Antes de abrir la Fase 9  | ~1 h       |
-| 1     | Fase 9 + D24 + D25                                 | Siguiente, ya desbloqueada     | 2-3 d +0,5 |
+| **0** | ~~**V1 — Token Inflation al deck de Horizen**~~ HECHO | 2026-08-27                     | —          |
+| **0'**| ~~**Corregir dos claims** (D26 y §4)~~ HECHO — README y aplicación | 2026-08-27          | —          |
+| 1     | ~~Fase 9 + D24 + D25~~ **+ D27** — HECHA, no cerrada | 2026-08-27                     | —          |
 | 2     | Fase 10 + D24 + D27                                | Después de la 9                | ~2 d       |
 | 3     | **Fase 10.5 — sondas** (nueva)                     | Después de la 10               | ~1 d       |
 | 4     | Fase 11 — capa agéntica                            | Sin cambios                    | 2-3 d      |
@@ -478,11 +487,11 @@ proyecto ya aplica a los mocks y a la tasa de acierto.
 
 | #   | Decisión                                                        | Tipo                     | Bloquea            |
 | --- | --------------------------------------------------------------- | ------------------------ | ------------------ |
-| D24 | Atestación del proveedor en el recibo, desde la Fase 9          | **arquitectura + seguridad** | Fase 9, 10, V2 |
-| D25 | Registrar prefill y decode por separado; precio plano sin tocar | modelo de datos          | Fase 9, Fase 10    |
-| D26 | Sondas para identidad; cuantización por stake y arbitraje       | **negocio + seguridad**  | Fase 10.5          |
-| D27 | Tres casos de corte, decididos por quién cortó                  | arquitectura             | Fase 10            |
-| D28 | Riel de pago en stable; token nativo solo para incentivos. Corrige el texto, no el código | **negocio**    | La aplicación      |
+| D24 | ~~Atestación del proveedor en el recibo, desde la Fase 9~~ **IMPLEMENTADA 2026-08-27** (`qvac/atestacion.mjs`) | **arquitectura + seguridad** | ~~Fase 9~~, 10, V2 |
+| D25 | ~~Registrar prefill y decode por separado~~ **IMPLEMENTADA 2026-08-27**. D22 sin tocar, y la Fase 8 no se reabrió | modelo de datos | ~~Fase 9~~, Fase 10 |
+| D26 | Sondas para identidad; cuantización por stake y arbitraje. **Alcance ya escrito** en README y aplicación (2026-08-27); las sondas siguen sin construirse | **negocio + seguridad** | Fase 10.5 |
+| D27 | ~~Tres casos de corte, decididos por quién cortó~~ **IMPLEMENTADA 2026-08-27**, los tres con test verificado contra el bug puesto | arquitectura | Fase 10 |
+| D28 | ~~Riel de pago en stable; token nativo solo para incentivos~~ **TEXTO CORREGIDO 2026-08-27** en `PyrusLLM-application.md`. El código no se tocó, como decía | **negocio** | La aplicación |
 | D29 | Verificación optimista con el enclave como árbitro; sin comité  | **arquitectura + negocio** | Fase 10, V2      |
 
 ---
