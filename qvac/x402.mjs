@@ -56,8 +56,15 @@ import env from 'bare-env'
 // CAIP-2 de cada red que este nodo puede aceptar, en el orden de preferencia de
 // D15. Los nombres cortos son los que viajan en `economic.chains` del
 // manifiesto (kebab-case, ver wallet.mjs).
+//
+// `plasma-testnet` (9746) lo agrega la Fase 10 y REABRE la Fase 9: D30 decidió
+// que nada se estrena en mainnet, así que el `curl` que cobra de verdad lo hace
+// primero en 9746. El chainId no es un detalle de config — por EIP-155 entra en
+// lo que se firma —, así que 9745 y 9746 son dos redes distintas y no una con
+// una bandera.
 export const CAIP2 = {
   plasma: 'eip155:9745',
+  'plasma-testnet': 'eip155:9746',
   stable: 'eip155:988'
 }
 
@@ -85,6 +92,29 @@ const PLASMA_USDT0_SIN_VERIFICAR = {
 // La variable con la que el operador declara que verificó la dirección de
 // Plasma contra el explorer. Sin esto, Plasma queda fuera y se cobra en Stable.
 export const VAR_PLASMA_OK = 'PYRUS_X402_PLASMA_ASSET_VERIFICADO'
+
+// -----------------------------------------------------------------------------
+// Plasma TESTNET (9746) — donde D30 dice que se estrena
+// -----------------------------------------------------------------------------
+
+// En 9746 NO hay stablecoin: los faucets dan sólo XPL, que es gas nativo y no
+// tiene contrato. El activo con EIP-3009 lo despliega el operador
+// (`npm run desplegar-activo`, `scripts/activo-prueba.sol` → tUSD) y cada
+// despliegue tiene su propia dirección, así que —a diferencia de Plasma
+// mainnet— acá no hay una constante canónica que hardcodear: se declara por
+// variable.
+//
+// Son los MISMOS nombres que lee `scripts/verificar-x402.js`, que es el que
+// comprueba CONTRA LA CADENA que ese contrato implementa EIP-3009 y que su
+// dominio EIP-712 coincide con el que vamos a firmar. Acá no se verifica nada:
+// declarar `ASSET` y `NAME` es el operador diciendo "ya lo corrí y quedó bien".
+// Sin los dos, la red no se ofrece — el default es no cobrar en una red cuyo
+// activo nadie declaró.
+export const VAR_PLASMA_TESTNET_ASSET = 'PYRUS_X402_PLASMA_TESTNET_ASSET'
+export const VAR_PLASMA_TESTNET_NAME = 'PYRUS_X402_PLASMA_TESTNET_NAME'
+export const VAR_PLASMA_TESTNET_SYMBOL = 'PYRUS_X402_PLASMA_TESTNET_SYMBOL'
+export const VAR_PLASMA_TESTNET_VERSION = 'PYRUS_X402_PLASMA_TESTNET_VERSION'
+export const VAR_PLASMA_TESTNET_DECIMALS = 'PYRUS_X402_PLASMA_TESTNET_DECIMALS'
 
 // -----------------------------------------------------------------------------
 // La carga
@@ -130,6 +160,25 @@ export async function activoDe(red) {
     return { network: id, ...PLASMA_USDT0_SIN_VERIFICAR }
   }
 
+  if (red === 'plasma-testnet') {
+    // Igual que Plasma pero sin dirección de fábrica: la pone el operador
+    // después de correr `npm run verificar-x402`. Sin `ASSET` y `NAME` la red
+    // no entra al `accepts[]` — un cliente no puede firmar un EIP-712 contra un
+    // dominio a medias.
+    const asset = env[VAR_PLASMA_TESTNET_ASSET]
+    const name = env[VAR_PLASMA_TESTNET_NAME]
+    if (!asset || !name) return null
+    const dec = Number(env[VAR_PLASMA_TESTNET_DECIMALS] || 6)
+    return {
+      network: id,
+      asset,
+      name,
+      version: env[VAR_PLASMA_TESTNET_VERSION] || '1',
+      decimals: Number.isFinite(dec) ? dec : 6,
+      symbol: env[VAR_PLASMA_TESTNET_SYMBOL] || name
+    }
+  }
+
   try {
     return { network: id, ...evm.getDefaultAsset(id) }
   } catch {
@@ -142,7 +191,7 @@ export async function activoDe(red) {
 // quiere cobrar, esto dice en cuáles efectivamente puede.
 export async function redesDisponibles() {
   const out = []
-  for (const red of ['plasma', 'stable']) {
+  for (const red of ['plasma', 'plasma-testnet', 'stable']) {
     if (await activoDe(red)) out.push(red)
   }
   return out
@@ -362,6 +411,51 @@ function montoEnUnidades(micros, activo) {
 // -----------------------------------------------------------------------------
 // La liquidación (D12, D14)
 // -----------------------------------------------------------------------------
+
+// EL PROTOCOLO ENTRE ESTE NODO Y EL FACILITATOR, escrito acá porque es lo que la
+// Fase 10 liquida en lote y un lote que no se arma con estos campos exactos se
+// rechaza del otro lado sin decir por qué.
+//
+// El transporte lo pone `HTTPFacilitatorClient` de `@x402/core/http`, que envía
+// POST JSON a `<url>/verify` y `<url>/settle` y GET a `<url>/supported`. Lo que
+// viaja en cada uno, por nombre de campo (el contrato vinculante es el schema
+// del paquete instalado, no el spec público, que no fija los campos de
+// respuesta):
+//
+//   POST /verify   ->  { paymentPayload, paymentRequirements }
+//   POST /settle   ->  { paymentPayload, paymentRequirements }
+//
+//     paymentPayload      = { x402Version, scheme: 'exact', network,
+//                             payload: { authorization, signature } }
+//     paymentRequirements = la entrada de `accepts[]` TAL CUAL se ofreció en el
+//                           402 (`entradaAccepts`): network, amount, asset,
+//                           payTo, maxTimeoutSeconds, extra:{ name, version }.
+//                           Recalcularla de este lado es liquidar contra otros
+//                           números que los que el cliente firmó.
+//
+//   /verify  <-  { isValid: boolean, invalidReason?, invalidMessage? }
+//   /settle  <-  { success: boolean, transaction: string, network: string,
+//                  payer: string, errorReason?, errorMessage? }
+//                `transaction` y `network` vienen como string aunque falle:
+//                el schema los exige y sin ellos el cliente descarta la
+//                respuesta entera (ver 0-quinquies, revisión del Bloque 0).
+//
+// Esta es la unidad que la Fase 10 difiere: `liquidarLote` de `qvac/lote.mjs`
+// llama a `liquidar()` una vez por recibo acumulado, con el mismo par
+// (paymentPayload, paymentRequirements) que se hubiera mandado en la Fase 9 —
+// settlement diferido, no un mecanismo nuevo.
+export const PROTOCOLO_FACILITATOR = Object.freeze({
+  endpoints: Object.freeze({ verify: '/verify', settle: '/settle', supported: '/supported' }),
+  // Lo que este nodo MANDA en /verify y /settle.
+  envia: Object.freeze(['paymentPayload', 'paymentRequirements']),
+  paymentPayload: Object.freeze(['x402Version', 'scheme', 'network', 'payload']),
+  paymentPayloadPayload: Object.freeze(['authorization', 'signature']),
+  // Lo que este nodo LEE de /settle (SettleResponse de x402).
+  settleResponse: Object.freeze(['success', 'transaction', 'network', 'payer']),
+  settleResponseError: Object.freeze(['errorReason', 'errorMessage']),
+  // Lo que este nodo LEE de /verify (VerifyResponse de x402).
+  verifyResponse: Object.freeze(['isValid', 'invalidReason', 'invalidMessage'])
+})
 
 // D14 — el facilitator. La decisión es el HOSTED de Semantic hasta la Fase 10:
 // el self-hosted está en beta, necesita una wallet adicional con gas nativo, y

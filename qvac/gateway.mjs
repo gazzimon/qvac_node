@@ -35,6 +35,7 @@ import * as apikeys from './apikeys.mjs'
 import * as budget from './budget.mjs'
 import * as x402 from './x402.mjs'
 import * as atestacion from './atestacion.mjs'
+import * as lote from './lote.mjs'
 import * as costs from './costs.mjs'
 import * as quota from './quota.mjs'
 import { pickCandidate, estaSaturado } from './routing.mjs'
@@ -1037,6 +1038,48 @@ async function liquidarYRegistrar(pago, id, extra = null) {
       if (n++ >= sobran) break
       recibos.delete(k)
     }
+  }
+
+  // FASE 10 — el recibo entra al lote SI lo servimos NOSOTROS. Cuando el `payTo`
+  // del 402 es nuestra wallet, la autorizacion EIP-3009 que el cliente firmo es
+  // nuestra para liquidar, ahora o diferida. Cuando contesto un par, el payTo
+  // apunto a SU wallet (D10): ese recibo es de el, viaja por Protomux firmado
+  // por el, y esa es la otra mitad de la Fase 10 -- no se acumula aca.
+  //
+  // La liquidacion inmediata de la Fase 9 NO se toca: `recibo.liquidacion`
+  // guarda como salio, y `liquidarLote` es lo que reintenta las que fallaron.
+  try {
+    const miWallet = economicPropio && economicPropio.walletAddress
+    const paraMi =
+      pago &&
+      pago.requisito &&
+      miWallet &&
+      String(pago.requisito.payTo || '').toLowerCase() === String(miWallet).toLowerCase()
+    if (paraMi) {
+      lote.agregar(
+        lote.construirRecibo({
+          requestId: id,
+          red: pago.red,
+          network: pago.requisito.network,
+          asset: pago.requisito.asset,
+          assetName: pago.requisito.extra && pago.requisito.extra.name,
+          assetVersion: pago.requisito.extra && pago.requisito.extra.version,
+          payTo: pago.requisito.payTo,
+          payer: pago.payer,
+          amount: (pago.autorizacion && pago.autorizacion.value) || pago.requisito.amount,
+          authorization: pago.autorizacion,
+          signature: pago.firma,
+          requirements: pago.requisito,
+          atestacion: (extra && extra.atestacion) || null,
+          liquidacion: {
+            success: !!(recibo && recibo.success),
+            transaction: (recibo && recibo.transaction) || ''
+          }
+        })
+      )
+    }
+  } catch (err) {
+    console.error(`[lote] no se pudo acumular el recibo de ${id}: ${(err && err.message) || err}`)
   }
 
   return { recibo, cabecera, ...(extra || {}) }

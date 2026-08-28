@@ -401,6 +401,53 @@ const BUGS = [
     a: '',
     suite: 'unit',
     espera: ['y con la clave de fuente']
+  },
+
+  // ---- FASE 10 / RECIBOS Y LOTE ----------------------------------------
+  //
+  // La liquidacion diferida es el mismo flujo de la Fase 9 con el settlement
+  // aplazado (D12). Lo que se puede romper en silencio: acumular lo que NO
+  // servimos, o dar por bueno un lote sin mirar las firmas de adentro -- las dos
+  // fallas se ven identicas a que funcione hasta que alguien liquida.
+  {
+    n: 'Fase 10: el gateway deja de acumular en el lote lo que sirvio',
+    file: 'qvac/gateway.mjs',
+    de: '    if (paraMi) {',
+    a: '    if (false && paraMi) {',
+    suite: 'integracion',
+    espera: ['los dos pagos verificados entraron al lote']
+  },
+  {
+    n: 'Fase 10: un lote deja de exigir una sola red y una sola wallet',
+    file: 'qvac/lote.mjs',
+    de: '  const unicos = [...porNonce.values()]\n  mismoDestino(unicos)',
+    a: '  const unicos = [...porNonce.values()]',
+    suite: 'unit',
+    espera: ['dos redes en un lote no', 'dos destinos en un lote tampoco']
+  },
+  {
+    n: 'Fase 10: verificarLote deja de mirar la autorizacion EIP-3009 de cada recibo',
+    file: 'qvac/lote.mjs',
+    de: '    const motivo = await verificarAutorizacion(r, viem, evm)\n    if (motivo) recibosMal.push({ nonce: r.nonce, reason: motivo })',
+    a: '    void r',
+    suite: 'unit',
+    espera: ['senala EXACTAMENTE el recibo malo']
+  },
+  {
+    n: 'Fase 10: un lote alterado despues de firmar pasa igual',
+    file: 'qvac/lote.mjs',
+    de: "  if (sumar(lote.recibos) !== String(lote.totalAmount)) {\n    return { ok: false, reason: 'el totalAmount no es la suma de los recibos', firmante }\n  }",
+    a: '',
+    suite: 'unit',
+    espera: ['un total cambiado no pasa']
+  },
+  {
+    n: 'Fase 10: x402 deja de armar un accepts[] para plasma-testnet (9746)',
+    file: 'qvac/x402.mjs',
+    de: "  if (red === 'plasma-testnet') {",
+    a: "  if (false && red === 'plasma-testnet') {",
+    suite: 'integracion',
+    espera: ['con ASSET y NAME declarados, la red se ofrece']
   }
 ]
 

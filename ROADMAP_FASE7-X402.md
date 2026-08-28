@@ -169,8 +169,9 @@ falla con el bug puesto.
 | 7 Desmockear `economic` | **CERRADA 2026-08-26**                     | El manifiesto firmado lleva la dirección de cobro real que genera WDK. D13 implementado: seed propia, nunca derivada de la de red, cifrada con Argon2id + secretbox. El `_mock` queda sólo para un nodo SIN wallet, y ahí significa "no declara dirección de cobro", no "no implementado". Desbloquea 9, 10 y 11                             |
 | 8 Precio que rutea      | **CERRADA 2026-08-26**                     | El precio entra al score en el paso 4: después de la carga, antes del histórico. El log dice "mas barato" con los dos números, y el chat muestra el techo por respuesta (`up to USD …` / `no charge`). Los tests están verificados contra el criterio desactivado                                                                            |
 | 8.5 Asistente externo   | **CERRADA 2026-08-26 (segunda vez)**       | B11, B12, B15 y B16 arreglados, los cuatro con test verificado contra el bug puesto. B5 sigue acotado y con dueño (D20 / Fase 11), que es de otra fase                                                                                                                                                                                       |
-| 9 x402 en el borde      | **CERRADA 2026-08-27**, con un ítem afuera | Tres de los cuatro ítems del DoD verificados con test; el cuarto —el tx hash en el explorer de Plasma— **no se puede verificar sin fondear** (D13) y **no se fondeó**. Lleva además D24, D25 y D27. Dos ítems abiertos que son decisión del dueño: B21 y B22. **El detalle está en § 0-quater, y ahí está lo que falta para poder cerrarla** |
-| 10–12, 11.5, Track V    | No empezadas                               | La 10 ya no está bloqueada: la 9 dejó emitiéndose el artefacto de D24 que la 10 necesita para liquidar en lote                                                                                                                                                                                                                               |
+| 9 x402 en el borde      | **CERRADA 2026-08-27; reabierta y recerrada 2026-08-28** | Tres de los cuatro ítems del DoD verificados con test; el cuarto —el tx hash en el explorer de Plasma— **no se puede verificar sin fondear** (D13) y **no se fondeó**. Lleva además D24, D25 y D27. Dos ítems abiertos que son decisión del dueño: B21 y B22. La Fase 10 le agregó a `qvac/x402.mjs` la entrada `plasma-testnet` (9746) al `accepts[]` — eso reabrió y recerró la 9. **El detalle está en § 0-quater y § 0-sexies** |
+| 10 Recibos y lote       | **PARCIAL 2026-08-28** — formato y lote local | El recibo x402 es un artefacto versionado (`qvac/lote.mjs`); los recibos que sirvió este nodo se acumulan, se agrupan en un lote por red+wallet, se firman con la wallet (JCS + EIP-191) y se liquidan diferido (`liquidarLote` = `x402.liquidar` por recibo). `npm run verificar-lote` valida un lote offline. **Falta:** el disparador que vacía el lote solo, y la otra mitad — la atestación **del par** por Protomux, firmada por él. Ver § 0-sexies |
+| 11–12, 11.5, Track V    | No empezadas                               | —                                                                                                                                                                                                                                                                                                                                          |
 
 ### Los bugs, y de qué fase es cada uno
 
@@ -483,6 +484,77 @@ esto tocó una cadena salvo las dos lecturas de comprobación.
   ejercitan se contestan sin tocar la cadena, y si alguno necesitara la red el
   test colgaría — que es la señal, no el problema. El artefacto del token se mira
   en disco y las redes salen de una tabla.
+
+---
+
+## 0-sexies · Fase 10 — recibos y lote (parcial), hecho el 2026-08-28. La Fase 9 se reabrió y se recerró
+
+Esto ejecuta la primera mitad de la Fase 10: el **formato** del recibo y del
+lote, la **firma** del lote con la wallet, y la **liquidación diferida** local.
+La otra mitad —la atestación **del par** viajando por Protomux, firmada por él—
+no está, y se dice para que "parcial" tenga un límite escrito.
+
+### La Fase 9 se reabrió, y se dice acá porque la regla lo pide
+
+La precondición de la Fase 10 era agregar `plasma-testnet` (`eip155:9746`) a
+`CAIP2` y a `activoDe()` en `qvac/x402.mjs` — que es superficie de la **Fase 9
+(cerrada el 2026-08-27)**. 0-quinquies ya había anotado esto como lo que
+faltaba entre "el camino existe" y "el `curl` cobra en testnet", y que era
+decisión del dueño. **Se reabrió, se hizo, y se recierra con esto.** No se tocó
+nada más de la Fase 9. Lo que **no** cambió: el `accepts[]` de `plasma` (9745) y
+`stable` (988), el orden de preferencia de D15, la verificación sincrónica
+(D12), y la liquidación inmediata por request — el lote **no la reemplaza**,
+`recibo.liquidacion` guarda cómo salió y `liquidarLote` reintenta las que
+fallaron.
+
+### Lo que se sumó
+
+| Pieza | Qué es | Cómo se comprueba |
+| --- | --- | --- |
+| **`plasma-testnet` en `x402.mjs`** | `CAIP2['plasma-testnet'] = 'eip155:9746'`; `activoDe()` lo arma desde `PYRUS_X402_PLASMA_TESTNET_ASSET` / `_NAME` / `_VERSION` / `_DECIMALS` / `_SYMBOL` — los mismos nombres que lee `scripts/verificar-x402.js`. Sin `ASSET` y `NAME` la red **no se ofrece**: un cliente no firma un EIP-712 a medias | `FASE 10 / precondicion: x402 arma un accepts[] para plasma-testnet` · `npm run bug-puesto "plasma-testnet"` |
+| **El recibo x402 estructurado** (`qvac/lote.mjs`) | Un pago verificado con el settlement diferido: `authorization` + `signature` EIP-3009, el dominio EIP-712 (`assetName`/`assetVersion`/`asset`), el `payTo`, el `requirements` entero tal cual se ofreció en el 402, y —colgada— la atestación de D24. La clave de idempotencia es el `nonce` de la autorización (D20) | tests unit `FASE 10: un recibo sin lo esencial…` |
+| **El lote** | Agrupa recibos de **una** red y **una** wallet (se liquida contra un facilitator). Firmado con la wallet: JCS (RFC 8785) del lote sin `signature` + `personal_sign` EIP-191, mismo patrón que `atestacion.mjs`. `verificarLote` recupera al firmante, chequea homogeneidad y total, y recibo por recibo recupera la firma EIP-3009 contra el dominio guardado | tests unit `FASE 10: el lote se firma…`, `…cambiar el lote…`, `…verificarLote agarra un recibo…` |
+| **Liquidación diferida** | `liquidarLote({ lote, liquidar })` recorre el lote llamando a `x402.liquidar()` una vez por recibo. Clasifica el resultado por la taxonomía de errores de `@x402/evm` (0-quinquies, punto 1): `nonce_already_used` cuenta como liquidado, `insufficient_balance` es del otro lado, `invalid_signature` es reputación | tests unit `FASE 10: liquidarLote…`, integración `…se puede liquidar diferido` |
+| **`npm run verificar-lote`** | `bare scripts/verificar-lote.mjs <lote.json>` — valida un lote firmado offline, sin red. Corre bajo `bare` (no `node` como `verificar-x402`) para usar la **misma** `verificarLote` que el gateway y no reimplementar el JCS | levanta y sale 0/1 según el lote |
+| **Acumulación en el gateway** | `liquidarYRegistrar` mete el recibo al lote **sólo si lo servimos nosotros** — el `payTo` del 402 es nuestra wallet. Si contestó un par, el `payTo` apuntó a **su** wallet (D10) y ese recibo **no** entra: es de él | integración `FASE 10 / D10: el lote acumula recibos al payTo del NODO, y los de un par NO` |
+| **`x402.PROTOCOLO_FACILITATOR`** | El descriptor congelado de lo que este nodo manda a `/verify` y `/settle` (`paymentPayload` + `paymentRequirements`) y lo que lee de vuelta. Escrito, no adivinado — un lote que no se arma con esos campos se rechaza del otro lado sin decir por qué | tests unit + integración `…el protocolo nodo<->facilitator…` |
+
+### Cuatro decisiones de implementación que conviene tener escritas
+
+1. **El lote acumula TODOS los recibos locales, no sólo los que fallaron al
+   liquidar.** La liquidación inmediata de la Fase 9 sigue corriendo; el recibo
+   guarda `liquidacion: { success, transaction }` y `pendientes({ soloPendientes:
+   true })` filtra los que todavía se deben. El valor real de `liquidarLote` hoy
+   es reintentar esos — que es exactamente lo que D12 dice que la Fase 10
+   arregla. El día que se apague la liquidación por request, el mismo lote pasa a
+   ser el único camino sin cambiar de forma.
+2. **`verificar-lote` corre bajo `bare`, no bajo `node`.** `verificar-x402.js` es
+   node porque hace RPC a cadenas reales y por eso **duplica** la tabla de redes.
+   `verificar-lote` es sólo cripto local, así que importa `qvac/lote.mjs` y usa
+   `verificarLote` tal cual: una canonicalización que se copia es una que puede
+   divergir al validar.
+3. **`verificarLote` no ata `firmante == payTo`.** Expone quién firmó el lote y
+   deja que quien lo consume decida — igual que `atestacion.verificar` no ata la
+   atestación a un pago. El test `firmar con TU wallet no te deja quedarte con el
+   lote de OTRO` fija que el firmante recuperado **no** es el `payTo`, que es lo
+   que permite rechazarlo aguas arriba.
+4. **No hay endpoint nuevo ni disparador de flush.** El acumulador es memoria del
+   proceso, como el `Map` de recibos del gateway — no un ledger. Armar y firmar
+   el lote es una llamada de `qvac/lote.mjs`; cuándo hacerlo (tamaño, tiempo,
+   apagado) no se decidió y se anota como lo que falta.
+
+### Lo que este bloque NO hace
+
+- **No mueve un peso.** `liquidarLote` en los tests corre contra el facilitator
+  falso o una función inyectada; ninguno toca una cadena. Sigue sin haber tx
+  hash, exactamente como lo dejó 0-quater.
+- **No transporta la atestación del par.** Este gateway sigue sin firmar nada
+  que haya servido otro, y el recibo lo dice (`attestation: null` +
+  `attestationMissing`). Esa es la mitad grande de la Fase 10 y queda pendiente.
+- **No hay flush automático del lote.** Ver decisión 4.
+- **Un test de la suite queda rojo, y no es de esta fase:** `D30.4: los errores
+  del facilitator sobreviven al CLIENTE OFICIAL` — falla igual en un checkout
+  limpio de esta rama (`scripts/facilitator.js`, superficie de 0-quinquies).
 
 ---
 
@@ -1456,14 +1528,16 @@ contra el facilitator antes de gastar GPU, y settlement posterior a la respuesta
 
 ### Fase 10 — Recibos y liquidación en lote (~2 días)
 
-> **Ya no está bloqueada, y arranca con insumo.** La Fase 9 dejó la atestación de
-> **D24** emitiéndose y acumulándose: la 10 no tiene que inventar el formato ni
-> empezar de cero, y puede liquidar contra un artefacto firmado en vez de contra
-> lo que un nodo afirma. Lo que le falta construir es el otro lado — que la
-> atestación **del par** viaje por Protomux, firmada por él. Hoy este gateway no
-> firma nada de lo que sirvió otro, y lo dice en el recibo. Ver también **D27**,
-> que decide qué se firma cuando el stream muere a la mitad, y **D29**, que
-> decide que la verificación es optimista y sin comité.
+> **PARCIAL — hecha la primera mitad el 2026-08-28. Ver § 0-sexies.** Está el
+> formato del recibo y del lote (`qvac/lote.mjs`), la firma del lote con la
+> wallet, la acumulación en el gateway de lo que sirvió **este** nodo, la
+> liquidación diferida local (`liquidarLote` = `x402.liquidar` por recibo) y
+> `npm run verificar-lote`. **Falta:** el disparador que vacía el lote solo, y la
+> otra mitad — que la atestación **del par** viaje por Protomux, firmada por él.
+> Hoy este gateway no firma nada de lo que sirvió otro, y lo dice en el recibo.
+> Reabrió y recerró la Fase 9 por la entrada `plasma-testnet` de `x402.mjs`.
+> Ver también **D27**, que decide qué se firma cuando el stream muere a la mitad,
+> y **D29**, que decide que la verificación es optimista y sin comité.
 
 El recibo firmado por la wallet (no por la clave de red) viaja por Protomux al
 proveedor, que los acumula. Cierra `settlement: 'batch-receipts'`, que el schema
@@ -1706,9 +1780,9 @@ sección 0-ter, y manda esa. El estado de la Fase 9 en particular está en
 | 2     | Fase 7 — desmockear `economic` (incluye D13)    | **CERRADA 2026-08-26** · reabierta y re-cerrada 2026-08-27 por D30.1/D30.2 — ver 0-quinquies | Precondición de todo cobro. Desbloquea 9, 10 y 11                                                                                                         |
 | 3     | Fase 8 — precio comparable y que rutea          | **CERRADA 2026-08-26**                                                                       | Vale sola aunque x402 se caiga                                                                                                                            |
 | 4     | Fase 8.5 — el asistente externo como candidato  | **CERRADA 2026-08-26** (B3, B4, B7, y después B11, B12, B15, B16)                            | Chica, porque la 8 ya dejó el ruteo listo                                                                                                                 |
-| 5     | Fase 9 — x402 en el borde                       | **CERRADA 2026-08-27**, con el tx hash afuera — ver 0-quater                                 | El hito técnico. D9 exige `finish_reason: length` al recortar: eso es B14 (que lo REPORTA) más B20 (que hace que el recorte exista). Lleva D24, D25 y D27 |
+| 5     | Fase 9 — x402 en el borde                       | **CERRADA 2026-08-27**, con el tx hash afuera — ver 0-quater; reabierta y recerrada 2026-08-28 por la entrada `plasma-testnet` de la Fase 10 | El hito técnico. D9 exige `finish_reason: length` al recortar: eso es B14 (que lo REPORTA) más B20 (que hace que el recorte exista). Lleva D24, D25 y D27 |
 | 5'    | **Bloque 0 de D30 — las precondiciones**        | **HECHO 2026-08-27** — ver 0-quinquies                                                       | Sin esto la 10 se escribe pero no se demuestra: no había activo, ni facilitator para 9746, ni forma de que el nodo firmara para otra red que mainnet      |
-| 6     | Fase 10 — recibos y lote                        | **desbloqueada, y con insumo** (la 9 dejó D24 emitiéndose)                                   | Mata la Fase 6. Ya no arranca de cero: liquida contra un artefacto firmado, no contra lo que un nodo afirma                                               |
+| 6     | Fase 10 — recibos y lote                        | **PARCIAL 2026-08-28** — formato, lote local, firma y liquidación diferida; ver 0-sexies     | Mata la Fase 6. Falta el flush automático y la atestación del par por Protomux                                                                            |
 | 7     | Fase 11 — capa agéntica con harness             | **desbloqueada** (la 7 cerró)                                                                | El pitch                                                                                                                                                  |
 | 8     | Fase 11.5 — evaluación adversarial              | no empezada                                                                                  | Pegada a la 11. No es opcional                                                                                                                            |
 | 9     | Fase 12 — MCP toolkit                           | no empezada                                                                                  | Upside; se corta primero                                                                                                                                  |

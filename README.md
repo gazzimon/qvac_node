@@ -279,6 +279,12 @@ signature of ours would verify on the other side. It exits non-zero until all
 three hold. **Until then the on-chain tx hash is reported as not met — not as
 pending review.**
 
+With `PYRUS_X402_PLASMA_TESTNET_ASSET` and `_NAME` set, step 3's `serve` now
+issues a real 402 for `eip155:9746` — phase 10 added that entry to
+`qvac/x402.mjs`, which reopened phase 9. `npm run verificar-lote <batch.json>`
+checks a signed batch offline (wallet signature, one network/one payout, and
+every receipt's EIP-3009 authorization) before any of it is settled.
+
 Two counters that look like one and are not — the principle is the same, the
 unit is not: the meter lives on the side that pays.
 
@@ -402,13 +408,18 @@ an audit that always says yes audits nothing.
   Hyperdrive files, load- and price-based routing, the ledger with a cap that
   cuts, the free per-peer quota, the payout wallet inside the signed manifest,
   and x402 in the request path.
-- **Not built:** batched settlement and receipt aggregation (phase 10), the
-  agentic layer (phase 11). The provider attestation is **emitted and stored,
-  and read by nothing** — that is phase 10, and it is deliberate: a node cannot
-  sign for requests that already happened, so the artefact starts accumulating
-  before anything needs it. A multi-writer ledger of our own is **out of scope**
-  — the EIP-3009 signature already is the receipt, so on-chain settlement
-  removes the need instead of adding one.
+- **Partly built (phase 10):** the x402 receipt is now a versioned artefact
+  (`qvac/lote.mjs`), and receipts this node served are accumulated, grouped into
+  a batch for one network and one payout address, signed with the **wallet**
+  (JCS + EIP-191, same as the attestation), and can be settled **deferred** —
+  `x402.liquidar()` once per receipt, the phase-9 flow with the settlement
+  postponed. `npm run verificar-lote` validates a batch offline. What is **not**
+  built: a trigger that flushes the batch on its own, and the other half — the
+  **peer's** attestation travelling over Protomux, signed by the peer. This
+  gateway still signs nothing it did not serve itself, and the receipt says so.
+- **Not built:** the agentic layer (phase 11). A multi-writer ledger of our own
+  is **out of scope** — the EIP-3009 signature already is the receipt, so
+  on-chain settlement removes the need instead of adding one.
 - `serve` starts with an **empty** registry. `--demo` fills it with one real node
   and three mocks, all labelled as simulated.
 - The manifest's `pricing` string is decorative. What routes and what gets

@@ -2628,6 +2628,323 @@ test('D24: este nodo NO atestigua lo que sirvio otro', async (t) => {
 })
 
 // ---------------------------------------------------------------------------
+// FASE 10 — recibo y lote
+//
+// El recibo de x402 de la Fase 9 prueba que ALGUIEN PAGO. Esto es lo que la
+// Fase 10 hace con esa prueba: la guarda y la liquida DIFERIDA, de a muchas.
+// El insight que lo hace barato es que la firma EIP-3009 ya ES el recibo -- una
+// orden de transferencia off-chain que no obliga a liquidar en el momento.
+//
+// Los tests de aca prueban el artefacto AISLADO: la forma del recibo, que el
+// lote sea de una sola red y una sola wallet, y que la firma de la wallet sobre
+// el lote y las firmas EIP-3009 de adentro se verifiquen. Que el gateway lo
+// acumule esta en test/integracion.js.
+//
+// La wallet es la misma frase publica de prueba que el resto de la suite y que
+// NUNCA se fondea. Las firmas son reales; la plata no existe.
+// ---------------------------------------------------------------------------
+
+async function cuentaDePrueba() {
+  const wdk = await import('@tetherto/wdk-wallet-evm')
+  const WM = wdk.default || wdk
+  return new WM(FRASE_DE_PRUEBA, { provider: 'http://127.0.0.1:1/no-existe' }).getAccount()
+}
+
+// Un recibo con una autorizacion EIP-3009 REALMENTE firmada contra el dominio
+// que el recibo declara. `pisar` cambia cualquier campo despues de construir.
+async function reciboDePrueba(cuenta, i = 0, pisar = {}) {
+  const x402 = await import('../qvac/x402.mjs')
+  const { evm } = await x402.cargar()
+  const address = await cuenta.getAddress()
+  const asset = '0x' + 'a1'.repeat(20)
+  const network = 'eip155:9746'
+  const payTo = '0x' + 'bb'.repeat(20)
+  const dominio = {
+    name: 'PyrusLLM Test USD',
+    version: '1',
+    chainId: 9746,
+    verifyingContract: asset
+  }
+  const auth = {
+    from: address,
+    to: payTo,
+    value: String(1000 + i),
+    validAfter: '0',
+    validBefore: String(Math.floor(Date.now() / 1000) + 3600),
+    nonce: '0x' + String(i).padStart(64, '0')
+  }
+  const signature = await cuenta.signTypedData({
+    domain: dominio,
+    types: evm.authorizationTypes,
+    primaryType: 'TransferWithAuthorization',
+    message: {
+      from: auth.from,
+      to: auth.to,
+      value: BigInt(auth.value),
+      validAfter: 0n,
+      validBefore: BigInt(auth.validBefore),
+      nonce: auth.nonce
+    }
+  })
+  const lote = await import('../qvac/lote.mjs')
+  return lote.construirRecibo({
+    requestId: 'chatcmpl-' + i,
+    red: 'plasma-testnet',
+    network,
+    asset,
+    assetName: dominio.name,
+    assetVersion: '1',
+    payTo,
+    payer: address,
+    amount: auth.value,
+    authorization: auth,
+    signature,
+    requirements: {
+      scheme: 'exact',
+      network,
+      amount: auth.value,
+      asset,
+      payTo,
+      maxTimeoutSeconds: 300,
+      extra: { name: dominio.name, version: '1' }
+    },
+    ...pisar
+  })
+}
+
+test('FASE 10: un recibo sin lo esencial no se construye, y dice que le falta', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const base = {
+    requestId: 'chatcmpl-1',
+    network: 'eip155:9746',
+    payTo: '0x' + 'bb'.repeat(20),
+    authorization: {
+      from: '0x' + 'cc'.repeat(20),
+      to: '0x' + 'bb'.repeat(20),
+      value: '1000',
+      nonce: '0x' + '0'.repeat(64)
+    },
+    signature: '0x' + '11'.repeat(65),
+    amount: '1000'
+  }
+  t.execution(() => lote.construirRecibo(base), 'con lo esencial, se construye')
+
+  t.exception(
+    () => lote.construirRecibo({ ...base, requestId: null }),
+    /requestId/,
+    'sin requestId'
+  )
+  t.exception(() => lote.construirRecibo({ ...base, payTo: 'no-evm' }), /payTo/, 'sin payTo EVM')
+  t.exception(
+    () => lote.construirRecibo({ ...base, authorization: { from: 'x', to: 'y', value: '1' } }),
+    /nonce/,
+    'sin nonce en la autorizacion'
+  )
+  t.exception(
+    () => lote.construirRecibo({ ...base, signature: 'no-0x' }),
+    /firma/,
+    'sin firma EIP-3009'
+  )
+
+  // La clave de idempotencia ES el nonce de la autorizacion (D20).
+  const r = lote.construirRecibo(base)
+  t.is(lote.claveDe(r), base.authorization.nonce, 'la clave del recibo es el nonce EIP-3009')
+})
+
+test('FASE 10: un lote es de UNA red y UNA wallet, y el total es la suma', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const mk = (pisar) =>
+    lote.construirRecibo({
+      requestId: 'c-' + (pisar.n || 0),
+      network: 'eip155:9746',
+      payTo: '0x' + 'bb'.repeat(20),
+      authorization: {
+        from: '0x' + 'cc'.repeat(20),
+        to: '0x' + 'bb'.repeat(20),
+        value: '1',
+        nonce: '0x' + String(pisar.n || 0).padStart(64, '0')
+      },
+      signature: '0x' + '11'.repeat(65),
+      amount: pisar.amount || '1000',
+      ...pisar
+    })
+
+  const l = lote.construirLote({
+    recibos: [mk({ n: 1, amount: '1000' }), mk({ n: 2, amount: '2500' })]
+  })
+  t.is(l.count, 2)
+  t.is(l.totalAmount, '3500', 'el total es la suma en unidades minimas, como string')
+  t.alike(
+    l.nonces,
+    l.recibos.map((r) => r.nonce),
+    'los nonces y el orden de los recibos coinciden'
+  )
+
+  t.exception(
+    () => lote.construirLote({ recibos: [mk({ n: 1 }), mk({ n: 2, network: 'eip155:988' })] }),
+    /red/,
+    'dos redes en un lote no: se liquida contra UN facilitator'
+  )
+  t.exception(
+    () =>
+      lote.construirLote({ recibos: [mk({ n: 1 }), mk({ n: 2, payTo: '0x' + 'dd'.repeat(20) })] }),
+    /wallet/,
+    'dos destinos en un lote tampoco'
+  )
+  t.exception(
+    () => lote.construirLote({ recibos: [] }),
+    /no hay recibos/,
+    'un lote vacio no es un lote'
+  )
+})
+
+test('FASE 10: el lote se firma con la wallet y verifica -- contenido Y autorizaciones', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const cuenta = await cuentaDePrueba()
+  const address = await cuenta.getAddress()
+
+  const l = lote.construirLote({
+    recibos: [await reciboDePrueba(cuenta, 0), await reciboDePrueba(cuenta, 1)]
+  })
+  const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
+  t.ok(firmado && firmado.signature.startsWith('0x'), 'se firmo con una firma EVM')
+
+  const v = await lote.verificarLote(firmado)
+  t.ok(v.ok, 'verifica: ' + (v.reason || ''))
+  t.is(v.firmante.toLowerCase(), address.toLowerCase(), 'y el firmante es la wallet de prueba')
+  t.is(v.recibosMal.length, 0, 'las dos autorizaciones EIP-3009 recuperan a quien dice pagar')
+})
+
+test('FASE 10: cambiar el lote despues de firmar lo invalida (JCS)', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const cuenta = await cuentaDePrueba()
+  const l = lote.construirLote({
+    recibos: [await reciboDePrueba(cuenta, 0), await reciboDePrueba(cuenta, 1)]
+  })
+  const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
+
+  // Inflar el total sin re-firmar: el firmante recuperado deja de ser la wallet
+  // y ademas la suma no cuadra. Los dos chequeos lo agarran.
+  const inflado = { ...firmado, totalAmount: '999999' }
+  const v1 = await lote.verificarLote(inflado)
+  t.absent(v1.ok, 'un total cambiado no pasa')
+  t.ok(/suma|totalAmount/.test(v1.reason), 'y dice por que: ' + v1.reason)
+
+  // Sacar un recibo del lote firmado.
+  const podado = { ...firmado, recibos: firmado.recibos.slice(0, 1), count: 1 }
+  const v2 = await lote.verificarLote(podado)
+  t.absent(v2.ok, 'sacarle un recibo tampoco')
+
+  // Sin firma no hay lote.
+  t.absent((await lote.verificarLote({ ...firmado, signature: undefined })).ok, 'sin firma, no')
+  t.is(await lote.firmarLote(l, null), null, 'y sin firmante no sale un lote sin firmar')
+})
+
+test('FASE 10: firmar con TU wallet no te deja quedarte con el lote de OTRO', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const cuenta = await cuentaDePrueba()
+
+  // Un lote cuyos recibos pagan a `0xbb…` (el payTo de reciboDePrueba). Lo firma
+  // la wallet de prueba, que NO es 0xbb…: el firmante recuperado es real y no
+  // coincide con el destino. `verificarLote` no ata firmante==payTo -- eso es
+  // decision de quien lo consume -- pero SI expone quien firmo, que es lo que
+  // permite rechazarlo.
+  const l = lote.construirLote({ recibos: [await reciboDePrueba(cuenta, 7)] })
+  const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
+  const v = await lote.verificarLote(firmado)
+  t.ok(v.ok, 'la firma es valida...')
+  t.not(
+    v.firmante.toLowerCase(),
+    firmado.payTo.toLowerCase(),
+    '...pero el firmante NO es el payTo del lote'
+  )
+})
+
+test('FASE 10: verificarLote agarra un recibo cuya autorizacion no recupera a su pagador', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const cuenta = await cuentaDePrueba()
+
+  const bueno = await reciboDePrueba(cuenta, 0)
+  // Un recibo con la firma de OTRA autorizacion: bien formada, pero no es la de
+  // este `from`/`value`/`nonce`.
+  const otra = await reciboDePrueba(cuenta, 1)
+  const malo = {
+    ...bueno,
+    nonce: '0x' + 'f'.repeat(64),
+    authorization: { ...bueno.authorization, nonce: '0x' + 'f'.repeat(64) },
+    signature: otra.signature
+  }
+
+  const l = lote.construirLote({ recibos: [bueno, malo] })
+  const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
+  const v = await lote.verificarLote(firmado)
+  t.absent(v.ok, 'el lote no pasa entero')
+  t.is(v.recibosMal.length, 1, 'y senala EXACTAMENTE el recibo malo')
+  t.is((v.recibosMal[0] || {}).nonce, malo.nonce, 'que es el que trae la firma cambiada')
+})
+
+test('FASE 10: liquidarLote llama liquidar una vez por recibo y clasifica el resultado', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const cuenta = await cuentaDePrueba()
+  const l = lote.construirLote({
+    recibos: [
+      await reciboDePrueba(cuenta, 0),
+      await reciboDePrueba(cuenta, 1),
+      await reciboDePrueba(cuenta, 2)
+    ]
+  })
+  const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
+
+  const vistos = []
+  const res = await lote.liquidarLote({
+    lote: firmado,
+    liquidar: async ({ requisito }) => {
+      vistos.push(requisito.amount)
+      // El primero cobra, el segundo es un nonce ya usado (idempotente: cuenta
+      // como liquidado), el tercero no tiene saldo (es del otro lado).
+      if (vistos.length === 1)
+        return { success: true, transaction: '0xabc', network: requisito.network }
+      if (vistos.length === 2)
+        return { success: false, errorReason: 'invalid_exact_evm_nonce_already_used' }
+      return { success: false, errorReason: 'invalid_exact_evm_insufficient_balance' }
+    }
+  })
+
+  t.is(vistos.length, 3, 'una llamada por recibo, con el requisito EXACTO guardado en el recibo')
+  t.is(res.liquidados.length, 2, 'exito + nonce-ya-usado cuentan como liquidados')
+  t.is(res.fallidos.length, 1)
+  t.is(res.fallidos[0].clase, 'saldo', 'el insuficiente se clasifica aparte: no se reintenta')
+})
+
+test('FASE 10: el protocolo nodo<->facilitator esta declarado, no adivinado', async (t) => {
+  const x402 = await import('../qvac/x402.mjs')
+  const p = x402.PROTOCOLO_FACILITATOR
+  t.ok(p, 'x402 exporta el descriptor del protocolo')
+  t.alike(
+    p.envia,
+    ['paymentPayload', 'paymentRequirements'],
+    'lo que este nodo manda en /verify y /settle'
+  )
+  t.ok(
+    p.paymentPayload.includes('network') && p.paymentPayload.includes('payload'),
+    'la forma del paymentPayload'
+  )
+  t.alike(
+    p.paymentPayloadPayload,
+    ['authorization', 'signature'],
+    'y adentro, la autorizacion firmada'
+  )
+  t.ok(
+    p.settleResponse.includes('transaction') && p.settleResponse.includes('success'),
+    'lo que se lee de /settle'
+  )
+  t.ok(
+    Object.isFrozen(p) && Object.isFrozen(p.envia),
+    'el descriptor esta congelado: nadie lo edita en caliente'
+  )
+})
+
+// ---------------------------------------------------------------------------
 // D30 / BLOQUE 0 — las precondiciones para poder demostrar la Fase 10
 //
 // D30 decidio que ningun camino que mueva valor se estrena en mainnet. Eso tiene

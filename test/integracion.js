@@ -3114,6 +3114,199 @@ test('D27 caso 1: los chunks que llegan DESPUES del cancel no entran al hash', a
 })
 
 // ---------------------------------------------------------------------------
+// FASE 10 — recibos y lote
+//
+// La Fase 9 verifica, sirve, y liquida DESPUES (D12). La Fase 10 hace lo mismo
+// con el settlement DIFERIDO: los pagos verificados se acumulan y se liquidan de
+// a muchos. Estos tests prueban que el gateway acumula lo que sirvio EL, que un
+// recibo de un par no entra a NUESTRO lote (D10), que el lote se arma y se
+// firma con la wallet, y que el protocolo con el facilitator es el declarado.
+//
+// La liquidacion inmediata de la Fase 9 no se toca: el lote guarda como salio y
+// `liquidarLote` reintenta las que fallaron. Reabre la Fase 9 por la entrada
+// `plasma-testnet` que se le agrego a x402.mjs.
+// ---------------------------------------------------------------------------
+
+test('FASE 10 / D10: el lote acumula recibos al payTo del NODO, y los de un par NO', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  // El facilitator falso ya esta arriba desde el primer test de settlement y se
+  // cierra al final; conProveedorQueFirma apunta VAR_FACILITATOR ahi.
+  lote.limpiar()
+
+  const p = await conProveedorQueFirma()
+
+  // Dos requests locales pagados: los sirve este nodo, el payTo es su wallet.
+  const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  const a = await pagarYPedir(cuerpo)
+  const b = await pagarYPedir(cuerpo)
+  t.is(a.r.status, 200)
+  t.is(b.r.status, 200)
+
+  const mios = lote.pendientes()
+  t.is(mios.length, 2, 'los dos pagos verificados entraron al lote')
+  t.ok(
+    mios.every((r) => r.payTo.toLowerCase() === p.address.toLowerCase()),
+    'y todos pagan a la wallet de ESTE nodo (D10)'
+  )
+  t.ok(
+    mios.every((r) => r.nonce && r.authorization && r.signature),
+    'con la autorizacion EIP-3009 entera'
+  )
+  t.ok(
+    mios.every((r) => r.liquidacion && r.liquidacion.success),
+    'y con como salio la liquidacion inmediata'
+  )
+  t.ok(
+    mios.every((r) => r.attestation && r.attestation.signature),
+    'y la atestacion de D24 colgada'
+  )
+
+  // Ahora un request servido por un PAR: el payTo apunto a SU wallet.
+  await soltarProveedor()
+  await conParRegistrado((cbs) => {
+    cbs.onAccepted()
+    cbs.onChunk('respuesta del par')
+    cbs.onDone()
+  })
+  const cuerpoPar = {
+    model: MODELO_PAR,
+    messages: [{ role: 'user', content: 'hola' }],
+    stream: true
+  }
+  const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpoPar })
+  t.is(desafio.json.accepts[0].payTo, WALLET_DEL_PAR, 'el 402 paga al par (D10)')
+  const pago = await firmarPago(desafio.json)
+  await pedir('POST', '/v1/chat/completions', { body: cuerpoPar, headers: { 'X-PAYMENT': pago } })
+  await esperar(400)
+
+  t.absent(
+    lote.pendientes().some((r) => r.payTo.toLowerCase() === WALLET_DEL_PAR.toLowerCase()),
+    'el recibo del par NO entra a nuestro lote: es de el, viaja por Protomux firmado por el'
+  )
+
+  await soltarPar()
+  lote.limpiar()
+})
+
+test('FASE 10: el protocolo nodo<->facilitator es el que x402 declara', async (t) => {
+  const x402 = await import('../qvac/x402.mjs')
+  ultimoSettle = null
+  const p = await conProveedorQueFirma()
+
+  await pagarYPedir({ model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] })
+
+  t.ok(ultimoSettle, 'el facilitator recibio la liquidacion')
+  const dec = x402.PROTOCOLO_FACILITATOR
+  for (const campo of dec.envia) t.ok(campo in ultimoSettle, `manda ${campo}`)
+  const pp = ultimoSettle.paymentPayload
+  for (const campo of dec.paymentPayload) t.ok(campo in pp, `el paymentPayload trae ${campo}`)
+  for (const campo of dec.paymentPayloadPayload) {
+    t.ok(campo in pp.payload, `y adentro, ${campo}`)
+  }
+  t.is(pp.scheme, 'exact')
+  t.is(
+    pp.network,
+    ultimoSettle.paymentRequirements.network,
+    'la red del pago y la del requisito coinciden'
+  )
+  t.is(
+    ultimoSettle.paymentRequirements.payTo.toLowerCase(),
+    p.address.toLowerCase(),
+    'y el requisito liquida contra la wallet del nodo, no una recalculada'
+  )
+
+  await soltarProveedor()
+})
+
+test('FASE 10: el lote se arma, se firma con la wallet, y se puede liquidar diferido', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  lote.limpiar()
+  const p = await conProveedorQueFirma()
+
+  const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
+  await pagarYPedir(cuerpo)
+  await pagarYPedir(cuerpo)
+
+  // `armar` tira si el acumulador esta vacio -- lo que pasa si el gateway dejo
+  // de acumular. Se atrapa para que eso salga como un assert y no como un
+  // Uncaught que se lleva puesta la corrida (misma leccion que B18).
+  let l = null
+  try {
+    l = lote.armar({})
+  } catch (err) {
+    /* l queda null y el assert de abajo habla */
+  }
+  t.ok(l, 'hay recibos acumulados y el lote se arma')
+  if (!l) {
+    await soltarProveedor()
+    return
+  }
+  t.is(l.count, 2, 'el lote junta los dos recibos acumulados')
+  t.is(l.network, 'eip155:988', 'de una sola red')
+  t.is(l.payTo.toLowerCase(), p.address.toLowerCase(), 'a una sola wallet')
+  t.is(
+    l.totalAmount,
+    (BigInt(l.recibos[0].amount) + BigInt(l.recibos[1].amount)).toString(),
+    'con el total sumado'
+  )
+
+  const firmado = await lote.firmarLote(l, p.firmar)
+  t.ok(firmado && firmado.signature.startsWith('0x'), 'lo firma la wallet del nodo')
+
+  const v = await lote.verificarLote(firmado)
+  t.ok(v.ok, 'y verifica entero: ' + (v.reason || ''))
+  t.is(v.firmante.toLowerCase(), p.address.toLowerCase(), 'el firmante es la wallet del nodo')
+  t.is(v.recibosMal.length, 0, 'y las autorizaciones EIP-3009 de adentro recuperan a quien pago')
+
+  // Liquidacion diferida: recorre el lote llamando al MISMO x402.liquidar contra
+  // el facilitator falso. Es el flujo de la Fase 9 con el settlement diferido.
+  const res = await lote.liquidarLote({ lote: firmado, liquidar: x402.liquidar })
+  t.is(res.liquidados.length, 2, 'los dos se liquidan en el lote')
+  t.is(res.fallidos.length, 0)
+  lote.marcarLiquidados(res.liquidados)
+  t.is(
+    lote.pendientes({ soloPendientes: true }).length,
+    0,
+    'y quedan marcados: un corte y reanudar no recobra'
+  )
+
+  await soltarProveedor()
+  lote.limpiar()
+})
+
+test('FASE 10 / precondicion: x402 arma un accepts[] para plasma-testnet (9746)', async (t) => {
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+
+  t.is(x402.CAIP2['plasma-testnet'], 'eip155:9746', 'la red esta en la tabla')
+
+  // Sin ASSET/NAME declarados no se ofrece: un cliente no firma un EIP-712 a medias.
+  delete env[x402.VAR_PLASMA_TESTNET_ASSET]
+  delete env[x402.VAR_PLASMA_TESTNET_NAME]
+  t.is(await x402.activoDe('plasma-testnet'), null, 'sin declarar, la red queda afuera')
+
+  env[x402.VAR_PLASMA_TESTNET_ASSET] = '0x' + 'a1'.repeat(20)
+  env[x402.VAR_PLASMA_TESTNET_NAME] = 'PyrusLLM Test USD'
+  const activo = (await x402.activoDe('plasma-testnet')) || {}
+  t.is(activo.network, 'eip155:9746', 'con ASSET y NAME declarados, la red se ofrece')
+  t.is(activo.asset, '0x' + 'a1'.repeat(20))
+  t.is(
+    activo.name,
+    'PyrusLLM Test USD',
+    'con el dominio EIP-712 que el cliente necesita para firmar'
+  )
+  t.ok(
+    (await x402.redesDisponibles()).includes('plasma-testnet'),
+    'y entra a las redes disponibles'
+  )
+
+  delete env[x402.VAR_PLASMA_TESTNET_ASSET]
+  delete env[x402.VAR_PLASMA_TESTNET_NAME]
+})
+
+// ---------------------------------------------------------------------------
 // FASE 9 — QUE LO EMITIDO LLEGUE AL PANEL
 //
 // Los tests de arriba prueban que el gateway EMITE los cuatro artefactos. Estos
