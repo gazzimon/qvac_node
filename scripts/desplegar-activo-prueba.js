@@ -20,6 +20,36 @@
 // test que recomputa el hash de la fuente y rompe cuando dejan de corresponder.
 //
 // -----------------------------------------------------------------------------
+// COMO SE RECOMPILA, EXACTAMENTE
+//
+// Estaba escrito "con solc suelto" y eso no alcanza para repetirlo: hubo que
+// adivinar una vez. La receta entera, fuera del árbol:
+//
+//   mkdir /tmp/solcbox && cd /tmp/solcbox && npm init -y && npm i solc@0.8.28
+//
+// y compilar con la interfaz STANDARD JSON, usando los tres campos que el
+// artefacto ya registra — `solc`, `settings` y `claveFuente`:
+//
+//   {
+//     "language": "Solidity",
+//     "sources": { "<claveFuente>": { "content": "<el .sol entero>" } },
+//     "settings": { ...<settings>, "outputSelection": { "*": { "*": [
+//       "abi", "evm.bytecode.object", "evm.deployedBytecode.object" ] } } }
+//   }
+//
+// **`claveFuente` no es cosmética y por eso se anota.** La clave con la que se
+// le pasa la fuente a solc entra en el hash de metadata que el compilador pega
+// al final del bytecode: la misma fuente, con la misma versión y los mismos
+// settings, compila a bytecode DISTINTO si la clave cambia. Con `solc@0.8.28` y
+// `claveFuente: "activo-prueba.sol"` el artefacto se reproduce byte a byte —
+// comprobado, y es el control que hay que pasar ANTES de regenerarlo: si no
+// reproducís el artefacto viejo, tu toolchain no es el de este archivo y lo que
+// generes va a diferir por razones que no son tu cambio.
+//
+// El repo sigue sin ganar toolchain: `/tmp/solcbox` no es este árbol y
+// `package.json` no se entera.
+//
+// -----------------------------------------------------------------------------
 // LOS DOS GUARDIAS, Y POR QUE NO SE PUEDEN APAGAR
 //
 // 1. La red tiene que estar en la lista blanca de `redes-prueba.js`. Mainnet

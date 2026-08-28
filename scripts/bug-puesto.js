@@ -326,6 +326,81 @@ const BUGS = [
     a: "    s.on('error', () => resolve(true))",
     suite: 'integracion',
     espera: ['un puerto con un listener encima NO esta libre']
+  },
+
+  // ---- D30.4 / EL FACILITATOR CONTESTA ALGO QUE EL CLIENTE PUEDA LEER -----
+  //
+  // Los tres vigilan el mismo principio y por caminos distintos: del otro lado
+  // hay un gateway que YA sirvio los tokens (D12 liquida DESPUES) y que tiene
+  // que poder registrar POR QUE no cobro. Ese campo termina en el recibo, en el
+  // panel, y es lo que la Fase 10 va a leer para decidir si un fallo se
+  // reintenta, se descarta o acusa a alguien.
+  //
+  // Los tres FALLAN EN SILENCIO si nadie mira con el cliente oficial: la
+  // respuesta se ve perfecta en el JSON crudo y se rompe en el parseo.
+  {
+    n: 'facilitator: /verify contesta con los nombres de campo de settle',
+    file: 'scripts/facilitator.js',
+    de: '  const errorDeVerify = (motivo, mensaje) => ({\n    isValid: false,\n    invalidReason: motivo,\n    invalidMessage: mensaje\n  })',
+    a: '  const errorDeVerify = (motivo, mensaje) => ({\n    isValid: false,\n    errorReason: motivo,\n    errorMessage: mensaje\n  })',
+    suite: 'integracion',
+    espera: ['y el MOTIVO llega al cliente', 'en el campo que verify declara']
+  },
+  {
+    n: 'facilitator: /settle omite transaction y network, y el cliente descarta todo',
+    file: 'scripts/facilitator.js',
+    de: "    transaction: '',\n    network: network || ''",
+    a: "    network: network || ''",
+    suite: 'integracion',
+    espera: ['settle no puede tirar', 'transaction presente aunque vacio']
+  },
+  {
+    n: 'facilitator: el catch vuelve a contestar una sola forma para las dos rutas',
+    file: 'scripts/facilitator.js',
+    de: "      if (ruta === '/settle') {\n        return responder(res, 200, errorDeSettle('facilitator_error', message, redDelPago))\n      }",
+    a: '',
+    suite: 'integracion',
+    espera: ['settle no puede tirar']
+  },
+  {
+    n: 'arnes: el bloque de puertos deja de reservar los derivados del facilitator',
+    file: 'test/integracion.js',
+    de: 'const OFFSETS = [4, 5, 6, 7, 8, 9]',
+    a: 'const OFFSETS = [4, 7, 8, 9]',
+    suite: 'integracion',
+    espera: ['esta reservado']
+  },
+
+  // ---- D30.3 / EL ACTIVO HABLA EL IDIOMA QUE LA HERRAMIENTA CLASIFICA -----
+  //
+  // Nota sobre lo que estas dos entradas prueban y lo que no: cualquier edicion
+  // del `.sol` rompe TAMBIEN el assert del SHA-256 del artefacto, que es lo
+  // correcto y es otro guardia. O sea que ver caer el test esperado no prueba
+  // que ese test sea el UNICO que mira -- prueba que traducir un revert string
+  // no puede pasar en silencio, que es la propiedad que importa.
+  {
+    n: 'activo: un revert string vuelve al castellano y deja de clasificarse',
+    file: 'scripts/activo-prueba.sol',
+    de: '        require(block.timestamp < validBefore, "tUSD: authorization is expired");',
+    a: '        require(block.timestamp < validBefore, "tUSD: la autorizacion ya vencio");',
+    suite: 'unit',
+    espera: ['el contrato dice: tUSD: authorization is expired']
+  },
+  {
+    n: 'activo: el saldo insuficiente deja de distinguirse del fallo generico',
+    file: 'scripts/activo-prueba.sol',
+    de: '        require(saldo >= value, "tUSD: transfer amount exceeds balance");',
+    a: '        require(saldo >= value, "tUSD: saldo insuficiente");',
+    suite: 'unit',
+    espera: ['el contrato dice: tUSD: transfer amount exceeds balance']
+  },
+  {
+    n: 'activo: el artefacto deja de decir con que clave de fuente se compilo',
+    file: 'scripts/activo-prueba.artefacto.json',
+    de: '  "claveFuente": "activo-prueba.sol",\n',
+    a: '',
+    suite: 'unit',
+    espera: ['y con la clave de fuente']
   }
 ]
 

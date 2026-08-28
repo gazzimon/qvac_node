@@ -166,6 +166,50 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
     return `este facilitator sirve ${red.caip2} y el pago dice ${n}`
   }
 
+  // -------------------------------------------------------------------------
+  // LOS DOS CUERPOS DE ERROR, CON LA FORMA QUE EL CLIENTE OFICIAL ACEPTA
+  //
+  // No es estilo. `@x402/core` parsea TODA respuesta 200 contra un schema de
+  // zod, y los dos schemas son distintos:
+  //
+  //   verifyResponseSchema  isValid + invalidReason / invalidMessage
+  //   settleResponseSchema  success + errorReason / errorMessage, y ADEMAS
+  //                         `transaction` y `network` como string OBLIGATORIOS,
+  //                         tambien cuando falla.
+  //
+  // Mandar el cuerpo equivocado no da un error ruidoso: da uno callado, y de dos
+  // formas distintas. Con las claves de settle en /verify, zod las DESCARTA sin
+  // quejarse y el gateway recibe `{isValid:false}` pelado, sin motivo. En
+  // /settle, sin `transaction` ni `network`, zod rechaza la respuesta ENTERA y
+  // el cliente tira `FacilitatorResponseError`, con lo que el motivo real queda
+  // anidado adentro del texto de otra excepcion.
+  //
+  // Las dos rompen exactamente lo que este bloque existe para sostener: del otro
+  // lado hay un gateway que YA sirvio los tokens -- D12 liquida DESPUES -- y que
+  // necesita poder registrar POR QUE no se cobro. Eso es lo que termina en el
+  // recibo, en el panel, y en lo que la Fase 10 va a leer para decidir si un
+  // fallo se reintenta, se descarta o acusa a alguien.
+  //
+  // Se comprobo contra el CLIENTE OFICIAL y no contra un curl: un test que mira
+  // el JSON crudo pasa con las dos fallas puestas, porque las dos ocurren del
+  // lado del que parsea.
+  // -------------------------------------------------------------------------
+  const errorDeVerify = (motivo, mensaje) => ({
+    isValid: false,
+    invalidReason: motivo,
+    invalidMessage: mensaje
+  })
+
+  const errorDeSettle = (motivo, mensaje, network) => ({
+    success: false,
+    errorReason: motivo,
+    errorMessage: mensaje,
+    // Vacios, pero PRESENTES y string: el schema los exige aunque no haya
+    // transaccion que informar, y sin ellos se pierde todo lo demas.
+    transaction: '',
+    network: network || ''
+  })
+
   const responder = (res, codigo, cuerpo) => {
     const texto = JSON.stringify(cuerpo)
     res.writeHead(codigo, {
@@ -177,14 +221,19 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
 
   const server = http.createServer(async (req, res) => {
     const ruta = (req.url || '').split('?')[0]
+    // Se guarda apenas se parsea el cuerpo para que el `catch` de abajo pueda
+    // devolver la red del PAGO y no la que este proceso sirve: son distintas
+    // justo en el caso que mas importa debuggear.
+    let redDelPago = ''
     try {
       if (req.method === 'GET' && ruta === '/supported') {
         return responder(res, 200, soloNuestraRed(await facilitator.getSupported()))
       }
       if (req.method === 'POST' && ruta === '/verify') {
         const c = await leerCuerpo(req)
+        redDelPago = (c && c.paymentPayload && c.paymentPayload.network) || ''
         const mal = redEquivocada(c)
-        if (mal) return responder(res, 200, { isValid: false, invalidReason: mal })
+        if (mal) return responder(res, 200, errorDeVerify('unsupported_network', mal))
         return responder(
           res,
           200,
@@ -193,15 +242,10 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
       }
       if (req.method === 'POST' && ruta === '/settle') {
         const c = await leerCuerpo(req)
+        redDelPago = (c && c.paymentPayload && c.paymentPayload.network) || ''
         const mal = redEquivocada(c)
         if (mal) {
-          return responder(res, 200, {
-            success: false,
-            errorReason: 'unsupported_network',
-            errorMessage: mal,
-            transaction: '',
-            network: (c.paymentPayload && c.paymentPayload.network) || null
-          })
+          return responder(res, 200, errorDeSettle('unsupported_network', mal, redDelPago))
         }
         return responder(
           res,
@@ -217,12 +261,14 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
       // hay un gateway que ya sirvió los tokens y necesita poder registrar por
       // qué no se liquidó. Un 500 sin cuerpo se convierte en "settlement_failed"
       // sin motivo, que es justo lo que D12 pide no perder.
-      return responder(res, 200, {
-        success: false,
-        isValid: false,
-        errorReason: 'facilitator_error',
-        errorMessage: message
-      })
+      //
+      // Y estructurado quiere decir CON LA FORMA DE LA RUTA -- ver los dos
+      // constructores de arriba. Un cuerpo con las claves de la otra ruta se
+      // pierde igual que un 500, solo que sin ruido.
+      if (ruta === '/settle') {
+        return responder(res, 200, errorDeSettle('facilitator_error', message, redDelPago))
+      }
+      return responder(res, 200, errorDeVerify('facilitator_error', message))
     }
   })
 

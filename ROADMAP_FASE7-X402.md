@@ -396,6 +396,81 @@ existe" y "el `curl` cobra en testnet".
    de evitar custodiar una llave de emisión es la marca más fuerte posible de que
    esto no es una stablecoin.
 
+### Revisión del Bloque 0 contra la implementación de referencia — 2026-08-27
+
+El bloque se revisó entero contra `@x402/core` y `@x402/evm`, que es la
+comparación que manda: **es el mismo código que corre cualquier facilitator
+hosted, y además es el cliente que nuestro propio gateway usa para liquidar.**
+El spec público de x402 describe el flujo pero no fija los campos de respuesta,
+así que el contrato vinculante es el schema del paquete instalado.
+
+Lo que quedó confirmado, para no volver a mirarlo: el contrato coincide
+exactamente con el `eip3009ABI` de la referencia (las dos sobrecargas,
+`balanceOf`, `name`, `version`, `authorizationState`); el guardia de maleabilidad
+usa el valor de OpenZeppelin; el nonce se marca antes de transferir; el
+`DOMAIN_SEPARATOR` se recomputa en fork; la ventana usa desigualdades estrictas
+igual que FiatTokenV2. Y **Multicall3 está desplegado en 9746** — `@x402/evm` lo
+usa en su camino de diagnóstico, y se verificó con un `eth_getCode` contra la
+cadena, igual que se verificó que el RPC de la tabla contesta `0x2612`.
+
+Aparecieron tres cosas. Las tres compartían un modo de falla y por eso van
+juntas: **ninguna rompía nada de forma visible, y ninguna la podía ver un test
+que mirara el JSON crudo.**
+
+1. **Los revert strings estaban en castellano, y `@x402/evm` clasifica por
+   regex sobre el revert string.** Los regex de `parseEip3009TransferError` están
+   escritos contra el FiatTokenV2 de Circle, así que los cinco motivos
+   —vencida, todavía no válida, nonce usado, saldo insuficiente, firma inválida—
+   colapsaban a un único `transaction_failed`. Con D9 cobrando un tope fijo casi
+   no molesta; **en la Fase 10 rompe la decisión**, porque el lote liquida solo y
+   esos cinco piden tres acciones incompatibles: `nonce_already_used` es un
+   reintento idempotente y se da por cobrado, `insufficient_balance` es del otro
+   lado y no se reintenta, `invalid_signature` no es contabilidad sino
+   reputación. Los mensajes pasaron a inglés **con la nota de por qué no se
+   traducen** —son interfaz de máquina, no texto para una persona— y hay un test
+   que corre los regex REALES del paquete instalado contra los mensajes reales
+   del contrato, con control negativo incluido.
+
+2. **El facilitator contestaba errores que el cliente oficial no podía leer**, y
+   de dos formas distintas. En `/verify` mandaba `errorReason`/`errorMessage`
+   —los nombres de _settle_—, y `verifyResponseSchema` los descarta sin
+   quejarse: el gateway recibía `{isValid:false}` pelado, sin motivo. En
+   `/settle` faltaban `transaction` y `network`, que el schema exige como string
+   aunque la liquidación haya fallado, así que zod rechazaba la respuesta entera
+   y el cliente tiraba `FacilitatorResponseError` con el motivo real anidado
+   adentro de otra excepción. Las dos rompían exactamente lo que ese bloque de
+   errores existe para sostener —del otro lado hay un gateway que ya sirvió los
+   tokens y necesita registrar por qué no cobró—, y las dos se reprodujeron
+   punta a punta antes de tocar nada.
+
+   **Por qué el test no lo agarró, que es lo que más importa:** verificaba la
+   respuesta con un cliente escrito a mano. Un test que valida contra un cliente
+   que no es el que corre en producción no vigila el contrato que importa. Ahora
+   hay uno que usa `HTTPFacilitatorClient`, el mismo que usa `x402.liquidar()`.
+
+3. **El encabezado del `.sol` prometía ERC-1271 y el contrato no lo hace.**
+   La sobrecarga de `bytes` existe porque `@x402/evm` elige por largo de firma,
+   no porque haya soporte para pagadores que sean contratos: `_recuperar` exige
+   65 bytes y hace `ecrecover`. Hoy no molesta —el pagador de D30 es una EOA de
+   WDK—, y se corrigió el texto igual, porque un comentario que promete una
+   capacidad inexistente es la misma clase de artefacto que este proyecto
+   persigue en todos lados.
+
+De paso quedaron escritas dos cosas que estaban implícitas: **la receta de
+recompilación completa** (el artefacto no anotaba `claveFuente`, que entra en el
+hash de metadata del bytecode y por lo tanto lo determina — hubo que adivinarla
+una vez, y el control de reproducir el artefacto viejo byte a byte antes de
+regenerarlo ahora está escrito), y **la reserva contigua del bloque de puertos**
+de la suite, que no cubría los puertos derivados que abren los tests del
+facilitator.
+
+**Lo que esta revisión NO cambió:** `qvac/x402.mjs` y `qvac/gateway.mjs` no se
+tocaron, así que la Fase 9 sigue cerrada y el punto de más arriba sigue en pie —
+el nodo todavía no arma un `accepts[]` para 9746. Tampoco hay tx hash: nada de
+esto tocó una cadena salvo las dos lecturas de comprobación.
+
+---
+
 ### Lo que este bloque NO hace, y no se va a leer como si lo hiciera
 
 - **No hay un tx hash.** Nada de esto tocó una cadena: falta desplegar el activo

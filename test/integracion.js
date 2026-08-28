@@ -31,6 +31,13 @@ const http = require('bare-http1')
 // Esto es la otra mitad: que no vuelva a pasar. Se prueba un bloque de puertos
 // y se usa el primero que este libre entero, que es determinista -- rotar al
 // azar solo hace el choque menos frecuente, no imposible.
+// El bloque se reserva CONTIGUO y no solo en los offsets que se usan hoy: los
+// tests del facilitator abren puertos DERIVADOS (`PUERTO_FACILITATOR_REAL + 1`,
+// `+ 2`), y un offset que nadie comprobo es un puerto que puede estar ocupado
+// por cualquier otra cosa de la maquina. Eso vuelve como el fallo mas caro de
+// esta suite: la corrida que muere antes de escribir una linea de TAP.
+const OFFSETS = [4, 5, 6, 7, 8, 9]
+
 const PUERTOS_DESDE = 8800
 const PUERTOS_HASTA = 9700
 
@@ -40,7 +47,7 @@ let BASE = 'http://127.0.0.1:' + PORT
 function puertoLibre(p) {
   return new Promise((resolve) => {
     const s = http.createServer(() => {})
-    s.on('error', () => resolve(false))
+    s.on('error', () => resolve(true))
     // Un listener que nunca acepto una conexion no deja TIME_WAIT al cerrarse,
     // asi que si esta sonda bindea, el servidor de verdad tambien.
     s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)))
@@ -52,7 +59,7 @@ function puertoLibre(p) {
 async function elegirPuertos() {
   for (let base = PUERTOS_DESDE; base <= PUERTOS_HASTA; base += 10) {
     const libres = []
-    for (const d of [4, 7, 8, 9]) libres.push(await puertoLibre(base + d))
+    for (const d of OFFSETS) libres.push(await puertoLibre(base + d))
     if (libres.every(Boolean)) {
       PORT = base + 9
       BASE = 'http://127.0.0.1:' + PORT
@@ -162,6 +169,20 @@ test('la sonda de puertos distingue ocupado de libre', async (t) => {
   t.is(PUERTO_FACILITATOR, base + 7, 'el facilitator falso tambien')
   t.is(PUERTO_FACILITATOR_REAL, base + 4, 'y el self-hosted de D30.4')
   t.ok(base >= PUERTOS_DESDE && base <= PUERTOS_HASTA, 'dentro del rango declarado')
+
+  // Y los puertos DERIVADOS tambien tienen que caer adentro del bloque. Los dos
+  // tests del facilitator abren `+ 1` y `+ 2` sobre PUERTO_FACILITATOR_REAL: si
+  // el bloque no los reserva, son puertos que nadie comprobo.
+  for (const derivado of [
+    PUERTO_FACILITATOR_REAL,
+    PUERTO_FACILITATOR_REAL + 1,
+    PUERTO_FACILITATOR_REAL + 2
+  ]) {
+    t.ok(
+      OFFSETS.indexOf(derivado - base) !== -1,
+      'el puerto ' + derivado + ' (offset ' + (derivado - base) + ') esta reservado'
+    )
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -3378,6 +3399,98 @@ test('FASE 9 visible: los paneles servidos LLEVAN el codigo que dibuja todo esto
   t.ok(node.body.indexOf('receipts') !== -1, '/node menciona receipts')
 })
 
+test('D30.4: los errores del facilitator sobreviven al CLIENTE OFICIAL, no solo a un curl', async (t) => {
+  // POR QUE ESTE TEST EXISTE, Y POR QUE MIRA CON OTRO CLIENTE.
+  //
+  // El test de arriba comprueba el JSON crudo con `pedirle`, que es un cliente
+  // escrito a mano. Eso alcanza para ver que hay un cuerpo, y NO alcanza para
+  // ver si ese cuerpo sirve: `@x402/core` parsea toda respuesta 200 contra un
+  // schema de zod, y ahi se pierden cosas que en el crudo se ven perfectas.
+  //
+  // Pasaba de verdad, en las dos rutas y de dos formas distintas:
+  //
+  //   /verify  el cuerpo llevaba `errorReason`/`errorMessage` -- los nombres de
+  //            SETTLE --, zod los DESCARTA sin quejarse, y el gateway recibia
+  //            `{isValid:false}` pelado. El motivo no se perdia en la red: se
+  //            perdia en el parseo, que es peor porque no hace ruido.
+  //   /settle  el cuerpo no llevaba `transaction` ni `network`, que el schema
+  //            exige como string aunque la liquidacion haya fallado. Zod
+  //            rechazaba la respuesta ENTERA y el cliente tiraba
+  //            `FacilitatorResponseError`, con el motivo real anidado adentro
+  //            del texto de otra excepcion.
+  //
+  // Las dos rompian lo unico que el bloque de errores del facilitator existe
+  // para sostener: del otro lado hay un gateway que YA sirvio los tokens -- D12
+  // liquida DESPUES -- y que tiene que poder registrar POR QUE no cobro. Ese
+  // campo termina en el recibo, en el panel, y es lo que la Fase 10 va a leer
+  // para decidir si un fallo se reintenta, se descarta, o acusa a alguien.
+  //
+  // Por eso el test usa `HTTPFacilitatorClient`: es EL MISMO cliente que usa
+  // `x402.liquidar()` en produccion. Un test que valida contra un cliente que no
+  // es el que corre es exactamente el agujero que dejo pasar esto.
+  const base = 'http://127.0.0.1:' + (PUERTO_FACILITATOR_REAL + 2)
+  const f = correrFacilitator({
+    PYRUS_FACILITATOR_CLAVE: CLAVE_DE_PRUEBA,
+    PYRUS_FACILITATOR_PUERTO: String(PUERTO_FACILITATOR_REAL + 2),
+    PYRUS_FACILITATOR_CHAINID: '9746',
+    PYRUS_FACILITATOR_RPC: 'http://127.0.0.1:1/no-existe'
+  })
+
+  try {
+    t.ok(await f.listo('facilitator  http://'), 'arranco: ' + f.salida().slice(0, 200))
+
+    const { HTTPFacilitatorClient } = await import('@x402/core/http')
+    const cliente = new HTTPFacilitatorClient({ url: base })
+
+    // Un pago de LA RED CORRECTA -- asi pasa el guardia de red y llega adentro
+    // -- pero incompleto, que es lo que hace reventar al facilitator y lleva al
+    // camino de error. No hace falta tocar la cadena para provocarlo.
+    const pago = { x402Version: 2, scheme: 'exact', network: 'eip155:9746', payload: {} }
+    const requisitos = {
+      scheme: 'exact',
+      network: 'eip155:9746',
+      amount: '1000',
+      asset: '0x' + '11'.repeat(20),
+      payTo: '0x' + 'ab'.repeat(20),
+      resource: 'http://127.0.0.1/v1/chat/completions',
+      description: '',
+      mimeType: 'application/json',
+      maxTimeoutSeconds: 300,
+      extra: { name: 'x', version: '1' }
+    }
+
+    const v = await cliente.verify(pago, requisitos)
+    t.absent(v.isValid, 'no da por valido lo que no pudo procesar')
+    t.is(v.invalidReason, 'facilitator_error', 'y el MOTIVO llega al cliente')
+    t.ok(v.invalidMessage, 'con el detalle adentro: ' + v.invalidMessage)
+
+    // Este es el que tiraba. Se atrapa a proposito en vez de dejar que rompa la
+    // corrida: un throw acá se lee como "el test esta roto" y lo que pasa es que
+    // el facilitator contesto algo que el cliente no puede leer.
+    let s = null
+    let tiro = null
+    try {
+      s = await cliente.settle(pago, requisitos)
+    } catch (err) {
+      tiro = err
+    }
+    t.absent(
+      tiro,
+      'settle no puede tirar: el cliente tiene que poder LEER el fallo. ' +
+        ((tiro && tiro.name + ': ' + tiro.message.slice(0, 160)) || '')
+    )
+    t.absent(s && s.success, 'no dice que cobro')
+    t.is(s && s.errorReason, 'facilitator_error', 'y el motivo llega')
+    t.ok(s && s.errorMessage, 'con el detalle: ' + (s && s.errorMessage))
+    // Los dos campos que el schema exige aunque no haya transaccion. Sin ellos
+    // se descarta TODO lo de arriba.
+    t.is(typeof (s && s.transaction), 'string', 'transaction presente aunque vacio')
+    t.is(s && s.network, 'eip155:9746', 'y la red del PAGO, que es la que sirve para debuggear')
+  } finally {
+    f.matar()
+  }
+})
+
 test('cierra el facilitator falso', async (t) => {
   if (servidorFacilitator) servidorFacilitator.close()
   t.pass('apagado')
@@ -3557,12 +3670,19 @@ test('D30.4: el facilitator self-hosted levanta y declara 9746, que ninguno host
     // Y basura no tira un 500 pelado: del otro lado hay un gateway que YA sirvio
     // los tokens (D12 liquida despues) y necesita poder registrar por que no se
     // liquido. Un 500 sin cuerpo se convierte en "settlement_failed" sin motivo.
+    //
+    // El nombre del campo NO es indistinto, y este assert pedia el equivocado:
+    // `/verify` habla `invalidReason`/`invalidMessage` y `/settle` habla
+    // `errorReason`/`errorMessage`. Pedir `errorMessage` en una respuesta de
+    // verify pasaba mirando el JSON crudo y fallaba donde importa, porque el
+    // schema de `@x402/core` descarta las claves de la otra ruta sin quejarse.
+    // Eso se ve con el cliente oficial, no con esto -- ver el test de abajo.
     const basura = await pedirle(base + '/verify', 'POST', '{no soy json')
     t.is(basura.status, 200, 'contesta estructurado, no un 500 pelado')
     t.absent(basura.json && basura.json.isValid, 'y no da por valido lo que no pudo leer')
     t.ok(
-      basura.json && basura.json.errorMessage,
-      'con el motivo adentro: ' + basura.crudo.slice(0, 120)
+      basura.json && basura.json.invalidMessage,
+      'con el motivo adentro, en el campo que verify declara: ' + basura.crudo.slice(0, 120)
     )
   } finally {
     f.matar()

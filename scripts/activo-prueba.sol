@@ -55,10 +55,51 @@ pragma solidity 0.8.28;
 // -----------------------------------------------------------------------------
 // LAS DOS SOBRECARGAS DE transferWithAuthorization
 //
-// No es redundancia: `@x402/evm` llama a UNA U OTRA segun de que tipo sea la
-// firma. La de (v, r, s) para una firma ECDSA plana, y la de `bytes` cuando el
-// pagador es un contrato y la firma se valida por ERC-1271. Implementar solo una
-// deja media rama del facilitator fallando contra un contrato que "parece" bien.
+// No es redundancia: `@x402/evm` elige UNA U OTRA por el LARGO DE LA FIRMA
+// (`isECDSA = sigLength === 130`). Con 65 bytes llama a la de (v, r, s); con
+// cualquier otro largo, a la de `bytes`. Implementar solo una deja media rama
+// del facilitator llamando a una funcion que no existe.
+//
+// LO QUE ESTE CONTRATO **NO** HACE, y conviene que este escrito porque la
+// sobrecarga de `bytes` invita a suponer lo contrario: **no soporta ERC-1271**.
+// `_recuperar` exige 65 bytes y hace `ecrecover`, asi que un pagador que sea un
+// CONTRATO -- wallet inteligente, cuenta con ERC-4337, firma envuelta en
+// ERC-6492 -- no puede pagar con este activo. `@x402/evm` si tiene ese camino y
+// lo va a intentar; acá revierte.
+//
+// No es una limitacion que moleste hoy: el pagador de D30 es una EOA de WDK y
+// firma 65 bytes. Se declara igual porque un comentario que promete una
+// capacidad inexistente es la misma clase de artefacto que este proyecto
+// persigue en todos lados -- el que parece prueba y no lo es.
+
+// -----------------------------------------------------------------------------
+// POR QUE LOS `require` ESTAN EN INGLES, Y POR QUE NO SE TRADUCEN
+//
+// Los comentarios de este repo estan en castellano y estos mensajes no. No es un
+// descuido y no hay que "arreglarlo": **el revert string es interfaz de maquina
+// acá, no texto para una persona.**
+//
+// `@x402/evm` clasifica un fallo de liquidacion REGEX-MATCHEANDO el mensaje de
+// revert (`parseEip3009TransferError`), y esos regex estan escritos contra el
+// FiatTokenV2 de Circle, que es la implementacion de referencia de EIP-3009:
+//
+//     /authorization.*(expired|valid before)/i   -> valid_before_expired
+//     /authorization.*not.*valid/i               -> valid_after_in_future
+//     /authorization.*used/i                     -> nonce_already_used
+//     /transfer.*exceeds.*balance/i              -> insufficient_balance
+//     /invalid.*signature/i                      -> invalid_signature
+//
+// Con los mensajes en castellano NINGUNO matchea y los cinco colapsan a
+// `transaction_failed`. Eso hoy casi no molesta -- D9 cobra un tope fijo --, y
+// en la Fase 10 rompe algo importante: el lote liquida solo, y esos cinco piden
+// tres acciones incompatibles. `nonce_already_used` es un reintento idempotente
+// y hay que darlo por cobrado; `insufficient_balance` es del otro lado y no se
+// reintenta; `invalid_signature` no es contabilidad, es reputacion. Con un
+// unico `transaction_failed` para los tres, el lote no puede decidir.
+//
+// El prefijo `tUSD:` se mantiene -- identifica al contrato en el explorer y no
+// estorba a ningun regex. Hay un test que corre los regex REALES del paquete
+// contra estos mensajes: si alguien los traduce, se rompe.
 
 contract PyrusTestUSD {
     // -------------------------------------------------------------------------
@@ -171,8 +212,8 @@ contract PyrusTestUSD {
     uint256 public constant MINT_MAXIMO_POR_LLAMADA = 1000000000000; // 1.000.000 tUSD
 
     function mint(address to, uint256 amount) external {
-        require(to != address(0), "tUSD: mint a la direccion cero");
-        require(amount <= MINT_MAXIMO_POR_LLAMADA, "tUSD: mint por encima del tope por llamada");
+        require(to != address(0), "tUSD: mint to the zero address");
+        require(amount <= MINT_MAXIMO_POR_LLAMADA, "tUSD: mint above per-call cap");
         totalSupply += amount;
         balanceOf[to] += amount;
         emit Transfer(address(0), to, amount);
@@ -192,7 +233,7 @@ contract PyrusTestUSD {
     function transferFrom(address from, address to, uint256 value) external returns (bool) {
         uint256 permitido = allowance[from][msg.sender];
         if (permitido != type(uint256).max) {
-            require(permitido >= value, "tUSD: allowance insuficiente");
+            require(permitido >= value, "tUSD: insufficient allowance");
             unchecked {
                 allowance[from][msg.sender] = permitido - value;
             }
@@ -202,9 +243,9 @@ contract PyrusTestUSD {
     }
 
     function _transfer(address from, address to, uint256 value) private {
-        require(to != address(0), "tUSD: transferencia a la direccion cero");
+        require(to != address(0), "tUSD: transfer to the zero address");
         uint256 saldo = balanceOf[from];
-        require(saldo >= value, "tUSD: saldo insuficiente");
+        require(saldo >= value, "tUSD: transfer amount exceeds balance");
         unchecked {
             balanceOf[from] = saldo - value;
         }
@@ -289,7 +330,7 @@ contract PyrusTestUSD {
         bytes32 nonce,
         bytes memory signature
     ) external {
-        require(to == msg.sender, "tUSD: el destinatario tiene que mandar la transaccion");
+        require(to == msg.sender, "tUSD: caller must be the payee");
         _verificarVentana(validAfter, validBefore);
         _consumir(
             from,
@@ -321,7 +362,7 @@ contract PyrusTestUSD {
         bytes32 r,
         bytes32 s
     ) external {
-        require(to == msg.sender, "tUSD: el destinatario tiene que mandar la transaccion");
+        require(to == msg.sender, "tUSD: caller must be the payee");
         _verificarVentana(validAfter, validBefore);
         _consumir(
             from,
@@ -348,7 +389,7 @@ contract PyrusTestUSD {
     function cancelAuthorization(address authorizer, bytes32 nonce, bytes memory signature)
         external
     {
-        require(!_authorizationStates[authorizer][nonce], "tUSD: la autorizacion ya se uso");
+        require(!_authorizationStates[authorizer][nonce], "tUSD: authorization is used or canceled");
         _verificarFirma(
             authorizer,
             keccak256(abi.encode(CANCEL_AUTHORIZATION_TYPEHASH, authorizer, nonce)),
@@ -361,7 +402,7 @@ contract PyrusTestUSD {
     function cancelAuthorization(address authorizer, bytes32 nonce, uint8 v, bytes32 r, bytes32 s)
         external
     {
-        require(!_authorizationStates[authorizer][nonce], "tUSD: la autorizacion ya se uso");
+        require(!_authorizationStates[authorizer][nonce], "tUSD: authorization is used or canceled");
         _verificarFirma(
             authorizer,
             keccak256(abi.encode(CANCEL_AUTHORIZATION_TYPEHASH, authorizer, nonce)),
@@ -374,8 +415,8 @@ contract PyrusTestUSD {
     // -------------------------------------------------------------------------
 
     function _verificarVentana(uint256 validAfter, uint256 validBefore) private view {
-        require(block.timestamp > validAfter, "tUSD: la autorizacion todavia no es valida");
-        require(block.timestamp < validBefore, "tUSD: la autorizacion ya vencio");
+        require(block.timestamp > validAfter, "tUSD: authorization is not yet valid");
+        require(block.timestamp < validBefore, "tUSD: authorization is expired");
     }
 
     // EL NONCE ES LA CLAVE DE IDEMPOTENCIA DEL PAGO (D20). Marcarlo ANTES de
@@ -387,7 +428,7 @@ contract PyrusTestUSD {
         bytes32 structHash,
         bytes memory signature
     ) private {
-        require(!_authorizationStates[firmante][nonce], "tUSD: ese nonce ya se uso");
+        require(!_authorizationStates[firmante][nonce], "tUSD: authorization is used or canceled");
         _verificarFirma(firmante, structHash, signature);
         _authorizationStates[firmante][nonce] = true;
         emit AuthorizationUsed(firmante, nonce);
@@ -398,14 +439,14 @@ contract PyrusTestUSD {
         view
     {
         bytes32 digest = keccak256(abi.encodePacked(hex"1901", DOMAIN_SEPARATOR(), structHash));
-        require(_recuperar(digest, signature) == firmante, "tUSD: la firma no es del autorizante");
+        require(_recuperar(digest, signature) == firmante, "tUSD: invalid signature");
     }
 
     // ecrecover con el guardia de maleabilidad. Sin el, (v, r, s) y (v', r, -s)
     // recuperan la misma direccion, o sea que hay DOS firmas validas para la
     // misma autorizacion -- y el nonce solo mata una.
     function _recuperar(bytes32 digest, bytes memory signature) private pure returns (address) {
-        require(signature.length == 65, "tUSD: la firma no mide 65 bytes");
+        require(signature.length == 65, "tUSD: invalid signature length");
         bytes32 r;
         bytes32 s;
         uint8 v;
@@ -417,11 +458,11 @@ contract PyrusTestUSD {
         if (v < 27) v += 27;
         require(
             uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0,
-            "tUSD: firma maleable (s en la mitad alta)"
+            "tUSD: invalid signature s value"
         );
-        require(v == 27 || v == 28, "tUSD: v invalido");
+        require(v == 27 || v == 28, "tUSD: invalid signature v value");
         address recuperado = ecrecover(digest, v, r, s);
-        require(recuperado != address(0), "tUSD: no se pudo recuperar el firmante");
+        require(recuperado != address(0), "tUSD: invalid signature");
         return recuperado;
     }
 }
