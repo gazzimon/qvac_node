@@ -512,6 +512,9 @@ async function startGateway(opts = {}) {
   // D24 — sin firmante no hay atestacion, y eso es lo correcto: se prefiere no
   // emitirla a emitirla sin firma. El gateway lo dice en el recibo.
   gw.setWalletSigner(cobro.firmar)
+  // FASE 11 — el panel /wallet lee saldos con la direccion PUBLICA y el RPC de
+  // esta red; la seed no cruza. Sin red el panel muestra solo el aviso.
+  gw.setWalletRed(cobro.red)
 
   // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
   // registro tiene que decirlo desde el arranque. Si la fila local recien
@@ -809,7 +812,7 @@ async function openData(dir, { files = true } = {}) {
 // menos: el gateway pide firmas, no llaves.
 async function economicDelNodo(dir) {
   const wallet = await import('./qvac/wallet.mjs')
-  if (!wallet.existe(dir)) return { economic: null, firmar: null }
+  if (!wallet.existe(dir)) return { economic: null, firmar: null, red: null }
 
   try {
     // D30.2 — la red se resuelve del entorno y SE LE PASA. Antes `abrir` recibia
@@ -832,12 +835,15 @@ async function economicDelNodo(dir) {
       // el mensaje, que es lo que `recoverMessageAddress` verifica del otro
       // lado. Se envuelve en una closure para que lo unico que cruce a
       // gateway.mjs sea la capacidad de firmar, no la cuenta ni la frase.
-      firmar: (mensaje) => abierta.cuenta.sign(mensaje)
+      firmar: (mensaje) => abierta.cuenta.sign(mensaje),
+      // FASE 11 — la red resuelta, para que el panel /wallet lea saldos con la
+      // direccion PUBLICA. No lleva la seed ni la cuenta: solo rpc/chainId.
+      red
     }
   } catch (err) {
     console.error(`  [wallet] ${(err && err.message) || err}`)
     console.error('  [wallet] el nodo se anuncia SIN direccion de cobro (economic queda en mock)')
-    return { economic: null, firmar: null }
+    return { economic: null, firmar: null, red: null }
   }
 }
 

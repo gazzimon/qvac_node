@@ -471,6 +471,18 @@ export function setEconomic(economic) {
   return economicPropio
 }
 
+// FASE 11 — la red donde vive la wallet, para que el panel /wallet pueda LEER
+// saldos. Llega ya resuelta desde bin.mjs (`wallet.redDe`): nombre, chainId,
+// caip2, rpc, explorer. Es dato PUBLICO — el mismo RPC contra el que se firma
+// el cobro — y no afloja la invariante de arriba: se lee con la direccion, que
+// viaja en el manifiesto, no con la seed. Sin esto el panel dice "sin wallet".
+let walletRed = null
+
+export function setWalletRed(red) {
+  walletRed = red && red.rpc ? red : null
+  return walletRed
+}
+
 // FASE 9 / D24 — con que se firma la atestacion de lo que este nodo sirvio.
 //
 // Es una FUNCION, no una clave: bin.mjs abre el keystore, se queda con la
@@ -497,6 +509,30 @@ export function walletStatus() {
     chains: economicPropio ? economicPropio.chains : [],
     settlement: economicPropio ? economicPropio.settlement : null
   }
+}
+
+// FASE 11 — una llamada JSON-RPC cruda contra el RPC de la red de la wallet.
+// `bare-fetch` como en upstream.mjs. Solo para LEER (`eth_getBalance`,
+// `eth_call` a `balanceOf`): este gateway no arma ni firma transacciones.
+async function rpcCall(url, method, params) {
+  const mod = await import('bare-fetch')
+  const fetch = mod.default || mod.fetch || mod
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+  })
+  if (!r.ok) throw new Error('RPC HTTP ' + r.status)
+  const j = await r.json()
+  if (j && j.error) throw new Error(j.error.message || 'RPC error')
+  return j ? j.result : null
+}
+
+// `balanceOf(address)` — selector 0x70a08231, la direccion a 32 bytes.
+function balanceOfData(address) {
+  return (
+    '0x70a08231' + '000000000000000000000000' + String(address).toLowerCase().replace(/^0x/, '')
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -2112,6 +2148,10 @@ async function onRequest(req, res) {
       const { ADMIN_HTML } = await import('./pages.mjs')
       return sendHtml(res, ADMIN_HTML)
     }
+    if (req.method === 'GET' && pathname === '/wallet') {
+      const { WALLET_HTML } = await import('./pages.mjs')
+      return sendHtml(res, WALLET_HTML)
+    }
     // Las rutas viejas siguen resolviendo: hay comandos, capturas y un README
     // que las nombran, y un 404 despues de un rename es una regresion para
     // quien tenia el link guardado.
@@ -2321,6 +2361,75 @@ async function onRequest(req, res) {
       const motivoWallet = rechazoPorKey(req)
       if (motivoWallet) return sendError(res, 401, motivoWallet)
       return sendJson(res, 200, walletStatus())
+    }
+    // FASE 11 — los saldos de la wallet de cobro, para el panel /wallet. SOLO
+    // LECTURA: `eth_getBalance` nativo + `balanceOf` de USD₮0 en Plasma. El
+    // gate es el mismo de /v1/wallet: la direccion no es secreta pero un
+    // tercero cualquiera no tiene por que sondear cuanto tiene esta maquina.
+    //
+    // Un RPC caido NO devuelve ceros: el campo se deja en null y el panel lo
+    // dibuja "—" con el motivo. Afirmar "0" seria decir que la wallet esta
+    // vacia cuando lo unico que pasa es que no se pudo mirar.
+    if (req.method === 'GET' && pathname === '/v1/wallet/balances') {
+      const motivoBal = rechazoPorKey(req)
+      if (motivoBal) return sendError(res, 401, motivoBal)
+
+      const address = economicPropio ? economicPropio.walletAddress : null
+      if (!address || !walletRed) {
+        return sendJson(res, 200, {
+          configurada: false,
+          address,
+          red: null,
+          nativo: null,
+          tokens: [],
+          error: null
+        })
+      }
+
+      const red = {
+        nombre: walletRed.nombre || null,
+        caip2: walletRed.caip2 || null,
+        chainId: walletRed.chainId || null,
+        explorer: walletRed.explorer || null,
+        mainnet: !!walletRed.mainnet
+      }
+
+      let nativo = null
+      let error = null
+      try {
+        const wei = await rpcCall(walletRed.rpc, 'eth_getBalance', [address, 'latest'])
+        nativo = { decimals: 18, raw: String(wei == null ? '0x0' : wei) }
+      } catch (err) {
+        nativo = { decimals: 18, raw: null, error: (err && err.message) || String(err) }
+        error = 'no se pudo leer el balance nativo contra el RPC'
+      }
+
+      const tokens = []
+      // Solo el activo de Plasma, y desde la MISMA constante que usa x402: una
+      // sola fuente de verdad para una direccion de contrato (ver x402.mjs).
+      if (walletRed.caip2 === 'eip155:9745' && x402.PLASMA_USDT0_SIN_VERIFICAR) {
+        const t = x402.PLASMA_USDT0_SIN_VERIFICAR
+        const fila = {
+          symbol: t.symbol,
+          name: t.name,
+          address: t.asset,
+          decimals: t.decimals,
+          verificado: false
+        }
+        try {
+          const raw = await rpcCall(walletRed.rpc, 'eth_call', [
+            { to: t.asset, data: balanceOfData(address) },
+            'latest'
+          ])
+          fila.raw = String(raw == null ? '0x0' : raw)
+        } catch (err) {
+          fila.raw = null
+          fila.error = (err && err.message) || String(err)
+        }
+        tokens.push(fila)
+      }
+
+      return sendJson(res, 200, { configurada: true, address, red, nativo, tokens, error })
     }
     // FASE 9 / D12 — recuperar el recibo de un request que se pago.
     //

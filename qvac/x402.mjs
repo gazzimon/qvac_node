@@ -74,7 +74,12 @@ export const CAIP2 = {
 // verificada contra la cadena**. Por eso `activoDe()` no la devuelve sin más:
 // exige que el operador confirme, porque el modo de falla es mandar USD₮ a un
 // contrato equivocado y eso no tiene vuelta atrás.
-const PLASMA_USDT0_SIN_VERIFICAR = {
+//
+// Se EXPORTA para que el panel /wallet (`qvac/panel-wallet.mjs`) lea el balance
+// de USD₮0 sin declarar una segunda copia de la dirección: una sola fuente de
+// verdad, la misma que firma el cobro. Leer un balance con una dirección sin
+// verificar es inocuo —no se manda nada— y la fila lo marca "sin verificar".
+export const PLASMA_USDT0_SIN_VERIFICAR = {
   asset: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
   name: 'USDT0',
   version: '1',

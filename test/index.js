@@ -3304,3 +3304,114 @@ test('el codigo que se embebe en el panel es el mismo, y CORRE', async (t) => {
   t.ok(html.indexOf('no tiene wallet') !== -1, 'el motivo sobrevive el viaje al navegador')
   t.ok(html.indexOf('facilitator de PRUEBAS') !== -1, 'y el sello del tx tambien')
 })
+
+// ---------------------------------------------------------------------------
+// Panel /wallet — qvac/panel-wallet.mjs (Fase 11)
+//
+// Mismo criterio que panel-x402: son las funciones que corren EN el navegador,
+// pegadas por pages.mjs con String(fn). Probarlas aca es probarlas alla. Lo
+// que se vigila: que un balance no se redondee de mas, que un RPC caido NO se
+// dibuje como saldo cero, que "sin conversion a USD" este dicho, y que enviar
+// no se ofrezca (este panel es solo lectura).
+// ---------------------------------------------------------------------------
+
+test('el panel de wallet formatea montos recortando, sin redondear ni inventar', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+
+  t.is(pw.formatearMonto('0x0', 18, 6).texto, '0', 'cero es cero, sin cola de decimales')
+  t.is(pw.formatearMonto('0xde0b6b3a7640000', 18, 6).texto, '1', '1e18 wei = 1')
+  t.is(pw.formatearMonto('1500000', 6, 6).texto, '1.5', 'USD₮0 son 6 decimales')
+  t.is(
+    pw.formatearMonto('1', 18, 6).texto,
+    '0',
+    '1 wei es mas chico que lo que se muestra: es "0", no "0.000000"'
+  )
+  t.is(
+    pw.formatearMonto('1234567', 6, 3).texto,
+    '1.234',
+    'la fraccion se RECORTA, no se redondea: 1.234 y no 1.235'
+  )
+  t.is(pw.formatearMonto(null, 18, 6).texto, '0', 'sin dato no explota')
+})
+
+test('un RPC caido no se dibuja como saldo cero', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const v = pw.vistaDeSaldos({
+    configurada: true,
+    address: '0x' + 'ab'.repeat(20),
+    red: { nombre: 'Plasma', caip2: 'eip155:9745', mainnet: true },
+    nativo: { decimals: 18, raw: null, error: 'RPC HTTP 502' },
+    tokens: [
+      {
+        symbol: 'USDT0',
+        name: 'USDT0',
+        address: '0x' + 'cd'.repeat(20),
+        decimals: 6,
+        raw: null,
+        verificado: false,
+        error: 'timeout'
+      }
+    ]
+  })
+
+  const nativo = v.items.find((i) => i.esNativo)
+  t.is(nativo.texto, '—', 'sin dato se dice "—", nunca "0"')
+  t.is(nativo.error, 'RPC HTTP 502', 'y el motivo viaja')
+
+  const html = pw.htmlDeWallet(v, '', 'assets')
+  t.ok(html.indexOf('sin conversión a USD') !== -1, 'la ausencia de precio esta dicha')
+  t.ok(html.indexOf('RPC HTTP 502') !== -1, 'el error del nodo aparece en el panel')
+  t.ok(html.indexOf('dirección sin verificar') !== -1, 'el token con dir no verificada se marca')
+})
+
+test('sin wallet el panel lo dice, y enviar nunca se ofrece', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+
+  const v = pw.vistaDeSaldos({ configurada: false, address: null })
+  t.is(v.configurada, false, 'un nodo sin wallet no es un error')
+
+  const html = pw.htmlDeWallet(v, '', 'assets')
+  t.ok(html.indexOf('wallet --crear') !== -1, 'dice como crear una')
+
+  // Send y Swap SIEMPRE deshabilitados en la Fase 1: el panel no manda plata.
+  for (const etiqueta of ['Send', 'Swap']) {
+    const idx = html.indexOf('>' + etiqueta + '</button>')
+    t.ok(idx !== -1, 'hay boton ' + etiqueta)
+    const desde = html.lastIndexOf('<button', idx)
+    t.ok(
+      html.slice(desde, idx).indexOf('disabled') !== -1,
+      etiqueta + ' se dibuja deshabilitado, no oculto'
+    )
+  }
+})
+
+test('el filtro del panel busca por simbolo, nombre y red, y no ejecuta nada', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const items = [
+    { symbol: 'XPL', name: 'Plasma', sub: 'Plasma · eip155:9745' },
+    { symbol: 'USDT0', name: 'Tether USD', sub: '0x1234…abcd' }
+  ]
+  t.is(pw.filtrarItems(items, 'teth').length, 1, 'por nombre')
+  t.is(pw.filtrarItems(items, 'PLASMA').length, 1, 'sin distinguir mayusculas')
+  t.is(pw.filtrarItems(items, '9745').length, 1, 'el caip2 de la linea de abajo tambien cuenta')
+  t.is(pw.filtrarItems(items, '').length, 2, 'sin texto estan todos')
+  t.is(pw.filtrarItems(items, 'zzz').length, 0, 'lo que no matchea no aparece')
+})
+
+test('el panel /wallet lleva embebido el codigo de panel-wallet.mjs, entero y conectado', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const pages = await import('../qvac/pages.mjs')
+
+  t.ok(
+    pages.WALLET_HTML.indexOf(pw.FUENTE_EMBEBIDA_WALLET) !== -1,
+    'el HTML servido lo lleva entero, no una copia que el test no corre'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf('htmlDeWallet(vistaWallet') !== -1,
+    'y hay un lugar de llamada, no solo la definicion'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/balances')") !== -1,
+    'lee el endpoint con la credencial del panel, como el resto'
+  )
+})

@@ -14,12 +14,14 @@
 // cabecera de ese archivo.
 
 import { FUENTE_EMBEBIDA } from './panel-x402.mjs'
+import { FUENTE_EMBEBIDA_WALLET } from './panel-wallet.mjs'
 
 const NAV = `
 <nav class="nav">
   <span class="brand">PyrusLLM</span>
   <a href="/">Chat</a>
   <a href="/node">My Node</a>
+  <a href="/wallet">Wallet</a>
   <a href="/network">Network</a>
   <span class="agent offline" id="agent-chip"><i></i><b data-agent-label>checking…</b></span>
 </nav>`
@@ -493,6 +495,108 @@ const STYLE = `
     font-family: ui-monospace, monospace;
   }
   .x-buscar button { margin: 0; white-space: nowrap; }
+
+  /* -----------------------------------------------------------------------
+     Panel /wallet (Fase 11). Columna angosta tipo billetera de celular: la
+     referencia visual es una wallet movil, no una tabla. Solo lectura — los
+     botones de enviar se dibujan deshabilitados, ver qvac/panel-wallet.mjs.
+     ----------------------------------------------------------------------- */
+  .w-root { max-width: 460px; margin: 1.5rem auto 0; }
+  .w-card {
+    background: #12151c; border: 1px solid #262b36; border-radius: 16px;
+    padding: 1.1rem 1.1rem .4rem; display: flex; flex-direction: column; gap: 1rem;
+  }
+  .w-head { display: flex; flex-direction: column; gap: .5rem; }
+  .w-acct { display: flex; align-items: center; gap: .55rem; }
+  .w-acct-dot {
+    width: 1.7rem; height: 1.7rem; border-radius: 999px; flex: none;
+    background: #232838; color: #9fd6ff; font-weight: 700; font-size: .8rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .w-acct-name {
+    font-family: ui-monospace, monospace; font-size: .9rem; color: #e6e6e6; margin-right: auto;
+  }
+  .w-copy {
+    margin: 0; padding: .3rem .6rem; font-size: .72rem; background: #232838;
+  }
+  .w-copy:hover { background: #2c3348; }
+  .w-copy.grande { display: block; width: 100%; margin-top: .6rem; padding: .55rem; font-size: .82rem; }
+  .w-red { font-size: .76rem; color: #8b93a7; font-family: ui-monospace, monospace; }
+  .w-red.es-prueba { color: #fbbf24; }
+
+  .w-balance { text-align: center; padding: .6rem 0 .2rem; }
+  .w-balance-num {
+    font-size: 2.1rem; font-weight: 700; color: #f2f5fb;
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+  }
+  .w-balance-sub { font-size: .74rem; color: #8b93a7; margin-top: .3rem; }
+
+  .w-acc { display: grid; grid-template-columns: repeat(3, 1fr); gap: .55rem; }
+  .w-acc-b {
+    margin: 0; display: flex; flex-direction: column; align-items: center; gap: .25rem;
+    padding: .6rem .2rem; font-size: .78rem; background: #1b2432;
+  }
+  .w-acc-b span { font-size: 1rem; }
+  .w-acc-b:hover:not(:disabled) { background: #24304180; }
+  .w-acc-b:disabled { opacity: .4; cursor: not-allowed; }
+
+  .w-assets-head { font-size: .84rem; color: #a9b4cc; }
+  .w-filtro {
+    width: 100%; background: #0f1218; color: #e6e6e6; font-size: .82rem;
+    border: 1px solid #2c3348; border-radius: 999px; padding: .5rem .9rem; margin: .5rem 0 .2rem;
+  }
+  .w-filas { display: flex; flex-direction: column; }
+  .w-fila {
+    display: flex; align-items: center; gap: .7rem; padding: .65rem .1rem;
+    border-top: 1px solid #1b1f27;
+  }
+  .w-fila:first-child { border-top: 0; }
+  .w-ico {
+    width: 2rem; height: 2rem; border-radius: 999px; flex: none;
+    background: #232838; color: #cfd6e4; font-size: .62rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .w-fila-txt { flex: 1; min-width: 0; }
+  .w-sym { font-size: .9rem; color: #e6e6e6; }
+  .w-name {
+    font-size: .72rem; color: #8b93a7; overflow-wrap: anywhere; line-height: 1.3;
+  }
+  .w-fila-err { font-size: .72rem; color: #fca5a5; margin-top: .15rem; }
+  .w-amt {
+    font-family: ui-monospace, monospace; font-size: .92rem; color: #e6e6e6;
+    font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere;
+  }
+  .w-amt.es-nativo { color: #9fd6ff; }
+  .w-vacio { font-size: .82rem; color: #8b93a7; padding: .9rem .1rem; }
+  .w-vacio code { font-family: ui-monospace, monospace; color: #cfd6e4; }
+  .w-aviso {
+    font-size: .78rem; border-radius: 8px; padding: .55rem .7rem; line-height: 1.4;
+  }
+  .w-aviso.malo { background: #2d1618; color: #fca5a5; border: 1px solid #542125; }
+
+  .w-dep { text-align: center; }
+  .w-dep-lbl { font-size: .78rem; color: #8b93a7; margin-bottom: .5rem; }
+  .w-dep-addr {
+    font-family: ui-monospace, monospace; font-size: .82rem; color: #e6e6e6;
+    background: #0f1218; border: 1px solid #262b36; border-radius: 8px;
+    padding: .7rem; overflow-wrap: anywhere;
+  }
+  .w-dep-nota { font-size: .74rem; color: #8b93a7; margin-top: .7rem; line-height: 1.45; }
+  .w-dep-nota.tenue { color: #6b7386; }
+  .w-dep-nota b { color: #cfd6e4; }
+  .w-dep-link { display: inline-block; margin-top: .6rem; font-size: .78rem; color: #9fd6ff; }
+
+  .w-tabs {
+    display: flex; gap: .1rem; border-top: 1px solid #262b36;
+    margin: .4rem -1.1rem 0; padding: .3rem .4rem 0;
+  }
+  .w-tab {
+    flex: 1; margin: 0; background: none; color: #8b93a7; font-size: .74rem;
+    padding: .6rem .2rem; border-radius: 0;
+  }
+  .w-tab:hover:not(:disabled) { color: #cfd6e4; background: none; }
+  .w-tab.on { color: #9fd6ff; }
+  .w-tab:disabled { opacity: .4; cursor: not-allowed; }
 </style>`
 
 // Escapado de HTML, inyectado en el script de los 3 paneles.
@@ -3075,4 +3179,77 @@ ${CHAT_JS}
   </script>
   `,
   'chatpage'
+)
+
+// -----------------------------------------------------------------------------
+// Panel /wallet (Fase 11) — la wallet de COBRO de este nodo, SOLO LECTURA.
+//
+// El dibujo entero lo deciden las funciones puras de `qvac/panel-wallet.mjs`,
+// pegadas aca por `FUENTE_EMBEBIDA_WALLET` igual que panel-x402: probarlas en
+// la suite es probarlas aca. Este archivo solo aporta el poll y el cableado de
+// clicks. Enviar y hacer swap NO estan: los botones se ven deshabilitados.
+// -----------------------------------------------------------------------------
+export const WALLET_HTML = page(
+  'PyrusLLM · Wallet',
+  `
+  <h1>Wallet</h1>
+  <p class="sub">La wallet de cobro de este nodo: dirección, saldo y en qué red. Solo lectura — enviar y hacer swap se hacen por la CLI (<code>pyrusllm wallet</code>). La dirección es la misma que viaja firmada en el manifiesto.</p>
+  <div id="wallet-root" class="w-root"><div class="skel"><div style="width:55%"></div><div style="width:80%"></div><div style="width:35%"></div></div></div>
+
+  <script>
+${ESC}
+${FUENTE_EMBEBIDA_WALLET}
+${MODAL_JS}
+
+    let vistaWallet = vistaDeSaldos(null)
+    let filtroWallet = ''
+    let tabWallet = 'assets'
+
+    async function cargarWallet () {
+      try {
+        const r = await authFetch('/v1/wallet/balances')
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        vistaWallet = vistaDeSaldos(await r.json())
+      } catch (e) {
+        vistaWallet = vistaDeSaldos({
+          error: 'no se pudo leer /v1/wallet/balances: ' + ((e && e.message) || e)
+        })
+      }
+      pintarWallet()
+    }
+
+    // En cada poll (15 s) se repinta la tarjeta entera, SALVO que el foco este
+    // en el buscador: ahi se toca solo #w-filas para no comerse lo tipeado.
+    function pintarWallet () {
+      const foco = document.activeElement
+      if (foco && foco.id === 'w-filtro') {
+        const filas = document.getElementById('w-filas')
+        if (filas) { filas.innerHTML = htmlDeFilas(vistaWallet, filtroWallet); return }
+      }
+      document.getElementById('wallet-root').innerHTML =
+        htmlDeWallet(vistaWallet, filtroWallet, tabWallet)
+      cablearWallet()
+    }
+
+    function cablearWallet () {
+      const f = document.getElementById('w-filtro')
+      if (f) {
+        f.value = filtroWallet
+        f.addEventListener('input', ev => {
+          filtroWallet = ev.target.value
+          const filas = document.getElementById('w-filas')
+          if (filas) filas.innerHTML = htmlDeFilas(vistaWallet, filtroWallet)
+        })
+      }
+      document.querySelectorAll('.w-card [data-w-tab]').forEach(b => {
+        b.addEventListener('click', () => { tabWallet = b.dataset.wTab; pintarWallet() })
+      })
+      document.querySelectorAll('.w-card [data-copy]').forEach(b => {
+        b.addEventListener('click', () => copiar(b.dataset.copy, b))
+      })
+    }
+
+    cargarWallet()
+    setInterval(cargarWallet, 15000)
+  </script>`
 )
