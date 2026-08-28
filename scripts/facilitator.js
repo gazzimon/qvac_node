@@ -196,8 +196,8 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
   // -------------------------------------------------------------------------
   const errorDeVerify = (motivo, mensaje) => ({
     isValid: false,
-    errorReason: motivo,
-    errorMessage: mensaje
+    invalidReason: motivo,
+    invalidMessage: mensaje
   })
 
   const errorDeSettle = (motivo, mensaje, network) => ({
@@ -206,7 +206,6 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
     errorMessage: mensaje,
     // Vacios, pero PRESENTES y string: el schema los exige aunque no haya
     // transaccion que informar, y sin ellos se pierde todo lo demas.
-    transaction: '',
     network: network || ''
   })
 
