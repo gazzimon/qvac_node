@@ -345,6 +345,51 @@ test('la seed de la wallet no queda en claro, y la passphrase equivocada no abre
   tmp.limpiar()
 })
 
+test('FASE 11: la passphrase sale del entorno, o se genera y se persiste para el proximo arranque', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const tmp = dirWalletTmp()
+
+  // 1. El entorno gana siempre, y no toca ningun archivo.
+  const env = wallet.resolverPassphrase(tmp.dir, {
+    env: { [wallet.VAR_PASSPHRASE]: '  del-entorno  ' }
+  })
+  t.is(env.passphrase, 'del-entorno', 'con trim')
+  t.is(env.fuente, 'env')
+  t.is(
+    wallet.resolverPassphrase(tmp.dir, { env: {} }).passphrase,
+    null,
+    'no escribio nada al resolver desde el entorno'
+  )
+
+  // 2. Sin entorno y sin generar: null, no un throw. Quien abre decide.
+  t.is(wallet.resolverPassphrase(tmp.dir, { env: {} }).fuente, null)
+
+  // 3. Sin entorno y con generar: mintea, guarda, y la MISMA vuelve despues.
+  //    Es lo que hace que abrir() ande tras un reinicio sin tipear nada.
+  const g1 = wallet.resolverPassphrase(tmp.dir, { env: {}, generar: true })
+  t.ok(g1.passphrase && g1.passphrase.length >= 32, 'una passphrase de verdad')
+  t.is(g1.fuente, 'generada')
+  const g2 = wallet.resolverPassphrase(tmp.dir, { env: {} })
+  t.is(g2.passphrase, g1.passphrase, 'la segunda vez sale del archivo, identica')
+  t.is(g2.fuente, 'archivo')
+
+  // 4. El entorno le sigue ganando al archivo si aparece despues.
+  t.is(
+    wallet.resolverPassphrase(tmp.dir, { env: { [wallet.VAR_PASSPHRASE]: 'otra' } }).passphrase,
+    'otra'
+  )
+
+  // 5. Una wallet creada con la passphrase generada se vuelve a abrir sola.
+  const creada = await wallet.crear(tmp.dir, g1.passphrase)
+  const reabierta = await wallet.abrir(
+    tmp.dir,
+    wallet.resolverPassphrase(tmp.dir, { env: {} }).passphrase
+  )
+  t.is(reabierta.address, creada.address, 'sin que nadie tipee nada')
+
+  tmp.limpiar()
+})
+
 test('la frase de respaldo restaura la misma direccion en otra maquina', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
   const uno = dirWalletTmp()
@@ -3378,25 +3423,23 @@ test('un RPC caido no se dibuja como saldo cero', async (t) => {
 test('sin wallet el panel muestra el onboarding, no la billetera', async (t) => {
   const pw = await import('../qvac/panel-wallet.mjs')
 
-  // Sin passphrase en el entorno: se explica ESE paso, no hay boton de crear.
-  const sinPass = pw.htmlDeWallet(pw.vistaDeSaldos({ configurada: false }), '', 'assets')
-  t.ok(
-    sinPass.indexOf('PYRUS_WALLET_PASSPHRASE') !== -1,
-    'dice que falta la passphrase del entorno'
-  )
-  t.is(sinPass.indexOf('id="w-onb-crear"'), -1, 'y NO ofrece el boton de crear')
-  t.is(sinPass.indexOf('w-balance-num'), -1, 'no hay billetera: ni balance')
-  t.is(sinPass.indexOf('>Send</button>'), -1, 'ni Send')
+  // Antes de que el nodo cablee el creator (arranque): ni boton ni billetera.
+  const noListo = pw.htmlDeWallet(pw.vistaDeSaldos({ configurada: false }), '', 'assets')
+  t.is(noListo.indexOf('id="w-onb-crear"'), -1, 'todavia no ofrece el boton de crear')
+  t.is(noListo.indexOf('w-balance-num'), -1, 'no hay billetera: ni balance')
+  t.is(noListo.indexOf('>Send</button>'), -1, 'ni Send')
 
-  // Con passphrase: aparece crear + importar, sigue sin haber billetera.
-  const conPass = pw.htmlDeWallet(
+  // Listo: aparece crear + importar, sin pedirle nada al operador. Sigue sin
+  // haber billetera hasta que se cree.
+  const listo = pw.htmlDeWallet(
     pw.vistaDeSaldos({ configurada: false, puedeCrear: true }),
     '',
     'assets'
   )
-  t.ok(conPass.indexOf('id="w-onb-crear"') !== -1, 'ofrece crear una nueva')
-  t.ok(conPass.indexOf('id="w-onb-importar"') !== -1, 'y ofrece importar 24 palabras')
-  t.is(conPass.indexOf('w-balance-num'), -1, 'todavia no hay billetera')
+  t.ok(listo.indexOf('id="w-onb-crear"') !== -1, 'ofrece crear una nueva')
+  t.ok(listo.indexOf('id="w-onb-importar"') !== -1, 'y ofrece importar 24 palabras')
+  t.is(listo.indexOf('PYRUS_WALLET_PASSPHRASE'), -1, 'sin mandar al operador a tocar el entorno')
+  t.is(listo.indexOf('w-balance-num'), -1, 'todavia no hay billetera')
 })
 
 test('la pantalla de la frase la muestra entera y no deja pasar sin confirmar', async (t) => {

@@ -2399,8 +2399,9 @@ async function onRequest(req, res) {
           nativo: null,
           tokens: [],
           error: null,
-          // FASE 11 — el panel muestra el onboarding solo si el nodo PUEDE
-          // cifrar la seed (hay passphrase en el entorno).
+          // FASE 11 — el creator está cableado salvo durante los ms del
+          // arranque previos a `setWalletCreator`; el panel lo usa para no
+          // ofrecer el botón antes de tiempo.
           puedeCrear: !!walletCreator
         })
       }
@@ -2465,9 +2466,9 @@ async function onRequest(req, res) {
       if (!walletCreator) {
         return sendError(
           res,
-          400,
-          'crear la wallet desde el panel no está habilitado: falta PYRUS_WALLET_PASSPHRASE en el entorno del nodo',
-          { code: 'sin_passphrase' }
+          503,
+          'el nodo todavía no está listo para crear la wallet, probá de nuevo en unos segundos',
+          { code: 'no_listo', type: 'service_unavailable' }
         )
       }
       if (economicPropio) {

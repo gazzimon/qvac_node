@@ -418,10 +418,8 @@ export function htmlDeOnboarding(v) {
     return (
       '<div class="w-onb">' +
       '<div class="w-onb-tit">Este nodo todavía no tiene wallet de cobro</div>' +
-      '<div class="w-onb-txt">Para crear o importar una desde acá, poné ' +
-      '<code>PYRUS_WALLET_PASSPHRASE</code> en el entorno del nodo y reiniciá. ' +
-      'Es un paso de entorno, no de CLI: esa variable es la clave con la que se ' +
-      'cifra la seed y con la que el nodo la abre en cada arranque.</div>' +
+      '<div class="w-onb-txt">El nodo todavía no está listo para crearla — probá de ' +
+      'nuevo en unos segundos.</div>' +
       (v.crearMotivo ? '<div class="w-fila-err">' + escaparHtml(v.crearMotivo) + '</div>' : '') +
       '</div>'
     )
@@ -429,9 +427,9 @@ export function htmlDeOnboarding(v) {
   return (
     '<div class="w-onb">' +
     '<div class="w-onb-tit">Creá la wallet de cobro de este nodo</div>' +
-    '<div class="w-onb-txt">Se genera acá, se guarda cifrada con ' +
-    '<code>PYRUS_WALLET_PASSPHRASE</code>, y las 24 palabras se muestran una sola ' +
-    'vez para que las anotes. También podés importar una que ya tengas.</div>' +
+    '<div class="w-onb-txt">Se genera acá y se guarda cifrada en la máquina del nodo. ' +
+    'Las 24 palabras se muestran una sola vez para que las anotes — son el único ' +
+    'respaldo. También podés importar una que ya tengas.</div>' +
     '<div class="w-onb-acc">' +
     '<button class="w-onb-b primaria" id="w-onb-crear">Crear una nueva</button>' +
     '<button class="w-onb-b" id="w-onb-importar-toggle">Importar 24 palabras</button>' +

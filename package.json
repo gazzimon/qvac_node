@@ -31,6 +31,7 @@
         "/.prettierrc",
         "/.env",
         "/wallet.json",
+        "/wallet.pass",
         "/upstreams.json",
         "/cli.js",
         "/node_modules",

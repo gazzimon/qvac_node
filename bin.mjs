@@ -518,33 +518,32 @@ async function startGateway(opts = {}) {
   gw.setWalletRed(cobro.red)
 
   // FASE 11 — crear o importar la wallet de cobro desde el panel /wallet, sin
-  // `pyrusllm wallet --crear`. El closure es el dueño de dir + passphrase: el
-  // gateway lo invoca y re-cablea economic/firmante/red, pero NO ve la seed —
-  // se genera acá, se escribe cifrada, y la frase vuelve una sola vez para que
-  // el panel la muestre y el operador la anote.
+  // `pyrusllm wallet --crear` y sin tocar el entorno. El closure es el dueño de
+  // dir + passphrase: el gateway lo invoca y re-cablea economic/firmante/red,
+  // pero NO ve la seed — se genera acá, se escribe cifrada, y la frase vuelve
+  // una sola vez para que el panel la muestre y el operador la anote.
   //
-  // Sin PYRUS_WALLET_PASSPHRASE el creator queda en null y el panel explica ese
-  // paso en vez de ofrecer el botón: esa variable es la clave con la que se
-  // cifra la seed Y con la que este proceso la abre en cada arranque.
+  // La passphrase la resuelve `wallet.resolverPassphrase`: usa
+  // PYRUS_WALLET_PASSPHRASE si está, y si no, genera una y la persiste 0600 en
+  // `wallet.pass` para que `abrir()` la encuentre en el próximo arranque. El
+  // límite honesto de tener esa clave en disco lo explica el encabezado de
+  // wallet.mjs — es el mismo que ya tenía el `.env` al lado del keystore.
   const walletMod = await import('./qvac/wallet.mjs')
-  gw.setWalletCreator(
-    env[walletMod.VAR_PASSPHRASE]
-      ? async ({ frase = null } = {}) => {
-          const r = await walletMod.crear(dirWallet, env[walletMod.VAR_PASSPHRASE], {
-            red: walletMod.redDe(env),
-            frase
-          })
-          // Re-abrir y re-cablear: el gateway sirve la nueva dirección sin
-          // reiniciar. El re-anuncio del manifiesto a los pares lo dispara el
-          // propio endpoint del gateway (updateAnnouncement).
-          const nuevo = await economicDelNodo(dirWallet)
-          gw.setEconomic(nuevo.economic)
-          gw.setWalletSigner(nuevo.firmar)
-          gw.setWalletRed(nuevo.red)
-          return { address: r.address, frase: r.frase, restaurada: r.restaurada }
-        }
-      : null
-  )
+  gw.setWalletCreator(async ({ frase = null } = {}) => {
+    const { passphrase } = walletMod.resolverPassphrase(dirWallet, { env, generar: true })
+    const r = await walletMod.crear(dirWallet, passphrase, {
+      red: walletMod.redDe(env),
+      frase
+    })
+    // Re-abrir y re-cablear: el gateway sirve la nueva dirección sin reiniciar.
+    // El re-anuncio del manifiesto a los pares lo dispara el propio endpoint
+    // del gateway (updateAnnouncement).
+    const nuevo = await economicDelNodo(dirWallet)
+    gw.setEconomic(nuevo.economic)
+    gw.setWalletSigner(nuevo.firmar)
+    gw.setWalletRed(nuevo.red)
+    return { address: r.address, frase: r.frase, restaurada: r.restaurada }
+  })
 
   // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
   // registro tiene que decirlo desde el arranque. Si la fila local recien
@@ -849,7 +848,12 @@ async function economicDelNodo(dir) {
     // un `rpc` que nadie completaba, asi que la constante de mainnet ganaba
     // siempre y no habia forma de operar contra 9746.
     const red = wallet.redDe(env)
-    const abierta = await wallet.abrir(dir, env[wallet.VAR_PASSPHRASE], { red })
+    // FASE 11 — la passphrase sale del entorno o, si el onboarding del panel la
+    // generó, de `wallet.pass`. `generar:false`: acá solo se ABRE lo que ya
+    // existe; si hay keystore y no hay passphrase en ningún lado, `abrir` corta
+    // con un motivo, que es lo correcto.
+    const { passphrase } = wallet.resolverPassphrase(dir, { env })
+    const abierta = await wallet.abrir(dir, passphrase, { red })
     console.log(`  [wallet] direccion de cobro: ${abierta.address}`)
     console.log(`  [wallet] redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
     console.log(`  [wallet] red: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
@@ -886,13 +890,17 @@ async function runWallet() {
   const wallet = await import('./qvac/wallet.mjs')
   const dir = await walletStorageDir()
   const red = wallet.redDe(env)
-  const passphrase = env[wallet.VAR_PASSPHRASE]
+  // FASE 11 — del entorno, o de `wallet.pass` si el onboarding del panel la
+  // generó. Así `pyrusllm wallet` ve una wallet creada desde el navegador.
+  const { passphrase } = wallet.resolverPassphrase(dir, { env })
   const restaurar = walletCmd.flags.restaurar
 
   if (walletCmd.flags.crear || restaurar) {
     if (!passphrase) {
       console.error(`  falta ${wallet.VAR_PASSPHRASE}: es con lo que se cifra la seed.`)
-      console.error(`  Ponela en el .env de este directorio y volve a correr esto.`)
+      console.error(
+        `  Ponela en el .env de este directorio, o crea la wallet desde el panel /wallet.`
+      )
       process.exitCode = 1
       return
     }

@@ -39,6 +39,7 @@ storage/
 secrets/
 keys/
 wallet.json
+wallet.pass
 seed.txt
 mnemonic.txt
 

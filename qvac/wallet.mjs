@@ -276,6 +276,58 @@ export function fraseValida(frase) {
 }
 
 // -----------------------------------------------------------------------------
+// FASE 11 — DE DONDE SALE LA PASSPHRASE, Y POR QUE PUEDE SALIR DE UN ARCHIVO
+// -----------------------------------------------------------------------------
+//
+// El onboarding desde el panel (crear la wallet sin `pyrusllm wallet --crear`)
+// necesita una passphrase, y necesita que el MISMO valor esté disponible en
+// cada arranque para que `abrir()` funcione sin que nadie vuelva a tipear nada.
+// El env var solo no alcanza: obligaba a editar el entorno y reiniciar antes de
+// poder tocar el botón.
+//
+// Orden de resolución:
+//   1. PYRUS_WALLET_PASSPHRASE en el entorno — el operador que la quiere
+//      manejar a mano gana siempre, y nada de esto le cambia el flujo.
+//   2. `<dir>/wallet.pass` — lo que dejó un arranque anterior o el onboarding.
+//   3. con `generar:true` y ninguna de las dos: se genera una aleatoria, se
+//      guarda 0600 en ese archivo, y se devuelve. Con `generar:false`: null.
+//
+// LIMITE HONESTO — es el mismo del encabezado, no uno nuevo. Con la passphrase
+// en `wallet.pass` AL LADO de `wallet.json`, el cifrado en reposo protege un
+// keystore COPIADO —un backup, el repo, un `pear stage`— pero no a alguien que
+// puede leer el directorio entero. El respaldo real siguen siendo las 24
+// palabras: perder la passphrase no pierde la wallet, restaurar desde la frase
+// sí la recupera. `wallet.pass` va en .gitignore y en el ignore de `pear stage`
+// junto a `wallet.json`.
+export const ARCHIVO_PASS = 'wallet.pass'
+
+export function resolverPassphrase(dir, { env = {}, generar = false } = {}) {
+  const desdeEnv = String((env && env[VAR_PASSPHRASE]) || '').trim()
+  if (desdeEnv) return { passphrase: desdeEnv, fuente: 'env' }
+
+  const ruta = path.join(dir, ARCHIVO_PASS)
+  try {
+    const guardada = fs.readFileSync(ruta, 'utf8').trim()
+    if (guardada) return { passphrase: guardada, fuente: 'archivo' }
+  } catch {
+    // no existe todavía: se sigue
+  }
+
+  if (!generar) return { passphrase: null, fuente: null }
+
+  const bytes = Buffer.alloc(32)
+  sodium.randombytes_buf(bytes)
+  const nueva = bytes.toString('base64')
+  fs.mkdirSync(dir, { recursive: true })
+  // Atómico y 0600, igual que el keystore: un archivo cortado acá dejaría una
+  // wallet que no se puede volver a abrir.
+  const tmp = ruta + '.tmp'
+  fs.writeFileSync(tmp, nueva, { mode: 0o600 })
+  fs.renameSync(tmp, ruta)
+  return { passphrase: nueva, fuente: 'generada' }
+}
+
+// -----------------------------------------------------------------------------
 // El keystore
 // -----------------------------------------------------------------------------
 
