@@ -400,9 +400,10 @@ export async function verificarPago(cabecera, { payTo, activo, micros, red }) {
 }
 
 // Micro-dolares -> unidades minimas del activo. Vive aparte porque lo usan el
-// que arma el 402 y el que lo verifica, y tienen que dar EXACTAMENTE lo mismo:
+// que arma el 402, el que lo verifica y el que lo PAGA (`x402-cliente.mjs`, al
+// convertir su techo de gasto), y los tres tienen que dar EXACTAMENTE lo mismo:
 // declarar un monto y verificar contra otro es rechazar pagos correctos.
-function montoEnUnidades(micros, activo) {
+export function montoEnUnidades(micros, activo) {
   const enteros = BigInt(Math.max(0, Math.ceil(Number(micros) || 0)))
   const escala = BigInt(10) ** BigInt(Math.max(0, activo.decimals - 6))
   return (enteros * escala).toString()

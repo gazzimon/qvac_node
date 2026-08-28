@@ -2417,6 +2417,209 @@ test('FASE 9: Plasma no se cobra sin que alguien verifique su contrato', async (
 })
 
 // ---------------------------------------------------------------------------
+// EL ROL CLIENTE — este nodo pagandole a otro (qvac/x402-cliente.mjs)
+//
+// El espejo de las Fase 9/10 del lado servidor. La prueba fuerte es de
+// SIMETRIA: lo que `crearPago` firma, `verificarPago` del otro modulo lo tiene
+// que aceptar. Todo offline -- Stable la conoce @x402/evm de fabrica y la
+// recuperacion de firma es cripto pura, sin cadena -- por la misma razon que el
+// resto de x402 se prueba sin fondear: la mitad que importa es sincronica.
+//
+// La wallet es la frase publica de prueba que usa toda la suite y NUNCA se
+// fondea. La firma es real; la plata no existe.
+// ---------------------------------------------------------------------------
+
+async function firmanteDePrueba() {
+  const wdk = await import('@tetherto/wdk-wallet-evm')
+  const WM = wdk.default || wdk
+  const cuenta = await new WM('test test test test test test test test test test test junk', {
+    provider: 'http://127.0.0.1:1/no-existe'
+  }).getAccount()
+  return { address: await cuenta.getAddress(), signTypedData: (td) => cuenta.signTypedData(td) }
+}
+
+test('x402-cliente: lo que el cliente firma, el servidor lo acepta (simetria)', async (t) => {
+  const x402 = await import('../qvac/x402.mjs')
+  const cli = await import('../qvac/x402-cliente.mjs')
+
+  const activo = await x402.activoDe('stable')
+  const payTo = '0x' + '11'.repeat(20)
+  const micros = 100
+
+  // El 402 que armaria el gateway para este cobro.
+  const entrada = x402.entradaAccepts({
+    payTo,
+    activo,
+    micros,
+    maxTokens: 256,
+    recurso: '/v1/chat/completions',
+    descripcion: 'test de simetria'
+  })
+
+  const firmante = await firmanteDePrueba()
+  const pago = await cli.crearPago({
+    entrada,
+    firmante,
+    x402Version: 2,
+    techoUnidades: cli.techoEnUnidades(1000)
+  })
+
+  t.is(pago.sobre.scheme, 'exact')
+  t.is(pago.sobre.network, 'eip155:988')
+  t.is(pago.autorizacion.to.toLowerCase(), payTo, 'la autorizacion paga a quien pidio el 402')
+  t.is(pago.autorizacion.from.toLowerCase(), firmante.address.toLowerCase())
+
+  // LA prueba: el header que produjo el cliente entra crudo en verificarPago.
+  const verif = await x402.verificarPago(pago.cabecera, { payTo, activo, micros, red: 'stable' })
+  t.ok(verif.ok, 'verificarPago lo acepta: ' + (verif.motivo || ''))
+  t.is(verif.payer.toLowerCase(), firmante.address.toLowerCase(), 'y el pagador es quien firmo')
+  t.is(verif.nonce, pago.autorizacion.nonce, 'el nonce de idempotencia viaja intacto')
+})
+
+test('x402-cliente: no firma por encima del techo', async (t) => {
+  const x402 = await import('../qvac/x402.mjs')
+  const cli = await import('../qvac/x402-cliente.mjs')
+
+  const activo = await x402.activoDe('stable')
+  const entrada = x402.entradaAccepts({
+    payTo: '0x' + '11'.repeat(20),
+    activo,
+    micros: 100, // -> amount '100'
+    maxTokens: 256,
+    recurso: '/x',
+    descripcion: 't'
+  })
+  const firmante = await firmanteDePrueba()
+
+  await t.exception(
+    cli.crearPago({ entrada, firmante, x402Version: 2, techoUnidades: 50n }),
+    /techo/,
+    'la entrada pide 100 y el techo es 50: se corta antes de firmar'
+  )
+
+  // Y con el techo justo, sí.
+  const ok = await cli.crearPago({ entrada, firmante, x402Version: 2, techoUnidades: 100n })
+  t.ok(ok.cabecera, 'techo == monto: pasa')
+})
+
+test('x402-cliente: elegirEntrada respeta la preferencia de D15 y el techo', async (t) => {
+  const cli = await import('../qvac/x402-cliente.mjs')
+
+  const desafio = {
+    x402Version: 2,
+    accepts: [
+      {
+        scheme: 'exact',
+        network: 'eip155:988',
+        amount: '100',
+        extra: { name: 'USDT0', version: '1' }
+      },
+      {
+        scheme: 'exact',
+        network: 'eip155:9745',
+        amount: '80',
+        extra: { name: 'USDT0', version: '1' }
+      }
+    ]
+  }
+
+  const a = cli.elegirEntrada(desafio, { techoUnidades: 1000n })
+  t.is(a.entrada.network, 'eip155:9745', 'Plasma antes que Stable, como dice D15')
+
+  const b = cli.elegirEntrada(desafio, { techoUnidades: 40n })
+  t.absent(b.entrada, 'todas sobre el techo -> ninguna')
+  t.ok(/techo/.test(b.motivo), b.motivo)
+
+  const c = cli.elegirEntrada(
+    {
+      x402Version: 2,
+      accepts: [
+        { scheme: 'exact', network: 'eip155:1', amount: '1', extra: { name: 'x', version: '1' } }
+      ]
+    },
+    { techoUnidades: 1000n }
+  )
+  t.absent(c.entrada, 'una red fuera de la preferencia no se paga')
+  t.ok(/reconocemos/.test(c.motivo), c.motivo)
+})
+
+test('x402-cliente: pedirConPago hace el baile 402 y reintenta UNA vez', async (t) => {
+  const x402 = await import('../qvac/x402.mjs')
+  const cli = await import('../qvac/x402-cliente.mjs')
+
+  const activo = await x402.activoDe('stable')
+  const payTo = '0x' + '11'.repeat(20)
+  const desafio = {
+    x402Version: 2,
+    accepts: [
+      x402.entradaAccepts({
+        payTo,
+        activo,
+        micros: 100,
+        maxTokens: 256,
+        recurso: '/v1/chat/completions',
+        descripcion: 't'
+      })
+    ]
+  }
+
+  const llamadas = []
+  const fetchFalso = async (url, opts) => {
+    llamadas.push({ url, opts })
+    if (llamadas.length === 1) {
+      return { status: 402, json: async () => desafio, headers: { get: () => null } }
+    }
+    return { status: 200, json: async () => ({ ok: true }), headers: { get: () => null } }
+  }
+
+  const firmante = await firmanteDePrueba()
+  const out = await cli.pedirConPago(
+    'http://par/v1/chat/completions',
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' },
+    { firmante, techoMicros: 1000, fetchImpl: fetchFalso }
+  )
+
+  t.ok(out.pagado, 'pago: ' + (out.motivo || ''))
+  t.is(out.res.status, 200)
+  t.is(llamadas.length, 2, 'un request, un 402, un reintento -- y basta, sin loop')
+  t.absent(llamadas[0].opts.headers['x-payment'], 'el primer intento va sin pago')
+  t.ok(llamadas[1].opts.headers['x-payment'], 'el reintento lleva el X-PAYMENT firmado')
+
+  // Y lo que mando el reintento tiene que verificar del lado servidor.
+  const verif = await x402.verificarPago(llamadas[1].opts.headers['x-payment'], {
+    payTo,
+    activo,
+    micros: 100,
+    red: 'stable'
+  })
+  t.ok(verif.ok, 'el header del reintento lo acepta verificarPago: ' + (verif.motivo || ''))
+})
+
+test('x402-cliente: sin 402 no paga, y sin techo no arranca', async (t) => {
+  const cli = await import('../qvac/x402-cliente.mjs')
+  const firmante = await firmanteDePrueba()
+  const fetch200 = async () => ({
+    status: 200,
+    json: async () => ({}),
+    headers: { get: () => null }
+  })
+
+  const out = await cli.pedirConPago(
+    'http://x',
+    {},
+    { firmante, techoMicros: 100, fetchImpl: fetch200 }
+  )
+  t.absent(out.pagado, 'un 200 no dispara pago')
+  t.is(out.res.status, 200)
+
+  await t.exception(
+    cli.pedirConPago('http://x', {}, { firmante, fetchImpl: fetch200 }),
+    /techo/,
+    'un pagador sin techo no arranca -- regla de la Fase 11'
+  )
+})
+
+// ---------------------------------------------------------------------------
 // FASE 9 / D24 — la atestacion del proveedor
 //
 // El recibo de x402 prueba que alguien PAGO. Esto es el otro lado: el artefacto
