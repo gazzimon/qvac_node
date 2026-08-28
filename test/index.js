@@ -4143,7 +4143,10 @@ test('FASE 12: un historial que no se pudo leer dice "—" y el motivo, no una l
       parcial: 'read from the RPC, not the explorer: only token transfers'
     })
   )
-  t.ok(parcial.indexOf('read from the RPC') !== -1, 'lo que la fuente de respaldo no ve, queda dicho')
+  t.ok(
+    parcial.indexOf('read from the RPC') !== -1,
+    'lo que la fuente de respaldo no ve, queda dicho'
+  )
 })
 
 test('FASE 12: un monto sin decimales conocidos no se divide por un número inventado', async (t) => {
@@ -4409,8 +4412,7 @@ test('FASE 12: el botón Send se habilita y el panel lo cablea contra el endpoin
     'del panel de envío no sale ninguna clave privada'
   )
   t.ok(
-    pages.WALLET_HTML.indexOf("prompt('MAINNET moves real money and this cannot be undone") !==
-      -1,
+    pages.WALLET_HTML.indexOf("prompt('MAINNET moves real money and this cannot be undone") !== -1,
     'y mainnet pide escribirlo, como el selector de red'
   )
 })
@@ -4450,4 +4452,25 @@ test('el selector de red ofrece testnet y mainnet, marca mainnet como plata real
   )
   t.is(fija.indexOf('<select'), -1, 'sin selector cuando lo fija el entorno')
   t.ok(fija.indexOf('PYRUS_WALLET_RED') !== -1, 'y dice por que')
+})
+
+// La version en el panel sale de package.json y no de un literal copiado. El
+// test existe porque el modo de fallo es silencioso: un bump de package.json
+// que no llegue a la nav deja las cinco pantallas anunciando una version vieja,
+// y eso es exactamente el dato que se mira cuando dos maquinas no se comportan
+// igual.
+test('la version del panel sale de package.json, no de una copia', async (t) => {
+  const pages = await import('../qvac/pages.mjs')
+  const pkg = await import('../package.json', { with: { type: 'json' } })
+  const version = (pkg.default || pkg).version
+
+  for (const [nombre, html] of [
+    ['CHAT_HTML', pages.CHAT_HTML],
+    ['NODE_HTML', pages.NODE_HTML],
+    ['NETWORK_HTML', pages.NETWORK_HTML],
+    ['WALLET_HTML', pages.WALLET_HTML],
+    ['ADMIN_HTML', pages.ADMIN_HTML]
+  ]) {
+    t.ok(html.indexOf('v' + version) !== -1, nombre + ' anuncia v' + version)
+  }
 })

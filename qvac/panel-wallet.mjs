@@ -382,9 +382,7 @@ export function htmlDeAcciones(v) {
     (v.configurada ? '' : ' disabled') +
     '><span>↑</span>Send</button>' +
     '<button class="w-acc-b" disabled title="' +
-    escaparHtml(
-      'swapping one asset for another is a separate phase: this node talks to no DEX'
-    ) +
+    escaparHtml('swapping one asset for another is a separate phase: this node talks to no DEX') +
     '"><span>⇄</span>Swap</button>' +
     '</div>'
   )

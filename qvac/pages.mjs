@@ -15,10 +15,14 @@
 
 import { FUENTE_EMBEBIDA } from './panel-x402.mjs'
 import { FUENTE_EMBEBIDA_WALLET } from './panel-wallet.mjs'
+// The version comes from package.json and is NOT copied here: a second literal
+// is a second thing to forget on the next bump. `bin.mjs` already imports this
+// same file, so the pattern is proven to survive bare-pack.
+import pkg from '../package.json' with { type: 'json' }
 
 const NAV = `
 <nav class="nav">
-  <span class="brand">PyrusLLM</span>
+  <span class="brand">PyrusLLM<span class="ver">v${pkg.version}</span></span>
   <a href="/">Chat</a>
   <a href="/node">My Node</a>
   <a href="/wallet">Wallet</a>
@@ -39,6 +43,13 @@ const STYLE = `
     padding: .9rem 1.5rem; background: #171a21; border-bottom: 1px solid #262b36;
   }
   .nav .brand { font-weight: 700; margin-right: auto; color: #9fd6ff; }
+  /* La version, al lado de la marca. Atenuada a proposito: es un dato de
+     diagnostico -- lo primero que se pregunta cuando algo no anda igual en dos
+     maquinas -- y no un titulo. */
+  .nav .brand .ver {
+    font-weight: 500; font-size: .68rem; color: #6b7386; margin-left: .4rem;
+    font-family: ui-monospace, monospace; vertical-align: 1px;
+  }
   .nav a { color: #cfd6e4; text-decoration: none; font-size: .92rem; }
   .nav a:hover { color: #fff; }
   main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }

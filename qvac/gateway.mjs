@@ -2958,14 +2958,9 @@ async function onRequest(req, res) {
       let simbolo = null
       if (asset !== 'native') {
         if (!/^0x[0-9a-fA-F]{40}$/.test(asset)) {
-          return sendError(
-            res,
-            400,
-            'the asset has to be "native" or a token address',
-            {
-              code: 'asset'
-            }
-          )
+          return sendError(res, 400, 'the asset has to be "native" or a token address', {
+            code: 'asset'
+          })
         }
         const conocidos = tokensDeLaRedActiva().slice()
         if (walletRed.caip2 === 'eip155:9745' && x402.PLASMA_USDT0_SIN_VERIFICAR) {
@@ -3678,14 +3673,9 @@ async function onRequest(req, res) {
     // -----------------------------------------------------------------------
     if (pathname === '/v1/files' || pathname.startsWith('/v1/files/')) {
       if (!filesApi) {
-        return sendError(
-          res,
-          503,
-          'files require "serve --swarm" (the Corestore is needed)',
-          {
-            type: 'service_unavailable'
-          }
-        )
+        return sendError(res, 503, 'files require "serve --swarm" (the Corestore is needed)', {
+          type: 'service_unavailable'
+        })
       }
     }
 
@@ -3795,7 +3785,11 @@ async function onRequest(req, res) {
         const r = await filesApi.pull(keyHex, ruta, destino, { timeoutMs: 60000 })
         return sendJson(res, 200, { destino, bytes: r && r.bytes ? r.bytes : null })
       } catch (err) {
-        return sendError(res, 502, 'could not download: ' + (err && err.message ? err.message : err))
+        return sendError(
+          res,
+          502,
+          'could not download: ' + (err && err.message ? err.message : err)
+        )
       }
     }
 
