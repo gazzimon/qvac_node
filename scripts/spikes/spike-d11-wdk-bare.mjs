@@ -12,8 +12,8 @@
 // andando.
 //
 //   npm install @tetherto/wdk-wallet-evm @x402/core @x402/evm
-//   node scripts/spike-d11-wdk-bare.mjs     # control
-//   bare scripts/spike-d11-wdk-bare.mjs     # la pregunta real
+//   node scripts/spikes/spike-d11-wdk-bare.mjs     # control
+//   bare scripts/spikes/spike-d11-wdk-bare.mjs     # la pregunta real
 //
 // NO instala nada ni toca el arbol del proyecto: se corre en un directorio
 // aparte con esas tres dependencias. Estan fuera del package.json a proposito

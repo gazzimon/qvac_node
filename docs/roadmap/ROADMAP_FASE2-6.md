@@ -1,5 +1,11 @@
 # QVAC-Node — Roadmap Fase 2→6
 
+> **ESTADO: CERRADO.** Fases 0–6. Se conserva por los enlaces entrantes y como
+> registro de las decisiones D1–D7. **No es contexto de trabajo vigente.**
+> Estado actual del proyecto: [`README.md`](../../README.md).
+> Plan activo: [`ROADMAP_FASE7-X402.md`](../../ROADMAP_FASE7-X402.md) →
+> [`ROADMAP_REVISION-EVIDENCIA.md`](../../ROADMAP_REVISION-EVIDENCIA.md).
+
 Asume Fase 0 y Fase 1 cerradas (túnel de distribución validado en segunda máquina, inferencia local respondiendo un prompt dentro del worker de Bare). Este documento no repite esas fases: arranca donde el runbook original se queda corto — las decisiones de arquitectura que Fase 2 y Fase 3 necesitan y todavía no están tomadas por escrito.
 
 Regla del documento: cada decisión tiene contexto, opciones consideradas, y **la que recomiendo** — no quedan preguntas abiertas para resolver bajo presión de reloj. Si el equipo prefiere la otra opción, lo importante es que quede escrita _una_ antes de tocar código, no cuál.

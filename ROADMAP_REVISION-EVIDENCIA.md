@@ -1,6 +1,6 @@
 # PyrusLLM — Revisión del roadmap por evidencia externa
 
-Tercero de la cadena. El [ROADMAP_FASE2-6.md](ROADMAP_FASE2-6.md) fijó el
+Tercero de la cadena. El [ROADMAP_FASE2-6.md](docs/roadmap/ROADMAP_FASE2-6.md) fijó el
 transporte y el manifiesto; el [ROADMAP_FASE7-X402.md](ROADMAP_FASE7-X402.md)
 fijó el cobro y la capa agéntica. **Este no los reemplaza: modifica piezas
 concretas de ese segundo documento a partir de una revisión de literatura.**
@@ -32,7 +32,7 @@ verificación que cuenta es abrir el paper.
 ## 0 · De qué se parte
 
 Cuatro papers leídos completos y una ronda de búsqueda asistida. El detalle
-está en [SINTESIS-PAPERS-PyrusLLM.html](SINTESIS-PAPERS-PyrusLLM.html). Acá va
+está en [SINTESIS-PAPERS-PyrusLLM.html](docs/papers/SINTESIS-PAPERS-PyrusLLM.html). Acá va
 solo lo que mueve una fase.
 
 ### Lo verificado contra arXiv
@@ -300,7 +300,7 @@ maquinaria de estabilización.
 | Activo de incentivo — staking, bonos de reputación, slashing, gobernanza, subsidio de arranque | token nativo   |
 
 **Lo que hay que cambiar es el texto, no el código.** El código ya está del lado
-correcto. Corregir en `PyrusLLM-application.md` la línea de `$QVAC` para que
+correcto. Corregir en `docs/aplicacion/PyrusLLM-application.md` la línea de `$QVAC` para que
 describa el riel real, y dejar el token nombrado donde efectivamente va a vivir.
 
 **Honestidad sobre la evidencia:** ninguna de las dos rondas de búsqueda encontró
@@ -491,7 +491,7 @@ proyecto ya aplica a los mocks y a la tasa de acierto.
 | D25 | ~~Registrar prefill y decode por separado~~ **IMPLEMENTADA 2026-08-27**. D22 sin tocar, y la Fase 8 no se reabrió | modelo de datos | ~~Fase 9~~, Fase 10 |
 | D26 | Sondas para identidad; cuantización por stake y arbitraje. **Alcance ya escrito** en README y aplicación (2026-08-27); las sondas siguen sin construirse | **negocio + seguridad** | Fase 10.5 |
 | D27 | ~~Tres casos de corte, decididos por quién cortó~~ **IMPLEMENTADA 2026-08-27**, los tres con test verificado contra el bug puesto | arquitectura | Fase 10 |
-| D28 | ~~Riel de pago en stable; token nativo solo para incentivos~~ **TEXTO CORREGIDO 2026-08-27** en `PyrusLLM-application.md`. El código no se tocó, como decía | **negocio** | La aplicación |
+| D28 | ~~Riel de pago en stable; token nativo solo para incentivos~~ **TEXTO CORREGIDO 2026-08-27** en `docs/aplicacion/PyrusLLM-application.md`. El código no se tocó, como decía | **negocio** | La aplicación |
 | D29 | Verificación optimista con el enclave como árbitro; sin comité  | **arquitectura + negocio** | Fase 10, V2      |
 
 ---

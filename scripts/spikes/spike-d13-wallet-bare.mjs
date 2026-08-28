@@ -37,7 +37,7 @@
 // BETA, así que esto se vuelve a correr antes de asumir que sigue andando.
 //
 //   npm install @tetherto/wdk-wallet-evm @scure/bip39
-//   bare scripts/spike-d13-wallet-bare.mjs
+//   bare scripts/spikes/spike-d13-wallet-bare.mjs
 //
 // Cada paso corta a los que dependen de él: interesa saber CUÁL falla, no leer
 // una cascada de errores que salen todos del primero.
