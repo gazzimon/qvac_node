@@ -26,7 +26,7 @@
 // reordenar en un refactor de imports —y la falla aparecería tres saltos más
 // allá—, vive acá, con el porqué al lado y con dos cosas que lo vigilan:
 //
-//   - el paso 5 de `scripts/spike-d11-wdk-bare.mjs`, que mide si `@x402/evm`
+//   - el paso 5 de `scripts/spikes/spike-d11-wdk-bare.mjs`, que mide si `@x402/evm`
 //     importa AISLADO lanzando un proceso bare limpio (hoy falla, y está bien
 //     que falle: falla el spike, no la fase);
 //   - un test de la suite que carga ESTE módulo en un proceso limpio.
@@ -70,7 +70,7 @@ export const CAIP2 = {
 //
 // El de Plasma sí hay que declararlo, porque x402 no lo tiene. Y acá está el
 // límite honesto: la dirección de abajo es la que usó el spike de D11
-// (`scripts/spike-d11-wdk-bare.mjs`, dominio EIP-712 de la firma), y **no está
+// (`scripts/spikes/spike-d11-wdk-bare.mjs`, dominio EIP-712 de la firma), y **no está
 // verificada contra la cadena**. Por eso `activoDe()` no la devuelve sin más:
 // exige que el operador confirme, porque el modo de falla es mandar USD₮ a un
 // contrato equivocado y eso no tiene vuelta atrás.

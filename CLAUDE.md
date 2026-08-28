@@ -16,7 +16,9 @@ x402 sobre stablecoin.
 | Schema del manifiesto (**congelado — no editar**) | `manifest-v0.json` — lo valida `test/index.js` con path relativo a la raíz |
 
 Código: `bin.mjs` (entrypoint) → `app.js` → `qvac/`. Tests en `test/`, scripts de
-`npm` en `scripts/`.
+`npm` en `scripts/`. `scripts/spikes/` son pruebas de exploración puntuales,
+fuera del flujo `npm`. `scripts/redes-prueba.js` y `scripts/activo-prueba.*` se
+quedan en `scripts/` porque los tests los leen con path fijo.
 
 ## NO usar como fuente — contexto superado
 
