@@ -196,8 +196,8 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
   // -------------------------------------------------------------------------
   const errorDeVerify = (motivo, mensaje) => ({
     isValid: false,
-    invalidReason: motivo,
-    invalidMessage: mensaje
+    errorReason: motivo,
+    errorMessage: mensaje
   })
 
   const errorDeSettle = (motivo, mensaje, network) => ({

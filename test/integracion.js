@@ -47,7 +47,7 @@ let BASE = 'http://127.0.0.1:' + PORT
 function puertoLibre(p) {
   return new Promise((resolve) => {
     const s = http.createServer(() => {})
-    s.on('error', () => resolve(true))
+    s.on('error', () => resolve(false))
     // Un listener que nunca acepto una conexion no deja TIME_WAIT al cerrarse,
     // asi que si esta sonda bindea, el servidor de verdad tambien.
     s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)))
