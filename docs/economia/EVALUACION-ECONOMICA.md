@@ -18,7 +18,7 @@ contrario:
 | Costo eléctrico | ARS 135/kWh → USD 3,65/mes |
 
 Todos los cálculos son reproducibles: están en
-[`scripts/eval-economica.py`](scripts/eval-economica.py).
+[`scripts/eval-economica.py`](../../scripts/eval-economica.py).
 
 ---
 
@@ -130,7 +130,7 @@ una proyección de ventas.
   dato de velocidad de venta real que lo sostenga todavía.
 - **El Modelo A no incluye ingresos por vender inferencia a la red.** El
   campo `economic` del manifiesto está marcado como mock (`_mock: true`) en
-  el propio protocolo — ver [README](README.md#estado). No hay capa de
+  el propio protocolo — ver [README](../../README.md#estado). No hay capa de
   liquidación implementada, así que cualquier ingreso adicional por ese lado
   es upside no cuantificado, no parte de este cálculo.
 - **Los dos modelos comparten el mismo precio de venta (USD 1.650)** a

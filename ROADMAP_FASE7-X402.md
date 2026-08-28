@@ -3,7 +3,7 @@
 Asume las Fases 0–4 cerradas y el estado que declara el [README](README.md):
 distribución P2P, inferencia local, gateway compatible con OpenAI, manifiesto
 firmado, swarm, persistencia y archivos. Este documento arranca donde el
-[ROADMAP_FASE2-6.md](ROADMAP_FASE2-6.md) se detiene: la Fase 6 (ledger y
+[ROADMAP_FASE2-6.md](docs/roadmap/ROADMAP_FASE2-6.md) se detiene: la Fase 6 (ledger y
 liquidación) quedó fuera de alcance por track, y con ella quedaron sin dueño
 tres deudas que el propio README enumera — `economic` es mock, el precio no es
 comparable, y el precio no participa del ruteo.
@@ -852,7 +852,7 @@ que es una constante de relleno. Hay que reemplazarla por un número defendible
 antes de la Fase 8, que hace que el precio participe del ruteo.
 
 **El dato que decide, y es del propio repo.**
-[EVALUACION-DGX-SPARK.md:109](EVALUACION-DGX-SPARK.md#L109):
+[EVALUACION-DGX-SPARK.md:109](docs/economia/EVALUACION-DGX-SPARK.md#L109):
 
 | Escenario                 | USD/MTok |       Payback |     VAN 12% |
 | ------------------------- | -------: | ------------: | ----------: |
@@ -1160,7 +1160,7 @@ forma, dos líneas más abajo. No hay que inventar un punto de control: ya exist
 > qué generarlo **ni dónde guardarlo**: `@tetherto/wdk-wallet` exporta errores e
 > interfaces, no custodia. O sea que la mitad de D13 que decía _"o delegada al
 > secret manager de WDK"_ no existe, y quedó la otra. Medido en
-> `scripts/spike-d13-wallet-bare.mjs`, que se repite cuando WDK suba de versión
+> `scripts/spikes/spike-d13-wallet-bare.mjs`, que se repite cuando WDK suba de versión
 > (está en beta).
 >
 > **El límite honesto de la custodia, que hay que leer antes de fondear nada:**

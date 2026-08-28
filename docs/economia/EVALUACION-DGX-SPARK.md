@@ -6,7 +6,7 @@ Modelo B de [EVALUACION-ECONOMICA.md](EVALUACION-ECONOMICA.md). Acá el equipo
 se compra para operarlo.
 
 Todos los números salen de
-[`scripts/eval-dgx-spark.py`](scripts/eval-dgx-spark.py). Cambiar un supuesto
+[`scripts/eval-dgx-spark.py`](../../scripts/eval-dgx-spark.py). Cambiar un supuesto
 ahí y correr el script recalcula el documento entero.
 
 ## Supuestos
@@ -166,6 +166,6 @@ a 888 días.
   resultado y el único que no se puede estimar desde una especificación técnica:
   hay que observar un nodo real en producción.
 - **No hay capa de liquidación implementada.** El campo `economic` del manifiesto
-  sigue marcado como mock (`_mock: true`) — ver [README](README.md#estado).
+  sigue marcado como mock (`_mock: true`) — ver [README](../../README.md#estado).
   Cualquier ingreso por vender inferencia a la red es, hoy, una proyección sin
   código detrás.

@@ -27,7 +27,7 @@
 // una salvedad: su `generateMnemonic` usa `crypto.getRandomValues`, que Bare no
 // tiene. No hace falta — `entropyToMnemonic` acepta NUESTRA entropía, y azar
 // criptográfico ya hay en el árbol. Todo esto está medido en
-// `scripts/spike-d13-wallet-bare.mjs`, que se repite cuando WDK suba de versión
+// `scripts/spikes/spike-d13-wallet-bare.mjs`, que se repite cuando WDK suba de versión
 // (está en beta).
 //
 // -----------------------------------------------------------------------------
