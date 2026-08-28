@@ -32,6 +32,7 @@
         "/.env",
         "/wallet.json",
         "/wallet.pass",
+        "/wallet.red",
         "/upstreams.json",
         "/cli.js",
         "/node_modules",

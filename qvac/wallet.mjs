@@ -145,13 +145,34 @@ export const RED_DEFAULT = 'plasma'
 export const VAR_RED = 'PYRUS_WALLET_RED'
 export const VAR_RPC = 'PYRUS_WALLET_RPC'
 
-// Qué red usa este nodo, resuelta desde el entorno. Función pura: recibe el
-// `env` en vez de leerlo, para que se pueda probar sin ensuciar el proceso.
+// FASE 11 — el selector de red del panel escribe acá. Mismo criterio que
+// `wallet.pass`: el entorno gana siempre, esto es el fallback persistente.
+export const ARCHIVO_RED = 'wallet.red'
+
+// Qué red usa este nodo. Función pura respecto del `env`; con `dir` además mira
+// el archivo que dejó el panel. Orden: PYRUS_WALLET_RED > `<dir>/wallet.red` >
+// el default de D15 (plasma mainnet).
 //
 // `VAR_RPC` pisa SOLO la URL, nunca el chainId. Un RPC apuntado a mano no puede
 // cambiar en silencio la red para la que se firma: si querés otra red, se nombra.
-export function redDe(env = {}) {
-  const nombre = String(env[VAR_RED] || RED_DEFAULT).trim()
+export function redDe(env = {}, { dir = null } = {}) {
+  let nombre = String((env && env[VAR_RED]) || '').trim()
+  let fuente = nombre ? 'env' : null
+  if (!nombre && dir) {
+    try {
+      const guardada = fs.readFileSync(path.join(dir, ARCHIVO_RED), 'utf8').trim()
+      if (guardada) {
+        nombre = guardada
+        fuente = 'archivo'
+      }
+    } catch {
+      // no hay archivo: sigue al default
+    }
+  }
+  if (!nombre) {
+    nombre = RED_DEFAULT
+    fuente = 'default'
+  }
   const red = REDES[nombre]
   if (!red) {
     throw new Error(
@@ -159,8 +180,27 @@ export function redDe(env = {}) {
         `Las que hay: ${Object.keys(REDES).join(', ')}`
     )
   }
-  const rpc = String(env[VAR_RPC] || '').trim() || red.rpc
-  return { nombre, ...red, rpc, rpcPropio: rpc !== red.rpc }
+  const rpc = String((env && env[VAR_RPC]) || '').trim() || red.rpc
+  return { nombre, ...red, rpc, rpcPropio: rpc !== red.rpc, fuente, fijadaPorEnv: fuente === 'env' }
+}
+
+// Persiste la red elegida desde el panel. Valida contra `REDES` ANTES de tocar
+// disco: un nombre que no existe dejaría al nodo sin arrancar en el próximo
+// boot (`redDe` tira). Atómico y 0600, como el resto del keystore.
+export function guardarRed(dir, nombre) {
+  const n = String(nombre || '').trim()
+  if (!REDES[n]) {
+    throw new Error(
+      `wallet: ${JSON.stringify(n)} no es una red conocida. ` +
+        `Las que hay: ${Object.keys(REDES).join(', ')}`
+    )
+  }
+  fs.mkdirSync(dir, { recursive: true })
+  const ruta = path.join(dir, ARCHIVO_RED)
+  const tmp = ruta + '.tmp'
+  fs.writeFileSync(tmp, n, { mode: 0o600 })
+  fs.renameSync(tmp, ruta)
+  return { nombre: n, chainId: REDES[n].chainId, mainnet: !!REDES[n].mainnet }
 }
 
 // -----------------------------------------------------------------------------

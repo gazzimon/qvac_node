@@ -633,6 +633,22 @@ const STYLE = `
   .w-seed-w b { color: #6b7386; font-size: .68rem; min-width: 1.3ch; text-align: right; }
   .w-seed-ok { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: #cfd6e4; }
   .w-seed-ok input { width: auto; }
+
+  /* Selector de red (Fase 11). No hace hot-swap: guarda y pide reiniciar. */
+  .w-red-box {
+    border-top: 1px solid #262b36; margin: .2rem -1.1rem 0; padding: .8rem 1.1rem .4rem;
+    display: flex; flex-direction: column; gap: .4rem;
+  }
+  .w-red-lbl { font-size: .74rem; color: #8b93a7; text-transform: uppercase; letter-spacing: .03em; }
+  .w-red-val { font-size: .84rem; color: #cfd6e4; font-family: ui-monospace, monospace; }
+  .w-red-row { display: flex; gap: .5rem; align-items: center; }
+  .w-red-sel {
+    flex: 1; background: #0f1218; color: #e6e6e6; font-size: .82rem;
+    border: 1px solid #2c3348; border-radius: 8px; padding: .45rem .5rem;
+  }
+  .w-red-row .w-onb-b { white-space: nowrap; }
+  .w-red-nota { font-size: .72rem; color: #6b7386; line-height: 1.45; }
+  .w-red-nota code { font-family: ui-monospace, monospace; color: #a9b4cc; }
 </style>`
 
 // Escapado de HTML, inyectado en el script de los 3 paneles.
@@ -3375,6 +3391,51 @@ ${MODAL_JS}
             return
           }
           crearWallet(palabrasDeFrase(frase).join(' '))
+        })
+      }
+
+      // Selector de red. NO hace hot-swap: guarda y pide reiniciar. Ir a
+      // MAINNET pide escribir MAINNET, que es lo que el endpoint exige.
+      const bRed = document.getElementById('w-red-aplicar')
+      if (bRed) {
+        bRed.addEventListener('click', async () => {
+          const sel = document.getElementById('w-red-sel')
+          const msg = document.getElementById('w-red-msg')
+          const escribir = (t, malo) => {
+            if (msg) msg.innerHTML =
+              '<span class="' + (malo ? 'w-onb-err' : 'w-onb-ok') + '">' + esc(t) + '</span>'
+          }
+          if (!sel) return
+          const red = sel.value
+          const opt = sel.options[sel.selectedIndex]
+          const esMainnet = opt && opt.dataset.mainnet === '1'
+          const actual = (vistaWallet.red && vistaWallet.red.nombre) || ''
+          if (red === actual) { escribir('ya estás en esa red', true); return }
+          const cuerpo = { red }
+          if (esMainnet) {
+            const c = prompt('MAINNET mueve plata real. Escribí MAINNET para confirmar:')
+            if (c !== 'MAINNET') { escribir('cancelado', true); return }
+            cuerpo.confirmar = 'MAINNET'
+          }
+          bRed.disabled = true
+          try {
+            const r = await authFetch('/v1/wallet/network', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cuerpo)
+            })
+            const d = await r.json().catch(() => ({}))
+            if (!r.ok) { escribir((d && d.error && d.error.message) || ('HTTP ' + r.status), true); return }
+            escribir(
+              'guardado: ' + d.red + ' (eip155:' + d.chainId + '). Reiniciá el nodo para que tome efecto.' +
+              (d.avisoX402 ? ' ' + d.avisoX402 : ''),
+              false
+            )
+          } catch (e) {
+            escribir('no se pudo guardar: ' + ((e && e.message) || e), true)
+          } finally {
+            bRed.disabled = false
+          }
         })
       }
     }

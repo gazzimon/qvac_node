@@ -499,6 +499,17 @@ export function setWalletCreator(fn) {
   return !!walletCreator
 }
 
+// FASE 11 — el selector de red del panel. `bin.mjs` arma la función con
+// `dirWallet` y con la validación (nombre conocido + confirmar mainnet) en su
+// closure, así el gateway no importa `wallet.mjs`. Escribe `wallet.red` y NO
+// hace hot-swap: el cambio toma efecto al reiniciar.
+let walletNetworkSetter = null
+
+export function setWalletNetworkSetter(fn) {
+  walletNetworkSetter = typeof fn === 'function' ? fn : null
+  return !!walletNetworkSetter
+}
+
 // FASE 9 / D24 — con que se firma la atestacion de lo que este nodo sirvio.
 //
 // Es una FUNCION, no una clave: bin.mjs abre el keystore, se queda con la
@@ -2411,7 +2422,10 @@ async function onRequest(req, res) {
         caip2: walletRed.caip2 || null,
         chainId: walletRed.chainId || null,
         explorer: walletRed.explorer || null,
-        mainnet: !!walletRed.mainnet
+        mainnet: !!walletRed.mainnet,
+        // FASE 11 — si el entorno la fija, el selector del panel no tiene efecto
+        // y se dibuja como texto en vez de un <select>.
+        fijadaPorEnv: !!walletRed.fijadaPorEnv
       }
 
       let nativo = null
@@ -2528,6 +2542,69 @@ async function onRequest(req, res) {
         }
         console.error(`[wallet] falló la creación desde el panel: ${msg}`)
         return sendError(res, 500, 'no se pudo crear la wallet: ' + msg)
+      }
+    }
+    // FASE 11 — cambiar la red de cobro desde el selector del panel. Escribe
+    // `wallet.red`; NO hace hot-swap. La respuesta dice "reiniciá el nodo",
+    // porque el aviso de mainnet, la re-derivación y el re-firmado del
+    // manifiesto viven en el arranque. Ir a mainnet pide `confirmar: "MAINNET"`.
+    if (req.method === 'POST' && pathname === '/v1/wallet/network') {
+      const motivoRed = rechazoPorKey(req)
+      if (motivoRed) return sendError(res, 401, motivoRed)
+
+      if (!walletNetworkSetter) {
+        return sendError(
+          res,
+          503,
+          'el nodo todavía no está listo para cambiar de red, probá de nuevo en unos segundos',
+          { code: 'no_listo', type: 'service_unavailable' }
+        )
+      }
+      if (walletRed && walletRed.fijadaPorEnv) {
+        return sendError(
+          res,
+          409,
+          'la red la fija PYRUS_WALLET_RED en el entorno: quitá esa variable para elegir desde el panel',
+          { code: 'fijada_por_env' }
+        )
+      }
+
+      let body
+      try {
+        body = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'body inválido, se esperaba JSON')
+      }
+
+      try {
+        const r = walletNetworkSetter(body.red, { confirmar: body.confirmar })
+        console.log(
+          `[wallet] red guardada: ${r.nombre} (eip155:${r.chainId}) — toma efecto al reiniciar`
+        )
+        return sendJson(res, 200, {
+          red: r.nombre,
+          chainId: r.chainId,
+          mainnet: r.mainnet,
+          aplicaEnReinicio: true,
+          // Mainnet en Plasma para x402 además necesita el flag verificado, que
+          // es un paso humano (mirar el contrato en el explorer). Se dice acá
+          // para que no se descubra el día que un 402 sale en Stable.
+          avisoX402: r.mainnet
+            ? 'para cobrar en Plasma mainnet por x402 falta PYRUS_X402_PLASMA_ASSET_VERIFICADO=1 (verificá el contrato USD₮0 en el explorer primero)'
+            : null
+        })
+      } catch (err) {
+        const code = (err && err.code) || null
+        if (code === 'confirmar_mainnet') {
+          return sendError(res, 400, (err && err.message) || 'confirmá el cambio a mainnet', {
+            code
+          })
+        }
+        if (code === 'red_desconocida') {
+          return sendError(res, 400, (err && err.message) || 'red desconocida', { code })
+        }
+        console.error(`[wallet] no se pudo guardar la red: ${(err && err.message) || err}`)
+        return sendError(res, 500, 'no se pudo guardar la red: ' + ((err && err.message) || err))
       }
     }
     // FASE 9 / D12 — recuperar el recibo de un request que se pago.

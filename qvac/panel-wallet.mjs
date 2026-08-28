@@ -46,6 +46,15 @@ const SIMBOLO_NATIVO = {
   'eip155:9746': 'XPL'
 }
 
+// Las redes que el selector del panel ofrece — las mismas de `wallet.REDES`.
+// `stable` (988) NO está: es un fallback de cobro x402, no una red de wallet
+// (no tiene RPC ni explorer propios acá). El orden pone la testnet primero: es
+// donde D30 dice que se estrena todo lo que mueve valor.
+const REDES_PANEL = [
+  { nombre: 'plasma-testnet', etiqueta: 'Plasma testnet · 9746', mainnet: false },
+  { nombre: 'plasma', etiqueta: 'Plasma mainnet · 9745 — plata real', mainnet: true }
+]
+
 export function escaparHtml(v) {
   return String(v == null ? '' : v)
     .replace(/&/g, '&amp;')
@@ -151,12 +160,16 @@ export function vistaDeSaldos(data) {
 
   const red = d.red
     ? {
+        nombre: String(d.red.nombre || ''),
         caip2: String(d.red.caip2 || ''),
         texto: (d.red.nombre ? d.red.nombre + ' · ' : '') + String(d.red.caip2 || ''),
         // Sin `mainnet: true` explicito se asume red de prueba: el error barato
         // es una etiqueta "PRUEBA" de mas, el caro es creer que es testnet y no.
         esPrueba: !d.red.mainnet,
-        explorer: d.red.explorer ? String(d.red.explorer) : null
+        mainnet: !!d.red.mainnet,
+        explorer: d.red.explorer ? String(d.red.explorer) : null,
+        // FASE 11 — si el entorno la fija, el selector se dibuja como texto.
+        fijadaPorEnv: !!d.red.fijadaPorEnv
       }
     : null
 
@@ -212,9 +225,8 @@ export function vistaDeSaldos(data) {
     // resolver. Va arriba de todo y no tapa las filas, que igual muestran "—".
     error: d.error ? String(d.error) : null,
     avisoUsd: 'sin conversión a USD — este panel no consulta precios',
-    // FASE 11 — crear/importar desde el panel. `puedeCrear` es true solo si el
-    // nodo tiene PYRUS_WALLET_PASSPHRASE en el entorno: sin esa clave no se
-    // puede cifrar la seed NI abrirla en el proximo arranque.
+    // FASE 11 — `puedeCrear` es true salvo durante los ms del arranque previos
+    // a que bin.mjs cablee el creator; el nodo resuelve la passphrase solo.
     puedeCrear: !!d.puedeCrear,
     crearMotivo: d.crearMotivo ? String(d.crearMotivo) : null
   }
@@ -476,6 +488,56 @@ export function htmlDeSeed(frase, address) {
   )
 }
 
+// El selector de red. Cambia `wallet.red` y NO hace hot-swap: por eso el texto
+// dice "reiniciá el nodo". Si el entorno fija la red (PYRUS_WALLET_RED), se
+// dibuja como texto y no como <select>: el selector no tendría efecto.
+export function htmlDeSelectorRed(v) {
+  if (!v.red) return ''
+  const partes = ['<div class="w-red-box">']
+  partes.push('<div class="w-red-lbl">Red de cobro</div>')
+
+  if (v.red.fijadaPorEnv) {
+    partes.push(
+      '<div class="w-red-val">' +
+        escaparHtml(v.red.texto) +
+        (v.red.esPrueba ? ' — PRUEBA' : ' — MAINNET') +
+        '</div>' +
+        '<div class="w-red-nota">la fija <code>PYRUS_WALLET_RED</code> en el entorno; ' +
+        'quitá esa variable para elegir desde acá</div>'
+    )
+    partes.push('</div>')
+    return partes.join('')
+  }
+
+  let opts = ''
+  for (let i = 0; i < REDES_PANEL.length; i++) {
+    const r = REDES_PANEL[i]
+    opts +=
+      '<option value="' +
+      escaparHtml(r.nombre) +
+      '" data-mainnet="' +
+      (r.mainnet ? '1' : '0') +
+      '"' +
+      (r.nombre === v.red.nombre ? ' selected' : '') +
+      '>' +
+      escaparHtml(r.etiqueta) +
+      '</option>'
+  }
+  partes.push(
+    '<div class="w-red-row">' +
+      '<select id="w-red-sel" class="w-red-sel">' +
+      opts +
+      '</select>' +
+      '<button class="w-onb-b" id="w-red-aplicar">Cambiar</button>' +
+      '</div>' +
+      '<div class="w-red-nota">el cambio toma efecto al reiniciar el nodo. Ir a MAINNET ' +
+      'pide confirmación y, para cobrar por x402, el flag del contrato verificado.</div>' +
+      '<div id="w-red-msg" class="w-onb-msg" role="status"></div>'
+  )
+  partes.push('</div>')
+  return partes.join('')
+}
+
 export function htmlDeWallet(vista, q, tab) {
   const v = vista || vistaDeSaldos(null)
   // Sin wallet, la tarjeta ES el onboarding: ni balance, ni Send/Swap, ni tabs.
@@ -494,6 +556,7 @@ export function htmlDeWallet(vista, q, tab) {
     partes.push('<div id="w-filas" class="w-filas">' + htmlDeFilas(v, q) + '</div>')
     partes.push('</div>')
   }
+  partes.push(htmlDeSelectorRed(v))
   partes.push(htmlDeTabs(t))
   partes.push('</div>')
   return partes.join('')
@@ -504,7 +567,13 @@ export function htmlDeWallet(vista, q, tab) {
 // `qvac/panel-x402.mjs`.
 // -----------------------------------------------------------------------------
 
-const CONSTANTES_EMBEBIDAS = 'var SIMBOLO_NATIVO = ' + JSON.stringify(SIMBOLO_NATIVO) + ';\n'
+const CONSTANTES_EMBEBIDAS =
+  'var SIMBOLO_NATIVO = ' +
+  JSON.stringify(SIMBOLO_NATIVO) +
+  ';\n' +
+  'var REDES_PANEL = ' +
+  JSON.stringify(REDES_PANEL) +
+  ';\n'
 
 const FUNCIONES_EMBEBIDAS = {
   escaparHtml,
@@ -526,6 +595,7 @@ const FUNCIONES_EMBEBIDAS = {
   htmlDeTabs,
   htmlDeOnboarding,
   htmlDeSeed,
+  htmlDeSelectorRed,
   htmlDeWallet
 }
 

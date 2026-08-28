@@ -390,6 +390,43 @@ test('FASE 11: la passphrase sale del entorno, o se genera y se persiste para el
   tmp.limpiar()
 })
 
+test('FASE 11: la red sale del entorno, o del archivo que escribe el selector del panel', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const tmp = dirWalletTmp()
+
+  // Sin nada: el default de D15 (plasma mainnet), fuente 'default'.
+  const def = wallet.redDe({}, { dir: tmp.dir })
+  t.is(def.nombre, 'plasma')
+  t.is(def.fuente, 'default')
+  t.ok(def.mainnet, 'y es mainnet')
+  t.absent(def.fijadaPorEnv)
+
+  // guardarRed valida y persiste; redDe lo lee la proxima vez, con fuente 'archivo'.
+  const g = wallet.guardarRed(tmp.dir, 'plasma-testnet')
+  t.is(g.nombre, 'plasma-testnet')
+  t.is(g.chainId, 9746)
+  t.absent(g.mainnet)
+  const arch = wallet.redDe({}, { dir: tmp.dir })
+  t.is(arch.nombre, 'plasma-testnet')
+  t.is(arch.fuente, 'archivo')
+  t.is(arch.chainId, 9746)
+
+  // El entorno le gana al archivo y marca fijadaPorEnv.
+  const desdeEnv = wallet.redDe({ [wallet.VAR_RED]: 'plasma' }, { dir: tmp.dir })
+  t.is(desdeEnv.nombre, 'plasma')
+  t.is(desdeEnv.fuente, 'env')
+  t.ok(desdeEnv.fijadaPorEnv)
+
+  // Un nombre que no existe NO toca disco: la eleccion anterior queda intacta.
+  t.exception(() => wallet.guardarRed(tmp.dir, 'ethereum'), /no es una red conocida/)
+  t.is(wallet.redDe({}, { dir: tmp.dir }).nombre, 'plasma-testnet', 'siguio la anterior')
+
+  // Sin `dir` se comporta como antes: solo entorno y default.
+  t.is(wallet.redDe({}).nombre, 'plasma')
+
+  tmp.limpiar()
+})
+
 test('la frase de respaldo restaura la misma direccion en otra maquina', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
   const uno = dirWalletTmp()
@@ -3510,4 +3547,45 @@ test('el panel /wallet lleva embebido el codigo de panel-wallet.mjs, entero y co
     pages.WALLET_HTML.indexOf('htmlDeSeed(onbSeed.frase') !== -1,
     'la pantalla de la frase se dibuja con la funcion probada, no a mano'
   )
+  t.ok(
+    pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/network'") !== -1,
+    'y el selector de red postea a /v1/wallet/network'
+  )
+})
+
+test('el selector de red ofrece testnet y mainnet, marca mainnet como plata real, y no promete hot-swap', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+
+  const sel = pw.htmlDeSelectorRed(
+    pw.vistaDeSaldos({
+      configurada: true,
+      address: '0x' + 'ab'.repeat(20),
+      red: { nombre: 'plasma-testnet', caip2: 'eip155:9746', mainnet: false },
+      nativo: { decimals: 18, raw: '0x0' }
+    })
+  )
+  t.ok(sel.indexOf('id="w-red-sel"') !== -1, 'hay un <select>')
+  t.ok(
+    sel.indexOf('value="plasma-testnet"') !== -1 && sel.indexOf('value="plasma"') !== -1,
+    'las dos redes'
+  )
+  t.ok(
+    /value="plasma"[^>]*data-mainnet="1"/.test(sel),
+    'plasma marcada mainnet para el confirm del cliente'
+  )
+  t.ok(/value="plasma-testnet"[^>]*selected/.test(sel), 'la actual viene seleccionada')
+  t.ok(sel.indexOf('plata real') !== -1, 'dicho con todas las letras')
+  t.ok(sel.indexOf('toma efecto al reiniciar') !== -1, 'no promete hot-swap')
+
+  // Si el entorno fija la red, no hay <select>: el selector no tendria efecto.
+  const fija = pw.htmlDeSelectorRed(
+    pw.vistaDeSaldos({
+      configurada: true,
+      address: '0x' + 'ab'.repeat(20),
+      red: { nombre: 'plasma', caip2: 'eip155:9745', mainnet: true, fijadaPorEnv: true },
+      nativo: { decimals: 18, raw: '0x0' }
+    })
+  )
+  t.is(fija.indexOf('<select'), -1, 'sin selector cuando lo fija el entorno')
+  t.ok(fija.indexOf('PYRUS_WALLET_RED') !== -1, 'y dice por que')
 })

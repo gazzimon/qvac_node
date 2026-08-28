@@ -40,6 +40,7 @@ secrets/
 keys/
 wallet.json
 wallet.pass
+wallet.red
 seed.txt
 mnemonic.txt
 

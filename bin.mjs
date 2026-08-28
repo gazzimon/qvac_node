@@ -532,7 +532,7 @@ async function startGateway(opts = {}) {
   gw.setWalletCreator(async ({ frase = null } = {}) => {
     const { passphrase } = walletMod.resolverPassphrase(dirWallet, { env, generar: true })
     const r = await walletMod.crear(dirWallet, passphrase, {
-      red: walletMod.redDe(env),
+      red: walletMod.redDe(env, { dir: dirWallet }),
       frase
     })
     // Re-abrir y re-cablear: el gateway sirve la nueva dirección sin reiniciar.
@@ -543,6 +543,31 @@ async function startGateway(opts = {}) {
     gw.setWalletSigner(nuevo.firmar)
     gw.setWalletRed(nuevo.red)
     return { address: r.address, frase: r.frase, restaurada: r.restaurada }
+  })
+
+  // FASE 11 — cambiar de red desde el selector del panel. Escribe `wallet.red`
+  // (lo lee `redDe` en el próximo arranque) y NO hace hot-swap: el aviso de
+  // mainnet, la re-derivación y el re-firmado del manifiesto viven en el
+  // arranque, así que el panel dice "reiniciá el nodo".
+  //
+  // Ir A mainnet exige `confirmar: 'MAINNET'` — D30: mainnet no se toca sin que
+  // alguien lo escriba. La validación de nombre y la de mainnet viven acá para
+  // que el gateway no tenga que importar `wallet.mjs`.
+  gw.setWalletNetworkSetter((nombre, { confirmar } = {}) => {
+    const objetivo = walletMod.REDES[String(nombre || '').trim()]
+    if (!objetivo) {
+      const e = new Error(`red desconocida: ${JSON.stringify(nombre)}`)
+      e.code = 'red_desconocida'
+      throw e
+    }
+    if (objetivo.mainnet && confirmar !== 'MAINNET') {
+      const e = new Error(
+        'cambiar a una red MAINNET (plata real) pide confirmar: mandá "confirmar":"MAINNET"'
+      )
+      e.code = 'confirmar_mainnet'
+      throw e
+    }
+    return walletMod.guardarRed(dirWallet, nombre)
   })
 
   // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
@@ -847,7 +872,9 @@ async function economicDelNodo(dir) {
     // D30.2 — la red se resuelve del entorno y SE LE PASA. Antes `abrir` recibia
     // un `rpc` que nadie completaba, asi que la constante de mainnet ganaba
     // siempre y no habia forma de operar contra 9746.
-    const red = wallet.redDe(env)
+    // FASE 11 — con `dir` además mira `wallet.red`, que escribe el selector del
+    // panel. El entorno sigue ganando.
+    const red = wallet.redDe(env, { dir })
     // FASE 11 — la passphrase sale del entorno o, si el onboarding del panel la
     // generó, de `wallet.pass`. `generar:false`: acá solo se ABRE lo que ya
     // existe; si hay keystore y no hay passphrase en ningún lado, `abrir` corta
@@ -889,7 +916,7 @@ async function runWallet() {
   await cargarEnv()
   const wallet = await import('./qvac/wallet.mjs')
   const dir = await walletStorageDir()
-  const red = wallet.redDe(env)
+  const red = wallet.redDe(env, { dir })
   // FASE 11 — del entorno, o de `wallet.pass` si el onboarding del panel la
   // generó. Así `pyrusllm wallet` ve una wallet creada desde el navegador.
   const { passphrase } = wallet.resolverPassphrase(dir, { env })
