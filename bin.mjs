@@ -542,6 +542,9 @@ async function startGateway(opts = {}) {
     gw.setEconomic(nuevo.economic)
     gw.setWalletSigner(nuevo.firmar)
     gw.setWalletRed(nuevo.red)
+    // FASE 12 — y el que manda plata, por lo mismo: una wallet recien creada
+    // desde el panel tiene que poder enviar sin reiniciar el nodo.
+    gw.setWalletSender(nuevo.enviar ? { enviar: nuevo.enviar, cotizar: nuevo.cotizar } : null)
     return { address: r.address, frase: r.frase, restaurada: r.restaurada }
   })
 
@@ -569,6 +572,62 @@ async function startGateway(opts = {}) {
     }
     return walletMod.guardarRed(dirWallet, nombre)
   })
+
+  // FASE 12 — los tokens que el panel vigila. Mismo patron que el de arriba: el
+  // closure es dueño de `dirWallet` y el gateway no importa `wallet.mjs`.
+  //
+  // Se relee el archivo en cada operacion en vez de cachear la lista: es un
+  // archivo chico, lo tocan un humano y un panel, y una copia en memoria sobre
+  // un archivo que se puede editar a mano es como se pierde lo que el otro
+  // escribio. La validacion y el dedupe viven adentro de `guardarTokens`.
+  gw.setWalletTokensStore({
+    listar: (caip2) => walletMod.leerTokens(dirWallet)[caip2] || [],
+    agregar: (caip2, tok) => {
+      const tabla = walletMod.leerTokens(dirWallet)
+      tabla[caip2] = (tabla[caip2] || []).concat([tok])
+      return walletMod.guardarTokens(dirWallet, tabla)[caip2] || []
+    },
+    quitar: (caip2, address) => {
+      const tabla = walletMod.leerTokens(dirWallet)
+      const buscada = String(address || '').toLowerCase()
+      tabla[caip2] = (tabla[caip2] || []).filter(
+        (t) => String(t.address || '').toLowerCase() !== buscada
+      )
+      return walletMod.guardarTokens(dirWallet, tabla)[caip2] || []
+    }
+  })
+
+  // FASE 12 — lo que Settings muestra de solo lectura. La ruta del keystore y la
+  // version ya salen en el log de arranque; esto las pone donde se las busca
+  // cuando algo no cuadra, que es tres pantallas de scroll despues.
+  gw.setWalletInfo({ keystore: dirWallet, version: pkg.version })
+
+  // FASE 12 — enviar desde el panel. `cobro.enviar` es un closure que se quedo
+  // con la cuenta de WDK: el gateway pide una transferencia, no una clave. Sin
+  // wallet abierta queda en null y el endpoint contesta 503 diciendo por que.
+  gw.setWalletSender(cobro.enviar ? { enviar: cobro.enviar, cotizar: cobro.cotizar } : null)
+
+  // FASE 12 — SE LE DA CUERDA A ethers ACA, Y NO EN EL PRIMER CLICK.
+  //
+  // Medido: la PRIMERA llamada de red de ethers a veces no vuelve, y como el
+  // resto queda encolado detras de su deteccion de red, el proveedor se traba
+  // entero — el panel gira para siempre y ningun envio posterior contesta hasta
+  // reiniciar. Que esa primera llamada sea la de alguien apretando "Revisar" es
+  // la peor version del problema.
+  //
+  // Asi que se hace acá, al arrancar, cuando no hay nadie esperando. NO se
+  // espera y NO se corta si falla: un nodo sin internet tiene que arrancar
+  // igual — la derivacion de la direccion nunca necesito la red y eso no cambia
+  // (ver `cuentaDesde` en wallet.mjs). Si sale bien, el primer envio de verdad
+  // ya encuentra el proveedor despierto.
+  if (cobro.calentar) {
+    cobro.calentar().then(
+      (ok) => {
+        if (ok) console.log('  [wallet] RPC alcanzable: la wallet puede enviar')
+      },
+      () => {}
+    )
+  }
 
   // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
   // registro tiene que decirlo desde el arranque. Si la fila local recien
@@ -866,7 +925,9 @@ async function openData(dir, { files = true } = {}) {
 // menos: el gateway pide firmas, no llaves.
 async function economicDelNodo(dir) {
   const wallet = await import('./qvac/wallet.mjs')
-  if (!wallet.existe(dir)) return { economic: null, firmar: null, red: null }
+  if (!wallet.existe(dir)) {
+    return { economic: null, firmar: null, enviar: null, cotizar: null, calentar: null, red: null }
+  }
 
   try {
     // D30.2 — la red se resuelve del entorno y SE LE PASA. Antes `abrir` recibia
@@ -897,6 +958,37 @@ async function economicDelNodo(dir) {
       // lado. Se envuelve en una closure para que lo unico que cruce a
       // gateway.mjs sea la capacidad de firmar, no la cuenta ni la frase.
       firmar: (mensaje) => abierta.cuenta.sign(mensaje),
+      // FASE 12 — mandar plata, con la MISMA forma que `firmar`: una funcion,
+      // no la cuenta. El gateway puede pedir una transferencia y no puede leer
+      // la clave con la que se firma, que es toda la invariante.
+      //
+      // `monto` llega en unidades BASE (wei, o la potencia de los decimales del
+      // token) y como BigInt: convertir con punto flotante un saldo de 18
+      // decimales pierde precision justo en la cifra que se manda.
+      enviar: ({ destino, monto, asset }) =>
+        asset === 'native'
+          ? abierta.cuenta.sendTransaction({ to: destino, value: monto })
+          : abierta.cuenta.transfer({ token: asset, recipient: destino, amount: monto }),
+      // El gas ESTIMADO para la pantalla de revision. Va aparte de `enviar` a
+      // proposito: cotizar no firma ni difunde nada, y confundir las dos seria
+      // mandar una transaccion cuando alguien solo estaba mirando cuanto sale.
+      cotizar: ({ destino, monto, asset }) =>
+        asset === 'native'
+          ? abierta.cuenta.quoteSendTransaction({ to: destino, value: monto })
+          : abierta.cuenta.quoteTransfer({ token: asset, recipient: destino, amount: monto }),
+      // FASE 12 — la primera llamada de red de ethers, hecha a proposito y en
+      // un momento en que nadie espera. Ver la nota del llamador en
+      // `startGateway`. Es de solo lectura: pregunta el saldo, no firma nada.
+      calentar: async () => {
+        try {
+          await abierta.cuenta.getBalance()
+          return true
+        } catch {
+          // Sin internet, o el RPC caido. No es un error de arranque: el nodo se
+          // anuncia igual, y el envio ya avisa por su cuenta cuando no anda.
+          return false
+        }
+      },
       // FASE 11 — la red resuelta, para que el panel /wallet lea saldos con la
       // direccion PUBLICA. No lleva la seed ni la cuenta: solo rpc/chainId.
       red
@@ -904,7 +996,7 @@ async function economicDelNodo(dir) {
   } catch (err) {
     console.error(`  [wallet] ${(err && err.message) || err}`)
     console.error('  [wallet] el nodo se anuncia SIN direccion de cobro (economic queda en mock)')
-    return { economic: null, firmar: null, red: null }
+    return { economic: null, firmar: null, enviar: null, cotizar: null, calentar: null, red: null }
   }
 }
 

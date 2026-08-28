@@ -11,6 +11,19 @@
 const test = require('brittle')
 const http = require('bare-http1')
 
+// FASE 12 — los relojes de la wallet, cortos para la suite.
+//
+// El default son 20 s para cotizar y 90 s para enviar, que es lo que un RPC
+// lento de verdad puede llegar a tardar. Probar ESO tal cual haria que la suite
+// se quede casi dos minutos mirando un promise que nunca resuelve. Se pisan
+// ANTES de que `gateway.mjs` se importe, que es cuando lee el entorno.
+//
+// Lo que se prueba no cambia: que el reloj EXISTA, y sobre todo que las dos
+// mitades contesten distinto (cotizar puede afirmar que no pasó nada; enviar
+// no). Ninguna de las dos cosas depende del numero.
+require('bare-env').PYRUS_WALLET_TIMEOUT_COTIZAR_MS = '400'
+require('bare-env').PYRUS_WALLET_TIMEOUT_ENVIAR_MS = '400'
+
 // Puertos altos y propios para no chocar con un nodo que el desarrollador tenga
 // abierto en 8787 mientras corre los tests.
 //
@@ -3376,6 +3389,798 @@ test('FASE 9 visible: los paneles servidos LLEVAN el codigo que dibuja todo esto
     t.ok(node.body.indexOf(term) !== -1, '/node menciona ' + term)
   }
   t.ok(node.body.indexOf('receipts') !== -1, '/node menciona receipts')
+})
+
+// ---------------------------------------------------------------------------
+// FASE 12 — los tokens que el panel vigila, por HTTP.
+//
+// El store se mockea: lo que se prueba aca es el ENDPOINT (el gate, la
+// validacion, que la red la ponga el nodo y no el cliente), no la escritura en
+// disco, que ya tiene sus tests en test/index.js contra `wallet.mjs`.
+// ---------------------------------------------------------------------------
+
+// Un store en memoria con la misma forma que el que arma bin.mjs.
+function storeDeTokensFalso(inicial) {
+  const tabla = inicial || {}
+  return {
+    tabla,
+    listar: (caip2) => tabla[caip2] || [],
+    agregar: (caip2, tok) => {
+      // La misma validacion de forma que `wallet.guardarTokens`, para que el
+      // test del endpoint ejercite el camino del 400.
+      const addr = String((tok && tok.address) || '').trim()
+      const sym = String((tok && tok.symbol) || '').trim()
+      const dec = Number(tok && tok.decimals)
+      if (
+        !/^0x[0-9a-fA-F]{40}$/.test(addr) ||
+        sym.length < 1 ||
+        sym.length > 12 ||
+        !Number.isInteger(dec) ||
+        dec < 0 ||
+        dec > 36
+      ) {
+        throw new Error('wallet: token invalido: la address tiene que ser 0x + 40 hex')
+      }
+      tabla[caip2] = (tabla[caip2] || []).concat([
+        { address: addr.toLowerCase(), symbol: sym, decimals: dec }
+      ])
+      return tabla[caip2]
+    },
+    quitar: (caip2, address) => {
+      const b = String(address).toLowerCase()
+      tabla[caip2] = (tabla[caip2] || []).filter((t) => t.address.toLowerCase() !== b)
+      return tabla[caip2]
+    }
+  }
+}
+
+// Un RPC de mentira que contesta lo que se le diga. Se usa para probar el
+// camino de "el RPC contesto un error" SIN salir a la red: apuntar a un puerto
+// muerto probaria el manejo de ECONNREFUSED de bare-fetch, que no es lo nuestro.
+function rpcFalso(responder) {
+  return new Promise((resolve) => {
+    const s = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', (c) => {
+        body += c
+      })
+      req.on('end', () => {
+        let peticion = {}
+        try {
+          peticion = JSON.parse(body)
+        } catch (e) {
+          /* se contesta igual */
+        }
+        const r = responder(peticion)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, ...r }))
+      })
+    })
+    s.listen(0, '127.0.0.1', () =>
+      resolve({ url: 'http://127.0.0.1:' + s.address().port, cerrar: () => s.close() })
+    )
+  })
+}
+
+test('FASE 12: /v1/wallet/tokens agrega, lista y quita contra la red ACTIVA', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  // El nativo se lee bien; el `eth_call` del token contesta ERROR. Es el caso
+  // que importa: un activo que no se pudo leer no puede dibujarse como vacio.
+  const rpc = await rpcFalso((p) =>
+    p.method === 'eth_getBalance' ? { result: '0x0' } : { error: { message: 'execution reverted' } }
+  )
+
+  const store = storeDeTokensFalso()
+  gw.setWalletTokensStore(store)
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed({
+    nombre: 'plasma-testnet',
+    caip2: 'eip155:9746',
+    chainId: 9746,
+    rpc: rpc.url,
+    explorer: 'https://testnet.plasmascan.to',
+    mainnet: false
+  })
+
+  try {
+    // El gate es el mismo que el resto de /v1/wallet: informacion de plata.
+    const sinKey = await pedir('POST', '/v1/wallet/tokens', {
+      body: { address: '0x' + 'cd'.repeat(20), symbol: 'tUSD', decimals: 6 }
+    })
+    t.is(sinKey.status, 401, 'sin credencial no se administra nada')
+
+    const alta = await pedir('POST', '/v1/wallet/tokens', {
+      key: KEY,
+      body: { address: '0x' + 'CD'.repeat(20), symbol: 'tUSD', decimals: 6 }
+    })
+    t.is(alta.status, 200, 'se agrega')
+    t.is(alta.json.red, 'eip155:9746', 'la red la pone el NODO, no el cliente')
+    t.is(alta.json.tokens.length, 1)
+    t.is(alta.json.tokens[0].address, '0x' + 'cd'.repeat(20), 'normalizada a minuscula')
+
+    // Forma invalida: 400 con el motivo, no un 500 ni un guardado silencioso.
+    const mala = await pedir('POST', '/v1/wallet/tokens', {
+      key: KEY,
+      body: { address: '0xNOPE', symbol: 'X', decimals: 6 }
+    })
+    t.is(mala.status, 400, 'una address que no es hex se rechaza')
+    t.ok(/0x \+ 40 hex/.test(mala.json.error.message), 'y el motivo dice QUE estaba mal')
+    t.is(store.tabla['eip155:9746'].length, 1, 'y no se guardo nada de eso')
+
+    // El balance del token guardado entra a /v1/wallet/balances marcado.
+    const saldos = await pedir('GET', '/v1/wallet/balances', { key: KEY })
+    t.is(saldos.status, 200)
+    const fila = saldos.json.tokens.find((x) => x.address === '0x' + 'cd'.repeat(20))
+    t.ok(fila, 'el token guardado aparece en los saldos')
+    t.is(fila.verificado, false, 'marcado SIN VERIFICAR: nadie miro la cadena')
+    // El `eth_call` contesto un error. Regla 3: eso NO es "0" — se leeria como
+    // "no tenes nada" cuando lo unico que pasa es que no se pudo mirar.
+    t.is(fila.raw, null, 'un eth_call que fallo deja el saldo en null, nunca en 0')
+    t.ok(fila.error, 'con el motivo al lado: ' + fila.error)
+    t.is(
+      saldos.json.tokensGuardados.length,
+      1,
+      'y la lista pelada viaja aparte, para que Settings la pueda administrar'
+    )
+
+    const baja = await pedir('DELETE', '/v1/wallet/tokens', {
+      key: KEY,
+      body: { address: '0x' + 'cd'.repeat(20) }
+    })
+    t.is(baja.status, 200, 'se quita')
+    t.is(baja.json.tokens.length, 0, 'y la lista queda vacia')
+  } finally {
+    gw.setWalletTokensStore(null)
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+    rpc.cerrar()
+  }
+})
+
+test('FASE 12: un eth_call que devuelve vacío NO es un saldo cero', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  // Es el modo de falla mas probable de un token agregado a mano: una address
+  // tipeada mal, o la del token de OTRA red. `balanceOf` contra una direccion
+  // sin contrato NO revierte — el nodo contesta `0x`, o sea "ningun dato" — y
+  // dibujar eso como "0" diria "no tenes nada de este token" cuando lo cierto
+  // es que ahi no hay token. Medido contra Plasma testnet, no supuesto.
+  const rpc = await rpcFalso((p) =>
+    p.method === 'eth_getBalance' ? { result: '0x0' } : { result: '0x' }
+  )
+
+  gw.setWalletTokensStore(
+    storeDeTokensFalso({
+      'eip155:9746': [{ address: '0x' + 'ef'.repeat(20), symbol: 'tUSD', decimals: 6 }]
+    })
+  )
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed({
+    nombre: 'plasma-testnet',
+    caip2: 'eip155:9746',
+    chainId: 9746,
+    rpc: rpc.url,
+    explorer: 'https://testnet.plasmascan.to',
+    mainnet: false
+  })
+
+  try {
+    const r = await pedir('GET', '/v1/wallet/balances', { key: KEY })
+    const fila = r.json.tokens[0]
+    t.is(fila.raw, null, 'un "0x" pelado no es un balance: queda en null')
+    t.ok(/no devolvió un balance/.test(fila.error), 'con el motivo')
+    t.ok(/no haya un token/.test(fila.error), 'que además dice la causa más probable')
+
+    // Y el panel lo dibuja como "—", no como cero.
+    const pw = await import('../qvac/panel-wallet.mjs')
+    const v = pw.vistaDeSaldos(r.json)
+    const item = v.items.find((x) => !x.esNativo)
+    t.is(item.texto, '—', 'la pantalla dice "—"')
+    t.absent(item.texto === '0', 'y NUNCA "0"')
+
+    // El nativo, que SI contesto, se sigue leyendo bien: la guarda no rompe el
+    // camino normal.
+    const nativo = v.items.find((x) => x.esNativo)
+    t.is(nativo.texto, '0', 'un cero que la cadena SI afirmó se dibuja como cero')
+  } finally {
+    rpc.cerrar()
+    gw.setWalletTokensStore(null)
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: sin store cableado, /v1/wallet/tokens dice que no esta listo', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  gw.setWalletTokensStore(null)
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+
+  try {
+    const r = await pedir('POST', '/v1/wallet/tokens', {
+      key: KEY,
+      body: { address: '0x' + 'cd'.repeat(20), symbol: 'X', decimals: 6 }
+    })
+    // 503 y no 500: es el estado de un nodo que todavia esta arrancando, y el
+    // panel puede reintentar. Un 500 diria "esto se rompio".
+    t.is(r.status, 503, 'durante el arranque contesta 503, no un error')
+    t.ok(/probá de nuevo/.test(r.json.error.message), 'diciendo que se puede reintentar')
+  } finally {
+    gw.setEconomic(null)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// FASE 12 — el historial, con sus dos fuentes y su caída.
+//
+// Lo que importa acá es el ORDEN y la CAÍDA: el explorer primero, el RPC como
+// respaldo, y si las dos fallan una lista vacía con `ok:false` — nunca una
+// lista vacía silenciosa, que se leería como "no hubo movimientos".
+// ---------------------------------------------------------------------------
+
+// La API del explorer, de mentira: contesta las dos rutas que se usan, con la
+// forma REAL —medida contra Routescan, que es quien responde por las dos
+// cadenas de Plasma sin credencial—. Si esa forma cambiara, estos tests
+// seguirian verdes y el panel no leeria nada: por eso `explorerApi` es un campo
+// declarado en `REDES` y no una URL armada a mano acá.
+function explorerFalso(responder) {
+  return new Promise((resolve) => {
+    const s = http.createServer((req, res) => {
+      const r = responder(req.url)
+      res.writeHead(r.status || 200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(r.body || {}))
+    })
+    s.listen(0, '127.0.0.1', () =>
+      resolve({ url: 'http://127.0.0.1:' + s.address().port, cerrar: () => s.close() })
+    )
+  })
+}
+
+test('FASE 12: /v1/wallet/history lee del explorer, y ordena por fecha', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const mia = '0x' + 'ab'.repeat(20)
+  const otra = '0x' + 'cd'.repeat(20)
+
+  const exp = await explorerFalso((url) => {
+    if (url.indexOf('/erc20-transfers') !== -1) {
+      return {
+        body: {
+          items: [
+            {
+              txHash: '0x' + '11'.repeat(32),
+              from: otra,
+              to: mia,
+              amount: '1500000',
+              tokenAddress: '0x' + 'ef'.repeat(20),
+              tokenSymbol: 'tUSD',
+              tokenDecimals: 6,
+              timestamp: '2026-08-27T10:00:00.000Z'
+            }
+          ]
+        }
+      }
+    }
+    return {
+      body: {
+        items: [
+          {
+            id: '0x' + '22'.repeat(32),
+            from: mia,
+            to: otra,
+            value: '1000000000000000000',
+            timestamp: '2026-08-20T10:00:00.000Z',
+            status: true
+          }
+        ]
+      }
+    }
+  })
+
+  gw.setEconomic(wallet.economicDe(mia))
+  gw.setWalletRed({
+    nombre: 'plasma-testnet',
+    caip2: 'eip155:9746',
+    chainId: 9746,
+    rpc: 'http://127.0.0.1:1/no-existe',
+    // `explorer` es a donde se manda a una PERSONA y `explorerApi` a donde
+    // pregunta el nodo: son dos hosts distintos, ver la nota de REDES.
+    explorer: 'https://testnet.plasmascan.to',
+    explorerApi: exp.url,
+    mainnet: false
+  })
+
+  try {
+    const sinKey = await pedir('GET', '/v1/wallet/history')
+    t.is(sinKey.status, 401, 'el gate es el mismo que el resto de /v1/wallet')
+
+    const r = await pedir('GET', '/v1/wallet/history', { key: KEY })
+    t.is(r.status, 200)
+    t.ok(r.json.ok, 'la lectura funciono')
+    t.is(r.json.fuente, 'explorer', 'y salio del explorer, que es la fuente buena')
+    t.is(r.json.items.length, 2, 'las nativas y las de token, mezcladas en una lista')
+    t.is(r.json.items[0].symbol, 'tUSD', 'la mas reciente primero')
+    t.is(r.json.items[1].tipo, 'native', 'y la vieja despues')
+    t.is(r.json.items[1].decimals, 18, 'el nativo son 18 decimales')
+    t.is(r.json.caip2, 'eip155:9746', 'la red viaja, para el simbolo del nativo')
+    // El link que se le muestra a una persona apunta al explorer HUMANO, no a
+    // la API contra la que se leyo: son dos hosts distintos a proposito.
+    t.is(
+      r.json.explorer,
+      'https://testnet.plasmascan.to',
+      'los links van al explorer que abre una persona, no a la API'
+    )
+
+    // La vista del panel lo entiende sin traduccion en el medio.
+    const pw = await import('../qvac/panel-wallet.mjs')
+    const v = pw.vistaDeHistorial(r.json)
+    t.is(v.items[0].direccion, 'in', 'la de token entra')
+    t.is(v.items[0].texto, '1.5', 'con sus 6 decimales')
+    t.is(v.items[1].direccion, 'out', 'y la nativa sale')
+  } finally {
+    exp.cerrar()
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: si el explorer se cae, el historial cae al RPC y lo DICE', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const mia = '0x' + 'ab'.repeat(20)
+
+  const exp = await explorerFalso(() => ({ status: 503, body: { error: 'caido' } }))
+  const rpc = await rpcFalso((p) => {
+    if (p.method === 'eth_blockNumber') return { result: '0x186a0' }
+    if (p.method === 'eth_getLogs') {
+      // Solo los que TIENEN a esta wallet de destino, para que la respuesta
+      // dependa de los topics y no sea la misma lista dos veces.
+      const topics = (p.params && p.params[0] && p.params[0].topics) || []
+      if (!topics[2]) return { result: [] }
+      return {
+        result: [
+          {
+            address: '0x' + 'ef'.repeat(20),
+            transactionHash: '0x' + '33'.repeat(32),
+            topics: [topics[0], '0x' + '00'.repeat(12) + 'cd'.repeat(20), topics[2]],
+            data: '0x1e8480',
+            blockNumber: '0x64'
+          }
+        ]
+      }
+    }
+    return { result: null }
+  })
+
+  gw.setEconomic(wallet.economicDe(mia))
+  gw.setWalletRed({
+    nombre: 'plasma-testnet',
+    caip2: 'eip155:9746',
+    chainId: 9746,
+    rpc: rpc.url,
+    explorer: 'https://testnet.plasmascan.to',
+    explorerApi: exp.url,
+    mainnet: false
+  })
+
+  try {
+    const r = await pedir('GET', '/v1/wallet/history', { key: KEY })
+    t.is(r.status, 200)
+    t.ok(r.json.ok, 'se leyo algo')
+    t.is(r.json.fuente, 'logs', 'del respaldo, porque el explorer contesto 503')
+    t.is(r.json.items.length, 1, 'con el movimiento que vio')
+    t.ok(r.json.error && /explorer/.test(r.json.error), 'y dice que el explorer fallo')
+    // LO QUE EL RESPALDO NO VE tiene que estar escrito: sin esto, una lista
+    // corta se leeria como "esto es todo lo que pasó".
+    t.ok(r.json.parcial, 'y que lo que se ve es un subconjunto: ' + r.json.parcial)
+    t.ok(/nativo/.test(r.json.parcial), 'nombrando que el nativo no entra por acá')
+
+    // Sin el token guardado no hay decimales, y el monto NO se escala.
+    const pw = await import('../qvac/panel-wallet.mjs')
+    const v = pw.vistaDeHistorial(r.json)
+    t.ok(v.items[0].montoCrudo, 'el monto queda sin escalar')
+    t.ok(pw.htmlDeHistorial(v).indexOf('unidades crudas') !== -1, 'y la pantalla lo dice')
+  } finally {
+    exp.cerrar()
+    rpc.cerrar()
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: si las dos fuentes fallan, el historial dice que no pudo, no que no hay nada', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  const exp = await explorerFalso(() => ({ status: 503, body: {} }))
+  const rpc = await rpcFalso(() => ({ error: { message: 'rate limited' } }))
+
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed({
+    nombre: 'plasma-testnet',
+    caip2: 'eip155:9746',
+    chainId: 9746,
+    rpc: rpc.url,
+    explorer: 'https://testnet.plasmascan.to',
+    explorerApi: exp.url,
+    mainnet: false
+  })
+
+  try {
+    const r = await pedir('GET', '/v1/wallet/history', { key: KEY })
+    t.is(r.status, 200, 'no es un 500: el nodo no se rompio, la cadena no contesto')
+    t.absent(r.json.ok, 'pero NO dice que la lectura funciono')
+    t.is(r.json.items.length, 0)
+    t.is(r.json.fuente, null, 'sin fuente: nadie contesto')
+    // Las dos causas, no una: si mañana solo falla una, el motivo tiene que
+    // decir cual.
+    t.ok(/explorer/.test(r.json.error), 'el motivo nombra al explorer')
+    t.ok(/RPC/i.test(r.json.error), 'y al RPC: ' + r.json.error)
+
+    // Y el panel lo dibuja como "—" con el motivo, nunca como lista vacia.
+    const pw = await import('../qvac/panel-wallet.mjs')
+    const html = pw.htmlDeHistorial(pw.vistaDeHistorial(r.json))
+    t.ok(html.indexOf('—') !== -1, 'la pantalla dice "—"')
+    t.is(html.indexOf('Sin movimientos'), -1, 'y NUNCA "sin movimientos"')
+  } finally {
+    exp.cerrar()
+    rpc.cerrar()
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// FASE 12 — enviar, por HTTP.
+//
+// El sender se mockea: lo que se prueba es el endpoint. Y lo que mas importa
+// probar es lo que NO deja pasar — un monto con mas decimales de los que el
+// activo tiene, un token que este nodo no conoce, y mainnet sin escribirlo.
+// ---------------------------------------------------------------------------
+
+// Un sender que anota lo que le pidieron en vez de firmar nada. Es la MISMA
+// forma que bin.mjs le pasa al gateway con la cuenta de WDK adentro.
+function senderFalso(fallar) {
+  const pedidos = []
+  return {
+    pedidos,
+    enviar: async (p) => {
+      pedidos.push({ que: 'enviar', ...p })
+      if (fallar) throw new Error(fallar)
+      return { hash: '0x' + 'ab'.repeat(32), fee: 21000000000000n }
+    },
+    cotizar: async (p) => {
+      pedidos.push({ que: 'cotizar', ...p })
+      if (fallar) throw new Error(fallar)
+      return { fee: 21000000000000n }
+    }
+  }
+}
+
+function redDePrueba(mainnet) {
+  return {
+    nombre: mainnet ? 'plasma' : 'plasma-testnet',
+    caip2: mainnet ? 'eip155:9745' : 'eip155:9746',
+    chainId: mainnet ? 9745 : 9746,
+    rpc: 'http://127.0.0.1:1/no-existe',
+    explorer: mainnet ? 'https://plasmascan.to' : 'https://testnet.plasmascan.to',
+    mainnet: !!mainnet
+  }
+}
+
+test('FASE 12: /v1/wallet/send cotiza sin firmar, y después envía', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const destino = '0x' + 'cd'.repeat(20)
+
+  const sender = senderFalso(null)
+  gw.setWalletSender(sender)
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed(redDePrueba(false))
+
+  try {
+    const sinKey = await pedir('POST', '/v1/wallet/send', { body: { destino, monto: '1' } })
+    t.is(sinKey.status, 401, 'el gate es el mismo que el resto de /v1/wallet')
+
+    // Cotizar NO firma: el sender tiene que ver 'cotizar' y nada mas.
+    const q = await pedir('POST', '/v1/wallet/send/quote', {
+      key: KEY,
+      body: { destino, monto: '1.5', asset: 'native' }
+    })
+    t.is(q.status, 200)
+    t.is(sender.pedidos.length, 1, 'una sola llamada al sender')
+    t.is(sender.pedidos[0].que, 'cotizar', 'y fue a cotizar, no a enviar')
+    t.is(
+      sender.pedidos[0].monto,
+      1500000000000000000n,
+      '1.5 con 18 decimales llega como BigInt exacto, sin pasar por punto flotante'
+    )
+    t.is(q.json.fee, '21000000000000', 'el gas vuelve como texto, no como número de JS')
+    t.is(q.json.feeSymbol, 'XPL', 'y en el activo NATIVO, aunque se mande un token')
+    t.is(q.json.asset, 'native', 'el activo vuelve normalizado, para enviar el mismo que se cotizó')
+    t.ok(q.json.assetVerificado, 'el nativo sí está verificado: es la cadena misma')
+
+    const r = await pedir('POST', '/v1/wallet/send', {
+      key: KEY,
+      body: { destino, monto: '1.5', asset: 'native' }
+    })
+    t.is(r.status, 200)
+    t.is(sender.pedidos[1].que, 'enviar', 'ahora sí se envía')
+    t.is(r.json.hash, '0x' + 'ab'.repeat(32))
+    t.is(
+      r.json.estado,
+      'pendiente',
+      'difundida, NO confirmada: que entre en un bloque lo dice la cadena'
+    )
+    t.is(
+      r.json.explorer,
+      'https://testnet.plasmascan.to/tx/0x' + 'ab'.repeat(32),
+      'con el link para seguirla'
+    )
+  } finally {
+    gw.setWalletSender(null)
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: /v1/wallet/send rechaza lo que no puede mandar bien', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const destino = '0x' + 'cd'.repeat(20)
+
+  const sender = senderFalso(null)
+  const store = storeDeTokensFalso({
+    'eip155:9746': [{ address: '0x' + 'ef'.repeat(20), symbol: 'tUSD', decimals: 6 }]
+  })
+  gw.setWalletSender(sender)
+  gw.setWalletTokensStore(store)
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed(redDePrueba(false))
+
+  try {
+    const malos = [
+      [{ destino: '0xNOPE', monto: '1' }, 'destino', 'un destino que no es una dirección'],
+      [{ destino, monto: '0' }, 'monto', 'monto cero'],
+      [{ destino, monto: '-1' }, 'monto', 'monto negativo'],
+      [{ destino, monto: 'mucha' }, 'monto', 'un monto que no es número'],
+      [
+        { destino, monto: '1', asset: '0x' + '99'.repeat(20) },
+        'asset_desconocido',
+        'un token que este nodo no conoce'
+      ],
+      [{ destino, monto: '1', asset: 'usdt' }, 'asset', 'un activo con nombre inventado']
+    ]
+    for (const [body, code, que] of malos) {
+      const r = await pedir('POST', '/v1/wallet/send', { key: KEY, body })
+      t.is(r.status, 400, 'se rechaza ' + que)
+      t.is(r.json.error.code, code, 'con el código que dice cuál campo: ' + que)
+    }
+
+    // MAS DECIMALES DE LOS QUE EL ACTIVO TIENE. Es el que mas importa: truncarlo
+    // en silencio manda menos plata de la que la persona escribió, y redondear
+    // para arriba manda mas. No se hace ninguna de las dos: se corta y se dice.
+    const preciso = await pedir('POST', '/v1/wallet/send', {
+      key: KEY,
+      body: { destino, monto: '1.1234567', asset: '0x' + 'ef'.repeat(20) }
+    })
+    t.is(preciso.status, 400, '7 decimales en un token de 6 se rechaza')
+    t.is(preciso.json.error.code, 'monto_precision')
+    t.ok(/no se redondea solo/.test(preciso.json.error.message), 'diciendo por qué')
+
+    t.is(sender.pedidos.length, 0, 'y NADA de eso llegó a la wallet: se corta antes de firmar')
+
+    // El token conocido sí pasa, con sus 6 decimales.
+    const bueno = await pedir('POST', '/v1/wallet/send', {
+      key: KEY,
+      body: { destino, monto: '1.5', asset: '0x' + 'ef'.repeat(20) }
+    })
+    t.is(bueno.status, 200)
+    t.is(sender.pedidos[0].monto, 1500000n, '1.5 tUSD son 1500000 unidades base, no 1.5e18')
+    t.is(sender.pedidos[0].asset, '0x' + 'ef'.repeat(20), 'y va como transferencia de token')
+
+    // Un token sin verificar lo dice hasta en la cotización, que es la pantalla
+    // donde la persona decide.
+    const q = await pedir('POST', '/v1/wallet/send/quote', {
+      key: KEY,
+      body: { destino, monto: '1', asset: '0x' + 'ef'.repeat(20) }
+    })
+    t.absent(q.json.assetVerificado, 'un token agregado a mano nunca figura como verificado')
+  } finally {
+    gw.setWalletSender(null)
+    gw.setWalletTokensStore(null)
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: en MAINNET no se manda sin escribir MAINNET', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const destino = '0x' + 'cd'.repeat(20)
+
+  const sender = senderFalso(null)
+  gw.setWalletSender(sender)
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed(redDePrueba(true))
+
+  try {
+    const sinConfirmar = await pedir('POST', '/v1/wallet/send', {
+      key: KEY,
+      body: { destino, monto: '1', asset: 'native' }
+    })
+    t.is(sinConfirmar.status, 400, 'D30: mainnet no se toca sin que alguien lo escriba')
+    t.is(sinConfirmar.json.error.code, 'confirmar_mainnet')
+    // El mensaje dice QUE se estaba por mandar y A DONDE: un "confirmá" pelado
+    // se confirma sin leer.
+    t.ok(/1 XPL/.test(sinConfirmar.json.error.message), 'el aviso dice el monto')
+    t.ok(/plata real/.test(sinConfirmar.json.error.message), 'y que es plata real')
+    t.is(sender.pedidos.length, 0, 'y no se firmó nada')
+
+    // Cotizar en mainnet NO pide confirmación: mirar cuánto sale no mueve nada.
+    const q = await pedir('POST', '/v1/wallet/send/quote', {
+      key: KEY,
+      body: { destino, monto: '1', asset: 'native' }
+    })
+    t.is(q.status, 200, 'cotizar en mainnet no pide confirmar: no mueve plata')
+    t.ok(q.json.mainnet, 'pero avisa que es mainnet, para que la revisión lo grite')
+
+    const con = await pedir('POST', '/v1/wallet/send', {
+      key: KEY,
+      body: { destino, monto: '1', asset: 'native', confirmar: 'MAINNET' }
+    })
+    t.is(con.status, 200, 'escrito MAINNET, se manda')
+    t.is(con.json.red, 'plasma')
+  } finally {
+    gw.setWalletSender(null)
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: si la cadena rechaza, el motivo llega entero y no se finge un envío', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  // Lo que tira ethers de verdad: el mensaje útil enterrado en un volcado del
+  // request entero. Este string es el que devolvió Plasma testnet, copiado.
+  const CRUDO =
+    'insufficient funds (transaction={ "from": "0x6858…", "to": "0xcdcd…", ' +
+    '"value": "0x6f05b59d3b20000" }, info={ "error": { "code": -32003, "message": ' +
+    '"insufficient funds for gas * price + value: have 0 want 500000000000000000" }, ' +
+    '"payload": { "id": 2, "jsonrpc": "2.0", "method": "eth_estimateGas" } }, ' +
+    'code=INSUFFICIENT_FUNDS, version=6.17.0)'
+
+  gw.setWalletSender(senderFalso(CRUDO))
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed(redDePrueba(false))
+
+  try {
+    const r = await pedir('POST', '/v1/wallet/send', {
+      key: KEY,
+      body: { destino: '0x' + 'cd'.repeat(20), monto: '999999', asset: 'native' }
+    })
+    // 502 y no 500: el que dijo que no fue la cadena, no este nodo.
+    t.is(r.status, 502, 'el que rechazó fue la cadena, no el nodo')
+    t.is(r.json.error.code, 'envio_fallido')
+
+    // El mensaje que se lee es la FRASE, no el volcado: poner 600 caracteres de
+    // JSON en pantalla cumple la letra de "el motivo viaja" y rompe el espíritu,
+    // porque nadie lo lee.
+    t.is(
+      r.json.error.message,
+      'insufficient funds for gas * price + value: have 0 want 500000000000000000',
+      'el motivo se saca de adentro del volcado y se muestra legible'
+    )
+    // Pero NO se descarta: el volcado entero viaja al lado, a un click.
+    t.ok(r.json.error.detalle, 'y el volcado completo viaja igual')
+    t.ok(/eth_estimateGas/.test(r.json.error.detalle), 'con todo lo que traía: no se pierde nada')
+
+    // Y el panel lo dibuja así: la frase arriba, el volcado adentro de un
+    // <details> que hay que abrir.
+    const pw = await import('../qvac/panel-wallet.mjs')
+    const html = pw.htmlDeEstadoEnvio({
+      estado: 'fallida',
+      error: r.json.error.message,
+      detalle: r.json.error.detalle
+    })
+    t.ok(html.indexOf('have 0 want') !== -1, 'la frase se ve sin abrir nada')
+    t.ok(html.indexOf('<details') !== -1, 'y el volcado queda a un click')
+
+    t.is(r.json.hash, undefined, 'sin hash: no hay transacción que buscar')
+  } finally {
+    gw.setWalletSender(null)
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: un envío que no vuelve NO se reporta como fallado', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  // Es el caso medido contra Plasma testnet: la llamada de red de ethers a
+  // veces no vuelve nunca, y ademas deja el proveedor trabado. Sin reloj, el
+  // panel gira para siempre; con un reloj mal contestado, alguien lee "falló",
+  // manda de nuevo y paga dos veces.
+  //
+  // Y ESTE TEST ES, ADEMAS, LA PRUEBA DEL TIC. El reloj es un `setTimeout`, y
+  // bajo Bare un `setTimeout` no dispara si el loop se durmio (ver la nota de
+  // `setWalletSender` en gateway.mjs). Si alguien sacara ese tic, este test
+  // dejaria de pasar — no por el mensaje, sino porque no llegaria ninguno.
+  const colgado = { enviar: () => new Promise(() => {}), cotizar: () => new Promise(() => {}) }
+  gw.setWalletSender(colgado)
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed(redDePrueba(false))
+
+  try {
+    const r = await pedir('POST', '/v1/wallet/send', {
+      key: KEY,
+      body: { destino: '0x' + 'cd'.repeat(20), monto: '1', asset: 'native' }
+    })
+    t.is(r.status, 504, 'contesta, en vez de dejar la pantalla girando para siempre')
+    t.is(r.json.error.code, 'timeout_enviar')
+
+    // LO QUE NO PUEDE DECIR. La transacción pudo haberse difundido, y afirmar
+    // que falló es la mentira que hace que alguien pague dos veces.
+    const msg = r.json.error.message
+    t.is(msg.indexOf('falló'), -1, 'NUNCA dice que falló: puede haber salido')
+    t.is(msg.indexOf('no se envió'), -1, 'ni que no se envió')
+    t.ok(/NO se sabe/.test(msg), 'dice que no se sabe, que es la verdad')
+    t.ok(/explorer/.test(msg), 'y manda a mirar el explorer antes de reintentar')
+    t.ok(/dos veces/.test(msg), 'nombrando el riesgo concreto de reintentar')
+  } finally {
+    gw.setWalletSender(null)
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: una cotización que no vuelve SÍ se puede dar por no ocurrida', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  gw.setWalletSender({ enviar: () => new Promise(() => {}), cotizar: () => new Promise(() => {}) })
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  gw.setWalletRed(redDePrueba(false))
+
+  try {
+    const r = await pedir('POST', '/v1/wallet/send/quote', {
+      key: KEY,
+      body: { destino: '0x' + 'cd'.repeat(20), monto: '1', asset: 'native' }
+    })
+    t.is(r.status, 504, 'también contesta en vez de colgarse')
+    t.is(r.json.error.code, 'timeout_cotizar')
+    // Cotizar no firma NADA, así que acá sí se puede afirmar que no pasó nada.
+    // Es la diferencia con el test de arriba, y es toda la razón de que sean
+    // dos códigos distintos y no uno.
+    t.ok(
+      /No se firmó ni se envió nada/.test(r.json.error.message),
+      'y acá sí se puede afirmar que no pasó nada, porque cotizar no mueve nada'
+    )
+  } finally {
+    gw.setWalletSender(null)
+    gw.setEconomic(null)
+    gw.setWalletRed(null)
+  }
+})
+
+test('FASE 12: sin wallet abierta, enviar dice que no hay con qué firmar', async (t) => {
+  const gw = await import('../qvac/gateway.mjs')
+
+  gw.setWalletSender(null)
+  gw.setEconomic(null)
+
+  const r = await pedir('POST', '/v1/wallet/send', {
+    key: KEY,
+    body: { destino: '0x' + 'cd'.repeat(20), monto: '1' }
+  })
+  t.is(r.status, 503, 'no es un 500: falta la wallet, no se rompió nada')
+  t.ok(/no tiene una wallet abierta/.test(r.json.error.message), 'y dice exactamente qué falta')
 })
 
 test('cierra el facilitator falso', async (t) => {

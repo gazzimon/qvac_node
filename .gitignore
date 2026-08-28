@@ -41,6 +41,7 @@ keys/
 wallet.json
 wallet.pass
 wallet.red
+wallet.tokens.json
 seed.txt
 mnemonic.txt
 

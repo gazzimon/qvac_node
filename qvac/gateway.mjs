@@ -40,6 +40,7 @@ import * as quota from './quota.mjs'
 import { pickCandidate, estaSaturado } from './routing.mjs'
 // Ver la nota de upstream.mjs: bajo Bare esto no es un global.
 import AbortController from 'bare-abort-controller'
+import env from 'bare-env'
 
 const MOCK_REPLIES = {
   'facturas-ar': (prompt) =>
@@ -166,8 +167,19 @@ function chunkEvent({ id, created, model, delta, finishReason = null }) {
 
 // La forma exacta de un error de OpenAI. Los clientes (incluido Hermes) leen
 // `error.message`; devolver un string plano los deja sin mensaje que mostrar.
-function sendError(res, statusCode, message, { type = 'invalid_request_error', code = null } = {}) {
-  const payload = JSON.stringify({ error: { message, type, code } })
+// FASE 12 — `detalle` es opcional y solo aparece cuando hay algo mas largo que
+// el mensaje: el volcado crudo de la cadena, que el panel deja a un click. Un
+// campo de mas no rompe a ningun cliente de OpenAI —los suyos leen `message`—
+// y evita tener que elegir entre un mensaje legible y uno completo.
+function sendError(
+  res,
+  statusCode,
+  message,
+  { type = 'invalid_request_error', code = null, detalle = null } = {}
+) {
+  const payload = JSON.stringify({
+    error: { message, type, code, ...(detalle && detalle !== message ? { detalle } : {}) }
+  })
   res.writeHead(statusCode, { 'Content-Type': 'application/json' })
   res.end(payload)
 }
@@ -510,6 +522,91 @@ export function setWalletNetworkSetter(fn) {
   return !!walletNetworkSetter
 }
 
+// FASE 12 — los tokens que el panel vigila, administrados desde Settings.
+//
+// Mismo patron que `setWalletNetworkSetter`: `bin.mjs` arma las tres funciones
+// con `dirWallet` en su closure y las lee/escribe con `wallet.leerTokens` /
+// `wallet.guardarTokens`, asi el gateway sigue sin importar `wallet.mjs`.
+//
+// La clave es el CAIP-2 de la red: una address de token no vale cross-chain
+// (ver el bloque de `ARCHIVO_TOKENS` en wallet.mjs).
+let walletTokensStore = null
+
+export function setWalletTokensStore(store) {
+  walletTokensStore =
+    store && typeof store.listar === 'function' && typeof store.agregar === 'function'
+      ? store
+      : null
+  return !!walletTokensStore
+}
+
+// FASE 12 — datos de diagnostico para Settings. Solo lectura y nada secreto: la
+// ruta del keystore y la version ya estan en el log de arranque, que para
+// cuando algo no cuadra ya scrolleo.
+let walletInfo = null
+
+export function setWalletInfo(info) {
+  walletInfo = info || null
+  return walletInfo
+}
+
+// FASE 12 — mandar plata desde el panel. Es la MISMA invariante que
+// `setWalletSigner`, un paso mas lejos: bin.mjs abre el keystore, se queda con
+// la cuenta de WDK y le pasa acá dos funciones —`enviar` y `cotizar`—. El
+// gateway puede pedir una transferencia; no puede leer la seed ni la clave.
+//
+// El panel manda tres strings (destino, monto, activo) y este proceso arma,
+// firma y difunde. Del navegador NUNCA sale una clave.
+let walletSender = null
+
+// -----------------------------------------------------------------------------
+// EL TIC, Y POR QUE UN NODO CON WALLET LATE Y UNO SIN WALLET NO
+// -----------------------------------------------------------------------------
+//
+// Esto no es paranoia ni una espera "por las dudas": es un comportamiento
+// MEDIDO, aislado en las dos direcciones contra Plasma testnet.
+//
+// EL SINTOMA. Abrir /wallet y tocar "Revisar" dejaba el request colgado para
+// siempre. El MISMO request por `curl` contestaba en 220 ms. Y una vez colgado,
+// el proveedor de ethers quedaba trabado: ningun envio posterior contestaba
+// —tampoco por curl— hasta reiniciar el nodo.
+//
+// LO QUE LO AISLA. Con el request colgado, el gateway seguia contestando
+// `/v1/agent` en 2 ms: el loop NO estaba bloqueado. Pero un `setTimeout` armado
+// en ese momento NUNCA disparaba — timers muertos, IO viva. Y ahi esta la
+// prueba en las dos direcciones: dejando un `setInterval` cualquiera latiendo
+// en el proceso, el mismo flujo anduvo 3 de 3; sacandolo, volvio a colgarse.
+//
+// O sea: bajo Bare, cuando lo unico pendiente es un timer, el loop puede no
+// despertarse a atenderlo, y ethers —que adentro espera en un timer para
+// seguir— se queda ahi. La causa vive abajo de este archivo, entre el runtime y
+// ethers, y esto es un PALIATIVO, no el arreglo: lo unico que hace es no dejar
+// que el loop se duerma.
+//
+// TRES COSAS QUE SE PROBARON Y NO ALCANZAN, para que nadie las repita:
+//   1. Un tic creado al momento de la llamada, adentro de `conReloj`: no sirve.
+//      El timer tiene que estar YA latiendo de antes.
+//   2. El mismo tic con `unref()`: tampoco. `unref()` significa justamente "no
+//      despiertes el loop por esto", que es lo contrario de lo que hace falta.
+//   3. Darle cuerda a ethers una vez al arrancar (`calentar`): ayuda a saber si
+//      el RPC responde, pero no evita el cuelgue.
+//
+// Por eso late mientras hay wallet. Un nodo que solo consume no paga nada: el
+// tic arranca con `setWalletSender` y se apaga si la wallet se va.
+const TIC_MS = 250
+let tic = null
+
+export function setWalletSender(sender) {
+  walletSender = sender && typeof sender.enviar === 'function' ? sender : null
+  if (walletSender && !tic) {
+    tic = setInterval(() => {}, TIC_MS)
+  } else if (!walletSender && tic) {
+    clearInterval(tic)
+    tic = null
+  }
+  return !!walletSender
+}
+
 // FASE 9 / D24 — con que se firma la atestacion de lo que este nodo sirvio.
 //
 // Es una FUNCION, no una clave: bin.mjs abre el keystore, se queda con la
@@ -560,6 +657,145 @@ function balanceOfData(address) {
   return (
     '0x70a08231' + '000000000000000000000000' + String(address).toLowerCase().replace(/^0x/, '')
   )
+}
+
+// FASE 12 — UN `eth_call` QUE DEVUELVE VACIO NO ES UN SALDO CERO.
+//
+// Llamar `balanceOf` contra una address donde NO hay contrato no revierte: el
+// nodo contesta `0x`, o sea "ningun dato". `BigInt('0x')` no parsea y el panel
+// terminaria dibujando "0", que se lee como "no tenes nada de este token"
+// cuando lo cierto es que ahi no hay token ninguno.
+//
+// Es el modo de falla mas probable de la lista de tokens a mano —una address
+// tipeada mal, o la del token de OTRA red— y es justo donde un cero tranquiliza
+// en vez de avisar. Un `uint256` son 32 bytes: menos que eso no es una
+// respuesta, y se dice.
+function balanceDelCall(raw) {
+  const s = String(raw == null ? '' : raw)
+  if (!/^0x[0-9a-fA-F]{64,}$/.test(s)) {
+    return {
+      raw: null,
+      error:
+        'el contrato no devolvió un balance (respondió ' +
+        (s === '0x' || s === '' ? 'vacío' : JSON.stringify(s.slice(0, 12) + '…')) +
+        '): puede que en esa dirección no haya un token en esta red'
+    }
+  }
+  return { raw: s, error: null }
+}
+
+// FASE 12 — un GET contra una API HTTP que devuelve JSON (el explorer). Gemelo
+// de `rpcCall`, que es POST contra el RPC: son dos protocolos distintos y
+// mezclarlos en una funcion "generica" solo esconde cual de los dos fallo.
+async function httpGetJson(url) {
+  const mod = await import('bare-fetch')
+  const fetch = mod.default || mod.fetch || mod
+  const r = await fetch(url, { headers: { Accept: 'application/json' } })
+  if (!r.ok) throw new Error('HTTP ' + r.status)
+  return r.json()
+}
+
+// El topic0 de `Transfer(address,address,uint256)`, que es como se reconoce un
+// movimiento de ERC-20 en los logs. Es una constante de la ABI de ERC-20, no
+// una eleccion nuestra.
+const TOPIC_TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+
+// Una address como topic: 32 bytes, alineada a la derecha.
+function comoTopic(address) {
+  return '0x000000000000000000000000' + String(address).toLowerCase().replace(/^0x/, '')
+}
+
+// -----------------------------------------------------------------------------
+// FASE 12 — POR QUE HAY UN RELOJ ALREDEDOR DE LA WALLET
+// -----------------------------------------------------------------------------
+//
+// Medido contra Plasma testnet, no supuesto: la PRIMERA llamada de red que hace
+// ethers desde adentro del gateway a veces no vuelve nunca. Y cuando eso pasa,
+// no se cuelga solo ese request: ethers encola todo detras de su deteccion de
+// red, asi que el proveedor queda trabado y NINGUN envio posterior contesta
+// hasta reiniciar el nodo. Reproducido abriendo el panel y tocando "Revisar":
+// el request queda pendiente para siempre y un `curl` posterior tambien.
+//
+// El reloj no arregla la causa —vive abajo, entre ethers y el runtime— pero
+// convierte "la pantalla gira para siempre" en "esto tardo demasiado, y este es
+// el motivo", que es la diferencia entre un bug y una falla que se puede leer.
+//
+// LOS DOS TIEMPOS SON DISTINTOS PORQUE LAS DOS FALLAS SON DISTINTAS:
+//
+//   cotizar  no firma ni difunde nada. Si vence, no paso NADA, y se puede decir
+//            "no se pudo estimar" sin ninguna duda.
+//
+//   enviar   ya puede haber firmado y difundido cuando el reloj vence. Ahi
+//            "fallo" seria una MENTIRA peligrosa: alguien que lee "fallo"
+//            manda de nuevo y paga dos veces. Por eso el mensaje de ese caso
+//            dice que no se sabe, y manda a mirar el explorer. Es el unico
+//            lugar del panel donde la respuesta honesta es "no sé".
+// Se pueden pisar por entorno. No es un gancho para los tests —aunque la suite
+// los use para no tardar dos minutos—: un RPC lento de verdad existe, y el
+// operador que lo tiene no deberia tener que editar el codigo para darle aire.
+const TIMEOUT_COTIZAR_MS = Number(env.PYRUS_WALLET_TIMEOUT_COTIZAR_MS) || 20000
+const TIMEOUT_ENVIAR_MS = Number(env.PYRUS_WALLET_TIMEOUT_ENVIAR_MS) || 90000
+
+// El reloj propiamente dicho. Puede disparar gracias al tic de
+// `setWalletSender`: sin el, este mismo `setTimeout` tampoco se ejecutaba, que
+// es como se descubrio todo aquello.
+function conReloj(promesa, ms) {
+  let reloj = null
+  const vencer = new Promise((_, rechazar) => {
+    reloj = setTimeout(() => rechazar(new Error('__timeout__')), ms)
+    reloj.unref?.()
+  })
+  return Promise.race([promesa, vencer]).finally(() => {
+    clearTimeout(reloj)
+  })
+}
+
+// FASE 12 — el motivo por el que la cadena rechazo un envio, legible.
+//
+// Lo que tira ethers trae el mensaje util —"insufficient funds for gas * price
+// + value: have 0 want 500000000000000000"— ENTERRADO adentro de un volcado del
+// request completo, de 600 caracteres. Poner eso en la pantalla es cumplir la
+// letra de "el motivo viaja" y romper el espiritu: nadie lo lee.
+//
+// Se saca la frase de adentro y se devuelve TAMBIEN el texto completo, que el
+// panel deja a un click. No se descarta nada: se ordena.
+function motivoDeCadena(err) {
+  const completo = String((err && err.message) || err)
+  // El mensaje del nodo viene en `info.error.message` del volcado de ethers.
+  const m = completo.match(/"message":\s*"([^"]+)"/)
+  if (m && m[1]) return { motivo: m[1], detalle: completo }
+  // Sin volcado, la primera linea alcanza; el resto suele ser el stack.
+  const primera = completo.split('\n')[0].trim()
+  return { motivo: primera.length > 200 ? primera.slice(0, 200) + '…' : primera, detalle: completo }
+}
+
+// Un numero de bloque hex para ordenar. Lo que no parsee es 0 y no un throw:
+// ordenar mal una lista es feo, romper el endpoint por un log raro es peor.
+function aBigIntSeguro(v) {
+  try {
+    return Number(BigInt(String(v == null ? 0 : v)))
+  } catch {
+    return 0
+  }
+}
+
+// FASE 12 — los tokens guardados para la red que esta activa AHORA.
+//
+// Se pregunta por `walletRed.caip2` y no se cachea: cambiar de red y seguir
+// mostrando los tokens de la anterior es mostrar el balance de otro contrato
+// bajo el mismo simbolo. Sin red o sin store, lista vacia — no es un error, es
+// un nodo que todavia no agrego ninguno.
+function tokensDeLaRedActiva() {
+  if (!walletTokensStore || !walletRed || !walletRed.caip2) return []
+  try {
+    const l = walletTokensStore.listar(walletRed.caip2)
+    return Array.isArray(l) ? l : []
+  } catch (err) {
+    console.error(
+      `[wallet] no se pudieron leer los tokens guardados: ${(err && err.message) || err}`
+    )
+    return []
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2455,7 +2691,9 @@ async function onRequest(req, res) {
             { to: t.asset, data: balanceOfData(address) },
             'latest'
           ])
-          fila.raw = String(raw == null ? '0x0' : raw)
+          const leido = balanceDelCall(raw)
+          fila.raw = leido.raw
+          if (leido.error) fila.error = leido.error
         } catch (err) {
           fila.raw = null
           fila.error = (err && err.message) || String(err)
@@ -2463,7 +2701,57 @@ async function onRequest(req, res) {
         tokens.push(fila)
       }
 
-      return sendJson(res, 200, { configurada: true, address, red, nativo, tokens, error })
+      // FASE 12 — y los que el operador agrego a mano desde Settings, que son
+      // POR RED. Se leen con el MISMO `eth_call` a `balanceOf` que USD₮0: no hay
+      // un camino distinto para un token "de segunda", solo una marca distinta.
+      //
+      // `verificado:false` sin excepcion: nadie le pregunto nada a la cadena, ni
+      // siquiera si ahi vive un ERC-20. Y si el `eth_call` falla, `raw` queda en
+      // null con el motivo — un token que no se pudo leer no es un token vacio.
+      const guardados = tokensDeLaRedActiva()
+      for (const g of guardados) {
+        // Un token que ya esta en la lista (USD₮0 agregado tambien a mano) no se
+        // duplica: se mostraria dos veces el mismo saldo.
+        if (tokens.some((t) => String(t.address).toLowerCase() === g.address)) continue
+        const fila = {
+          symbol: g.symbol,
+          name: g.symbol,
+          address: g.address,
+          decimals: g.decimals,
+          verificado: false
+        }
+        try {
+          const raw = await rpcCall(walletRed.rpc, 'eth_call', [
+            { to: g.address, data: balanceOfData(address) },
+            'latest'
+          ])
+          const leido = balanceDelCall(raw)
+          fila.raw = leido.raw
+          if (leido.error) fila.error = leido.error
+        } catch (err) {
+          fila.raw = null
+          fila.error = (err && err.message) || String(err)
+        }
+        tokens.push(fila)
+      }
+
+      return sendJson(res, 200, {
+        configurada: true,
+        address,
+        red,
+        nativo,
+        tokens,
+        error,
+        // FASE 12 — la lista PELADA que administra Settings, aparte de `tokens`,
+        // que ya viene con balances y mezclada con el nativo.
+        tokensGuardados: guardados,
+        info: {
+          rpc: walletRed.rpc || null,
+          rpcFijadoPorEnv: !!walletRed.rpcPropio,
+          keystore: (walletInfo && walletInfo.keystore) || null,
+          version: (walletInfo && walletInfo.version) || null
+        }
+      })
     }
     // FASE 11 — crear o importar la wallet de cobro desde el panel /wallet, sin
     // `pyrusllm wallet --crear`. Cuerpo vacio -> wallet nueva; `{ frase }` ->
@@ -2605,6 +2893,468 @@ async function onRequest(req, res) {
         }
         console.error(`[wallet] no se pudo guardar la red: ${(err && err.message) || err}`)
         return sendError(res, 500, 'no se pudo guardar la red: ' + ((err && err.message) || err))
+      }
+    }
+    // FASE 12 — mandar plata desde el panel.
+    //
+    // `/v1/wallet/send/quote` cotiza el gas y NO firma nada;
+    // `/v1/wallet/send` firma y difunde. Son dos rutas y no un flag porque la
+    // diferencia entre "mirar cuanto sale" y "mandarlo" no puede depender de un
+    // booleano en un body: un booleano que se pierde manda una transaccion.
+    //
+    // La FIRMA no pasa por acá. `walletSender` es un closure que bin.mjs armo
+    // con la cuenta de WDK; este proceso arma el monto y pide. La seed no cruza,
+    // igual que con las atestaciones de D24.
+    if (
+      req.method === 'POST' &&
+      (pathname === '/v1/wallet/send' || pathname === '/v1/wallet/send/quote')
+    ) {
+      const soloCotiza = pathname === '/v1/wallet/send/quote'
+      const motivoSend = rechazoPorKey(req)
+      if (motivoSend) return sendError(res, 401, motivoSend)
+
+      if (!walletSender || (soloCotiza && typeof walletSender.cotizar !== 'function')) {
+        return sendError(
+          res,
+          503,
+          'este nodo no tiene una wallet abierta con la que enviar: creala o revisá la passphrase',
+          { code: 'sin_wallet', type: 'service_unavailable' }
+        )
+      }
+      if (!walletRed) {
+        return sendError(res, 409, 'este nodo no tiene una red de cobro resuelta todavía', {
+          code: 'sin_red'
+        })
+      }
+
+      let envio
+      try {
+        envio = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'body inválido, se esperaba JSON')
+      }
+
+      const destino = String((envio && envio.destino) || '').trim()
+      if (!/^0x[0-9a-fA-F]{40}$/.test(destino)) {
+        return sendError(res, 400, 'el destino tiene que ser una dirección EVM (0x + 40 hex)', {
+          code: 'destino'
+        })
+      }
+
+      // El activo: 'native' o la address de un token que ESTE NODO conoce. No se
+      // acepta una address cualquiera del body — mandar a un contrato que nadie
+      // declaro es la forma mas facil de perder los fondos, y "lo escribiste vos"
+      // no es un consentimiento cuando el campo se autocompleta.
+      const asset = String((envio && envio.asset) || 'native').trim()
+      let decimales = 18
+      let simbolo = null
+      if (asset !== 'native') {
+        if (!/^0x[0-9a-fA-F]{40}$/.test(asset)) {
+          return sendError(
+            res,
+            400,
+            'el activo tiene que ser "native" o la dirección de un token',
+            {
+              code: 'asset'
+            }
+          )
+        }
+        const conocidos = tokensDeLaRedActiva().slice()
+        if (walletRed.caip2 === 'eip155:9745' && x402.PLASMA_USDT0_SIN_VERIFICAR) {
+          const u = x402.PLASMA_USDT0_SIN_VERIFICAR
+          conocidos.push({ address: u.asset.toLowerCase(), symbol: u.symbol, decimals: u.decimals })
+        }
+        const hallado = conocidos.find((tk) => tk.address.toLowerCase() === asset.toLowerCase())
+        if (!hallado) {
+          return sendError(
+            res,
+            400,
+            'ese token no está en la lista de esta red: agregalo en la configuración del panel primero',
+            { code: 'asset_desconocido' }
+          )
+        }
+        decimales = hallado.decimals
+        simbolo = hallado.symbol
+      } else {
+        simbolo =
+          walletRed.caip2 === 'eip155:9745' || walletRed.caip2 === 'eip155:9746' ? 'XPL' : null
+      }
+
+      // El monto llega como TEXTO decimal y se convierte a unidades base con
+      // BigInt. Nunca con `Number`: 0.1 en punto flotante no es 0.1, y a 18
+      // decimales esa diferencia es plata.
+      const montoTexto = String((envio && envio.monto) != null ? envio.monto : '').trim()
+      if (!/^\d+(\.\d+)?$/.test(montoTexto)) {
+        return sendError(res, 400, 'el monto tiene que ser un número decimal positivo', {
+          code: 'monto'
+        })
+      }
+      const partes = montoTexto.split('.')
+      const frac = (partes[1] || '').replace(/0+$/, '')
+      if (frac.length > decimales) {
+        return sendError(
+          res,
+          400,
+          `este activo tiene ${decimales} decimales y el monto trae ${frac.length}: ` +
+            'el resto no se puede mandar y no se redondea solo',
+          { code: 'monto_precision' }
+        )
+      }
+      const base =
+        BigInt(partes[0] || '0') * 10n ** BigInt(decimales) +
+        BigInt((partes[1] || '').padEnd(decimales, '0').slice(0, decimales) || '0')
+      if (base <= 0n) {
+        return sendError(res, 400, 'el monto tiene que ser mayor que cero', { code: 'monto' })
+      }
+
+      // D30 otra vez: mainnet no se toca sin que alguien lo escriba. Mismo
+      // patron que el selector de red — y acá pesa mas, porque esto no se puede
+      // deshacer reiniciando.
+      if (!soloCotiza && walletRed.mainnet && envio.confirmar !== 'MAINNET') {
+        return sendError(
+          res,
+          400,
+          `estás por mandar ${montoTexto} ${simbolo || 'unidades'} en ${walletRed.nombre}, ` +
+            'que es MAINNET y mueve plata real: mandá "confirmar":"MAINNET"',
+          { code: 'confirmar_mainnet' }
+        )
+      }
+
+      try {
+        if (soloCotiza) {
+          const q = await conReloj(
+            walletSender.cotizar({ destino, monto: base, asset }),
+            TIMEOUT_COTIZAR_MS
+          )
+          return sendJson(res, 200, {
+            // El gas se cobra SIEMPRE en el activo nativo, aunque lo que se
+            // mande sea un token. Decirlo evita la lectura de "sale 0.0001 tUSD".
+            fee: q && q.fee != null ? String(q.fee) : null,
+            feeDecimals: 18,
+            feeSymbol:
+              walletRed.caip2 === 'eip155:9745' || walletRed.caip2 === 'eip155:9746' ? 'XPL' : null,
+            monto: montoTexto,
+            simbolo,
+            destino,
+            // El activo vuelve NORMALIZADO para que el envio use el mismo sobre
+            // el que se cotizo: cotizar una cosa y mandar otra es el bug que
+            // esta forma de responder hace imposible.
+            asset,
+            red: walletRed.nombre,
+            mainnet: !!walletRed.mainnet,
+            // Un token que nadie verifico contra la cadena sigue sin verificar
+            // cuando se le manda plata, y ahi el costo del error es real.
+            assetVerificado: asset === 'native'
+          })
+        }
+
+        const r = await conReloj(
+          walletSender.enviar({ destino, monto: base, asset }),
+          TIMEOUT_ENVIAR_MS
+        )
+        const hash = r && r.hash ? String(r.hash) : null
+        console.log(
+          `[wallet] enviado ${montoTexto} ${simbolo || asset} a ${destino} en ` +
+            `${walletRed.nombre}: ${hash || 'sin hash'}`
+        )
+        return sendJson(res, 200, {
+          hash,
+          fee: r && r.fee != null ? String(r.fee) : null,
+          monto: montoTexto,
+          simbolo,
+          destino,
+          red: walletRed.nombre,
+          // `pendiente` y no `confirmada`: lo que devuelve el envio es que la
+          // transaccion se difundio, no que entro en un bloque. Decir
+          // "confirmada" acá seria afirmar algo que este nodo todavia no sabe.
+          estado: 'pendiente',
+          explorer: walletRed.explorer && hash ? walletRed.explorer + '/tx/' + hash : null
+        })
+      } catch (err) {
+        // El reloj vencio. Las dos mitades se contestan distinto porque lo que
+        // se sabe en cada una es distinto — ver la nota de `conReloj`.
+        if (err && err.message === '__timeout__') {
+          if (soloCotiza) {
+            console.error('[wallet] la estimacion de gas no volvio a tiempo')
+            return sendError(
+              res,
+              504,
+              'la cadena no contestó la estimación de gas a tiempo. No se firmó ni se envió nada.',
+              { code: 'timeout_cotizar', type: 'upstream_error' }
+            )
+          }
+          // NO se dice "falló": puede haber salido. Decir que fallo hace que
+          // alguien mande de nuevo y pague dos veces.
+          console.error(
+            '[wallet] el envio no volvio a tiempo: PUEDE haberse difundido. ' +
+              'Reiniciá el nodo antes de reintentar y mirá el explorer primero.'
+          )
+          return sendError(
+            res,
+            504,
+            'la cadena no contestó a tiempo y NO se sabe si la transacción salió. ' +
+              'Mirá la dirección en el explorer ANTES de volver a intentar: si ya se ' +
+              'difundió, reintentar la manda dos veces.',
+            { code: 'timeout_enviar', type: 'upstream_error' }
+          )
+        }
+        const { motivo, detalle } = motivoDeCadena(err)
+        console.error(`[wallet] no se pudo ${soloCotiza ? 'cotizar' : 'enviar'}: ${detalle}`)
+        // 502 y no 500: el que dijo que no fue la cadena o el RPC, no este nodo.
+        // El motivo va arriba y legible; el volcado completo viaja al lado, no
+        // se pierde — el panel lo deja a un click.
+        return sendError(res, 502, motivo, {
+          code: 'envio_fallido',
+          type: 'upstream_error',
+          detalle
+        })
+      }
+    }
+    // FASE 12 — los movimientos de la wallet de cobro, para el tab History.
+    //
+    // DOS FUENTES, Y EN ESTE ORDEN. La buena es la API del explorer
+    // (`walletRed.explorerApi`, ver la nota de `REDES` en wallet.mjs): devuelve
+    // las transacciones nativas y las transferencias de ERC-20 ya resueltas
+    // —con simbolo, decimales y timestamp—, que es lo que hace falta para
+    // dibujar una fila.
+    //
+    // El respaldo es `eth_getLogs` contra el RPC, que no depende de que haya un
+    // explorer. Ve MENOS y hay que decirlo: solo transferencias de ERC-20 (una
+    // transferencia nativa no emite log), solo de los ultimos bloques —el RPC
+    // de Plasma corta en 10.000 y lo dice con un error propio—, y sin simbolo
+    // salvo que el token este guardado. Sirve para "algo se movio", no para
+    // "esto es todo lo que paso".
+    //
+    // Si las DOS fallan, `ok:false` con el motivo. Una lista vacia diria "no
+    // hubo movimientos", que es una afirmacion sobre la cadena que nadie hizo.
+    if (req.method === 'GET' && pathname === '/v1/wallet/history') {
+      const motivoHist = rechazoPorKey(req)
+      if (motivoHist) return sendError(res, 401, motivoHist)
+
+      const address = economicPropio ? economicPropio.walletAddress : null
+      if (!address || !walletRed) {
+        return sendJson(res, 200, {
+          ok: true,
+          configurada: false,
+          address,
+          explorer: null,
+          items: [],
+          fuente: null,
+          error: null
+        })
+      }
+
+      const explorer = walletRed.explorer || null
+      // `caip2` viaja para que el panel sepa el simbolo del activo nativo sin
+      // tener que cruzar esta respuesta con la de balances.
+      const base = {
+        ok: true,
+        configurada: true,
+        address,
+        explorer,
+        caip2: walletRed.caip2 || null,
+        error: null
+      }
+      const fallos = []
+
+      // --- Fuente 1: la API del explorer ---
+      const api = walletRed.explorerApi ? String(walletRed.explorerApi).replace(/\/+$/, '') : null
+      if (api) {
+        try {
+          const raiz = api + '/address/' + address
+          // Las dos listas se piden juntas: son rutas distintas de la misma API
+          // y esperarlas en serie duplica la latencia del tab.
+          const [nativas, tokens] = await Promise.all([
+            httpGetJson(raiz + '/transactions?limit=25').catch((e) => ({ __err: e })),
+            httpGetJson(raiz + '/erc20-transfers?limit=25').catch((e) => ({ __err: e }))
+          ])
+          // Si fallaron las DOS es que la API no esta: se cae al respaldo. Si
+          // fallo una sola, lo que trajo la otra vale.
+          if (nativas && nativas.__err && tokens && tokens.__err) throw nativas.__err
+
+          const items = []
+          for (const tx of (nativas && nativas.items) || []) {
+            items.push({
+              tipo: 'native',
+              hash: tx.id || tx.txHash || null,
+              from: tx.from || null,
+              to: tx.to || null,
+              valor: tx.value == null ? null : String(tx.value),
+              decimals: 18,
+              symbol: null,
+              timestamp: tx.timestamp || null,
+              // `status` es booleano. Se traduce a las palabras que el panel
+              // dibuja y no se inventa una cuarta.
+              estado: tx.status === false ? 'fallida' : 'confirmada'
+            })
+          }
+          for (const tr of (tokens && tokens.items) || []) {
+            items.push({
+              tipo: 'erc20',
+              hash: tr.txHash || null,
+              from: tr.from || null,
+              to: tr.to || null,
+              valor: tr.amount == null ? null : String(tr.amount),
+              // Los decimales los dice el explorer, que los leyo del contrato.
+              // Sin ellos NO se formatea: el panel muestra unidades crudas.
+              decimals: tr.tokenDecimals == null ? null : Number(tr.tokenDecimals),
+              // OJO: el simbolo lo elige quien desplego el token, y en estas
+              // cadenas hay airdrops basura con nombres que son publicidad. Es
+              // texto de un tercero y el panel lo escapa como todo lo demas.
+              symbol: tr.tokenSymbol || null,
+              contrato: tr.tokenAddress || null,
+              timestamp: tr.timestamp || null,
+              estado: 'confirmada'
+            })
+          }
+
+          items.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
+          return sendJson(res, 200, {
+            ...base,
+            items: items.slice(0, 25),
+            fuente: 'explorer'
+          })
+        } catch (err) {
+          fallos.push('la API del explorer no contestó: ' + ((err && err.message) || err))
+        }
+      } else {
+        fallos.push('esta red no tiene API de explorer configurada')
+      }
+
+      // --- Fuente 2: eth_getLogs ---
+      try {
+        const ultimo = await rpcCall(walletRed.rpc, 'eth_blockNumber', [])
+        const alto = Number(BigInt(ultimo))
+        // 10.000 bloques es el tope que declara el RPC de Plasma ("eth_getLogs
+        // is limited to a 10,000 range"), medido contra la red. Se pide uno
+        // menos para que el rango inclusivo entre justo: pasarse devuelve un
+        // error y deja al panel sin NADA en vez de con poco.
+        const bajo = Math.max(0, alto - 9999)
+        const rango = { fromBlock: '0x' + bajo.toString(16), toBlock: '0x' + alto.toString(16) }
+        const [salidas, entradas] = await Promise.all([
+          rpcCall(walletRed.rpc, 'eth_getLogs', [
+            { ...rango, topics: [TOPIC_TRANSFER, comoTopic(address)] }
+          ]),
+          rpcCall(walletRed.rpc, 'eth_getLogs', [
+            { ...rango, topics: [TOPIC_TRANSFER, null, comoTopic(address)] }
+          ])
+        ])
+
+        // Los tokens guardados dan simbolo y decimales a los logs que los
+        // tengan; para el resto se dice `null` y el panel muestra la address.
+        const conocidos = {}
+        for (const g of tokensDeLaRedActiva()) conocidos[g.address.toLowerCase()] = g
+
+        const items = []
+        for (const log of [].concat(salidas || [], entradas || [])) {
+          const contrato = String(log.address || '').toLowerCase()
+          const meta = conocidos[contrato] || null
+          items.push({
+            tipo: 'erc20',
+            hash: log.transactionHash || null,
+            from: log.topics && log.topics[1] ? '0x' + log.topics[1].slice(-40) : null,
+            to: log.topics && log.topics[2] ? '0x' + log.topics[2].slice(-40) : null,
+            valor: log.data == null ? null : String(log.data),
+            // Sin el token guardado no se sabe cuantos decimales tiene, y ahi el
+            // monto NO se puede formatear: `null` hace que el panel muestre las
+            // unidades crudas en vez de dividir por un numero inventado.
+            decimals: meta ? meta.decimals : null,
+            symbol: meta ? meta.symbol : null,
+            contrato,
+            timestamp: null,
+            bloque: log.blockNumber || null,
+            estado: 'confirmada'
+          })
+        }
+        items.sort((a, b) => aBigIntSeguro(b.bloque) - aBigIntSeguro(a.bloque))
+
+        return sendJson(res, 200, {
+          ...base,
+          items: items.slice(0, 25),
+          fuente: 'logs',
+          // El panel lo dibuja: lo que se ve por acá es un subconjunto, y esa
+          // diferencia no puede quedar entre el nodo y el que mira la pantalla.
+          parcial:
+            'leído del RPC, no del explorer: solo transferencias de tokens de los ' +
+            'últimos 10.000 bloques, sin movimientos del activo nativo',
+          error: fallos.join(' · ') || null
+        })
+      } catch (err) {
+        fallos.push('el RPC tampoco: ' + ((err && err.message) || err))
+      }
+
+      // Las dos fallaron. Lista vacia con `ok:false` y el motivo: nadie afirma
+      // que no hubo movimientos.
+      return sendJson(res, 200, {
+        ...base,
+        ok: false,
+        items: [],
+        fuente: null,
+        error: 'no se pudo leer el historial — ' + fallos.join(' · ')
+      })
+    }
+    // FASE 12 — administrar los tokens que el panel vigila, desde Settings.
+    //
+    // POST agrega, DELETE quita, y las dos operan sobre la red ACTIVA: la
+    // address viaja sola porque la red la decide el nodo, no el navegador. Si
+    // el cliente pudiera elegir el CAIP-2, un panel abierto de antes podria
+    // escribir tokens en una red que ya no es la que esta corriendo.
+    if (pathname === '/v1/wallet/tokens' && (req.method === 'POST' || req.method === 'DELETE')) {
+      const motivoTok = rechazoPorKey(req)
+      if (motivoTok) return sendError(res, 401, motivoTok)
+
+      if (!walletTokensStore) {
+        return sendError(
+          res,
+          503,
+          'el nodo todavía no está listo para guardar tokens, probá de nuevo en unos segundos',
+          { code: 'no_listo', type: 'service_unavailable' }
+        )
+      }
+      if (!walletRed || !walletRed.caip2) {
+        return sendError(res, 409, 'este nodo no tiene una red de cobro resuelta todavía', {
+          code: 'sin_red'
+        })
+      }
+
+      let cuerpoTok
+      try {
+        cuerpoTok = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'body inválido, se esperaba JSON')
+      }
+
+      try {
+        if (req.method === 'DELETE') {
+          const address = String((cuerpoTok && cuerpoTok.address) || '').trim()
+          if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+            return sendError(res, 400, 'falta "address" (0x + 40 hex)', { code: 'forma' })
+          }
+          const lista = walletTokensStore.quitar(walletRed.caip2, address)
+          return sendJson(res, 200, { red: walletRed.caip2, tokens: lista || [] })
+        }
+
+        const lista = walletTokensStore.agregar(walletRed.caip2, {
+          address: cuerpoTok && cuerpoTok.address,
+          symbol: cuerpoTok && cuerpoTok.symbol,
+          decimals: cuerpoTok && cuerpoTok.decimals
+        })
+        // Se dice en el log: el operador acaba de declarar un contrato que nadie
+        // verifico, y eso es una decision suya que conviene que quede escrita.
+        console.log(
+          `[wallet] token agregado a ${walletRed.caip2}: ` +
+            `${cuerpoTok && cuerpoTok.symbol} ${cuerpoTok && cuerpoTok.address} — SIN VERIFICAR`
+        )
+        return sendJson(res, 200, { red: walletRed.caip2, tokens: lista || [] })
+      } catch (err) {
+        const msg = (err && err.message) || String(err)
+        // La validacion de forma vive en wallet.mjs y tira con el motivo
+        // adentro: se pasa tal cual, para que la persona sepa CUAL campo fallo.
+        if (/token invalido|no es un CAIP-2|array/.test(msg)) {
+          return sendError(res, 400, msg, { code: 'forma' })
+        }
+        console.error(`[wallet] no se pudo guardar el token: ${msg}`)
+        return sendError(res, 500, 'no se pudo guardar el token: ' + msg)
       }
     }
     // FASE 9 / D12 — recuperar el recibo de un request que se pago.

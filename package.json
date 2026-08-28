@@ -33,6 +33,7 @@
         "/wallet.json",
         "/wallet.pass",
         "/wallet.red",
+        "/wallet.tokens.json",
         "/upstreams.json",
         "/cli.js",
         "/node_modules",

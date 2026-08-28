@@ -2839,6 +2839,107 @@ test('D30.2: el rpc elegido llega hasta la cuenta, sin tocar la red', async (t) 
   tmp.limpiar()
 })
 
+// ---------------------------------------------------------------------------
+// FASE 12 — los tokens que el panel vigila, en disco.
+//
+// Lo que se vigila aca: que la validacion pase ANTES de escribir (un archivo
+// roto se descubriria en el proximo arranque, no ahora), que los tokens no se
+// mezclen entre redes (una address de token no vale cross-chain), y que un
+// archivo ausente o corrupto sea `{}` y no una excepcion que tumbe el panel.
+// ---------------------------------------------------------------------------
+
+test('FASE 12: los tokens del panel van por red, y se guardan validados', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const tmp = dirWalletTmp()
+
+  // Sin archivo no hay error: es el estado normal de un nodo recien instalado.
+  t.alike(wallet.leerTokens(tmp.dir), {}, 'sin archivo, tabla vacia y ningun throw')
+
+  const usdt = { address: '0x' + 'AB'.repeat(20), symbol: 'tUSD', decimals: 6 }
+  wallet.guardarTokens(tmp.dir, { 'eip155:9746': [usdt] })
+
+  const leidos = wallet.leerTokens(tmp.dir)
+  t.is(leidos['eip155:9746'].length, 1, 'round-trip: lo que se guardo se lee')
+  t.is(
+    leidos['eip155:9746'][0].address,
+    '0x' + 'ab'.repeat(20),
+    'la address se normaliza a minuscula: es la clave del dedupe'
+  )
+  t.is(leidos['eip155:9746'][0].symbol, 'tUSD', 'el simbolo se respeta tal cual')
+  t.is(leidos['eip155:9746'][0].decimals, 6)
+
+  // La MISMA address en OTRA red es otro token: no se pisan ni se mezclan.
+  // Es toda la razon por la que la clave del archivo es el CAIP-2.
+  wallet.guardarTokens(tmp.dir, {
+    'eip155:9746': [usdt],
+    'eip155:9745': [{ address: '0x' + 'ab'.repeat(20), symbol: 'USDT0', decimals: 6 }]
+  })
+  const dos = wallet.leerTokens(tmp.dir)
+  t.is(dos['eip155:9746'][0].symbol, 'tUSD', 'la testnet mantiene el suyo')
+  t.is(dos['eip155:9745'][0].symbol, 'USDT0', 'y mainnet el suyo, con la misma address')
+
+  // Agregar dos veces el mismo token es una pulsacion de mas, no un error.
+  const dedupe = wallet.guardarTokens(tmp.dir, {
+    'eip155:9746': [usdt, { ...usdt, address: usdt.address.toLowerCase() }]
+  })
+  t.is(dedupe['eip155:9746'].length, 1, 'dedupe por address en minuscula, sin tirar')
+
+  tmp.limpiar()
+})
+
+test('FASE 12: un token con forma invalida NO llega al disco', async (t) => {
+  const wallet = await import('../qvac/wallet.mjs')
+  const tmp = dirWalletTmp()
+
+  const bueno = { address: '0x' + 'ab'.repeat(20), symbol: 'tUSD', decimals: 6 }
+  wallet.guardarTokens(tmp.dir, { 'eip155:9746': [bueno] })
+
+  const malos = [
+    [{ address: '0xNOPE', symbol: 'X', decimals: 6 }, 'una address que no es 0x + 40 hex'],
+    [{ address: '0x' + 'ab'.repeat(19), symbol: 'X', decimals: 6 }, 'una address corta'],
+    [{ address: '0x' + 'cd'.repeat(20), symbol: '', decimals: 6 }, 'un simbolo vacio'],
+    [
+      { address: '0x' + 'cd'.repeat(20), symbol: 'x'.repeat(13), decimals: 6 },
+      'un simbolo de 13 caracteres'
+    ],
+    [{ address: '0x' + 'cd'.repeat(20), symbol: 'X', decimals: 37 }, 'decimales fuera de 0..36'],
+    [{ address: '0x' + 'cd'.repeat(20), symbol: 'X', decimals: -1 }, 'decimales negativos'],
+    [{ address: '0x' + 'cd'.repeat(20), symbol: 'X', decimals: 6.5 }, 'decimales no enteros']
+  ]
+  for (const [tok, que] of malos) {
+    t.exception(
+      () => wallet.guardarTokens(tmp.dir, { 'eip155:9746': [tok] }),
+      /token invalido/,
+      'se rechaza ' + que
+    )
+  }
+
+  // Y una red que no es un CAIP-2 EVM tampoco entra.
+  t.exception(
+    () => wallet.guardarTokens(tmp.dir, { plasma: [bueno] }),
+    /no es un CAIP-2/,
+    'la clave tiene que ser el CAIP-2, no el nombre corto'
+  )
+
+  // La validacion corre ANTES de tocar disco: despues de todos esos rechazos,
+  // el archivo sigue siendo el que estaba. Un guardado a medias dejaria al
+  // panel sin los tokens que ya tenia.
+  t.is(
+    wallet.leerTokens(tmp.dir)['eip155:9746'][0].symbol,
+    'tUSD',
+    'lo que ya estaba guardado sobrevive a los intentos rechazados'
+  )
+
+  // Un archivo editado a mano hasta romperlo se lee como vacio, no explota: el
+  // panel tiene que dibujar algo.
+  const fs = require('bare-fs')
+  const path = require('bare-path')
+  fs.writeFileSync(path.join(tmp.dir, wallet.ARCHIVO_TOKENS), 'no soy json')
+  t.alike(wallet.leerTokens(tmp.dir), {}, 'un archivo corrupto es {} y no una excepcion')
+
+  tmp.limpiar()
+})
+
 test('D30.2: las dos tablas de redes no se pueden desincronizar', async (t) => {
   // `qvac/wallet.mjs` corre bajo Bare y `scripts/redes-prueba.js` bajo Node, asi
   // que la tabla esta escrita dos veces -- igual que en verificar-x402.js, y por
@@ -3445,16 +3546,20 @@ test('un RPC caido no se dibuja como saldo cero', async (t) => {
   t.ok(html.indexOf('RPC HTTP 502') !== -1, 'el error del nodo aparece en el panel')
   t.ok(html.indexOf('dirección sin verificar') !== -1, 'el token con dir no verificada se marca')
 
-  // Send y Swap SIEMPRE deshabilitados en la vista de billetera: no manda plata.
-  for (const etiqueta of ['Send', 'Swap']) {
-    const idx = html.indexOf('>' + etiqueta + '</button>')
-    t.ok(idx !== -1, 'hay boton ' + etiqueta)
-    const desde = html.lastIndexOf('<button', idx)
-    t.ok(
-      html.slice(desde, idx).indexOf('disabled') !== -1,
-      etiqueta + ' se dibuja deshabilitado, no oculto'
-    )
-  }
+  // FASE 12 — Send ya manda (ver el punto (c) del encabezado de
+  // panel-wallet.mjs). Swap NO, y se sigue dibujando deshabilitado en vez de
+  // oculto: que se vea que existe y que todavia no.
+  const idxSwap = html.indexOf('⇄</span>Swap</button>')
+  t.ok(idxSwap !== -1, 'hay boton Swap')
+  const desdeSwap = html.lastIndexOf('<button', idxSwap)
+  t.ok(
+    html.slice(desdeSwap, idxSwap).indexOf('disabled') !== -1,
+    'Swap se dibuja deshabilitado, no oculto'
+  )
+  t.ok(
+    html.slice(desdeSwap, idxSwap).indexOf('title=') !== -1,
+    'y con el motivo, para que no se lea como un boton roto'
+  )
 })
 
 test('sin wallet el panel muestra el onboarding, no la billetera', async (t) => {
@@ -3550,6 +3655,763 @@ test('el panel /wallet lleva embebido el codigo de panel-wallet.mjs, entero y co
   t.ok(
     pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/network'") !== -1,
     'y el selector de red postea a /v1/wallet/network'
+  )
+})
+
+// ---------------------------------------------------------------------------
+// FASE 12 — Settings detras del ☰.
+//
+// El punto de esta pantalla es negativo tanto como positivo: lo que se prueba
+// no es solo que Settings exista, sino que la tarjeta ya NO dibuje
+// configuracion inline. Un selector de red suelto al lado del saldo es lo que
+// esta fase vino a sacar.
+// ---------------------------------------------------------------------------
+
+function vistaConWallet(pw, extra) {
+  return pw.vistaDeSaldos({
+    configurada: true,
+    address: '0x' + 'ab'.repeat(20),
+    red: { nombre: 'plasma-testnet', caip2: 'eip155:9746', mainnet: false },
+    nativo: { decimals: 18, raw: '0x0' },
+    ...(extra || {})
+  })
+}
+
+test('FASE 12: la tarjeta ya no dibuja configuracion, y el ☰ es la puerta', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const v = vistaConWallet(pw)
+  const html = pw.htmlDeWallet(v, '', 'assets')
+
+  // Lo que se fue.
+  t.is(html.indexOf('id="w-red-sel"'), -1, 'el <select> de red NO esta en la tarjeta')
+  t.is(html.indexOf('w-red-box'), -1, 'ni su caja')
+  t.is(html.indexOf('id="w-red-aplicar"'), -1, 'ni su boton de aplicar')
+
+  // Lo que quedo en su lugar.
+  t.ok(html.indexOf('id="w-set-abrir"') !== -1, 'hay un ☰ en el header')
+  t.ok(html.indexOf('☰') !== -1, 'dibujado con el glifo, no como texto')
+
+  // Y sin wallet no hay ☰: no hay nada que configurar todavia.
+  const sin = pw.htmlDeWallet(
+    pw.vistaDeSaldos({ configurada: false, puedeCrear: true }),
+    '',
+    'assets'
+  )
+  t.is(sin.indexOf('id="w-set-abrir"'), -1, 'sin wallet no se ofrece configuracion')
+})
+
+test('FASE 12: Settings junta el selector de red, los tokens y los datos del nodo', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const v = vistaConWallet(pw, {
+    tokensGuardados: [{ address: '0x' + 'cd'.repeat(20), symbol: 'tUSD', decimals: 6 }],
+    info: {
+      rpc: 'https://testnet-rpc.plasma.to',
+      rpcFijadoPorEnv: true,
+      keystore: 'C:\\Users\\alguien\\pyrusllm',
+      version: '0.12.0'
+    }
+  })
+  const html = pw.htmlDeSettings(v)
+
+  // El selector de red se MUDO acá tal cual, sin cambiarle el comportamiento.
+  t.ok(html.indexOf('id="w-red-sel"') !== -1, 'el selector de red vive acá ahora')
+  t.ok(html.indexOf('toma efecto al reiniciar') !== -1, 'sigue sin prometer hot-swap')
+
+  // Los tokens, con la marca que no se negocia.
+  t.ok(html.indexOf('tUSD') !== -1, 'el token guardado aparece')
+  t.ok(html.indexOf('6 decimales') !== -1, 'con sus decimales, que es lo que decide el monto')
+  t.ok(
+    html.indexOf('sin verificar contra la cadena') !== -1,
+    'y marcado sin verificar: nadie le pregunto nada a la cadena'
+  )
+  t.ok(html.indexOf('data-w-token-del="0x' + 'cd'.repeat(20) + '"') !== -1, 'se puede quitar')
+  t.ok(html.indexOf('id="w-token-add"') !== -1, 'y agregar otro')
+
+  // Los datos de diagnostico, incluido que el RPC lo fija el entorno.
+  t.ok(html.indexOf('testnet-rpc.plasma.to') !== -1, 'el RPC efectivo esta dicho')
+  t.ok(html.indexOf('PYRUS_WALLET_RPC') !== -1, 'y que lo fija el entorno')
+  t.ok(html.indexOf('0.12.0') !== -1, 'la version del nodo')
+
+  // Se puede cerrar: sin esto el overlay seria una trampa.
+  t.ok(html.indexOf('id="w-set-cerrar"') !== -1, 'y hay con que cerrarlo')
+
+  // Sin `info` no se inventan filas: un dato que el nodo no mando no se dibuja.
+  const pelada = pw.htmlDeSettings(vistaConWallet(pw))
+  t.is(pelada.indexOf('Versión del nodo'), -1, 'sin info del nodo, no hay bloque de info')
+  t.ok(pelada.indexOf('Ninguno todavía') !== -1, 'y la lista vacia lo dice, no queda muda')
+})
+
+test('FASE 12: la forma de un token se chequea igual en el panel y antes del disco', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+
+  const casos = [
+    [
+      { address: '0x' + 'ab'.repeat(20), symbol: 'tUSD', decimals: 6 },
+      true,
+      'un token bien formado'
+    ],
+    [
+      { address: '0x' + 'AB'.repeat(20), symbol: 'X', decimals: 0 },
+      true,
+      'mayusculas y 0 decimales'
+    ],
+    [{ address: '0xNOPE', symbol: 'X', decimals: 6 }, false, 'address que no es hex'],
+    [{ address: '0x' + 'ab'.repeat(19), symbol: 'X', decimals: 6 }, false, 'address corta'],
+    [{ address: '0x' + 'ab'.repeat(20), symbol: '', decimals: 6 }, false, 'simbolo vacio'],
+    [
+      { address: '0x' + 'ab'.repeat(20), symbol: 'x'.repeat(13), decimals: 6 },
+      false,
+      'simbolo de 13'
+    ],
+    [{ address: '0x' + 'ab'.repeat(20), symbol: 'X', decimals: 37 }, false, '37 decimales'],
+    [
+      { address: '0x' + 'ab'.repeat(20), symbol: 'X', decimals: 1.5 },
+      false,
+      'decimales fraccionarios'
+    ]
+  ]
+
+  for (const [tok, esperado, que] of casos) {
+    t.is(pw.tokenParecePlausible(tok), esperado, 'el panel: ' + que)
+    // Las dos reglas TIENEN que decir lo mismo: si el panel deja pasar algo que
+    // el nodo rechaza, la persona recibe un error despues de tipear; si el
+    // panel corta algo que el nodo aceptaria, un token valido se vuelve
+    // inagregable. Estan escritas dos veces (Bare no comparte modulo con el
+    // navegador) y esto es lo que impide que se desincronicen.
+    t.is(wallet.tokenParaGuardar(tok) !== null, esperado, 'y el nodo dice lo mismo de: ' + que)
+  }
+
+  t.absent(pw.tokenParecePlausible(null), 'null no rompe')
+  t.absent(pw.tokenParecePlausible({}), 'un objeto vacio tampoco')
+})
+
+test('FASE 12: el panel /wallet embebe Settings y lo cablea contra el endpoint', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const pages = await import('../qvac/pages.mjs')
+
+  for (const fn of ['htmlDeSettings', 'htmlDeListaTokens', 'tokenParecePlausible']) {
+    t.ok(pw.FUENTE_EMBEBIDA_WALLET.indexOf('var ' + fn + ' =') !== -1, fn + ' viaja al navegador')
+  }
+  t.ok(
+    pages.WALLET_HTML.indexOf('htmlDeSettings(vistaWallet)') !== -1,
+    'y hay un lugar de llamada, no solo la definicion'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/tokens'") !== -1,
+    'agregar y quitar tokens pega contra /v1/wallet/tokens'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf('if (settingsAbierto) return') !== -1,
+    'el poll de 15 s NO repinta con Settings abierto: un form a medio llenar no se pisa'
+  )
+  t.ok(pages.WALLET_HTML.indexOf("ev.key === 'Escape'") !== -1, 'y se cierra con Esc')
+})
+
+// ---------------------------------------------------------------------------
+// FASE 12 — el QR de depósito.
+//
+// El encoder esta escrito a mano (R2: cero dependencias), asi que la suite
+// tiene que hacer de lector: no alcanza con "hay un <svg>". Se prueba contra la
+// NORMA en tres puntos independientes — la informacion de formato publicada, el
+// generador Reed-Solomon publicado, y los patrones fijos — y ademas se DECODIFICA
+// la matriz de vuelta. Un encoder equivocado pero coherente consigo mismo
+// pasaria la ultima; no pasa las tres primeras.
+// ---------------------------------------------------------------------------
+
+// Deshace mascara y zigzag y devuelve los bits del area de datos. Es un lector
+// escrito aparte, a proposito: si compartiera codigo con el encoder no probaria
+// nada.
+function leerBitsDelQR(m) {
+  const N = m.length
+  const esFuncion = []
+  for (let r = 0; r < N; r++) esFuncion.push(new Array(N).fill(false))
+  const marcar = (fr, fc) => {
+    for (let r = -1; r <= 7; r++) {
+      for (let c = -1; c <= 7; c++) {
+        const rr = fr + r
+        const cc = fc + c
+        if (rr >= 0 && rr < N && cc >= 0 && cc < N) esFuncion[rr][cc] = true
+      }
+    }
+  }
+  marcar(0, 0)
+  marcar(0, N - 7)
+  marcar(N - 7, 0)
+  for (let i = 0; i < N; i++) {
+    esFuncion[6][i] = true
+    esFuncion[i][6] = true
+  }
+  for (let r = -2; r <= 2; r++) for (let c = -2; c <= 2; c++) esFuncion[22 + r][22 + c] = true
+  for (let i = 0; i < 15; i++) {
+    if (i < 6) esFuncion[i][8] = true
+    else if (i < 8) esFuncion[i + 1][8] = true
+    else esFuncion[N - 15 + i][8] = true
+    if (i < 8) esFuncion[8][N - i - 1] = true
+    else if (i < 9) esFuncion[8][15 - i - 1 + 1] = true
+    else esFuncion[8][15 - i - 1] = true
+  }
+  esFuncion[N - 8][8] = true
+
+  const bits = []
+  let inc = -1
+  let fila = N - 1
+  for (let col = N - 1; col > 0; col -= 2) {
+    if (col === 6) col--
+    for (;;) {
+      for (let k = 0; k < 2; k++) {
+        const c = col - k
+        if (!esFuncion[fila][c]) {
+          // Deshacer la mascara 0.
+          let b = m[fila][c]
+          if ((fila + c) % 2 === 0) b = !b
+          bits.push(b ? 1 : 0)
+        }
+      }
+      fila += inc
+      if (fila < 0 || fila >= N) {
+        fila -= inc
+        inc = -inc
+        break
+      }
+    }
+  }
+  return bits
+}
+
+test('FASE 12: el QR codifica la dirección EXACTA, y se lo comprueba leyéndolo', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  // Mayusculas y minusculas mezcladas a proposito: una address con checksum
+  // EIP-55 no es la misma que su version en minuscula para quien la lee.
+  const addr = '0x' + 'aB3f'.repeat(10)
+
+  const m = pw.qrMatriz(addr)
+  t.is(m.length, 29, 'version 3: 29x29')
+  t.is(m[0].length, 29, 'cuadrada')
+
+  const bits = leerBitsDelQR(m)
+  // 70 codewords (55 datos + 15 correccion) por 8, mas los 7 bits de relleno
+  // que la version 3 tiene de sobra.
+  t.is(bits.length, 567, 'el area de datos tiene exactamente los bits de la v3')
+
+  const leer = (off, n) => {
+    let v = 0
+    for (let i = 0; i < n; i++) v = (v << 1) | bits[off + i]
+    return v
+  }
+  t.is(leer(0, 4), 4, 'el indicador de modo es byte (0100)')
+  t.is(leer(4, 8), addr.length, 'la longitud declarada es la de la address')
+
+  let texto = ''
+  for (let i = 0; i < addr.length; i++) texto += String.fromCharCode(leer(12 + i * 8, 8))
+  t.is(texto, addr, 'y lo que sale del QR es la dirección EXACTA, carácter por carácter')
+
+  // Determinista: la misma entrada dibuja lo mismo. Sin esto, un QR que cambia
+  // en cada pintada haria parpadear la pantalla en cada poll.
+  t.alike(pw.qrMatriz(addr), m, 'la misma dirección da la misma matriz')
+})
+
+test('FASE 12: el QR respeta la norma en el formato, en el Reed-Solomon y en los patrones fijos', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const addr = '0x' + 'ab'.repeat(20)
+  const m = pw.qrMatriz(addr)
+  const N = 29
+
+  // (1) La informacion de formato tiene que ser la PUBLICADA para nivel L con
+  // mascara 0. La funcion la calcula con BCH; esto la compara contra la tabla,
+  // asi que el calculo queda anclado a un valor de afuera.
+  let formato = 0
+  for (let i = 0; i < 15; i++) {
+    let bit
+    if (i < 8) bit = m[8][N - i - 1]
+    else if (i < 9) bit = m[8][15 - i - 1 + 1]
+    else bit = m[8][15 - i - 1]
+    if (bit) formato |= 1 << i
+  }
+  t.is(
+    formato.toString(2).padStart(15, '0'),
+    '111011111000100',
+    'la información de formato es la de la norma para (L, máscara 0)'
+  )
+
+  // Las dos copias del formato tienen que decir lo mismo: existen justamente
+  // para que un QR con una esquina dañada se siga leyendo.
+  let copia = 0
+  for (let i = 0; i < 15; i++) {
+    let bit
+    if (i < 6) bit = m[i][8]
+    else if (i < 8) bit = m[i + 1][8]
+    else bit = m[N - 15 + i][8]
+    if (bit) copia |= 1 << i
+  }
+  t.is(copia, formato, 'y la segunda copia del formato coincide con la primera')
+
+  // (2) Reed-Solomon contra el generador PUBLICADO de 15 codewords, escrito acá
+  // como la tabla de exponentes de α que trae la norma. Es una segunda
+  // implementación del mismo cálculo: si `qrReedSolomon` construyera mal el
+  // polinomio generador, los restos no coincidirían.
+  const G15 = [0, 8, 183, 61, 91, 202, 37, 51, 58, 58, 237, 140, 124, 5, 99, 105]
+  const exp = new Array(512)
+  const log = new Array(256)
+  let x = 1
+  for (let i = 0; i < 255; i++) {
+    exp[i] = x
+    log[x] = i
+    x <<= 1
+    if (x & 0x100) x ^= 0x11d
+  }
+  for (let i = 255; i < 512; i++) exp[i] = exp[i - 255]
+  const mul = (a, b) => (a === 0 || b === 0 ? 0 : exp[log[a] + log[b]])
+  const gen = G15.map((e) => exp[e])
+
+  const datos = pw.qrBytesDeDatos(addr)
+  t.is(datos.length, 55, 'v3-L son 55 codewords de datos, con el relleno de la norma')
+  // 42 bytes + 12 bits de encabezado cierran en el codeword 44; del 45 al 55 va
+  // el relleno de la norma, alternando 0xEC y 0x11 desde 0xEC.
+  t.alike(
+    datos.slice(44),
+    [0xec, 0x11, 0xec, 0x11, 0xec, 0x11, 0xec, 0x11, 0xec, 0x11, 0xec],
+    'el relleno alterna 0xEC/0x11 desde 0xEC, como corresponde'
+  )
+
+  const resto = new Array(15).fill(0)
+  for (let i = 0; i < datos.length; i++) {
+    const factor = datos[i] ^ resto[0]
+    resto.shift()
+    resto.push(0)
+    if (factor) for (let j = 0; j < 15; j++) resto[j] ^= mul(gen[j + 1], factor)
+  }
+  t.alike(
+    pw.qrReedSolomon(datos, 15),
+    resto,
+    'los codewords de corrección coinciden con los del generador publicado'
+  )
+
+  // (3) Los patrones fijos, donde la norma dice que van.
+  for (const [fr, fc] of [
+    [0, 0],
+    [0, N - 7],
+    [N - 7, 0]
+  ]) {
+    t.ok(m[fr][fc] && m[fr + 6][fc] && m[fr][fc + 6], 'el anillo del patrón de posición')
+    t.absent(m[fr + 1][fc + 1], 'con su hueco claro adentro')
+    t.ok(m[fr + 3][fc + 3], 'y el centro oscuro')
+  }
+  // Son TRES patrones de posición, no cuatro: la esquina inferior derecha es
+  // area de datos, y es asi como el lector sabe de que lado esta parado.
+  let columnaLlena = true
+  for (let r = N - 7; r < N; r++) if (!m[r][N - 7]) columnaLlena = false
+  t.absent(columnaLlena, 'la esquina inferior derecha NO lleva patrón de posición')
+  t.ok(m[6][8] && m[6][10], 'el timing horizontal alterna desde un módulo oscuro')
+  t.absent(m[6][9], 'y su vecino es claro')
+  t.ok(m[22][22], 'el patrón de alineación de la v3, en (22,22)')
+  t.absent(m[21][22], 'con su anillo claro')
+  t.ok(m[N - 8][8], 'y el módulo oscuro fijo, que siempre está')
+})
+
+test('FASE 12: el QR entra en el depósito, y lo que no entra no se dibuja mal', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const v = vistaConWallet(pw)
+
+  const dep = pw.htmlDeDeposito(v)
+  t.ok(dep.indexOf('<svg') !== -1, 'el depósito trae el QR')
+  t.ok(dep.indexOf('<rect') !== -1, 'con módulos dibujados')
+  t.is(dep.indexOf('fase aparte'), -1, 'y ya no dice que el QR es una fase aparte')
+  t.ok(dep.indexOf(v.address) !== -1, 'la dirección en texto sigue estando, para copiarla')
+
+  // Un texto que no entra en v3-L NO se trunca: se dice. Un QR con la dirección
+  // cortada escanearía una dirección que no es de nadie, y eso no se deshace.
+  t.is(pw.qrMatriz('x'.repeat(54)), null, '54 bytes no entran en v3-L')
+  t.ok(pw.qrMatriz('x'.repeat(53)), 'y 53 sí, que es el límite')
+  const largo = pw.htmlDeQR('x'.repeat(54))
+  t.is(largo.indexOf('<svg'), -1, 'sin QR cuando no entra')
+  t.ok(largo.indexOf('Copiá la dirección') !== -1, 'y con el motivo, en vez de un QR roto')
+
+  // El QR viaja al navegador con el resto.
+  const pages = await import('../qvac/pages.mjs')
+  for (const fn of ['qrBytesDeDatos', 'qrReedSolomon', 'qrMatriz', 'htmlDeQR']) {
+    t.ok(pw.FUENTE_EMBEBIDA_WALLET.indexOf('var ' + fn + ' =') !== -1, fn + ' está embebida')
+  }
+  t.ok(
+    pages.WALLET_HTML.indexOf('var htmlDeQR =') !== -1,
+    'y el panel servido la lleva, no una copia que el test no corre'
+  )
+})
+
+// ---------------------------------------------------------------------------
+// FASE 12 — el historial.
+//
+// Lo que se vigila es lo mismo de siempre en este panel: que una lectura que
+// fallo NO se dibuje como "no hubo movimientos", y que un monto sin decimales
+// conocidos no se divida por un numero inventado.
+// ---------------------------------------------------------------------------
+
+test('FASE 12: el historial marca entradas y salidas y formatea con los decimales que sabe', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const mia = '0x' + 'ab'.repeat(20)
+  const otra = '0x' + 'cd'.repeat(20)
+
+  const v = pw.vistaDeHistorial({
+    ok: true,
+    configurada: true,
+    address: mia,
+    explorer: 'https://testnet.plasmascan.to',
+    caip2: 'eip155:9746',
+    fuente: 'explorer',
+    items: [
+      {
+        tipo: 'erc20',
+        hash: '0x' + '11'.repeat(32),
+        from: otra,
+        to: mia,
+        valor: '1500000',
+        decimals: 6,
+        symbol: 'tUSD',
+        timestamp: '2026-08-27T10:00:00Z',
+        estado: 'confirmada'
+      },
+      {
+        tipo: 'native',
+        hash: '0x' + '22'.repeat(32),
+        from: mia,
+        to: otra,
+        valor: '1000000000000000000',
+        decimals: 18,
+        symbol: null,
+        timestamp: '2026-08-26T10:00:00Z',
+        estado: 'fallida'
+      }
+    ]
+  })
+
+  t.is(v.n, 2, 'las dos filas')
+  t.is(v.items[0].direccion, 'in', 'lo que llega a esta wallet entra')
+  t.is(v.items[0].texto, '1.5', 'formateado con los 6 decimales del token')
+  t.is(v.items[0].symbol, 'tUSD')
+  t.is(
+    v.items[0].link,
+    'https://testnet.plasmascan.to/tx/0x' + '11'.repeat(32),
+    'con link al explorer de la red activa'
+  )
+  t.is(v.items[1].direccion, 'out', 'y lo que sale, sale')
+  t.is(v.items[1].texto, '1', '1e18 wei es 1')
+  t.is(v.items[1].symbol, 'XPL', 'el nativo toma el simbolo de la red, no uno inventado')
+  t.is(v.items[1].estado, 'fallida', 'y el estado viaja tal cual')
+
+  const html = pw.htmlDeHistorial(v)
+  t.ok(html.indexOf('Recibido') !== -1 && html.indexOf('Enviado') !== -1, 'se dibujan las dos')
+  t.ok(html.indexOf('+1.5 tUSD') !== -1, 'la entrada con signo +')
+  t.ok(html.indexOf('−1 XPL') !== -1, 'y la salida con −')
+  t.ok(html.indexOf('/tx/0x' + '11'.repeat(32)) !== -1, 'el link al explorer esta en el HTML')
+  t.ok(html.indexOf('fallida') !== -1, 'una tx fallida se ve fallida')
+})
+
+test('FASE 12: un historial que no se pudo leer dice "—" y el motivo, no una lista vacía', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+
+  const roto = pw.vistaDeHistorial({
+    ok: false,
+    configurada: true,
+    address: '0x' + 'ab'.repeat(20),
+    items: [],
+    error: 'no se pudo leer el historial — el explorer no contestó: HTTP 503'
+  })
+  t.absent(roto.ok, 'la vista sabe que la lectura fallo')
+  const html = pw.htmlDeHistorial(roto)
+  t.ok(html.indexOf('—') !== -1, 'se dibuja "—"')
+  t.ok(html.indexOf('HTTP 503') !== -1, 'con el motivo al lado')
+  t.is(
+    html.indexOf('Sin movimientos'),
+    -1,
+    'y NUNCA "sin movimientos": eso seria afirmar algo sobre la cadena que nadie miro'
+  )
+
+  // Vacio DE VERDAD es otra cosa, y se ve distinto.
+  const vacio = pw.htmlDeHistorial(
+    pw.vistaDeHistorial({ ok: true, configurada: true, address: '0x' + 'ab'.repeat(20), items: [] })
+  )
+  t.ok(vacio.indexOf('Sin movimientos') !== -1, 'una lectura que sí funcionó y no trajo nada, sí')
+
+  // La fuente de respaldo ve menos, y eso se dice en pantalla.
+  const parcial = pw.htmlDeHistorial(
+    pw.vistaDeHistorial({
+      ok: true,
+      configurada: true,
+      address: '0x' + 'ab'.repeat(20),
+      items: [],
+      fuente: 'logs',
+      parcial: 'leído del RPC, no del explorer: solo transferencias de tokens'
+    })
+  )
+  t.ok(parcial.indexOf('leído del RPC') !== -1, 'lo que la fuente de respaldo no ve, queda dicho')
+})
+
+test('FASE 12: un monto sin decimales conocidos no se divide por un número inventado', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const mia = '0x' + 'ab'.repeat(20)
+
+  // Es el caso del respaldo por eth_getLogs con un token que nadie agrego: hay
+  // un monto crudo y NO se sabe cuantos decimales tiene.
+  const v = pw.vistaDeHistorial({
+    ok: true,
+    configurada: true,
+    address: mia,
+    items: [
+      {
+        tipo: 'erc20',
+        hash: '0x' + '33'.repeat(32),
+        from: '0x' + 'cd'.repeat(20),
+        to: mia,
+        valor: '0x1e8480',
+        decimals: null,
+        symbol: null,
+        contrato: '0x' + 'ef'.repeat(20),
+        bloque: '0x64'
+      }
+    ]
+  })
+
+  t.ok(v.items[0].montoCrudo, 'la vista sabe que ese monto esta sin escalar')
+  t.is(v.items[0].texto, '2000000', 'muestra las unidades crudas, no una division a ojo')
+  t.is(v.items[0].symbol, null, 'y no le inventa un simbolo')
+  t.is(v.items[0].cuando, 'bloque 100', 'sin timestamp se dice el bloque')
+
+  const html = pw.htmlDeHistorial(v)
+  t.ok(html.indexOf('unidades crudas') !== -1, 'y la pantalla lo aclara')
+  t.ok(html.indexOf('token 0xefef') !== -1, 'con la dirección del contrato, ya que no hay símbolo')
+})
+
+test('FASE 12: el tab History deja de estar deshabilitado y el panel lo cablea', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const pages = await import('../qvac/pages.mjs')
+
+  const tabs = pw.htmlDeTabs('assets')
+  const idx = tabs.indexOf('>History</button>')
+  const desde = tabs.lastIndexOf('<button', idx)
+  t.is(tabs.slice(desde, idx).indexOf('disabled'), -1, 'History ya no esta deshabilitado')
+  t.ok(tabs.slice(desde, idx).indexOf('data-w-tab="history"') !== -1, 'y es un tab de verdad')
+
+  // Stake y Swap SIGUEN deshabilitados: no existen, y esconderlos seria fingir
+  // que el panel esta completo.
+  for (const etiqueta of ['Stake', 'Swap']) {
+    const i = tabs.indexOf('>' + etiqueta + '</button>')
+    const d = tabs.lastIndexOf('<button', i)
+    t.ok(tabs.slice(d, i).indexOf('disabled') !== -1, etiqueta + ' sigue deshabilitado')
+  }
+
+  // El tab dibuja el historial, y antes de que llegue dice que esta leyendo —
+  // no una lista vacia.
+  const v = vistaConWallet(pw)
+  const sinDato = pw.htmlDeWallet(v, '', 'history', null)
+  t.ok(sinDato.indexOf('Leyendo movimientos') !== -1, 'mientras carga lo dice')
+  t.is(sinDato.indexOf('Sin movimientos'), -1, 'sin fingir que ya sabe que no hay nada')
+
+  const conDato = pw.htmlDeWallet(
+    v,
+    '',
+    'history',
+    pw.vistaDeHistorial({ ok: true, configurada: true, address: v.address, items: [] })
+  )
+  t.ok(conDato.indexOf('Sin movimientos') !== -1, 'y con el dato, dibuja el historial')
+
+  for (const fn of ['vistaDeHistorial', 'htmlDeHistorial']) {
+    t.ok(pw.FUENTE_EMBEBIDA_WALLET.indexOf('var ' + fn + ' =') !== -1, fn + ' viaja al navegador')
+  }
+  t.ok(
+    pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/history')") !== -1,
+    'y el panel lo lee del endpoint con la credencial, como el resto'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf('htmlDeWallet(vistaWallet, filtroWallet, tabWallet, vistaHist)') !==
+      -1,
+    'el historial llega hasta el dibujo'
+  )
+})
+
+// ---------------------------------------------------------------------------
+// FASE 12 — enviar.
+//
+// La invariante que estas pruebas cuidan no es de dibujo: es que el navegador
+// NUNCA vea una clave. Lo que sale de acá son tres strings y lo que vuelve es
+// un hash. La firma la hace bin.mjs con la cuenta de WDK, detras del closure
+// que el gateway recibe (`setWalletSender`), igual que las atestaciones de D24.
+// ---------------------------------------------------------------------------
+
+test('FASE 12: la forma de un envío se chequea antes de molestar a la cadena', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const ok = { destino: '0x' + 'ab'.repeat(20), monto: '1.5', asset: 'native' }
+
+  t.ok(pw.envioParecePlausible(ok), 'un envío bien formado pasa')
+  t.ok(pw.envioParecePlausible({ ...ok, asset: '0x' + 'cd'.repeat(20) }), 'con un token también')
+  t.absent(pw.envioParecePlausible({ ...ok, destino: '0xNOPE' }), 'un destino que no es hex, no')
+  t.absent(
+    pw.envioParecePlausible({ ...ok, destino: '0x' + 'ab'.repeat(19) }),
+    'ni un destino corto'
+  )
+  t.absent(pw.envioParecePlausible({ ...ok, monto: '0' }), 'ni cero')
+  t.absent(pw.envioParecePlausible({ ...ok, monto: '-1' }), 'ni negativo')
+  t.absent(pw.envioParecePlausible({ ...ok, monto: 'mucho' }), 'ni un monto que no es número')
+  t.absent(pw.envioParecePlausible({ ...ok, monto: '' }), 'ni vacío')
+  t.absent(pw.envioParecePlausible({ ...ok, asset: 'usdt' }), 'ni un activo con nombre inventado')
+  t.absent(pw.envioParecePlausible(null), 'null no rompe')
+})
+
+test('FASE 12: la revisión repite todo, marca MAINNET y no inventa un gas', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const destino = '0x' + 'cd'.repeat(20)
+
+  // Testnet, activo nativo, gas estimado.
+  const v = vistaConWallet(pw)
+  const rev = pw.htmlDeRevisionEnvio(
+    v,
+    { monto: '1.5', simbolo: 'XPL', destino, red: 'plasma-testnet', mainnet: false },
+    { fee: '21000000000000', feeDecimals: 18, feeSymbol: 'XPL' }
+  )
+  t.ok(rev.indexOf('1.5 XPL') !== -1, 'el monto')
+  // La direccion ENTERA, sin truncar: es el unico campo donde un caracter
+  // cambiado manda los fondos a otro lado, y el truncado esconde justo el medio.
+  t.ok(rev.indexOf(destino) !== -1, 'la dirección de destino entera, sin truncar')
+  t.is(rev.indexOf('…'), -1, 'sin puntos suspensivos en ninguna parte de la revisión')
+  t.ok(rev.indexOf('0.000021 XPL') !== -1, 'y el gas, formateado con sus 18 decimales')
+  t.ok(rev.indexOf('(estimado)') !== -1, 'dicho como estimado, que es lo que es')
+  t.is(rev.indexOf('MAINNET'), -1, 'en testnet no se grita mainnet')
+
+  // Sin cotización NO se dibuja un cero: se dice que no se pudo.
+  const sinGas = pw.htmlDeRevisionEnvio(v, { monto: '1', simbolo: 'XPL', destino }, { fee: null })
+  t.ok(sinGas.indexOf('no se pudo estimar') !== -1, 'un gas que no se pudo estimar se dice')
+  t.is(sinGas.indexOf('0 XPL (estimado)'), -1, 'NUNCA un cero que parezca una cotización')
+
+  // Mainnet: se grita, dos veces (arriba y en la fila de red).
+  const enMainnet = pw.htmlDeRevisionEnvio(
+    vistaConWallet(pw, {
+      red: { nombre: 'plasma', caip2: 'eip155:9745', mainnet: true }
+    }),
+    { monto: '1', simbolo: 'XPL', destino, red: 'plasma', mainnet: true },
+    { fee: '21000000000000', feeDecimals: 18, feeSymbol: 'XPL' }
+  )
+  t.ok(enMainnet.indexOf('MAINNET') !== -1, 'en mainnet se dice con todas las letras')
+  t.ok(enMainnet.indexOf('plata real') !== -1, 'y que mueve plata real')
+
+  // Un token sin verificar avisa que el monto puede no ser el que dice.
+  const sinVerificar = pw.htmlDeRevisionEnvio(
+    v,
+    { monto: '5', simbolo: 'tUSD', destino, red: 'plasma-testnet', assetVerificado: false },
+    { fee: '1', feeDecimals: 18 }
+  )
+  t.ok(
+    sinVerificar.indexOf('NO está verificado') !== -1,
+    'mandarle plata a un token sin verificar avisa, que es donde el error cuesta'
+  )
+})
+
+test('FASE 12: una transacción difundida se dice "enviada", no "confirmada"', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const hash = '0x' + 'ab'.repeat(32)
+
+  const pendiente = pw.htmlDeEstadoEnvio({
+    estado: 'pendiente',
+    hash,
+    monto: '1.5',
+    simbolo: 'XPL',
+    destino: '0x' + 'cd'.repeat(20),
+    explorer: 'https://testnet.plasmascan.to/tx/' + hash
+  })
+  t.ok(pendiente.indexOf('Transacción enviada') !== -1, 'se dice enviada')
+  t.is(pendiente.indexOf('Transacción confirmada'), -1, 'y NO confirmada: eso lo dice la cadena')
+  t.ok(
+    pendiente.indexOf('Confirmarla es cosa de la cadena') !== -1,
+    'con la diferencia explicada donde se lee'
+  )
+  t.ok(pendiente.indexOf(hash) !== -1, 'el hash completo, para poder buscarlo')
+  t.ok(pendiente.indexOf('/tx/' + hash) !== -1, 'y el link al explorer para seguirla')
+
+  const fallida = pw.htmlDeEstadoEnvio({
+    estado: 'fallida',
+    error: 'insufficient funds for gas * price + value',
+    monto: '1000',
+    simbolo: 'XPL',
+    destino: '0x' + 'cd'.repeat(20)
+  })
+  t.ok(fallida.indexOf('No se pudo enviar') !== -1, 'un fallo se ve como fallo')
+  t.ok(
+    fallida.indexOf('insufficient funds') !== -1,
+    'con el motivo de la cadena tal cual, que es lo que la persona necesita leer'
+  )
+  t.is(fallida.indexOf('Transacción enviada'), -1, 'y nada que sugiera que salió')
+})
+
+test('FASE 12: el botón Send se habilita y el panel lo cablea contra el endpoint', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const pages = await import('../qvac/pages.mjs')
+
+  const acc = pw.htmlDeAcciones(vistaConWallet(pw))
+  const idx = acc.indexOf('⇄</span>Swap</button>')
+  const desde = acc.lastIndexOf('<button', idx)
+  t.ok(acc.slice(desde, idx).indexOf('disabled') !== -1, 'Swap sigue apagado')
+
+  const idxSend = acc.indexOf('↑</span>Send</button>')
+  const desdeSend = acc.lastIndexOf('<button', idxSend)
+  t.is(acc.slice(desdeSend, idxSend).indexOf('disabled'), -1, 'Send ya no está deshabilitado')
+  t.ok(acc.slice(desdeSend, idxSend).indexOf('id="w-acc-send"') !== -1, 'y tiene con qué abrirse')
+
+  // Sin wallet no hay a quién cobrarle ni con qué firmar: sigue apagado.
+  const sinWallet = pw.htmlDeAcciones(pw.vistaDeSaldos({ configurada: false }))
+  const i2 = sinWallet.indexOf('↑</span>Send</button>')
+  const d2 = sinWallet.lastIndexOf('<button', i2)
+  t.ok(sinWallet.slice(d2, i2).indexOf('disabled') !== -1, 'sin wallet, Send apagado')
+
+  // El formulario ofrece SOLO los activos que el panel está leyendo: no se puede
+  // elegir mandar algo cuyo saldo nadie miró.
+  const form = pw.htmlDeEnvio(
+    vistaConWallet(pw, {
+      tokens: [
+        {
+          symbol: 'tUSD',
+          address: '0x' + 'cd'.repeat(20),
+          decimals: 6,
+          raw: '0x0',
+          verificado: false
+        }
+      ]
+    })
+  )
+  t.ok(form.indexOf('value="native"') !== -1, 'el nativo se puede mandar')
+  t.ok(form.indexOf('value="0x' + 'cd'.repeat(20) + '"') !== -1, 'y el token guardado también')
+  t.ok(form.indexOf('(sin verificar)') !== -1, 'marcado, también acá')
+  t.ok(form.indexOf('otra red') !== -1, 'con el aviso de que la red importa')
+
+  for (const fn of [
+    'envioParecePlausible',
+    'htmlDeEnvio',
+    'htmlDeRevisionEnvio',
+    'htmlDeEstadoEnvio'
+  ]) {
+    t.ok(pw.FUENTE_EMBEBIDA_WALLET.indexOf('var ' + fn + ' =') !== -1, fn + ' viaja al navegador')
+  }
+  t.ok(
+    pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/send/quote'") !== -1,
+    'revisar cotiza primero, sin firmar'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/send'") !== -1,
+    'y confirmar postea a /v1/wallet/send'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf("if (envioEstado !== 'idle') return") !== -1,
+    'el poll no repinta encima de un envío en curso ni del hash recién devuelto'
+  )
+  // La clave NO viaja: lo unico que el navegador manda son destino, monto y
+  // activo. Si alguna vez alguien mandara una frase o una clave desde acá, esto
+  // es lo que lo tiene que romper.
+  t.is(
+    pages.WALLET_HTML.indexOf('privateKey'),
+    -1,
+    'del panel de envío no sale ninguna clave privada'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf("prompt('MAINNET mueve plata real y esto no se puede deshacer") !==
+      -1,
+    'y mainnet pide escribirlo, como el selector de red'
   )
 })
 

@@ -586,6 +586,63 @@ const STYLE = `
   .w-dep-nota b { color: #cfd6e4; }
   .w-dep-link { display: inline-block; margin-top: .6rem; font-size: .78rem; color: #9fd6ff; }
 
+  /* El QR (Fase 12). El fondo blanco lo pone el propio <svg> y NO sigue el tema
+     oscuro: un lector de QR necesita contraste oscuro-sobre-claro, y uno
+     invertido no escanea en muchos telefonos. Es lo unico claro del panel. */
+  .w-qr { display: flex; justify-content: center; margin: .2rem 0 .8rem; }
+  .w-qr svg { border-radius: 8px; max-width: 100%; height: auto; }
+
+  /* Historial (Fase 12). Mismas filas que los activos, con la flecha de
+     direccion adelante y el monto con signo. */
+  .w-hist { display: flex; flex-direction: column; gap: .4rem; }
+  .w-hist-fila {
+    display: flex; align-items: center; gap: .7rem; padding: .6rem .1rem;
+    border-top: 1px solid #1b1f27;
+  }
+  .w-hist-fila:first-child { border-top: 0; }
+  .w-hist-fila.con-error .w-amt { color: #fca5a5; }
+  .w-hist .w-ico { font-size: .95rem; }
+  .w-hist .w-ico.entra { color: #86efac; }
+  .w-hist .w-ico.sale { color: #cfd6e4; }
+  .w-hist .w-amt.entra { color: #86efac; }
+  .w-hist-quien { font-family: ui-monospace, monospace; font-size: .78rem; color: #8b93a7; }
+  .w-hist .w-name a { color: #9fd6ff; font-family: ui-monospace, monospace; }
+  .w-hist-crudo { font-size: .66rem; color: #fbbf24; font-family: system-ui, sans-serif; }
+  .w-hist-vacio { font-size: 1.4rem; color: #6b7386; text-align: center; padding: .6rem 0; }
+  .w-aviso.tibio { background: #2a2413; color: #fcd34d; border: 1px solid #4a3d18; }
+  .w-aviso.bueno { background: #12291c; color: #86efac; border: 1px solid #1f4a31; }
+
+  /* Enviar (Fase 12). Tapa la tarjeta mientras dura: form -> revision ->
+     estado. El poll no repinta hasta que se vuelve. */
+  .w-envio { display: flex; flex-direction: column; gap: .7rem; padding: .3rem 0 .5rem; }
+  .w-envio-tit { font-size: 1rem; color: #f2f5fb; font-weight: 600; }
+  .w-envio-campo { display: flex; flex-direction: column; gap: .3rem; }
+  .w-envio-campo label {
+    font-size: .74rem; color: #8b93a7; text-transform: uppercase; letter-spacing: .03em;
+  }
+  .w-envio-campo input, .w-envio-campo select {
+    width: 100%; background: #0f1218; color: #e6e6e6; font-size: .86rem;
+    border: 1px solid #2c3348; border-radius: 8px; padding: .55rem .65rem;
+    font-family: ui-monospace, monospace;
+  }
+  .w-envio-acc { display: flex; gap: .5rem; margin-top: .2rem; }
+  .w-envio-acc .w-onb-b { flex: 1; }
+  .w-envio-rev {
+    display: flex; flex-direction: column; gap: .2rem; font-size: .74rem; color: #8b93a7;
+    border-top: 1px solid #1b1f27; padding-top: .5rem;
+  }
+  .w-envio-rev code {
+    font-family: ui-monospace, monospace; color: #e6e6e6; font-size: .82rem;
+    overflow-wrap: anywhere;
+  }
+  .w-envio-rev.tenue code { color: #6b7386; }
+  .w-envio-det summary { cursor: pointer; color: #8b93a7; font-size: .74rem; }
+  .w-envio-det pre {
+    background: #0f1218; border: 1px solid #262b36; border-radius: 6px; padding: .5rem;
+    margin: .4rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #a9b4cc;
+    font-size: .7rem;
+  }
+
   .w-tabs {
     display: flex; gap: .1rem; border-top: 1px solid #262b36;
     margin: .4rem -1.1rem 0; padding: .3rem .4rem 0;
@@ -649,6 +706,58 @@ const STYLE = `
   .w-red-row .w-onb-b { white-space: nowrap; }
   .w-red-nota { font-size: .72rem; color: #6b7386; line-height: 1.45; }
   .w-red-nota code { font-family: ui-monospace, monospace; color: #a9b4cc; }
+  .w-red-nota b { color: #a9b4cc; }
+
+  /* -----------------------------------------------------------------------
+     Settings (Fase 12). Overlay ADENTRO de la tarjeta, no un modal global: la
+     billetera es una columna angosta y su configuracion pertenece a esa
+     columna. Se cierra por ✕, por Esc y por click afuera.
+     ----------------------------------------------------------------------- */
+  .w-set-ov {
+    position: fixed; inset: 0; z-index: 40; background: #05070bcc;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 1.5rem 1rem; overflow-y: auto;
+  }
+  .w-set {
+    width: 100%; max-width: 460px; background: #12151c; border: 1px solid #262b36;
+    border-radius: 16px; padding: 1rem 1.1rem 1.1rem;
+    display: flex; flex-direction: column; gap: .9rem;
+  }
+  .w-set-head { display: flex; align-items: center; gap: .5rem; }
+  .w-set-tit { font-size: 1rem; color: #f2f5fb; font-weight: 600; margin-right: auto; }
+  /* El selector de red, mudado acá, ya no necesita el borde que lo separaba
+     del resto de la tarjeta: ahora TODO en esta pantalla es configuracion. */
+  .w-set .w-red-box { border-top: 0; margin: 0; padding: 0; }
+  .w-set-bloque {
+    border-top: 1px solid #262b36; padding-top: .8rem;
+    display: flex; flex-direction: column; gap: .45rem;
+  }
+  .w-set-toks { display: flex; flex-direction: column; }
+  .w-set-tok {
+    display: flex; align-items: center; gap: .6rem; padding: .5rem .1rem;
+    border-top: 1px solid #1b1f27;
+  }
+  .w-set-tok:first-child { border-top: 0; }
+  .w-set-dec { color: #6b7386; font-size: .74rem; }
+  .w-set-quitar { font-size: .72rem; padding: .3rem .6rem; white-space: nowrap; }
+  .w-set-form { display: flex; flex-direction: column; gap: .45rem; margin-top: .3rem; }
+  .w-set-form input {
+    width: 100%; background: #0f1218; color: #e6e6e6; font-size: .82rem;
+    border: 1px solid #2c3348; border-radius: 8px; padding: .5rem .6rem;
+    font-family: ui-monospace, monospace;
+  }
+  .w-set-form-row { display: flex; gap: .45rem; }
+  .w-set-form-row input { min-width: 0; }
+  .w-set-form-row #w-token-dec { max-width: 6.5rem; }
+  .w-set-form-row .w-onb-b { white-space: nowrap; }
+  .w-set-dato {
+    display: flex; flex-direction: column; gap: .15rem; font-size: .74rem; color: #8b93a7;
+  }
+  .w-set-dato code {
+    font-family: ui-monospace, monospace; color: #cfd6e4; font-size: .74rem;
+    overflow-wrap: anywhere;
+  }
+  .w-set-flag { color: #fbbf24; font-size: .72rem; }
 </style>`
 
 // Escapado de HTML, inyectado en el script de los 3 paneles.
@@ -3245,7 +3354,7 @@ export const WALLET_HTML = page(
   'PyrusLLM · Wallet',
   `
   <h1>Wallet</h1>
-  <p class="sub">La wallet de cobro de este nodo: dirección, saldo y en qué red. Se puede crear o importar desde acá. Ver saldos es solo lectura; enviar y hacer swap se hacen por la CLI. La dirección es la misma que viaja firmada en el manifiesto.</p>
+  <p class="sub">La wallet de cobro de este nodo: dirección, saldo, movimientos y en qué red. Se puede crear, importar, recibir y enviar desde acá; la red y los tokens que se vigilan se configuran con el ☰. La firma la hace el nodo, no el navegador: la seed nunca sale del proceso que la abre. La dirección es la misma que viaja firmada en el manifiesto.</p>
   <div id="wallet-root" class="w-root"><div class="skel"><div style="width:55%"></div><div style="width:80%"></div><div style="width:35%"></div></div></div>
 
   <script>
@@ -3257,13 +3366,35 @@ ${MODAL_JS}
     let filtroWallet = ''
     let tabWallet = 'assets'
 
+    // FASE 12 — el historial. Queda en null hasta que se entra al tab: leerlo en cada
+    // poll seria pegarle al explorer cada 15 s por una pantalla que quiza nadie
+    // esta mirando.
+    let vistaHist = null
+
     // Maquina de estados del onboarding. 'seed' es la pantalla de las 24
     // palabras: una vez ahi, el poll NO puede repintar hasta que se confirme.
     let onbEstado = 'idle'   // 'idle' | 'seed'
     let onbSeed = null        // { frase, address }
     let onbOcupado = false
 
-    async function cargarWallet () {
+    // FASE 12 — Settings abierto. Mismo criterio que 'seed': mientras esta
+    // arriba, el poll de 15 s NO repinta. Un formulario a medio llenar (una
+    // address de token de 42 caracteres pegada a mano) no se puede pisar solo.
+    let settingsAbierto = false
+
+    // FASE 12 — la maquina de estados de enviar. Mismo criterio de nuevo: con
+    // algo distinto de 'idle' arriba, el poll NO repinta. Que un refresco de
+    // saldos borre una direccion de destino a medio pegar, o peor, tape la
+    // pantalla que dice el hash de una transaccion recien mandada, no puede pasar.
+    let envioEstado = 'idle'   // 'idle' | 'form' | 'revision' | 'enviando' | 'resultado'
+    let envioDatos = null      // { destino, monto, asset, simbolo, red, mainnet, ... }
+    let envioGas = null        // lo que contesto /v1/wallet/send/quote
+    let envioResultado = null  // { estado, hash, explorer, ... }
+
+    // Leer y dibujar estan separados porque Settings necesita releer SIN
+    // repintar la tarjeta de atras: despues de agregar un token lo que se
+    // refresca es el overlay, no la billetera que esta tapada.
+    async function cargarVistaWallet () {
       try {
         const r = await authFetch('/v1/wallet/balances')
         if (!r.ok) throw new Error('HTTP ' + r.status)
@@ -3273,6 +3404,10 @@ ${MODAL_JS}
           error: 'no se pudo leer /v1/wallet/balances: ' + ((e && e.message) || e)
         })
       }
+    }
+
+    async function cargarWallet () {
+      await cargarVistaWallet()
       pintarWallet()
     }
 
@@ -3281,14 +3416,35 @@ ${MODAL_JS}
     // se toca solo #w-filas para no comerse lo tipeado).
     function pintarWallet () {
       if (onbEstado === 'seed') return
+      if (settingsAbierto) return
+      if (envioEstado !== 'idle') return
       const foco = document.activeElement
       if (foco && foco.id === 'w-filtro') {
         const filas = document.getElementById('w-filas')
         if (filas) { filas.innerHTML = htmlDeFilas(vistaWallet, filtroWallet); return }
       }
       document.getElementById('wallet-root').innerHTML =
-        htmlDeWallet(vistaWallet, filtroWallet, tabWallet)
+        htmlDeWallet(vistaWallet, filtroWallet, tabWallet, vistaHist)
       cablearWallet()
+    }
+
+    // FASE 12 — los movimientos. Se pide al entrar al tab y en el poll SOLO si
+    // el tab sigue abierto: el explorer es un tercero y no hay por que pegarle
+    // cada 15 s desde una pantalla que nadie tiene arriba.
+    async function cargarHistorial () {
+      try {
+        const r = await authFetch('/v1/wallet/history')
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        vistaHist = vistaDeHistorial(await r.json())
+      } catch (e) {
+        // Un fetch que falla NO es "no hubo movimientos": se arma la vista con
+        // el motivo, que es lo que htmlDeHistorial dibuja como "—".
+        vistaHist = vistaDeHistorial({
+          ok: false,
+          error: 'no se pudo leer /v1/wallet/history: ' + ((e && e.message) || e)
+        })
+      }
+      if (tabWallet === 'history') pintarWallet()
     }
 
     function pintarSeed () {
@@ -3306,6 +3462,233 @@ ${MODAL_JS}
       document.querySelectorAll('.w-card [data-copy]').forEach(b => {
         b.addEventListener('click', () => copiar(b.dataset.copy, b))
       })
+    }
+
+    // ---------------------------------------------------------------------
+    // FASE 12 — enviar. La pantalla TAPA la tarjeta (como la de la frase) y el
+    // poll no la repinta. La firma la hace el nodo: de acá salen tres strings.
+    // ---------------------------------------------------------------------
+    function msgEnvio (texto, malo) {
+      const el = document.getElementById('w-env-msg')
+      if (el) el.innerHTML = '<span class="' + (malo ? 'w-onb-err' : 'w-onb-ok') + '">' +
+        esc(texto) + '</span>'
+    }
+
+    function pintarEnvio () {
+      const raiz = document.getElementById('wallet-root')
+      if (envioEstado === 'form') {
+        raiz.innerHTML = '<div class="w-card">' + htmlDeEnvio(vistaWallet) + '</div>'
+      } else if (envioEstado === 'revision' || envioEstado === 'enviando') {
+        raiz.innerHTML = '<div class="w-card">' +
+          htmlDeRevisionEnvio(vistaWallet, envioDatos, envioGas) + '</div>'
+      } else {
+        raiz.innerHTML = '<div class="w-card">' + htmlDeEstadoEnvio(envioResultado) + '</div>'
+      }
+      cablearEnvio()
+    }
+
+    function salirDelEnvio () {
+      envioEstado = 'idle'
+      envioDatos = null
+      envioGas = null
+      envioResultado = null
+      cargarWallet()
+      // Lo que se acaba de mandar tiene que aparecer en el historial la proxima
+      // vez que se abra: se tira el cache para no mostrarlo desactualizado.
+      vistaHist = null
+    }
+
+    async function revisarEnvio () {
+      const asset = (document.getElementById('w-env-asset') || {}).value || 'native'
+      const destino = ((document.getElementById('w-env-destino') || {}).value || '').trim()
+      const monto = ((document.getElementById('w-env-monto') || {}).value || '').trim()
+
+      if (!envioParecePlausible({ destino, monto, asset })) {
+        msgEnvio('revisá el destino (0x + 40 hex) y el monto (un decimal mayor que cero)', true)
+        return
+      }
+      msgEnvio('estimando el gas…', false)
+      try {
+        const r = await authFetch('/v1/wallet/send/quote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ destino, monto, asset })
+        })
+        const d = await r.json().catch(() => ({}))
+        if (!r.ok) { msgEnvio((d && d.error && d.error.message) || ('HTTP ' + r.status), true); return }
+        envioDatos = d
+        envioGas = d
+        envioEstado = 'revision'
+        pintarEnvio()
+      } catch (e) {
+        msgEnvio('no se pudo estimar: ' + ((e && e.message) || e), true)
+      }
+    }
+
+    async function confirmarEnvio () {
+      if (envioEstado === 'enviando') return
+      // Los tres campos salen de lo que devolvio la COTIZACION, no de leer los
+      // inputs de nuevo: son los mismos sobre los que se estimo el gas y los
+      // mismos que la persona acaba de revisar en pantalla. Releer el formulario
+      // acá abriria la puerta a revisar una cosa y mandar otra.
+      const cuerpo = {
+        destino: envioDatos.destino,
+        monto: envioDatos.monto,
+        asset: envioDatos.asset || 'native'
+      }
+
+      // MAINNET pide escribirlo, igual que el selector de red — y acá pesa mas,
+      // porque esto no se deshace reiniciando.
+      if (envioDatos.mainnet) {
+        const c = prompt('MAINNET mueve plata real y esto no se puede deshacer.\\n\\n' +
+          envioDatos.monto + ' ' + (envioDatos.simbolo || '') + ' a ' + envioDatos.destino +
+          '\\n\\nEscribí MAINNET para confirmar:')
+        if (c !== 'MAINNET') { msgEnvio('cancelado', true); return }
+        cuerpo.confirmar = 'MAINNET'
+      }
+
+      envioEstado = 'enviando'
+      const boton = document.getElementById('w-env-confirmar')
+      if (boton) boton.disabled = true
+      msgEnvio('firmando y difundiendo…', false)
+      try {
+        const r = await authFetch('/v1/wallet/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cuerpo)
+        })
+        const d = await r.json().catch(() => ({}))
+        if (!r.ok) {
+          envioResultado = {
+            estado: 'fallida',
+            error: (d && d.error && d.error.message) || ('HTTP ' + r.status),
+            detalle: (d && d.error && d.error.detalle) || null,
+            destino: envioDatos.destino,
+            monto: envioDatos.monto,
+            simbolo: envioDatos.simbolo
+          }
+        } else {
+          envioResultado = d
+        }
+      } catch (e) {
+        envioResultado = {
+          estado: 'fallida',
+          error: 'no se pudo enviar: ' + ((e && e.message) || e),
+          destino: envioDatos.destino,
+          monto: envioDatos.monto,
+          simbolo: envioDatos.simbolo
+        }
+      }
+      envioEstado = 'resultado'
+      pintarEnvio()
+    }
+
+    function cablearEnvio () {
+      const cancelar = document.getElementById('w-env-cancelar')
+      if (cancelar) cancelar.addEventListener('click', salirDelEnvio)
+      const listo = document.getElementById('w-env-listo')
+      if (listo) listo.addEventListener('click', salirDelEnvio)
+      const volver = document.getElementById('w-env-volver')
+      if (volver) volver.addEventListener('click', () => { envioEstado = 'form'; pintarEnvio() })
+      const revisar = document.getElementById('w-env-revisar')
+      if (revisar) revisar.addEventListener('click', revisarEnvio)
+      const confirmar = document.getElementById('w-env-confirmar')
+      if (confirmar) confirmar.addEventListener('click', confirmarEnvio)
+    }
+
+    // ---------------------------------------------------------------------
+    // FASE 12 — Settings, detras del ☰.
+    //
+    // Se dibuja en un contenedor APARTE de #wallet-root, no adentro: asi
+    // cerrarlo no obliga a repintar la tarjeta entera, y un poll que llegue
+    // mientras esta abierto (no puede: pintarWallet corta) no lo arrastraria.
+    // ---------------------------------------------------------------------
+    function contenedorSettings () {
+      let el = document.getElementById('w-set-host')
+      if (!el) {
+        el = document.createElement('div')
+        el.id = 'w-set-host'
+        document.body.appendChild(el)
+      }
+      return el
+    }
+
+    function cerrarSettings () {
+      settingsAbierto = false
+      contenedorSettings().innerHTML = ''
+      document.removeEventListener('keydown', onEscSettings)
+      // Al volver se recarga: puede haberse agregado o quitado un token, y la
+      // lista de activos tiene que reflejarlo sin esperar al proximo poll.
+      cargarWallet()
+    }
+
+    function onEscSettings (ev) { if (ev.key === 'Escape') cerrarSettings() }
+
+    function pintarSettings () {
+      contenedorSettings().innerHTML = htmlDeSettings(vistaWallet)
+      document.getElementById('w-set-cerrar').addEventListener('click', cerrarSettings)
+      // Click AFUERA de la tarjeta cierra; adentro no. Se compara el target
+      // exacto para que soltar el mouse afuera despues de seleccionar texto no
+      // cierre, que es el bug que ya tenia el modal de /network.
+      document.getElementById('w-set-ov').addEventListener('click', ev => {
+        if (ev.target.id === 'w-set-ov') cerrarSettings()
+      })
+      document.addEventListener('keydown', onEscSettings)
+      cablearSettings()
+    }
+
+    function msgToken (texto, malo) {
+      const el = document.getElementById('w-token-msg')
+      if (el) el.innerHTML = '<span class="' + (malo ? 'w-onb-err' : 'w-onb-ok') + '">' +
+        esc(texto) + '</span>'
+    }
+
+    async function tokensFetch (metodo, cuerpo, alTerminar) {
+      try {
+        const r = await authFetch('/v1/wallet/tokens', {
+          method: metodo,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cuerpo)
+        })
+        const d = await r.json().catch(() => ({}))
+        if (!r.ok) { msgToken((d && d.error && d.error.message) || ('HTTP ' + r.status), true); return }
+        // La vista se recarga del server y se repinta el overlay: la lista que
+        // se ve es la que quedo EN DISCO, no la que el navegador supone.
+        await cargarVistaWallet()
+        pintarSettings()
+        if (alTerminar) alTerminar()
+      } catch (e) {
+        msgToken('no se pudo guardar: ' + ((e && e.message) || e), true)
+      }
+    }
+
+    function cablearSettings () {
+      // Agregar un token. La forma se chequea ACA antes de postear — es la
+      // misma regla que el nodo aplica antes de tocar disco.
+      const bAdd = document.getElementById('w-token-add')
+      if (bAdd) {
+        bAdd.addEventListener('click', () => {
+          const addr = (document.getElementById('w-token-addr') || {}).value || ''
+          const sym = (document.getElementById('w-token-sym') || {}).value || ''
+          const dec = (document.getElementById('w-token-dec') || {}).value || ''
+          const tok = { address: addr.trim(), symbol: sym.trim(), decimals: Number(dec) }
+          if (!tokenParecePlausible(tok)) {
+            msgToken('revisá los tres campos: dirección 0x + 40 hex, símbolo de 1 a 12 ' +
+              'caracteres, decimales enteros de 0 a 36', true)
+            return
+          }
+          bAdd.disabled = true
+          tokensFetch('POST', tok, () => msgToken('agregado — se muestra sin verificar', false))
+        })
+      }
+
+      document.querySelectorAll('[data-w-token-del]').forEach(b => {
+        b.addEventListener('click', () => {
+          tokensFetch('DELETE', { address: b.dataset.wTokenDel })
+        })
+      })
+
+      cablearSelectorRed()
     }
 
     function msgOnb (texto, malo) {
@@ -3359,7 +3742,12 @@ ${MODAL_JS}
         })
       }
       document.querySelectorAll('.w-card [data-w-tab]').forEach(b => {
-        b.addEventListener('click', () => { tabWallet = b.dataset.wTab; pintarWallet() })
+        b.addEventListener('click', () => {
+          tabWallet = b.dataset.wTab
+          pintarWallet()
+          // El historial se pide recien acá, la primera vez que se abre el tab.
+          if (tabWallet === 'history' && !vistaHist) cargarHistorial()
+        })
       })
       document.querySelectorAll('.w-card [data-copy]').forEach(b => {
         b.addEventListener('click', () => copiar(b.dataset.copy, b))
@@ -3394,8 +3782,36 @@ ${MODAL_JS}
         })
       }
 
-      // Selector de red. NO hace hot-swap: guarda y pide reiniciar. Ir a
-      // MAINNET pide escribir MAINNET, que es lo que el endpoint exige.
+      // FASE 12 — Send abre su propia pantalla, que tapa la tarjeta.
+      const bSend = document.getElementById('w-acc-send')
+      if (bSend) {
+        bSend.addEventListener('click', () => {
+          envioEstado = 'form'
+          envioDatos = null
+          envioGas = null
+          envioResultado = null
+          pintarEnvio()
+        })
+      }
+
+      // FASE 12 — el ☰ abre Settings. Todo lo que antes era configuracion
+      // suelta en la tarjeta vive ahi adentro.
+      const bSet = document.getElementById('w-set-abrir')
+      if (bSet) {
+        bSet.addEventListener('click', () => {
+          settingsAbierto = true
+          pintarSettings()
+        })
+      }
+    }
+
+    // Selector de red. NO hace hot-swap: guarda y pide reiniciar. Ir a
+    // MAINNET pide escribir MAINNET, que es lo que el endpoint exige.
+    //
+    // FASE 12 — se mudo de cablearWallet a acá SIN cambiarle nada: el
+    // selector ahora se dibuja adentro de Settings, así que su cableado va con
+    // el resto de esa pantalla.
+    function cablearSelectorRed () {
       const bRed = document.getElementById('w-red-aplicar')
       if (bRed) {
         bRed.addEventListener('click', async () => {
@@ -3441,6 +3857,10 @@ ${MODAL_JS}
     }
 
     cargarWallet()
-    setInterval(cargarWallet, 15000)
+    setInterval(() => {
+      cargarWallet()
+      // El historial se refresca solo mientras su tab esta abierto.
+      if (tabWallet === 'history') cargarHistorial()
+    }, 15000)
   </script>`
 )
