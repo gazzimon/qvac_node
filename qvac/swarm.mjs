@@ -129,9 +129,13 @@ export class NodeSwarm {
   // `Provider._ensureModel` termine de cargar antes de llegar aca: este
   // metodo asume que `models` ya es lo que hay que anunciar, no dispara
   // ninguna carga por su cuenta.
-  updateAnnouncement({ tags, models } = {}) {
+  updateAnnouncement({ tags, models, economic } = {}) {
     if (tags !== undefined) this.tags = tags
     if (models !== undefined) this.models = models
+    // Fase 11 — el bloque `economic` cambia cuando la wallet se crea DESPUES
+    // del join (onboarding desde el panel). `manifest()` lo lee fresco al
+    // re-armar, asi que alcanza con dejarlo aca antes de invalidar la cache.
+    if (economic !== undefined) this.economic = economic
 
     this._manifest = null // fuerza re-firma en el proximo manifest()
     const fresh = this.manifest()

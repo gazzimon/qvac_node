@@ -507,7 +507,8 @@ async function startGateway(opts = {}) {
   // La wallet no depende del swarm: es de esta maquina. `joinSwarm` la vuelve a
   // leer para el manifiesto, que es otra cosa -- ahi va FIRMADA.
   // D30.1 — el keystore NO sale de `budgetDir`: ese puede estar en temp.
-  const cobro = await economicDelNodo(await walletStorageDir())
+  const dirWallet = await walletStorageDir()
+  const cobro = await economicDelNodo(dirWallet)
   gw.setEconomic(cobro.economic)
   // D24 — sin firmante no hay atestacion, y eso es lo correcto: se prefiere no
   // emitirla a emitirla sin firma. El gateway lo dice en el recibo.
@@ -515,6 +516,35 @@ async function startGateway(opts = {}) {
   // FASE 11 — el panel /wallet lee saldos con la direccion PUBLICA y el RPC de
   // esta red; la seed no cruza. Sin red el panel muestra solo el aviso.
   gw.setWalletRed(cobro.red)
+
+  // FASE 11 — crear o importar la wallet de cobro desde el panel /wallet, sin
+  // `pyrusllm wallet --crear`. El closure es el dueño de dir + passphrase: el
+  // gateway lo invoca y re-cablea economic/firmante/red, pero NO ve la seed —
+  // se genera acá, se escribe cifrada, y la frase vuelve una sola vez para que
+  // el panel la muestre y el operador la anote.
+  //
+  // Sin PYRUS_WALLET_PASSPHRASE el creator queda en null y el panel explica ese
+  // paso en vez de ofrecer el botón: esa variable es la clave con la que se
+  // cifra la seed Y con la que este proceso la abre en cada arranque.
+  const walletMod = await import('./qvac/wallet.mjs')
+  gw.setWalletCreator(
+    env[walletMod.VAR_PASSPHRASE]
+      ? async ({ frase = null } = {}) => {
+          const r = await walletMod.crear(dirWallet, env[walletMod.VAR_PASSPHRASE], {
+            red: walletMod.redDe(env),
+            frase
+          })
+          // Re-abrir y re-cablear: el gateway sirve la nueva dirección sin
+          // reiniciar. El re-anuncio del manifiesto a los pares lo dispara el
+          // propio endpoint del gateway (updateAnnouncement).
+          const nuevo = await economicDelNodo(dirWallet)
+          gw.setEconomic(nuevo.economic)
+          gw.setWalletSigner(nuevo.firmar)
+          gw.setWalletRed(nuevo.red)
+          return { address: r.address, frase: r.frase, restaurada: r.restaurada }
+        }
+      : null
+  )
 
   // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
   // registro tiene que decirlo desde el arranque. Si la fila local recien

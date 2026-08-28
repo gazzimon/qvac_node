@@ -3362,18 +3362,8 @@ test('un RPC caido no se dibuja como saldo cero', async (t) => {
   t.ok(html.indexOf('sin conversión a USD') !== -1, 'la ausencia de precio esta dicha')
   t.ok(html.indexOf('RPC HTTP 502') !== -1, 'el error del nodo aparece en el panel')
   t.ok(html.indexOf('dirección sin verificar') !== -1, 'el token con dir no verificada se marca')
-})
 
-test('sin wallet el panel lo dice, y enviar nunca se ofrece', async (t) => {
-  const pw = await import('../qvac/panel-wallet.mjs')
-
-  const v = pw.vistaDeSaldos({ configurada: false, address: null })
-  t.is(v.configurada, false, 'un nodo sin wallet no es un error')
-
-  const html = pw.htmlDeWallet(v, '', 'assets')
-  t.ok(html.indexOf('wallet --crear') !== -1, 'dice como crear una')
-
-  // Send y Swap SIEMPRE deshabilitados en la Fase 1: el panel no manda plata.
+  // Send y Swap SIEMPRE deshabilitados en la vista de billetera: no manda plata.
   for (const etiqueta of ['Send', 'Swap']) {
     const idx = html.indexOf('>' + etiqueta + '</button>')
     t.ok(idx !== -1, 'hay boton ' + etiqueta)
@@ -3383,6 +3373,61 @@ test('sin wallet el panel lo dice, y enviar nunca se ofrece', async (t) => {
       etiqueta + ' se dibuja deshabilitado, no oculto'
     )
   }
+})
+
+test('sin wallet el panel muestra el onboarding, no la billetera', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+
+  // Sin passphrase en el entorno: se explica ESE paso, no hay boton de crear.
+  const sinPass = pw.htmlDeWallet(pw.vistaDeSaldos({ configurada: false }), '', 'assets')
+  t.ok(
+    sinPass.indexOf('PYRUS_WALLET_PASSPHRASE') !== -1,
+    'dice que falta la passphrase del entorno'
+  )
+  t.is(sinPass.indexOf('id="w-onb-crear"'), -1, 'y NO ofrece el boton de crear')
+  t.is(sinPass.indexOf('w-balance-num'), -1, 'no hay billetera: ni balance')
+  t.is(sinPass.indexOf('>Send</button>'), -1, 'ni Send')
+
+  // Con passphrase: aparece crear + importar, sigue sin haber billetera.
+  const conPass = pw.htmlDeWallet(
+    pw.vistaDeSaldos({ configurada: false, puedeCrear: true }),
+    '',
+    'assets'
+  )
+  t.ok(conPass.indexOf('id="w-onb-crear"') !== -1, 'ofrece crear una nueva')
+  t.ok(conPass.indexOf('id="w-onb-importar"') !== -1, 'y ofrece importar 24 palabras')
+  t.is(conPass.indexOf('w-balance-num'), -1, 'todavia no hay billetera')
+})
+
+test('la pantalla de la frase la muestra entera y no deja pasar sin confirmar', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+  const frase = Array.from({ length: 24 }, (_, i) => 'word' + (i + 1)).join(' ')
+  const addr = '0x' + 'ab'.repeat(20)
+  const html = pw.htmlDeSeed(frase, addr)
+
+  t.is((html.match(/w-seed-w/g) || []).length, 24, 'las 24 palabras, numeradas')
+  t.ok(html.indexOf('word24') !== -1, 'incluida la ultima')
+  t.ok(html.indexOf('data-copy="' + frase + '"') !== -1, 'el copiar lleva la frase completa')
+  t.ok(html.indexOf('No se vuelven a mostrar') !== -1, 'el aviso fuerte esta')
+  const idxListo = html.indexOf('>Listo</button>')
+  const desde = html.lastIndexOf('<button', idxListo)
+  t.ok(html.slice(desde, idxListo).indexOf('disabled') !== -1, '"Listo" arranca deshabilitado')
+})
+
+test('el chequeo de forma de la frase filtra lo obvio, sin validar checksum', async (t) => {
+  const pw = await import('../qvac/panel-wallet.mjs')
+
+  t.alike(
+    pw.palabrasDeFrase('  Uno   dos\nTres  '),
+    ['uno', 'dos', 'tres'],
+    'normaliza espacios y mayusculas'
+  )
+
+  const ok24 = Array.from({ length: 24 }, () => 'abandon').join(' ')
+  t.ok(pw.fraseParecePlausible(ok24), '24 palabras en minuscula pasan la forma')
+  t.absent(pw.fraseParecePlausible('abandon abandon abandon'), '3 palabras no')
+  t.absent(pw.fraseParecePlausible(ok24 + ' 123'), 'digitos no')
+  t.absent(pw.fraseParecePlausible(''), 'vacio no')
 })
 
 test('el filtro del panel busca por simbolo, nombre y red, y no ejecuta nada', async (t) => {
@@ -3413,5 +3458,13 @@ test('el panel /wallet lleva embebido el codigo de panel-wallet.mjs, entero y co
   t.ok(
     pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/balances')") !== -1,
     'lee el endpoint con la credencial del panel, como el resto'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf("authFetch('/v1/wallet/create'") !== -1,
+    'y el onboarding postea a /v1/wallet/create'
+  )
+  t.ok(
+    pages.WALLET_HTML.indexOf('htmlDeSeed(onbSeed.frase') !== -1,
+    'la pantalla de la frase se dibuja con la funcion probada, no a mano'
   )
 })

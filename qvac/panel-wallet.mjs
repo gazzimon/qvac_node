@@ -98,6 +98,28 @@ export function simboloNativo(caip2) {
   return SIMBOLO_NATIVO[String(caip2 || '')] || 'nativo'
 }
 
+// Normaliza lo que alguien pega en el textarea de importar: colapsa espacios y
+// saltos de linea, baja a minuscula, tira los vacios. BIP-39 es todo minuscula
+// y una sola palabra por token.
+export function palabrasDeFrase(texto) {
+  return String(texto || '')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+// Chequeo de FORMA para el boton de importar, no de validez: el checksum
+// BIP-39 lo valida el nodo (`wallet.fraseValida`), que es el unico que puede.
+// Esto solo evita mandar al server algo que obviamente no es una frase.
+export function fraseParecePlausible(texto) {
+  const p = palabrasDeFrase(texto)
+  if ([12, 15, 18, 21, 24].indexOf(p.length) === -1) return false
+  return p.every(function (w) {
+    return /^[a-z]+$/.test(w)
+  })
+}
+
 // Filtra la lista por el texto del buscador. Mira simbolo, nombre y la linea
 // de abajo (la red del nativo, la direccion del token): "9745" o "plasma"
 // tienen que encontrar el activo nativo igual que "XPL".
@@ -189,7 +211,12 @@ export function vistaDeSaldos(data) {
     // Un error de nivel wallet (no de un activo puntual): RPC caido, red sin
     // resolver. Va arriba de todo y no tapa las filas, que igual muestran "—".
     error: d.error ? String(d.error) : null,
-    avisoUsd: 'sin conversión a USD — este panel no consulta precios'
+    avisoUsd: 'sin conversión a USD — este panel no consulta precios',
+    // FASE 11 — crear/importar desde el panel. `puedeCrear` es true solo si el
+    // nodo tiene PYRUS_WALLET_PASSPHRASE en el entorno: sin esa clave no se
+    // puede cifrar la seed NI abrirla en el proximo arranque.
+    puedeCrear: !!d.puedeCrear,
+    crearMotivo: d.crearMotivo ? String(d.crearMotivo) : null
   }
 }
 
@@ -382,8 +409,79 @@ export function htmlDeTabs(tab) {
   )
 }
 
+// La tarjeta que reemplaza a la billetera cuando el nodo todavia no tiene
+// wallet. Dos caminos: crear una nueva (el nodo genera las 24 palabras) o
+// importar una que ya se tiene. Si falta la passphrase en el entorno no hay
+// boton: se explica ESE paso, que es de entorno y no de CLI.
+export function htmlDeOnboarding(v) {
+  if (!v.puedeCrear) {
+    return (
+      '<div class="w-onb">' +
+      '<div class="w-onb-tit">Este nodo todavía no tiene wallet de cobro</div>' +
+      '<div class="w-onb-txt">Para crear o importar una desde acá, poné ' +
+      '<code>PYRUS_WALLET_PASSPHRASE</code> en el entorno del nodo y reiniciá. ' +
+      'Es un paso de entorno, no de CLI: esa variable es la clave con la que se ' +
+      'cifra la seed y con la que el nodo la abre en cada arranque.</div>' +
+      (v.crearMotivo ? '<div class="w-fila-err">' + escaparHtml(v.crearMotivo) + '</div>' : '') +
+      '</div>'
+    )
+  }
+  return (
+    '<div class="w-onb">' +
+    '<div class="w-onb-tit">Creá la wallet de cobro de este nodo</div>' +
+    '<div class="w-onb-txt">Se genera acá, se guarda cifrada con ' +
+    '<code>PYRUS_WALLET_PASSPHRASE</code>, y las 24 palabras se muestran una sola ' +
+    'vez para que las anotes. También podés importar una que ya tengas.</div>' +
+    '<div class="w-onb-acc">' +
+    '<button class="w-onb-b primaria" id="w-onb-crear">Crear una nueva</button>' +
+    '<button class="w-onb-b" id="w-onb-importar-toggle">Importar 24 palabras</button>' +
+    '</div>' +
+    '<div id="w-onb-import" class="w-onb-import" hidden>' +
+    '<textarea id="w-onb-frase" rows="3" autocomplete="off" spellcheck="false" ' +
+    'placeholder="pegá las 12–24 palabras separadas por espacios"></textarea>' +
+    '<button class="w-onb-b primaria" id="w-onb-importar">Importar</button>' +
+    '</div>' +
+    '<div id="w-onb-msg" class="w-onb-msg" role="status"></div>' +
+    '</div>'
+  )
+}
+
+// La pantalla que se muestra UNA vez despues de crear: las 24 palabras, un
+// aviso fuerte, y un "Listo" que no se habilita hasta tildar que se anotaron.
+// El nodo no la vuelve a servir — igual que `wallet.crear`, que devuelve la
+// frase una sola vez.
+export function htmlDeSeed(frase, address) {
+  const palabras = palabrasDeFrase(frase)
+  let grid = ''
+  for (let i = 0; i < palabras.length; i++) {
+    grid += '<span class="w-seed-w"><b>' + (i + 1) + '</b>' + escaparHtml(palabras[i]) + '</span>'
+  }
+  return (
+    '<div class="w-seed">' +
+    '<div class="w-seed-tit">Anotá estas ' +
+    palabras.length +
+    ' palabras — en papel, no en una foto</div>' +
+    '<div class="w-seed-grid">' +
+    grid +
+    '</div>' +
+    '<button class="w-copy grande" data-copy="' +
+    escaparHtml(palabras.join(' ')) +
+    '">copiar al portapapeles</button>' +
+    '<div class="w-aviso malo">No se vuelven a mostrar. Quien tenga estas palabras ' +
+    'controla los fondos de <code>' +
+    escaparHtml(address) +
+    '</code>. Si las perdés y se pierde el keystore, se pierde la wallet.</div>' +
+    '<label class="w-seed-ok"><input type="checkbox" id="w-seed-check"> ' +
+    'Ya las anoté en un lugar seguro</label>' +
+    '<button class="w-onb-b primaria" id="w-seed-listo" disabled>Listo</button>' +
+    '</div>'
+  )
+}
+
 export function htmlDeWallet(vista, q, tab) {
   const v = vista || vistaDeSaldos(null)
+  // Sin wallet, la tarjeta ES el onboarding: ni balance, ni Send/Swap, ni tabs.
+  if (!v.configurada) return '<div class="w-card">' + htmlDeOnboarding(v) + '</div>'
   const t = tab || 'assets'
   const partes = ['<div class="w-card">']
   partes.push(htmlDeHeader(v))
@@ -416,6 +514,8 @@ const FUNCIONES_EMBEBIDAS = {
   formatearMonto,
   truncarDireccion,
   simboloNativo,
+  palabrasDeFrase,
+  fraseParecePlausible,
   filtrarItems,
   vistaDeSaldos,
   filaAsset,
@@ -426,6 +526,8 @@ const FUNCIONES_EMBEBIDAS = {
   htmlDeFilas,
   htmlDeDeposito,
   htmlDeTabs,
+  htmlDeOnboarding,
+  htmlDeSeed,
   htmlDeWallet
 }
 

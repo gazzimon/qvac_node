@@ -483,6 +483,22 @@ export function setWalletRed(red) {
   return walletRed
 }
 
+// FASE 11 — crear o importar la wallet de cobro desde el panel, sin la CLI.
+//
+// Es una FUNCION que bin.mjs arma con dir + passphrase en su closure: el
+// gateway la invoca y no ve mas que `{ address, frase, restaurada }`. `null`
+// cuando falta PYRUS_WALLET_PASSPHRASE — sin esa clave no se puede cifrar la
+// seed ni volver a abrirla en el proximo arranque, y el panel lo dice en vez
+// de ofrecer el boton. El creator, ademas de escribir el keystore, re-cablea
+// `setEconomic`/`setWalletSigner`/`setWalletRed` para que este proceso sirva la
+// nueva direccion sin reiniciar.
+let walletCreator = null
+
+export function setWalletCreator(fn) {
+  walletCreator = typeof fn === 'function' ? fn : null
+  return !!walletCreator
+}
+
 // FASE 9 / D24 — con que se firma la atestacion de lo que este nodo sirvio.
 //
 // Es una FUNCION, no una clave: bin.mjs abre el keystore, se queda con la
@@ -2382,7 +2398,10 @@ async function onRequest(req, res) {
           red: null,
           nativo: null,
           tokens: [],
-          error: null
+          error: null,
+          // FASE 11 — el panel muestra el onboarding solo si el nodo PUEDE
+          // cifrar la seed (hay passphrase en el entorno).
+          puedeCrear: !!walletCreator
         })
       }
 
@@ -2430,6 +2449,85 @@ async function onRequest(req, res) {
       }
 
       return sendJson(res, 200, { configurada: true, address, red, nativo, tokens, error })
+    }
+    // FASE 11 — crear o importar la wallet de cobro desde el panel /wallet, sin
+    // `pyrusllm wallet --crear`. Cuerpo vacio -> wallet nueva; `{ frase }` ->
+    // importar 24 palabras.
+    //
+    // Localhost por el bind a 127.0.0.1 (ver server.listen), y ademas pide
+    // panel key como el resto de /v1. La frase de una wallet NUEVA vuelve en el
+    // cuerpo UNA vez — es trafico a 127.0.0.1, la misma maquina — para que el
+    // panel la muestre; el keystore ya quedo cifrado en disco.
+    if (req.method === 'POST' && pathname === '/v1/wallet/create') {
+      const motivoCrear = rechazoPorKey(req)
+      if (motivoCrear) return sendError(res, 401, motivoCrear)
+
+      if (!walletCreator) {
+        return sendError(
+          res,
+          400,
+          'crear la wallet desde el panel no está habilitado: falta PYRUS_WALLET_PASSPHRASE en el entorno del nodo',
+          { code: 'sin_passphrase' }
+        )
+      }
+      if (economicPropio) {
+        return sendError(res, 409, 'este nodo ya tiene una wallet de cobro', {
+          code: 'wallet_existe'
+        })
+      }
+
+      let body
+      try {
+        body = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'body inválido: se esperaba JSON o cuerpo vacío')
+      }
+      const frase = typeof body.frase === 'string' && body.frase.trim() ? body.frase.trim() : null
+
+      try {
+        const r = await walletCreator({ frase })
+
+        // Los PARES ven la nueva direccion recien cuando el manifiesto FIRMADO
+        // se re-anuncia. El creator ya dejo economic/firmante nuevos en este
+        // gateway; aca se re-firma y se empuja a los pares conectados. Sin
+        // swarm, la wallet es solo local hasta el proximo `serve --swarm`.
+        let swarmReanunciado = false
+        if (swarmRef && economicPropio) {
+          try {
+            swarmRef.updateAnnouncement({ economic: economicPropio })
+            swarmReanunciado = true
+          } catch (err) {
+            console.error(
+              `[wallet] no se pudo re-anunciar el manifiesto: ${(err && err.message) || err}`
+            )
+          }
+        }
+
+        return sendJson(res, 200, {
+          address: r.address,
+          // `frase` SOLO en creacion nueva. En import no se devuelve: quien
+          // importa ya la tiene, y un eco de vuelta seria una copia de mas.
+          frase: r.restaurada ? null : r.frase || null,
+          restaurada: !!r.restaurada,
+          swarmActivo: !!swarmRef,
+          swarmReanunciado
+        })
+      } catch (err) {
+        const msg = (err && err.message) || String(err)
+        if (/ya hay una wallet/.test(msg)) {
+          return sendError(res, 409, msg, { code: 'wallet_existe' })
+        }
+        if (/BIP-39|invalid|no valida/i.test(msg)) {
+          return sendError(
+            res,
+            400,
+            'las palabras no validan (checksum BIP-39): revisá el orden y la ortografía',
+            { code: 'frase_invalida' }
+          )
+        }
+        console.error(`[wallet] falló la creación desde el panel: ${msg}`)
+        return sendError(res, 500, 'no se pudo crear la wallet: ' + msg)
+      }
     }
     // FASE 9 / D12 — recuperar el recibo de un request que se pago.
     //

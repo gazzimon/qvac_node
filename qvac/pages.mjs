@@ -597,6 +597,42 @@ const STYLE = `
   .w-tab:hover:not(:disabled) { color: #cfd6e4; background: none; }
   .w-tab.on { color: #9fd6ff; }
   .w-tab:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* Onboarding: crear o importar la wallet desde el panel (Fase 11). */
+  .w-onb { display: flex; flex-direction: column; gap: .8rem; padding: .4rem 0 .6rem; }
+  .w-onb-tit { font-size: 1rem; color: #e6e6e6; font-weight: 600; }
+  .w-onb-txt { font-size: .82rem; color: #a9b4cc; line-height: 1.5; }
+  .w-onb-txt code, .w-onb-tit code { font-family: ui-monospace, monospace; color: #cfd6e4; font-size: .92em; }
+  .w-onb-acc { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .w-onb-b { margin: 0; background: #1b2432; font-size: .82rem; }
+  .w-onb-b.primaria { background: #4a7dfc; }
+  .w-onb-b.primaria:hover { background: #3a6ae8; }
+  .w-onb-b:disabled { opacity: .45; cursor: not-allowed; }
+  .w-onb-import { display: flex; flex-direction: column; gap: .5rem; }
+  .w-onb-import textarea {
+    width: 100%; background: #0f1218; color: #e6e6e6; font-size: .82rem;
+    border: 1px solid #2c3348; border-radius: 8px; padding: .55rem;
+    font-family: ui-monospace, monospace; resize: vertical;
+  }
+  .w-onb-msg { font-size: .78rem; min-height: 1.1em; }
+  .w-onb-ok { color: #86efac; }
+  .w-onb-err { color: #fca5a5; }
+
+  /* La pantalla de las 24 palabras: se muestra una sola vez. */
+  .w-seed { display: flex; flex-direction: column; gap: .8rem; padding: .3rem 0 .5rem; }
+  .w-seed-tit { font-size: .95rem; color: #f2f5fb; font-weight: 600; }
+  .w-seed-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: .35rem .6rem;
+  }
+  @media (min-width: 380px) { .w-seed-grid { grid-template-columns: repeat(3, 1fr); } }
+  .w-seed-w {
+    font-family: ui-monospace, monospace; font-size: .82rem; color: #e6e6e6;
+    background: #0f1218; border: 1px solid #262b36; border-radius: 6px;
+    padding: .35rem .5rem; display: flex; gap: .4rem; align-items: baseline;
+  }
+  .w-seed-w b { color: #6b7386; font-size: .68rem; min-width: 1.3ch; text-align: right; }
+  .w-seed-ok { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: #cfd6e4; }
+  .w-seed-ok input { width: auto; }
 </style>`
 
 // Escapado de HTML, inyectado en el script de los 3 paneles.
@@ -3193,7 +3229,7 @@ export const WALLET_HTML = page(
   'PyrusLLM · Wallet',
   `
   <h1>Wallet</h1>
-  <p class="sub">La wallet de cobro de este nodo: dirección, saldo y en qué red. Solo lectura — enviar y hacer swap se hacen por la CLI (<code>pyrusllm wallet</code>). La dirección es la misma que viaja firmada en el manifiesto.</p>
+  <p class="sub">La wallet de cobro de este nodo: dirección, saldo y en qué red. Se puede crear o importar desde acá. Ver saldos es solo lectura; enviar y hacer swap se hacen por la CLI. La dirección es la misma que viaja firmada en el manifiesto.</p>
   <div id="wallet-root" class="w-root"><div class="skel"><div style="width:55%"></div><div style="width:80%"></div><div style="width:35%"></div></div></div>
 
   <script>
@@ -3204,6 +3240,12 @@ ${MODAL_JS}
     let vistaWallet = vistaDeSaldos(null)
     let filtroWallet = ''
     let tabWallet = 'assets'
+
+    // Maquina de estados del onboarding. 'seed' es la pantalla de las 24
+    // palabras: una vez ahi, el poll NO puede repintar hasta que se confirme.
+    let onbEstado = 'idle'   // 'idle' | 'seed'
+    let onbSeed = null        // { frase, address }
+    let onbOcupado = false
 
     async function cargarWallet () {
       try {
@@ -3218,9 +3260,11 @@ ${MODAL_JS}
       pintarWallet()
     }
 
-    // En cada poll (15 s) se repinta la tarjeta entera, SALVO que el foco este
-    // en el buscador: ahi se toca solo #w-filas para no comerse lo tipeado.
+    // En cada poll (15 s) se repinta la tarjeta entera, SALVO que estemos en la
+    // pantalla de la frase (no se pisa), o que el foco este en el buscador (ahi
+    // se toca solo #w-filas para no comerse lo tipeado).
     function pintarWallet () {
+      if (onbEstado === 'seed') return
       const foco = document.activeElement
       if (foco && foco.id === 'w-filtro') {
         const filas = document.getElementById('w-filas')
@@ -3229,6 +3273,63 @@ ${MODAL_JS}
       document.getElementById('wallet-root').innerHTML =
         htmlDeWallet(vistaWallet, filtroWallet, tabWallet)
       cablearWallet()
+    }
+
+    function pintarSeed () {
+      document.getElementById('wallet-root').innerHTML =
+        '<div class="w-card">' + htmlDeSeed(onbSeed.frase, onbSeed.address) + '</div>'
+      const chk = document.getElementById('w-seed-check')
+      const listo = document.getElementById('w-seed-listo')
+      chk.addEventListener('change', () => { listo.disabled = !chk.checked })
+      listo.addEventListener('click', () => {
+        // La frase se suelta de memoria y se vuelve a la billetera normal.
+        onbSeed = null
+        onbEstado = 'idle'
+        cargarWallet()
+      })
+      document.querySelectorAll('.w-card [data-copy]').forEach(b => {
+        b.addEventListener('click', () => copiar(b.dataset.copy, b))
+      })
+    }
+
+    function msgOnb (texto, malo) {
+      const el = document.getElementById('w-onb-msg')
+      if (el) el.innerHTML = '<span class="' + (malo ? 'w-onb-err' : 'w-onb-ok') + '">' +
+        esc(texto) + '</span>'
+    }
+
+    async function crearWallet (frase) {
+      if (onbOcupado) return
+      onbOcupado = true
+      msgOnb(frase ? 'importando…' : 'generando la wallet…', false)
+      try {
+        const r = await authFetch('/v1/wallet/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(frase ? { frase } : {})
+        })
+        const d = await r.json().catch(() => ({}))
+        if (!r.ok) {
+          msgOnb((d && d.error && d.error.message) || ('HTTP ' + r.status), true)
+          return
+        }
+        if (d.frase) {
+          // Wallet nueva: a la pantalla de la frase, una sola vez.
+          onbSeed = { frase: d.frase, address: d.address }
+          onbEstado = 'seed'
+          pintarSeed()
+        } else {
+          // Import: no hay frase que mostrar, se va derecho a la billetera.
+          await cargarWallet()
+        }
+        if (d.swarmActivo && !d.swarmReanunciado) {
+          msgOnb('wallet lista, pero el manifiesto no se pudo re-anunciar: reiniciá el nodo para que los pares vean la dirección', true)
+        }
+      } catch (e) {
+        msgOnb('no se pudo crear la wallet: ' + ((e && e.message) || e), true)
+      } finally {
+        onbOcupado = false
+      }
     }
 
     function cablearWallet () {
@@ -3247,6 +3348,35 @@ ${MODAL_JS}
       document.querySelectorAll('.w-card [data-copy]').forEach(b => {
         b.addEventListener('click', () => copiar(b.dataset.copy, b))
       })
+
+      // Onboarding: crear / importar.
+      const bCrear = document.getElementById('w-onb-crear')
+      if (bCrear) {
+        bCrear.addEventListener('click', () => {
+          if (confirm('Se van a generar 24 palabras que se muestran UNA sola vez. Anotalas en papel. ¿Seguir?')) {
+            crearWallet(null)
+          }
+        })
+      }
+      const bTog = document.getElementById('w-onb-importar-toggle')
+      if (bTog) {
+        bTog.addEventListener('click', () => {
+          const box = document.getElementById('w-onb-import')
+          if (box) box.hidden = !box.hidden
+        })
+      }
+      const bImp = document.getElementById('w-onb-importar')
+      if (bImp) {
+        bImp.addEventListener('click', () => {
+          const ta = document.getElementById('w-onb-frase')
+          const frase = ta ? ta.value : ''
+          if (!fraseParecePlausible(frase)) {
+            msgOnb('eso no parece una frase BIP-39 (12 a 24 palabras en minúscula)', true)
+            return
+          }
+          crearWallet(palabrasDeFrase(frase).join(' '))
+        })
+      }
     }
 
     cargarWallet()
