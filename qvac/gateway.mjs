@@ -687,7 +687,19 @@ function currentModelEntry() {
 // Un intento contra UN par. Resuelve siempre (nunca rechaza) con el resultado,
 // incluyendo si alcanzo a emitir algun chunk -- que es el dato con el que D4
 // decide si se puede reintentar en otro candidato.
-function streamFromPeer({ node, model, messages, onChunk, onStart, signal = null }) {
+function streamFromPeer({
+  node,
+  model,
+  messages,
+  onChunk,
+  onStart,
+  signal = null,
+  // FASE 10 — el pago verificado y el tope del 402. Se reenvian al par: el que
+  // corre el modelo es el que cobra (handoff completo), y recorta en el mismo
+  // punto que atestigua. `null` cuando el request no vino de un cobro.
+  pago = null,
+  tope = 0
+}) {
   return new Promise((resolve) => {
     let started = false
     let finished = false
@@ -734,9 +746,18 @@ function streamFromPeer({ node, model, messages, onChunk, onStart, signal = null
       timer.unref?.()
     }
 
+    const payment = pago
+      ? {
+          authorization: pago.autorizacion,
+          signature: pago.firma,
+          requirements: pago.requisito,
+          red: pago.red
+        }
+      : null
+
     requestId = swarmRef.chatRequest(
       node.peerKey,
-      { model, messages },
+      { model, messages, payment, maxTokens: tope },
       {
         onAccepted: () => {
           arm(
@@ -750,7 +771,15 @@ function streamFromPeer({ node, model, messages, onChunk, onStart, signal = null
           arm(IDLE_TIMEOUT_MS, 'el par dejo de mandar tokens a mitad del stream', 'peer_stalled')
           onChunk(delta)
         },
-        onDone: () => finish({ ok: true }),
+        // FASE 10 — el `chat:done` trae la atestacion D24 firmada por el par (o
+        // el motivo por el que falta). Se pasa hacia arriba para colgarla del
+        // recibo; el gateway NO liquida un ruteado (lo hace el par, diferido).
+        onDone: (extra) =>
+          finish({
+            ok: true,
+            attestation: (extra && extra.attestation) || null,
+            attestationMissing: (extra && extra.attestationMissing) || null
+          }),
         onError: (message, code) => finish({ ok: false, message, code })
       }
     )
@@ -1004,6 +1033,71 @@ function runtimeDe(node) {
   return node.kind || 'unknown'
 }
 
+// Guarda una entrada en el Map de recibos y poda al escribir -- no con un timer:
+// un timer no corre si el proceso estuvo quieto, y mantendria vivo un Map que a
+// nadie le importa.
+function guardarRecibo(id, entry) {
+  recibos.set(id, { ...entry, at: Date.now() })
+  if (recibos.size > MAX_RECIBOS) {
+    const sobran = recibos.size - MAX_RECIBOS
+    let n = 0
+    for (const k of recibos.keys()) {
+      if (n++ >= sobran) break
+      recibos.delete(k)
+    }
+  }
+}
+
+// FASE 10 — un request que sirvio UN PAR. El gateway que ruteo NO liquida (el
+// handoff es completo: cobra el que corrio el modelo, diferido, desde su lote).
+// Acá solo se guarda el rastro con la atestacion D24 que el par firmo y devolvio
+// en el `chat:done` -- verificada, y atada a la wallet con la que ese par cobra.
+async function registrarRuteado({ id, node, ultimo }) {
+  const cruda = ultimo && ultimo.attestation
+  let att = null
+  let motivo = (ultimo && ultimo.attestationMissing) || null
+
+  if (cruda) {
+    const v = await atestacion.verificar(cruda)
+    const wPar = node && node.economic && node.economic.walletAddress
+    if (!v.ok) {
+      motivo = `la atestacion del par no verifico: ${v.reason}`
+    } else if (wPar && v.firmante.toLowerCase() !== String(wPar).toLowerCase()) {
+      // La firma vale, pero no es de la wallet que el 402 declaro como payTo:
+      // no es una atestacion DE ESTE cobro.
+      motivo = `la atestacion la firmo ${v.firmante}, y el par cobra a ${wPar}`
+    } else {
+      att = cruda
+    }
+  } else if (!motivo) {
+    motivo = 'el par no adjunto una atestacion (corte, o version vieja)'
+  }
+
+  guardarRecibo(id, {
+    recibo: null,
+    // El par liquida en lote de su lado; este nodo no tiene un SettleResponse
+    // que mostrar. `servedByPeer` lo distingue de un recibo local sin liquidar.
+    servedByPeer: true,
+    atestacion: att,
+    sinAtestacion: att ? undefined : motivo
+  })
+  return { recibo: null, cabecera: null, atestacion: att, sinAtestacion: att ? undefined : motivo }
+}
+
+// Decide el camino del pago segun quien sirvio: un par cobra diferido de su lado
+// (registrarRuteado), este nodo liquida ya (liquidarYRegistrar).
+async function procesarPago({ pago, id, node, ultimo, messages, contenido, d25, finAtestado }) {
+  if (!pago) return null
+  if (node && node.kind === 'peer') {
+    return registrarRuteado({ id, node, ultimo })
+  }
+  return liquidarYRegistrar(
+    pago,
+    id,
+    await atestacionDe({ id, node, messages, contenido, d25, finishReason: finAtestado })
+  )
+}
+
 async function liquidarYRegistrar(pago, id, extra = null) {
   const recibo = await x402.liquidar({ pago, requisito: pago.requisito })
 
@@ -1028,17 +1122,7 @@ async function liquidarYRegistrar(pago, id, extra = null) {
   // distintas del mismo intercambio: el recibo, que alguien pago; la atestacion,
   // que este nodo entrego esto. En esta fase NADIE la consume todavia -- eso es
   // la Fase 10 --, y es deliberado: hacia atras no se firma.
-  recibos.set(id, { recibo, ...(extra || {}), at: Date.now() })
-  // Se poda al escribir y no con un timer: un timer no corre si el proceso
-  // estuvo quieto, y ademas mantendria vivo un Map que a nadie le importa.
-  if (recibos.size > MAX_RECIBOS) {
-    const sobran = recibos.size - MAX_RECIBOS
-    let n = 0
-    for (const k of recibos.keys()) {
-      if (n++ >= sobran) break
-      recibos.delete(k)
-    }
-  }
+  guardarRecibo(id, { recibo, ...(extra || {}) })
 
   // FASE 10 — el recibo entra al lote SI lo servimos NOSOTROS. Cuando el `payTo`
   // del 402 es nuestra wallet, la autorizacion EIP-3009 que el cliente firmo es
@@ -1346,7 +1430,11 @@ async function handleChatConReintentos({
               // Sin esto un corte del cliente o del tope dejaba al par
               // generando hasta que saltara el reloj de inactividad, y el
               // request terminaba como si el par hubiera fallado.
-              signal: cancelacion.signal
+              signal: cancelacion.signal,
+              // FASE 10 — se reenvia el pago (el par lo cobra) y el tope (recorta
+              // donde atestigua).
+              pago,
+              tope
             })
           : await streamFromLocal({
               node: cand,
@@ -1454,20 +1542,20 @@ async function handleChatConReintentos({
         // D12 — en el camino SIN stream no hay problema: la respuesta se arma
         // entera antes de escribir un byte, asi que se liquida ACA y el recibo
         // viaja en `X-PAYMENT-RESPONSE` como manda el spec, sin desviacion.
-        const recibo = pago
-          ? await liquidarYRegistrar(
-              pago,
-              id,
-              await atestacionDe({
-                id,
-                node: elegido,
-                messages,
-                contenido,
-                d25,
-                finishReason: finAtestado
-              })
-            )
-          : null
+        //
+        // FASE 10 — salvo que haya servido un par: ahi el gateway NO liquida y
+        // no hay `X-PAYMENT-RESPONSE` (lo cobra el par, diferido). El rastro
+        // queda igual en `/v1/receipts/:id`.
+        const recibo = await procesarPago({
+          pago,
+          id,
+          node: elegido,
+          ultimo,
+          messages,
+          contenido,
+          d25,
+          finAtestado
+        })
 
         // Los mismos headers de procedencia que el camino con stream. Sin
         // esto, quien pide sin `stream:true` -- un curl, Open WebUI, cualquier
@@ -1507,18 +1595,20 @@ async function handleChatConReintentos({
       // encuentre tiene que poder enterarse de POR QUE. De ahi `x402Note` y el
       // `receiptUrl`, que no son parte del spec y estan a proposito.
       if (pago) {
-        const recibo = await liquidarYRegistrar(
+        // FASE 10 — si sirvio un par, `procesarPago` NO liquida: guarda el
+        // rastro con la atestacion del par y devuelve `recibo: null`. El evento
+        // SSE de abajo lo refleja (`paymentResponse: null`) y el cliente x402 se
+        // entera por `x402Note` de que el settlement es del par.
+        const recibo = await procesarPago({
           pago,
           id,
-          await atestacionDe({
-            id,
-            node: elegido,
-            messages,
-            contenido,
-            d25,
-            finishReason: finAtestado
-          })
-        )
+          node: elegido,
+          ultimo,
+          messages,
+          contenido,
+          d25,
+          finAtestado
+        })
         // El cliente puede haberse ido: D27 caso 1 dice que igual se liquida y
         // se atestigua -- el trabajo se hizo y el prefijo llego --, pero
         // escribirle a un socket cerrado tira, y esa excepcion se llevaria
@@ -1529,12 +1619,17 @@ async function handleChatConReintentos({
             res.write(
               `data: ${JSON.stringify({
                 x402Version: 2,
-                x402Note:
-                  'El recibo viaja como evento SSE final y no en X-PAYMENT-RESPONSE: ' +
-                  'en streaming los headers salen antes del primer token, asi que liquidar ' +
-                  'para poder escribirlo pondria una transaccion on-chain delante del TTFT. ' +
-                  'Ver D12 del roadmap. Tambien se puede recuperar por receiptUrl.',
-                paymentResponse: recibo.recibo,
+                x402Note: recibo.servedByPeer
+                  ? 'Lo sirvio un par y el settlement es SUYO: acumula este pago en su ' +
+                    'lote y lo liquida en lote (Fase 10). No hay X-PAYMENT-RESPONSE porque ' +
+                    'este gateway no cobra lo que sirvio otro. La atestacion firmada por el ' +
+                    'par va abajo; el pago se recupera por receiptUrl.'
+                  : 'El recibo viaja como evento SSE final y no en X-PAYMENT-RESPONSE: ' +
+                    'en streaming los headers salen antes del primer token, asi que liquidar ' +
+                    'para poder escribirlo pondria una transaccion on-chain delante del TTFT. ' +
+                    'Ver D12 del roadmap. Tambien se puede recuperar por receiptUrl.',
+                paymentResponse: recibo.recibo || null,
+                settledBy: recibo.servedByPeer ? 'peer-batch' : 'gateway',
                 // D24 — la atestacion viaja con el recibo, o el motivo por el
                 // que no hay. Una ausencia con motivo es un dato; una ausencia
                 // muda es un agujero que alguien va a leer como "no hace falta".
@@ -2385,6 +2480,10 @@ async function onRequest(req, res) {
       return sendJson(res, 200, {
         id,
         ...guardado.recibo,
+        // FASE 10 — un ruteado no lo cobra este gateway: lo acumula el par en su
+        // lote. Sin esto un cliente que ve `attestation` pero no `transaction`
+        // no sabe si la liquidacion fallo o si nunca fue nuestra.
+        ...(guardado.servedByPeer ? { settledBy: 'peer-batch', success: undefined } : {}),
         // D24 — que sirvio este nodo, firmado por su wallet. `null` con motivo
         // cuando no la hay: el caso normal es que el que sirvio haya sido un
         // par, y ahi la atestacion la firma el (Fase 10), no nosotros.

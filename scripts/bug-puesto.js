@@ -448,6 +448,45 @@ const BUGS = [
     a: "  if (false && red === 'plasma-testnet') {",
     suite: 'integracion',
     espera: ['con ASSET y NAME declarados, la red se ofrece']
+  },
+
+  // ---- FASE 10 / TRANSPORTE POR PROTOMUX -----------------------------------
+  //
+  // El handoff: un request ruteado lo cobra EL PAR que corrio el modelo, no el
+  // gateway. Lo que se rompe en silencio: el par sirve y no acumula (trabajo
+  // regalado), o el gateway sigue liquidando un ruteado (doble via de cobro), o
+  // el tope no llega y la atestacion atestigua de mas.
+  {
+    n: 'Fase 10: el par sirve un ruteado y NO acumula el recibo',
+    file: 'qvac/provider.mjs',
+    de: '      lote.agregar(recibo)',
+    a: '      void recibo',
+    suite: 'unit',
+    espera: ['el par acumulo el recibo en SU lote']
+  },
+  {
+    n: 'Fase 10: el gateway vuelve a liquidar un request que sirvio un par',
+    file: 'qvac/gateway.mjs',
+    de: "  if (node && node.kind === 'peer') {",
+    a: "  if (false && node && node.kind === 'peer') {",
+    suite: 'integracion',
+    espera: ['el settlement es del par, diferido']
+  },
+  {
+    n: 'Fase 10: el par deja de recortar en el tope del 402',
+    file: 'qvac/provider.mjs',
+    de: "        if (tope > 0 && Buffer.byteLength(contenido, 'utf8') / 4 >= tope) {",
+    a: '        if (false) {',
+    suite: 'unit',
+    espera: ['corto en el tope', 'la atestacion dice length']
+  },
+  {
+    n: 'Fase 10: el par atestigua un cobro cuyo payTo no es su wallet',
+    file: 'qvac/provider.mjs',
+    de: "      if (String(p.requirements.payTo || '').toLowerCase() !== this.walletAddress.toLowerCase()) {",
+    a: '      if (false) {',
+    suite: 'unit',
+    espera: ['no atestigua un cobro que no es suyo', 'no acumula nada']
   }
 ]
 

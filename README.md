@@ -174,13 +174,14 @@ and text does not depend on how many pieces it travelled in, so anyone can
 recount tokens from what was attested. Hashes carry their algorithm inline
 (`blake2b-256:…`) so a third party can recompute them.
 
-Three things it deliberately does **not** do. Nothing consumes it yet — phase 9
-only emits and stores it, because attestations cannot be signed backwards.
-`quantization` and `runtime` are **declarations**, not measurements (see the
-model-declaration limit below). And when the request was served by **a peer**,
-this node signs nothing and says so: the peer ran the model, the 402 paid _its_
-wallet, and its attestation travels over Protomux in phase 10. An attestation
-that is missing always says why; one is never emitted unsigned.
+Two things it deliberately does **not** do. `quantization` and `runtime` are
+**declarations**, not measurements (see the model-declaration limit below). And a
+node never signs for work it did not run: when the request was served by **a
+peer**, the peer signs its own attestation and sends it back over Protomux in the
+`chat:done` — the routing gateway verifies it (signature, and that the signer is
+the peer's payout wallet) and records it, but does not sign in its place. The
+batch (phase 10) is what consumes these. An attestation that is missing always
+says why; one is never emitted unsigned.
 
 **How a cut stream is recorded**, decided by who cut: the client closing the tab
 gets a partial attestation over the prefix it actually received — and is charged
@@ -409,14 +410,18 @@ an audit that always says yes audits nothing.
   cuts, the free per-peer quota, the payout wallet inside the signed manifest,
   and x402 in the request path.
 - **Partly built (phase 10):** the x402 receipt is now a versioned artefact
-  (`qvac/lote.mjs`), and receipts this node served are accumulated, grouped into
-  a batch for one network and one payout address, signed with the **wallet**
-  (JCS + EIP-191, same as the attestation), and can be settled **deferred** —
-  `x402.liquidar()` once per receipt, the phase-9 flow with the settlement
-  postponed. `npm run verificar-lote` validates a batch offline. What is **not**
-  built: a trigger that flushes the batch on its own, and the other half — the
-  **peer's** attestation travelling over Protomux, signed by the peer. This
-  gateway still signs nothing it did not serve itself, and the receipt says so.
+  (`qvac/lote.mjs`), grouped into a batch for one network and one payout address,
+  signed with the **wallet** (JCS + EIP-191, same as the attestation), and
+  settled **deferred** — `x402.liquidar()` once per receipt. `npm run
+verificar-lote` validates a batch offline. And the peer transport: when a
+  gateway routes a paid request to a peer, it **forwards the client's EIP-3009
+  authorization** over Protomux; the peer signs its D24 attestation, builds the
+  receipt and accumulates it in **its own** batch, and the routing gateway
+  **stops settling routed requests** (`chat:done` carries the attestation back;
+  `/v1/receipts/:id` shows `settledBy: "peer-batch"`). What is **not** built: a
+  trigger that flushes the batch on its own, persistence of the accumulator
+  across restarts, and a local `settlement: "batch-receipts"` actually deferring
+  instead of settling per request.
 - **Not built:** the agentic layer (phase 11). A multi-writer ledger of our own
   is **out of scope** — the EIP-3009 signature already is the receipt, so
   on-chain settlement removes the need instead of adding one.

@@ -3148,6 +3148,263 @@ test('FASE 10: el protocolo nodo<->facilitator esta declarado, no adivinado', as
 })
 
 // ---------------------------------------------------------------------------
+// FASE 10 — el transporte por Protomux: el par que sirve ruteado, cobra
+//
+// Handoff completo (decidido): cuando un gateway rutea un request pagado a un
+// par, le REENVIA la autorizacion EIP-3009 del cliente. El par corre el modelo,
+// arma su atestacion D24, arma el recibo con ese pago y lo acumula en SU lote
+// para liquidarlo diferido. El gateway que ruteo ya NO liquida. El par NO
+// re-verifica el pago (decidido): confia en el gateway que lo ruteo.
+//
+// Estos tests ejercitan el `provider.mjs` REAL con un motor falso -- el mismo
+// harness que los tests de cuota. La firma EIP-3009 del cliente y la de la
+// atestacion del par son reales; la plata no existe.
+// ---------------------------------------------------------------------------
+
+async function parConWallet(tokensPorRespuesta = 5, pedazo = 'texto ') {
+  const { Provider } = await import('../qvac/provider.mjs')
+  const wdk = await import('@tetherto/wdk-wallet-evm')
+  const WM = wdk.default || wdk
+  // getAccount(1): el par NO es el mismo que el cliente pagador (getAccount(0)).
+  const cuenta = await new WM(FRASE_DE_PRUEBA, {
+    provider: 'http://127.0.0.1:1/no-existe'
+  }).getAccount(1)
+  const address = await cuenta.getAddress()
+  const engine = {
+    resolveModel: async () => ({ modelSrc: {} }),
+    loadModel: async () => 'cargado',
+    complete: async function* () {
+      for (let i = 0; i < tokensPorRespuesta; i++) yield pedazo
+    },
+    shutdown: async () => {}
+  }
+  const provider = new Provider({
+    engineLoader: async () => engine,
+    models: [{ modelId: 'llama1b', maxConcurrentRequests: 3 }],
+    maxConcurrent: 3,
+    walletAddress: address,
+    firmarConWallet: (m) => cuenta.sign(m)
+  })
+  return { provider, address }
+}
+
+// El `payment` que el gateway reenvia por `chat:request`: la autorizacion
+// EIP-3009 que el CLIENTE (getAccount 0) firmo a favor de `payToAddress`.
+async function pagoReenviadoPara(payToAddress, { value = '1000', nonce = 1 } = {}) {
+  const x402 = await import('../qvac/x402.mjs')
+  const { evm } = await x402.cargar()
+  const wdk = await import('@tetherto/wdk-wallet-evm')
+  const WM = wdk.default || wdk
+  const cliente = await new WM(FRASE_DE_PRUEBA, {
+    provider: 'http://127.0.0.1:1/no-existe'
+  }).getAccount(0)
+  const from = await cliente.getAddress()
+  const asset = '0x' + 'a1'.repeat(20)
+  const network = 'eip155:9746'
+  const domain = {
+    name: 'PyrusLLM Test USD',
+    version: '1',
+    chainId: 9746,
+    verifyingContract: asset
+  }
+  const validBefore = String(Math.floor(Date.now() / 1000) + 3600)
+  const authorization = {
+    from,
+    to: payToAddress,
+    value: String(value),
+    validAfter: '0',
+    validBefore,
+    nonce: '0x' + String(nonce).padStart(64, '0')
+  }
+  const signature = await cliente.signTypedData({
+    domain,
+    types: evm.authorizationTypes,
+    primaryType: 'TransferWithAuthorization',
+    message: {
+      from,
+      to: payToAddress,
+      value: BigInt(value),
+      validAfter: 0n,
+      validBefore: BigInt(validBefore),
+      nonce: authorization.nonce
+    }
+  })
+  return {
+    authorization,
+    signature,
+    red: 'plasma-testnet',
+    requirements: {
+      scheme: 'exact',
+      network,
+      amount: String(value),
+      asset,
+      payTo: payToAddress,
+      maxTimeoutSeconds: 300,
+      extra: { name: domain.name, version: '1' }
+    }
+  }
+}
+
+test('FASE 10: un par que sirve un request ruteado atestigua y acumula en su lote', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const at = await import('../qvac/atestacion.mjs')
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+  lote.limpiar()
+
+  const { provider, address } = await parConWallet(4)
+  const payment = await pagoReenviadoPara(address, { value: '1500', nonce: 42 })
+
+  const cap = capturar()
+  await provider._serve(
+    PEER,
+    {
+      requestId: 'chatcmpl-peer-1',
+      model: 'llama1b',
+      messages: [{ role: 'user', content: 'hola' }],
+      payment
+    },
+    cap.send
+  )
+
+  const done = cap.vistos.find((m) => m.type === 'chat:done')
+  t.ok(done, 'el par cerro el stream')
+  const att = (done && done.attestation) || null
+  t.ok(att && att.signature, 'y devolvio su atestacion D24 firmada')
+  const v = att ? await at.verificar(att) : { ok: false, firmante: null }
+  t.ok(v.ok, 'que verifica: ' + (v.reason || ''))
+  t.is(
+    String(v.firmante || '').toLowerCase(),
+    address.toLowerCase(),
+    'firmada por la wallet DEL PAR'
+  )
+
+  const pend = lote.pendientes()
+  t.is(pend.length, 1, 'el par acumulo el recibo en SU lote')
+  const r0 = pend[0] || {}
+  t.is(
+    String(r0.payTo || '').toLowerCase(),
+    address.toLowerCase(),
+    'que paga a la wallet del par (D10)'
+  )
+  t.is(
+    String(r0.payer || '').toLowerCase(),
+    payment.authorization.from.toLowerCase(),
+    'y el pagador es el cliente, no el par'
+  )
+  t.is(r0.nonce, payment.authorization.nonce, 'con el nonce EIP-3009 como clave')
+  t.ok(r0.attestation && r0.attestation.signature, 'y la atestacion colgada del recibo')
+  t.is(r0.liquidacion, null, 'sin liquidar: eso es el flush del lote')
+
+  quota.reset()
+  lote.limpiar()
+})
+
+test('FASE 10: el par recorta en el tope del 402 y lo atestigua como length (D9)', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+  lote.limpiar()
+
+  // 40 pedazos de 10 bytes = 400 bytes ~ 100 tokens estimados; el tope de 4
+  // corta muchisimo antes.
+  const { provider, address } = await parConWallet(40, 'diez-bytes')
+  const payment = await pagoReenviadoPara(address, { nonce: 7 })
+
+  const cap = capturar()
+  await provider._serve(
+    PEER,
+    {
+      requestId: 'chatcmpl-tope',
+      model: 'llama1b',
+      messages: [{ role: 'user', content: 'hola' }],
+      payment,
+      maxTokens: 4
+    },
+    cap.send
+  )
+
+  const chunks = cap.vistos.filter((m) => m.type === 'chat:chunk')
+  t.ok(chunks.length < 40 && chunks.length > 0, 'corto en el tope: ' + chunks.length + ' de 40')
+  const done = cap.vistos.find((m) => m.type === 'chat:done')
+  t.is(
+    ((done && done.attestation) || {}).finishReason,
+    'length',
+    'y la atestacion dice length, no stop (D9)'
+  )
+
+  quota.reset()
+  lote.limpiar()
+})
+
+test('FASE 10: sin wallet el par sirve igual pero no atestigua ni acumula', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+  lote.limpiar()
+
+  // providerDePrueba NO recibe walletAddress/firmarConWallet.
+  const provider = await providerDePrueba(3)
+  const payment = await pagoReenviadoPara('0x' + 'cc'.repeat(20), { nonce: 9 })
+
+  const cap = capturar()
+  await provider._serve(
+    PEER,
+    {
+      requestId: 'chatcmpl-sinwallet',
+      model: 'llama1b',
+      messages: [{ role: 'user', content: 'hola' }],
+      payment
+    },
+    cap.send
+  )
+
+  const done = cap.vistos.find((m) => m.type === 'chat:done')
+  t.ok(done, 'el stream se sirve igual: la atestacion no es una puerta')
+  t.is(done && done.attestation, undefined, 'pero no sale atestacion')
+  t.ok(done && done.attestationMissing, 'con el motivo: ' + (done && done.attestationMissing))
+  t.is(lote.pendientes().length, 0, 'y no se acumulo nada')
+
+  quota.reset()
+  lote.limpiar()
+})
+
+test('FASE 10: un pago reenviado a otra wallet NO lo acumula el par', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+  lote.limpiar()
+
+  const { provider } = await parConWallet(3)
+  // El payTo del pago apunta a OTRA direccion, no a la del par: el 402 no
+  // pago a este nodo. Se sirve, pero no se acumula ni se atestigua.
+  const payment = await pagoReenviadoPara('0x' + 'dd'.repeat(20), { nonce: 11 })
+
+  const cap = capturar()
+  await provider._serve(
+    PEER,
+    {
+      requestId: 'chatcmpl-otro-payto',
+      model: 'llama1b',
+      messages: [{ role: 'user', content: 'hola' }],
+      payment
+    },
+    cap.send
+  )
+
+  const done = cap.vistos.find((m) => m.type === 'chat:done')
+  t.is(done && done.attestation, undefined, 'no atestigua un cobro que no es suyo')
+  t.ok(
+    String(done && done.attestationMissing).indexOf('wallet de este nodo') !== -1,
+    done && done.attestationMissing
+  )
+  t.is(lote.pendientes().length, 0, 'y no acumula nada')
+
+  quota.reset()
+  lote.limpiar()
+})
+
+// ---------------------------------------------------------------------------
 // D30 / BLOQUE 0 — las precondiciones para poder demostrar la Fase 10
 //
 // D30 decidio que ningun camino que mueva valor se estrena en mainnet. Eso tiene

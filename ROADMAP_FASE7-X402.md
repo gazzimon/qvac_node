@@ -170,7 +170,7 @@ falla con el bug puesto.
 | 8 Precio que rutea      | **CERRADA 2026-08-26**                     | El precio entra al score en el paso 4: después de la carga, antes del histórico. El log dice "mas barato" con los dos números, y el chat muestra el techo por respuesta (`up to USD …` / `no charge`). Los tests están verificados contra el criterio desactivado                                                                            |
 | 8.5 Asistente externo   | **CERRADA 2026-08-26 (segunda vez)**       | B11, B12, B15 y B16 arreglados, los cuatro con test verificado contra el bug puesto. B5 sigue acotado y con dueño (D20 / Fase 11), que es de otra fase                                                                                                                                                                                       |
 | 9 x402 en el borde      | **CERRADA 2026-08-27; reabierta y recerrada 2026-08-28** | Tres de los cuatro ítems del DoD verificados con test; el cuarto —el tx hash en el explorer de Plasma— **no se puede verificar sin fondear** (D13) y **no se fondeó**. Lleva además D24, D25 y D27. Dos ítems abiertos que son decisión del dueño: B21 y B22. La Fase 10 le agregó a `qvac/x402.mjs` la entrada `plasma-testnet` (9746) al `accepts[]` — eso reabrió y recerró la 9. **El detalle está en § 0-quater y § 0-sexies** |
-| 10 Recibos y lote       | **PARCIAL 2026-08-28** — formato y lote local | El recibo x402 es un artefacto versionado (`qvac/lote.mjs`); los recibos que sirvió este nodo se acumulan, se agrupan en un lote por red+wallet, se firman con la wallet (JCS + EIP-191) y se liquidan diferido (`liquidarLote` = `x402.liquidar` por recibo). `npm run verificar-lote` valida un lote offline. **Falta:** el disparador que vacía el lote solo, y la otra mitad — la atestación **del par** por Protomux, firmada por él. Ver § 0-sexies |
+| 10 Recibos y lote       | **PARCIAL 2026-08-28** — formato, lote, y el transporte por Protomux | El recibo x402 es un artefacto versionado (`qvac/lote.mjs`); se agrupa en un lote por red+wallet, se firma con la wallet (JCS + EIP-191) y se liquida diferido. **El par que sirve un request ruteado cobra**: el gateway le reenvía la autorización EIP-3009, el par atestigua (D24) y acumula en su lote, y el gateway deja de liquidar los ruteados (§ 0-sexies-bis). `npm run verificar-lote` valida un lote offline. **Falta:** flush automático, persistencia del acumulador, y que un `batch-receipts` local difiera. Ver § 0-sexies y 0-sexies-bis |
 | 11–12, 11.5, Track V    | No empezadas                               | —                                                                                                                                                                                                                                                                                                                                          |
 
 ### Los bugs, y de qué fase es cada uno
@@ -492,7 +492,10 @@ esto tocó una cadena salvo las dos lecturas de comprobación.
 Esto ejecuta la primera mitad de la Fase 10: el **formato** del recibo y del
 lote, la **firma** del lote con la wallet, y la **liquidación diferida** local.
 La otra mitad —la atestación **del par** viajando por Protomux, firmada por él—
-no está, y se dice para que "parcial" tenga un límite escrito.
+se hizo en una segunda pasada el mismo día: **§ 0-sexies-bis**. Lo que sigue sin
+hacer después de las dos: el disparador que vacía el lote solo, la persistencia
+del acumulador, y que un `settlement: 'batch-receipts'` local difiera en vez de
+liquidar por request.
 
 ### La Fase 9 se reabrió, y se dice acá porque la regla lo pide
 
@@ -548,13 +551,85 @@ fallaron.
 - **No mueve un peso.** `liquidarLote` en los tests corre contra el facilitator
   falso o una función inyectada; ninguno toca una cadena. Sigue sin haber tx
   hash, exactamente como lo dejó 0-quater.
-- **No transporta la atestación del par.** Este gateway sigue sin firmar nada
-  que haya servido otro, y el recibo lo dice (`attestation: null` +
-  `attestationMissing`). Esa es la mitad grande de la Fase 10 y queda pendiente.
+- **No transporta la atestación del par** — ~~la mitad grande, pendiente~~
+  **hecho en § 0-sexies-bis** el mismo día.
 - **No hay flush automático del lote.** Ver decisión 4.
 - **Un test de la suite queda rojo, y no es de esta fase:** `D30.4: los errores
   del facilitator sobreviven al CLIENTE OFICIAL` — falla igual en un checkout
   limpio de esta rama (`scripts/facilitator.js`, superficie de 0-quinquies).
+
+---
+
+## 0-sexies-bis · El transporte por Protomux — hecho el 2026-08-28 (segunda pasada del mismo día)
+
+La mitad grande de la Fase 10: cuando un gateway rutea un request pagado a un
+par, **el par es el que cobra**. Dos decisiones del dueño lo enmarcan:
+
+1. **Handoff completo, no compartido.** El gateway reenvía la autorización
+   EIP-3009 del cliente al par por Protomux; el par arma su recibo y su
+   atestación D24 y lo acumula en **su** lote; el gateway **deja de liquidar los
+   ruteados**. La alternativa —el gateway sigue liquidando y el par sólo
+   atestigua— se descartó: dejaba dos vías de cobro para el mismo pago y no
+   cerraba `batch-receipts`.
+2. **El par NO re-verifica el pago reenviado.** Confía en que el gateway que
+   ruteó ya corrió `x402.verificarPago`. Es a cambio del TTFT, y su costo hay
+   que decirlo: un gateway comprometido puede quemar GPU de un par. Queda
+   anotado como lo que un `verificarPago` del lado del par cerraría.
+
+### El cable
+
+| Mensaje | Cambio |
+| --- | --- |
+| `chat:request` (gateway→par) | Gana `payment` = `{ authorization, signature, requirements, red }` (el pago del cliente, tal cual) y `maxTokens` (el tope del 402). Ausentes = request de cuota gratuita, como siempre. |
+| `chat:done` (par→gateway) | Gana `attestation` (la D24 firmada por el par) y `attestationMissing` (el motivo si falta). |
+
+`channel.mjs` no se tocó: sigue siendo **un** mensaje JSON, y agregar campos es
+compatible hacia atrás — un nodo viejo ignora `payment` y sirve gratis, uno
+nuevo sin `payment` hace lo mismo.
+
+### El reparto
+
+- **`qvac/provider.mjs`** — con `payment`, el par acumula el texto servido, lo
+  recorta en `maxTokens` (estimación bytes UTF-8 ÷ 4, igual que el gateway — así
+  la atestación y lo que el cliente recibe son el **mismo** texto y no uno más
+  largo), firma la atestación D24 con su wallet (`bin.mjs` le inyecta
+  `walletAddress` + `firmarConWallet`, mismo patrón que el gateway), arma el
+  recibo con `lote.construirRecibo` y hace `lote.agregar`. Guarda: sólo si
+  `requirements.payTo` es su propia wallet. Sin wallet/firmante: sirve igual, no
+  atestigua, y el `chat:done` dice el motivo.
+- **`qvac/swarm.mjs`** — `chatRequest` reenvía `payment`/`maxTokens`; el
+  `chat:done` entrega `{ attestation, attestationMissing }` a `onDone`.
+- **`qvac/gateway.mjs`** — `streamFromPeer` arma el `payment` desde el
+  `pagoVerificado` y lo pasa; `procesarPago` bifurca por `node.kind`: **par →
+  `registrarRuteado`** (NO liquida; verifica la atestación del par con
+  `atestacion.verificar` **y** que el firmante sea la wallet del manifiesto
+  firmado del par, y la cuelga del rastro), **local → `liquidarYRegistrar`**
+  como antes. El evento SSE y `/v1/receipts/:id` de un ruteado traen
+  `settledBy: 'peer-batch'` y `paymentResponse: null`.
+
+### Comprobación
+
+- `FASE 10: un par que sirve un request ruteado atestigua y acumula en su lote`
+  — el par firma, el recibo entra a `lote.pendientes()` con el `payTo` del par y
+  el `payer` del cliente.
+- `FASE 10: el par recorta en el tope del 402 y lo atestigua como length (D9)`.
+- `FASE 10: sin wallet el par sirve igual pero no atestigua ni acumula`.
+- `FASE 10: un pago reenviado a otra wallet NO lo acumula el par`.
+- `npm run bug-puesto "Fase 10"` — 9 anclas, las 4 nuevas incluidas.
+
+### Lo que esta pasada NO hace
+
+- **El corte del cliente (D27 caso 1) no devuelve la atestación al gateway.** El
+  par sí acumula el recibo parcial de su lado (cobra el prefijo que sirvió), pero
+  su `chat:done` no llega porque el chat del gateway ya se fue con el `abort`. El
+  rastro del gateway lo dice con un motivo, no en verde. Cerrarlo pide que
+  `cancelChat` mantenga el chat vivo hasta el `chat:done` o un timeout — anotado,
+  no hecho.
+- **Sigue sin haber flush ni persistencia del acumulador.** Un corte del proceso
+  entre "servido" y "flush" pierde el recibo. Es lo próximo de la Fase 10.
+- **Sólo los ruteados difieren.** Un serve local sigue liquidando por request
+  (Fase 9) y además acumula; un `settlement: 'batch-receipts'` en el manifiesto
+  todavía no cambia eso.
 
 ---
 

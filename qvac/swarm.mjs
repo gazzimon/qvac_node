@@ -15,10 +15,19 @@
 //   manifest:announce  nodo -> par    el manifiesto firmado
 //   node:status        nodo -> par    { activeRequests, maxConcurrentRequests }
 //   files:announce     nodo -> par    { driveKey }  <- agregado, ver files.mjs
-//   chat:request       par  -> nodo   { requestId, model, messages, stream }
+//   chat:request       par  -> nodo   { requestId, model, messages, stream,
+//                                       payment?, maxTokens? }   <- Fase 10
 //   chat:chunk         nodo -> par    { requestId, delta }
-//   chat:done          nodo -> par    { requestId }
+//   chat:done          nodo -> par    { requestId, attestation?, attestationMissing? }  <- Fase 10
 //   chat:error         nodo -> par    { requestId, message }
+//
+// FASE 10 — `payment` es la autorizacion EIP-3009 que el CLIENTE firmo a favor
+// del NODO que va a servir (payTo del 402 = wallet del par, D10), reenviada tal
+// cual por el gateway que ruteo: `{ authorization, signature, requirements, red }`.
+// Con eso el que corre el modelo arma su recibo y lo acumula para liquidar en
+// lote. `attestation` es la D24 firmada por el par que sirvio, que vuelve para
+// el rastro del gateway. Un `chat:request` sin `payment` es lo de siempre: se
+// sirve contra la cuota gratuita y no se atestigua nada.
 //
 // Este archivo hace el descubrimiento, el handshake del manifiesto y el
 // node:status. El transporte de chat es Fase 2-c/3 y engancha en `onMessage`.
@@ -459,7 +468,12 @@ export class NodeSwarm {
       else if (msg.type === 'chat:chunk') chat.onChunk(msg.delta)
       else if (msg.type === 'chat:done') {
         this._chats.delete(msg.requestId)
-        chat.onDone()
+        // FASE 10 — el `chat:done` puede traer la atestacion D24 firmada por el
+        // par. Se pasa tal cual: el gateway la verifica y decide.
+        chat.onDone({
+          attestation: msg.attestation || null,
+          attestationMissing: msg.attestationMissing || null
+        })
       } else if (msg.type === 'chat:error') {
         this._chats.delete(msg.requestId)
         chat.onError(msg.message || 'error sin motivo', msg.code || null)
@@ -470,7 +484,7 @@ export class NodeSwarm {
   // Abre un chat contra un par. Devuelve el requestId para poder cancelarlo.
   // Los handlers son callbacks y no una promesa porque esto es un stream: lo
   // que importa es cada chunk a medida que llega, no el resultado final.
-  chatRequest(peerKey, { model, messages }, handlers) {
+  chatRequest(peerKey, { model, messages, payment = null, maxTokens = 0 }, handlers) {
     const peer = this.peers.get(peerKey)
     if (!peer || !peer.manifest) {
       handlers.onError('el par ya no esta conectado', 'peer_gone')
@@ -479,7 +493,18 @@ export class NodeSwarm {
 
     const requestId = `r${Date.now().toString(36)}${(this._chatSeq++).toString(36)}`
     this._chats.set(requestId, { peerKey, ...handlers })
-    this._send(peer, { type: 'chat:request', requestId, model, messages, stream: true })
+    this._send(peer, {
+      type: 'chat:request',
+      requestId,
+      model,
+      messages,
+      stream: true,
+      // FASE 10 — se reenvia el pago del cliente para que el par lo cobre, y el
+      // tope del 402 para que recorte en el mismo punto que atestigua. Ausentes
+      // cuando el request no vino de un cobro (cuota gratuita).
+      ...(payment ? { payment } : {}),
+      ...(maxTokens > 0 ? { maxTokens } : {})
+    })
     return requestId
   }
 

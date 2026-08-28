@@ -3091,16 +3091,17 @@ test('D27 caso 1: los chunks que llegan DESPUES del cancel no entran al hash', a
   await esperar(1200)
 
   const rec = await pedir('GET', '/v1/receipts/' + id)
-  t.is(rec.status, 200, 'se cobra hasta ahi (D27 caso 1)')
-  t.is(rec.json.success, true, 'y la liquidacion salio bien, no solo se guardo el intento')
+  t.is(rec.status, 200, 'queda rastro del ruteo (D27 caso 1)')
+  // FASE 10 — el handoff: el gateway NO liquida un ruteado, lo cobra el par
+  // desde su lote. Por eso no hay `success`/`transaction` de este lado.
+  t.is(rec.json.settledBy, 'peer-batch', 'el settlement es del par, diferido')
+  t.absent(rec.json.success, 'este gateway no muestra una liquidacion que no hizo')
 
-  // El par NO firma acá: el 402 pago a SU wallet y el que corrio el modelo fue
-  // el. Este gateway no puede atestiguar trabajo ajeno.
-  t.is(rec.json.attestation, null, 'y este nodo no atestigua lo que sirvio otro (D24)')
-  t.ok(
-    String(rec.json.attestationMissing).indexOf('Fase 10') !== -1,
-    'la ausencia dice de quien es la firma y cuando llega: ' + rec.json.attestationMissing
-  )
+  // El par NO firma DE ESTE LADO: la atestacion la firma el y vuelve en el
+  // chat:done. En un corte del cliente el chat:done no llega (el chat ya se
+  // fue), asi que la atestacion parcial queda de su lado -- y el rastro lo dice.
+  t.is(rec.json.attestation, null, 'sin atestacion de este lado en un corte del cliente')
+  t.ok(rec.json.attestationMissing, 'con el motivo: ' + rec.json.attestationMissing)
 
   // Lo que si se puede verificar de este lado: que el rastro no cuente el chunk
   // tardio. Es el mismo invariante que el outputHash de una parcial servida por

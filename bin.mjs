@@ -598,7 +598,13 @@ async function startGateway(opts = {}) {
       engineLoader: () => import('./qvac/engine.mjs'),
       store,
       models,
-      maxConcurrent: capacidadDeclarada(models)
+      maxConcurrent: capacidadDeclarada(models),
+      // FASE 10 — la misma capacidad de firmar que recibe el gateway. Sirve
+      // para atestiguar (D24) y acumular en el lote lo que ESTE nodo sirve a un
+      // par. Sin wallet, el nodo sirve igual pero no cobra un ruteado -- el
+      // `chat:done` lo dice con un motivo.
+      walletAddress: cobro.economic ? cobro.economic.walletAddress : null,
+      firmarConWallet: cobro.firmar
     })
     nodeSwarm.setProvider(provider)
 
