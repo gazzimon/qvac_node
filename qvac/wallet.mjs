@@ -454,7 +454,7 @@ export function fraseValida(frase) {
 // FASE 11 — DE DONDE SALE LA PASSPHRASE, Y POR QUE PUEDE SALIR DE UN ARCHIVO
 // -----------------------------------------------------------------------------
 //
-// El onboarding desde el panel (crear la wallet sin `pyrusllm wallet --crear`)
+// Onboarding from the panel (create the wallet without `pyrusllm wallet --create`)
 // necesita una passphrase, y necesita que el MISMO valor esté disponible en
 // cada arranque para que `abrir()` funcione sin que nadie vuelva a tipear nada.
 // El env var solo no alcanza: obligaba a editar el entorno y reiniciar antes de

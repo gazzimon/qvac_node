@@ -180,26 +180,26 @@ export function scoreCandidates(
 // esa.
 function formatMicros(micros) {
   const n = Number(micros) || 0
-  if (n <= 0) return 'gratis'
+  if (n <= 0) return 'free'
   return 'USD ' + (n / 1_000_000).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
 }
 
-// El motivo en castellano que va al log. No es decoracion: el DoD de la Fase 8
-// pide que el log diga POR QUE se eligio, y "primer candidato" -lo unico que se
-// podia decir antes- no es un por que.
+// The reason that goes into the log. It is not decoration: the Phase 8 DoD
+// requires the log to say WHY a node was chosen, and "first candidate" -all
+// that could be said before- is not a why.
 function motivoDe(mejor, scored) {
-  if (!mejor) return 'sin candidatos'
-  if (scored.length === 1) return 'unico candidato'
+  if (!mejor) return 'no candidates'
+  if (scored.length === 1) return 'only candidate'
 
   const libres = scored.filter((s) => !s.saturado)
-  if (libres.length === 0) return `los ${scored.length} candidatos estan saturados`
+  if (libres.length === 0) return `all ${scored.length} candidates are saturated`
 
   const segundo = scored[1]
   if (mejor.carga !== segundo.carga) {
-    return `menor carga (${mejor.loadPct}% vs ${segundo.loadPct}%) entre ${scored.length} candidatos`
+    return `lower load (${mejor.loadPct}% vs ${segundo.loadPct}%) among ${scored.length} candidates`
   }
   if (segundo.saturado) {
-    return `unico candidato con lugar de ${scored.length}`
+    return `only candidate with room, of ${scored.length}`
   }
   // FASE 8 — el DoD pide que el log diga POR QUE, y "mas barato" es un por que
   // que antes no se podia dar. Se nombran los DOS numeros: sin el del segundo,
@@ -214,20 +214,20 @@ function motivoDe(mejor, scored) {
   // haber hecho.
   if (mejor.precio < segundo.precio) {
     return (
-      `carga pareja (${mejor.loadPct}%), mas barato: ` +
-      `${formatMicros(mejor.precio)} vs ${formatMicros(segundo.precio)} estimados`
+      `even load (${mejor.loadPct}%), cheaper: ` +
+      `${formatMicros(mejor.precio)} vs ${formatMicros(segundo.precio)} estimated`
     )
   }
   if (mejor.errorRate !== segundo.errorRate) {
-    return `carga pareja (${mejor.loadPct}%), menos errores historicos`
+    return `even load (${mejor.loadPct}%), fewer historical errors`
   }
   if (mejor.lastMs !== segundo.lastMs && mejor.lastMs !== null) {
-    return `carga pareja (${mejor.loadPct}%), mejor latencia historica (${mejor.lastMs}ms)`
+    return `even load (${mejor.loadPct}%), better historical latency (${mejor.lastMs}ms)`
   }
   if (mejor.rank !== segundo.rank) {
-    return `carga pareja (${mejor.loadPct}%), preferencia por tipo (${mejor.kind})`
+    return `even load (${mejor.loadPct}%), preference by kind (${mejor.kind})`
   }
-  return `carga pareja (${mejor.loadPct}%) entre ${scored.length} candidatos, desempate al azar`
+  return `even load (${mejor.loadPct}%) among ${scored.length} candidates, random tie-break`
 }
 
 // La API que usa el gateway.
@@ -250,7 +250,7 @@ export function pickCandidate(
   const lista = Array.isArray(candidatos) ? candidatos : []
 
   if (lista.length === 0) {
-    return { node: null, reason: 'sin candidatos', orden: [], scored: [], decision: null, pin }
+    return { node: null, reason: 'no candidates', orden: [], scored: [], decision: null, pin }
   }
 
   if (pin) {
@@ -258,7 +258,7 @@ export function pickCandidate(
     if (!fijado) {
       return {
         node: null,
-        reason: `el nodo fijado (${pin}) no esta entre los candidatos`,
+        reason: `the pinned node (${pin}) is not among the candidates`,
         orden: [],
         scored: [],
         decision: null,
@@ -268,11 +268,12 @@ export function pickCandidate(
     const saturado = estaSaturado(fijado)
     return {
       node: fijado,
-      // Un pin saturado se devuelve IGUAL, con el aviso: el que fija una
-      // maquina pide esa maquina, y el gateway decide si la intenta o corta.
+      // A saturated pin is returned ANYWAY, with the warning: whoever pins a
+      // machine is asking for that machine, and the gateway decides whether to
+      // try it or bail.
       reason: saturado
-        ? `nodo fijado por el cliente (saturado: ${fijado.activeRequests}/${fijado.maxConcurrentRequests})`
-        : 'nodo fijado por el cliente',
+        ? `node pinned by the client (saturated: ${fijado.activeRequests}/${fijado.maxConcurrentRequests})`
+        : 'node pinned by the client',
       orden: [fijado],
       scored: [],
       decision: { elegido: fijado.id, pin: true, saturado, alternativas: [] },

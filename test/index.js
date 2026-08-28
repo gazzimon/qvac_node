@@ -1239,7 +1239,7 @@ test('D6: entre dos pares gana el que tiene menos carga', async (t) => {
 
   t.is(r.node.id, 'libre', 'elige el descargado, no el primero de la lista')
   t.is(r.decision.loadPct, 10)
-  t.ok(r.reason.includes('menor carga'), 'y el motivo lo dice: ' + r.reason)
+  t.ok(r.reason.includes('lower load'), 'y el motivo lo dice: ' + r.reason)
   t.alike(
     r.orden.map((n) => n.id),
     ['libre', 'cargado'],
@@ -1270,7 +1270,7 @@ test('D6: con todos saturados no se inventa un ganador, se dice', async (t) => {
   })
 
   t.ok(r.node, 'igual devuelve uno: rechazar de entrada seria peor que intentar')
-  t.ok(r.reason.includes('saturados'), 'pero el motivo no finge una decision: ' + r.reason)
+  t.ok(r.reason.includes('saturated'), 'pero el motivo no finge una decision: ' + r.reason)
 })
 
 test('D6: con carga pareja se conserva el orden del modo --demo', async (t) => {
@@ -1315,7 +1315,7 @@ test('D6: el historico desempata cuando la carga empata', async (t) => {
   const r = pickCandidate([malo, bueno], { statsFor, random: SIN_AZAR })
 
   t.is(r.node.id, 'bueno', 'menos errores gana, aunque sea mas lento')
-  t.ok(r.reason.includes('errores'), r.reason)
+  t.ok(r.reason.includes('errors'), r.reason)
 })
 
 // ---------------------------------------------------------------------------
@@ -1347,7 +1347,7 @@ test('FASE 8: con carga pareja gana el mas barato, y el log dice los dos precios
   })
 
   t.is(r.node.id, 'barato')
-  t.ok(r.reason.includes('mas barato'), r.reason)
+  t.ok(r.reason.includes('cheaper'), r.reason)
   // Los DOS numeros: sin el del segundo, "el mas barato" no se audita contra
   // nada -- es la misma exigencia que el DoD le hace al motivo de la carga.
   t.ok(r.reason.includes('0.0009') && r.reason.includes('0.005'), 'nombra ambos: ' + r.reason)
@@ -1391,8 +1391,8 @@ test('FASE 8: gratis le gana a pago por PRECIO, no por el tipo de nodo', async (
     random: SIN_AZAR
   })
   t.is(r.node.id, 'local', 'mismo kind, misma carga: decide el precio')
-  t.ok(r.reason.includes('mas barato'), 'y el motivo lo dice: ' + r.reason)
-  t.ok(r.reason.includes('gratis'), 'el cero se escribe "gratis", no "USD 0.0000": ' + r.reason)
+  t.ok(r.reason.includes('cheaper'), 'y el motivo lo dice: ' + r.reason)
+  t.ok(r.reason.includes('free'), 'el cero se escribe "gratis", no "USD 0.0000": ' + r.reason)
 })
 
 test('FASE 8: el precio se compara ANTES que la latencia y los errores', async (t) => {
@@ -1423,7 +1423,7 @@ test('FASE 8: el precio se compara ANTES que la latencia y los errores', async (
     random: SIN_AZAR
   })
   t.is(conEmpate.node.id, 'caro', 'empatados en precio, decide el historico')
-  t.ok(conEmpate.reason.includes('errores'), conEmpate.reason)
+  t.ok(conEmpate.reason.includes('errors'), conEmpate.reason)
 })
 
 test('FASE 8: sin precioDe el ruteo se comporta igual que antes', async (t) => {
@@ -1471,9 +1471,9 @@ test('pin: fijar una maquina la elige, y si no esta NO cae a otra', async (t) =>
   // El nodo elegido se fue de la red entre que se pinto el selector y se mando
   // el prompt. Contestar con OTRA maquina sin avisar vaciaria de sentido a la
   // funcion: el que fija una maquina quiere esa.
-  const ausente = pickCandidate([a, b], { pin: 'fantasma', random: SIN_AZAR })
+  const ausente = pickCandidate([a, b], { pin: 'ghost', random: SIN_AZAR })
   t.absent(ausente.node, 'no elige un reemplazo')
-  t.ok(ausente.reason.includes('fantasma'), ausente.reason)
+  t.ok(ausente.reason.includes('ghost'), ausente.reason)
 })
 
 test('pin: una maquina fijada y saturada se devuelve, con el aviso', async (t) => {
@@ -1487,7 +1487,7 @@ test('pin: una maquina fijada y saturada se devuelve, con el aviso', async (t) =
 
   t.is(r.node.id, 'lleno')
   t.is(r.decision.saturado, true)
-  t.ok(r.reason.includes('saturado'), r.reason)
+  t.ok(r.reason.includes('saturated'), r.reason)
 })
 
 test('S5: markSaturated deja al par lleno hasta el proximo node:status', async (t) => {
@@ -3542,9 +3542,9 @@ test('un RPC caido no se dibuja como saldo cero', async (t) => {
   t.is(nativo.error, 'RPC HTTP 502', 'y el motivo viaja')
 
   const html = pw.htmlDeWallet(v, '', 'assets')
-  t.ok(html.indexOf('sin conversión a USD') !== -1, 'la ausencia de precio esta dicha')
+  t.ok(html.indexOf('no USD conversion') !== -1, 'la ausencia de precio esta dicha')
   t.ok(html.indexOf('RPC HTTP 502') !== -1, 'el error del nodo aparece en el panel')
-  t.ok(html.indexOf('dirección sin verificar') !== -1, 'el token con dir no verificada se marca')
+  t.ok(html.indexOf('address unverified') !== -1, 'el token con dir no verificada se marca')
 
   // FASE 12 — Send ya manda (ver el punto (c) del encabezado de
   // panel-wallet.mjs). Swap NO, y se sigue dibujando deshabilitado en vez de
@@ -3715,13 +3715,13 @@ test('FASE 12: Settings junta el selector de red, los tokens y los datos del nod
 
   // El selector de red se MUDO acá tal cual, sin cambiarle el comportamiento.
   t.ok(html.indexOf('id="w-red-sel"') !== -1, 'el selector de red vive acá ahora')
-  t.ok(html.indexOf('toma efecto al reiniciar') !== -1, 'sigue sin prometer hot-swap')
+  t.ok(html.indexOf('takes effect when the node restarts') !== -1, 'sigue sin prometer hot-swap')
 
   // Los tokens, con la marca que no se negocia.
   t.ok(html.indexOf('tUSD') !== -1, 'el token guardado aparece')
   t.ok(html.indexOf('6 decimales') !== -1, 'con sus decimales, que es lo que decide el monto')
   t.ok(
-    html.indexOf('sin verificar contra la cadena') !== -1,
+    html.indexOf('unverified against the chain') !== -1,
     'y marcado sin verificar: nadie le pregunto nada a la cadena'
   )
   t.ok(html.indexOf('data-w-token-del="0x' + 'cd'.repeat(20) + '"') !== -1, 'se puede quitar')
@@ -3737,8 +3737,8 @@ test('FASE 12: Settings junta el selector de red, los tokens y los datos del nod
 
   // Sin `info` no se inventan filas: un dato que el nodo no mando no se dibuja.
   const pelada = pw.htmlDeSettings(vistaConWallet(pw))
-  t.is(pelada.indexOf('Versión del nodo'), -1, 'sin info del nodo, no hay bloque de info')
-  t.ok(pelada.indexOf('Ninguno todavía') !== -1, 'y la lista vacia lo dice, no queda muda')
+  t.is(pelada.indexOf('Node version'), -1, 'sin info del nodo, no hay bloque de info')
+  t.ok(pelada.indexOf('None yet') !== -1, 'y la lista vacia lo dice, no queda muda')
 })
 
 test('FASE 12: la forma de un token se chequea igual en el panel y antes del disco', async (t) => {
@@ -4025,7 +4025,7 @@ test('FASE 12: el QR entra en el depósito, y lo que no entra no se dibuja mal',
   t.ok(pw.qrMatriz('x'.repeat(53)), 'y 53 sí, que es el límite')
   const largo = pw.htmlDeQR('x'.repeat(54))
   t.is(largo.indexOf('<svg'), -1, 'sin QR cuando no entra')
-  t.ok(largo.indexOf('Copiá la dirección') !== -1, 'y con el motivo, en vez de un QR roto')
+  t.ok(largo.indexOf('Copy the address') !== -1, 'y con el motivo, en vez de un QR roto')
 
   // El QR viaja al navegador con el resto.
   const pages = await import('../qvac/pages.mjs')
@@ -4099,7 +4099,7 @@ test('FASE 12: el historial marca entradas y salidas y formatea con los decimale
   t.is(v.items[1].estado, 'fallida', 'y el estado viaja tal cual')
 
   const html = pw.htmlDeHistorial(v)
-  t.ok(html.indexOf('Recibido') !== -1 && html.indexOf('Enviado') !== -1, 'se dibujan las dos')
+  t.ok(html.indexOf('Received') !== -1 && html.indexOf('Sent') !== -1, 'se dibujan las dos')
   t.ok(html.indexOf('+1.5 tUSD') !== -1, 'la entrada con signo +')
   t.ok(html.indexOf('−1 XPL') !== -1, 'y la salida con −')
   t.ok(html.indexOf('/tx/0x' + '11'.repeat(32)) !== -1, 'el link al explorer esta en el HTML')
@@ -4140,10 +4140,10 @@ test('FASE 12: un historial que no se pudo leer dice "—" y el motivo, no una l
       address: '0x' + 'ab'.repeat(20),
       items: [],
       fuente: 'logs',
-      parcial: 'leído del RPC, no del explorer: solo transferencias de tokens'
+      parcial: 'read from the RPC, not the explorer: only token transfers'
     })
   )
-  t.ok(parcial.indexOf('leído del RPC') !== -1, 'lo que la fuente de respaldo no ve, queda dicho')
+  t.ok(parcial.indexOf('read from the RPC') !== -1, 'lo que la fuente de respaldo no ve, queda dicho')
 })
 
 test('FASE 12: un monto sin decimales conocidos no se divide por un número inventado', async (t) => {
@@ -4278,7 +4278,7 @@ test('FASE 12: la revisión repite todo, marca MAINNET y no inventa un gas', asy
 
   // Sin cotización NO se dibuja un cero: se dice que no se pudo.
   const sinGas = pw.htmlDeRevisionEnvio(v, { monto: '1', simbolo: 'XPL', destino }, { fee: null })
-  t.ok(sinGas.indexOf('no se pudo estimar') !== -1, 'un gas que no se pudo estimar se dice')
+  t.ok(sinGas.indexOf('could not estimate') !== -1, 'un gas que no se pudo estimar se dice')
   t.is(sinGas.indexOf('0 XPL (estimado)'), -1, 'NUNCA un cero que parezca una cotización')
 
   // Mainnet: se grita, dos veces (arriba y en la fila de red).
@@ -4290,7 +4290,7 @@ test('FASE 12: la revisión repite todo, marca MAINNET y no inventa un gas', asy
     { fee: '21000000000000', feeDecimals: 18, feeSymbol: 'XPL' }
   )
   t.ok(enMainnet.indexOf('MAINNET') !== -1, 'en mainnet se dice con todas las letras')
-  t.ok(enMainnet.indexOf('plata real') !== -1, 'y que mueve plata real')
+  t.ok(enMainnet.indexOf('real money') !== -1, 'y que mueve plata real')
 
   // Un token sin verificar avisa que el monto puede no ser el que dice.
   const sinVerificar = pw.htmlDeRevisionEnvio(
@@ -4299,7 +4299,7 @@ test('FASE 12: la revisión repite todo, marca MAINNET y no inventa un gas', asy
     { fee: '1', feeDecimals: 18 }
   )
   t.ok(
-    sinVerificar.indexOf('NO está verificado') !== -1,
+    sinVerificar.indexOf('is NOT verified') !== -1,
     'mandarle plata a un token sin verificar avisa, que es donde el error cuesta'
   )
 })
@@ -4316,10 +4316,10 @@ test('FASE 12: una transacción difundida se dice "enviada", no "confirmada"', a
     destino: '0x' + 'cd'.repeat(20),
     explorer: 'https://testnet.plasmascan.to/tx/' + hash
   })
-  t.ok(pendiente.indexOf('Transacción enviada') !== -1, 'se dice enviada')
-  t.is(pendiente.indexOf('Transacción confirmada'), -1, 'y NO confirmada: eso lo dice la cadena')
+  t.ok(pendiente.indexOf('Transaction sent') !== -1, 'se dice enviada')
+  t.is(pendiente.indexOf('Transaction confirmed'), -1, 'y NO confirmada: eso lo dice la cadena')
   t.ok(
-    pendiente.indexOf('Confirmarla es cosa de la cadena') !== -1,
+    pendiente.indexOf('Confirming it is the chain business') !== -1,
     'con la diferencia explicada donde se lee'
   )
   t.ok(pendiente.indexOf(hash) !== -1, 'el hash completo, para poder buscarlo')
@@ -4332,12 +4332,12 @@ test('FASE 12: una transacción difundida se dice "enviada", no "confirmada"', a
     simbolo: 'XPL',
     destino: '0x' + 'cd'.repeat(20)
   })
-  t.ok(fallida.indexOf('No se pudo enviar') !== -1, 'un fallo se ve como fallo')
+  t.ok(fallida.indexOf('Could not send') !== -1, 'un fallo se ve como fallo')
   t.ok(
     fallida.indexOf('insufficient funds') !== -1,
     'con el motivo de la cadena tal cual, que es lo que la persona necesita leer'
   )
-  t.is(fallida.indexOf('Transacción enviada'), -1, 'y nada que sugiera que salió')
+  t.is(fallida.indexOf('Transaction sent'), -1, 'y nada que sugiera que salió')
 })
 
 test('FASE 12: el botón Send se habilita y el panel lo cablea contra el endpoint', async (t) => {
@@ -4377,8 +4377,8 @@ test('FASE 12: el botón Send se habilita y el panel lo cablea contra el endpoin
   )
   t.ok(form.indexOf('value="native"') !== -1, 'el nativo se puede mandar')
   t.ok(form.indexOf('value="0x' + 'cd'.repeat(20) + '"') !== -1, 'y el token guardado también')
-  t.ok(form.indexOf('(sin verificar)') !== -1, 'marcado, también acá')
-  t.ok(form.indexOf('otra red') !== -1, 'con el aviso de que la red importa')
+  t.ok(form.indexOf('(unverified)') !== -1, 'marcado, también acá')
+  t.ok(form.indexOf('another network') !== -1, 'con el aviso de que la red importa')
 
   for (const fn of [
     'envioParecePlausible',
@@ -4409,7 +4409,7 @@ test('FASE 12: el botón Send se habilita y el panel lo cablea contra el endpoin
     'del panel de envío no sale ninguna clave privada'
   )
   t.ok(
-    pages.WALLET_HTML.indexOf("prompt('MAINNET mueve plata real y esto no se puede deshacer") !==
+    pages.WALLET_HTML.indexOf("prompt('MAINNET moves real money and this cannot be undone") !==
       -1,
     'y mainnet pide escribirlo, como el selector de red'
   )
@@ -4436,8 +4436,8 @@ test('el selector de red ofrece testnet y mainnet, marca mainnet como plata real
     'plasma marcada mainnet para el confirm del cliente'
   )
   t.ok(/value="plasma-testnet"[^>]*selected/.test(sel), 'la actual viene seleccionada')
-  t.ok(sel.indexOf('plata real') !== -1, 'dicho con todas las letras')
-  t.ok(sel.indexOf('toma efecto al reiniciar') !== -1, 'no promete hot-swap')
+  t.ok(sel.indexOf('real money') !== -1, 'dicho con todas las letras')
+  t.ok(sel.indexOf('takes effect when the node restarts') !== -1, 'no promete hot-swap')
 
   // Si el entorno fija la red, no hay <select>: el selector no tendria efecto.
   const fija = pw.htmlDeSelectorRed(

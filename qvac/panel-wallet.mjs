@@ -77,7 +77,7 @@ const SIMBOLO_NATIVO = {
 // donde D30 dice que se estrena todo lo que mueve valor.
 const REDES_PANEL = [
   { nombre: 'plasma-testnet', etiqueta: 'Plasma testnet · 9746', mainnet: false },
-  { nombre: 'plasma', etiqueta: 'Plasma mainnet · 9745 — plata real', mainnet: true }
+  { nombre: 'plasma', etiqueta: 'Plasma mainnet · 9745 — real money', mainnet: true }
 ]
 
 export function escaparHtml(v) {
@@ -207,7 +207,7 @@ export function vistaDeSaldos(data) {
       clave: 'nativo',
       esNativo: true,
       symbol: simboloNativo(red && red.caip2),
-      name: (d.red && d.red.nombre) || 'activo nativo',
+      name: (d.red && d.red.nombre) || 'native asset',
       sub: red ? red.texto : '',
       decimals: dec,
       raw: d.nativo.raw == null ? null : String(d.nativo.raw),
@@ -230,7 +230,7 @@ export function vistaDeSaldos(data) {
       name: String(tk.name || tk.symbol || 'token'),
       sub:
         truncarDireccion(tk.address) +
-        (tk.verificado ? '' : ' · dirección sin verificar contra la cadena'),
+        (tk.verificado ? '' : ' · address unverified against the chain'),
       decimals: dec,
       raw: tk.raw == null ? null : String(tk.raw),
       texto: tk.raw == null ? '—' : m.texto,
@@ -277,7 +277,7 @@ export function vistaDeSaldos(data) {
     // Un error de nivel wallet (no de un activo puntual): RPC caido, red sin
     // resolver. Va arriba de todo y no tapa las filas, que igual muestran "—".
     error: d.error ? String(d.error) : null,
-    avisoUsd: 'sin conversión a USD — este panel no consulta precios',
+    avisoUsd: 'no USD conversion — this panel does not look up prices',
     // FASE 11 — `puedeCrear` es true salvo durante los ms del arranque previos
     // a que bin.mjs cablee el creator; el nodo resuelve la passphrase solo.
     puedeCrear: !!d.puedeCrear,
@@ -323,20 +323,20 @@ export function htmlDeHeader(v) {
   partes.push('<span class="w-acct-dot">P</span>')
   partes.push(
     '<span class="w-acct-name">' +
-      escaparHtml(v.configurada ? v.addressCorta : 'sin wallet') +
+      escaparHtml(v.configurada ? v.addressCorta : 'no wallet') +
       '</span>'
   )
   if (v.configurada) {
     partes.push(
       '<button class="w-copy" data-copy="' +
         escaparHtml(v.address) +
-        '" title="copiar la dirección">copiar</button>'
+        '" title="copy the address">copy</button>'
     )
     // FASE 12 — la puerta a la configuracion. Lo que antes estaba suelto en la
     // tarjeta (el selector de red) vive detras de esto.
     partes.push(
       '<button class="w-copy w-set-toggle" id="w-set-abrir" ' +
-        'title="configuración: red, tokens, datos del nodo">☰</button>'
+        'title="settings: network, tokens, node data">☰</button>'
     )
   }
   partes.push('</div>')
@@ -383,7 +383,7 @@ export function htmlDeAcciones(v) {
     '><span>↑</span>Send</button>' +
     '<button class="w-acc-b" disabled title="' +
     escaparHtml(
-      'cambiar un activo por otro es una fase aparte: este nodo no habla con ningún DEX'
+      'swapping one asset for another is a separate phase: this node talks to no DEX'
     ) +
     '"><span>⇄</span>Swap</button>' +
     '</div>'
@@ -400,19 +400,19 @@ export function htmlDeBuscador(v) {
     (v.n === 1 ? 'activo' : 'activos') +
     '</div>' +
     '<input class="w-filtro" id="w-filtro" type="text" autocomplete="off" ' +
-    'placeholder="Buscar activo o red (ej. XPL, USDT0, plasma)">'
+    'placeholder="Search asset or network (e.g. XPL, USDT0, plasma)">'
   )
 }
 
 export function htmlDeFilas(v, q) {
   if (!v.configurada) {
     return (
-      '<div class="w-vacio">Este nodo todavía no tiene wallet de cobro. ' +
-      'Creala con <code>pyrusllm wallet --crear</code>.</div>'
+      '<div class="w-vacio">This node has no payout wallet yet. ' +
+      'Create it with <code>pyrusllm wallet --create</code>.</div>'
     )
   }
   const items = filtrarItems(v.items, q)
-  if (!items.length) return '<div class="w-vacio">Nada coincide con la búsqueda.</div>'
+  if (!items.length) return '<div class="w-vacio">Nothing matches the search.</div>'
   let out = ''
   for (let i = 0; i < items.length; i++) out += filaAsset(items[i])
   return out
@@ -691,7 +691,7 @@ export function htmlDeQR(texto) {
   if (!m) {
     return (
       '<div class="w-dep-nota tenue">No se pudo dibujar el QR de este texto ' +
-      '(no entra en el formato que genera este panel). Copiá la dirección.</div>'
+      '(it does not fit the format this panel generates). Copy the address.</div>'
     )
   }
   const N = m.length
@@ -724,7 +724,7 @@ export function htmlDeQR(texto) {
     ' ' +
     lado +
     '" width="176" height="176" shape-rendering="crispEdges" ' +
-    'role="img" aria-label="QR de la dirección de cobro de este nodo">' +
+    'role="img" aria-label="QR of this node payout address">' +
     '<rect width="' +
     lado +
     '" height="' +
@@ -740,10 +740,10 @@ export function htmlDeQR(texto) {
 
 export function htmlDeDeposito(v) {
   if (!v.configurada) {
-    return '<div class="w-vacio">No hay wallet: nada que depositar todavía.</div>'
+    return '<div class="w-vacio">There is no wallet: nothing to deposit yet.</div>'
   }
   const partes = ['<div class="w-dep">']
-  partes.push('<div class="w-dep-lbl">Dirección de cobro de este nodo</div>')
+  partes.push('<div class="w-dep-lbl">This node payout address</div>')
   // El QR codifica la direccion PELADA, sin `ethereum:` ni chainId adelante: es
   // lo que leen todas las wallets, y un prefijo de mas hace que algunas peguen
   // la URI entera en el campo de destino.
@@ -752,13 +752,13 @@ export function htmlDeDeposito(v) {
   partes.push(
     '<button class="w-copy grande" data-copy="' +
       escaparHtml(v.address) +
-      '">copiar la dirección</button>'
+      '">copy the address</button>'
   )
   if (v.red) {
     partes.push(
-      '<div class="w-dep-nota">Enviá solo activos de <b>' +
+      '<div class="w-dep-nota">Send only assets from <b>' +
         escaparHtml(v.red.texto) +
-        '</b> a esta dirección. Mandar activos de otra red los pierde.</div>'
+        '</b> to this address. Sending assets from another network loses them.</div>'
     )
     if (v.red.explorer) {
       partes.push(
@@ -885,7 +885,7 @@ export function htmlDeHistorial(v) {
         '</div>' +
         '<div class="w-fila-txt">' +
         '<div class="w-sym">' +
-        (entra ? 'Recibido' : it.direccion === 'out' ? 'Enviado' : 'Movimiento') +
+        (entra ? 'Received' : it.direccion === 'out' ? 'Sent' : 'Movement') +
         (it.contraparte
           ? ' <span class="w-hist-quien">' + escaparHtml(it.contraparte) + '</span>'
           : '') +
@@ -949,7 +949,7 @@ export function htmlDeEnvio(v) {
     partes.push(
       '<div class="w-aviso malo">' +
         escaparHtml(v.red.texto) +
-        ' es MAINNET: esto mueve plata real y no se puede deshacer.</div>'
+        ' is MAINNET: this moves real money and cannot be undone.</div>'
     )
   }
 
@@ -963,19 +963,19 @@ export function htmlDeEnvio(v) {
       escaparHtml(String(it.decimals)) +
       '">' +
       escaparHtml(it.symbol + ' — saldo ' + it.texto) +
-      (it.verificado ? '' : ' (sin verificar)') +
+      (it.verificado ? '' : ' (unverified)') +
       '</option>'
   }
 
   partes.push(
     '<div class="w-envio-campo">' +
-      '<label for="w-env-asset">Activo</label>' +
+      '<label for="w-env-asset">Asset</label>' +
       '<select id="w-env-asset" class="w-red-sel">' +
       opts +
       '</select>' +
       '</div>' +
       '<div class="w-envio-campo">' +
-      '<label for="w-env-destino">Dirección de destino</label>' +
+      '<label for="w-env-destino">Destination address</label>' +
       '<input id="w-env-destino" type="text" autocomplete="off" spellcheck="false" ' +
       'placeholder="0x…">' +
       '</div>' +
@@ -990,8 +990,8 @@ export function htmlDeEnvio(v) {
     partes.push(
       '<div class="w-red-nota">Se manda por <b>' +
         escaparHtml(v.red.texto) +
-        '</b>. Una dirección de otra red acepta la transacción igual y los fondos ' +
-        'no se recuperan.</div>'
+        '</b>. An address on another network accepts the transaction anyway and the funds ' +
+        'are not recoverable.</div>'
     )
   }
 
@@ -1013,12 +1013,12 @@ export function htmlDeRevisionEnvio(v, datos, gas) {
   const d = datos || {}
   const g = gas || {}
   const partes = ['<div class="w-envio">']
-  partes.push('<div class="w-red-lbl">Revisá antes de enviar</div>')
+  partes.push('<div class="w-red-lbl">Review before sending</div>')
 
   if (v.red && v.red.mainnet) {
     partes.push(
-      '<div class="w-aviso malo">MAINNET — plata real. Al confirmar se te va a pedir que ' +
-        'escribas MAINNET.</div>'
+      '<div class="w-aviso malo">MAINNET — real money. On confirming you will be asked to ' +
+        'type MAINNET.</div>'
     )
   }
 
@@ -1031,35 +1031,35 @@ export function htmlDeRevisionEnvio(v, datos, gas) {
     escaparHtml(valor) +
     '</code></div>'
 
-  partes.push(fila('Monto', String(d.monto || '') + ' ' + String(d.simbolo || '')))
+  partes.push(fila('Amount', String(d.monto || '') + ' ' + String(d.simbolo || '')))
   // La dirección va ENTERA, sin truncar: es el único campo donde un carácter
   // cambiado manda los fondos a otro lado, y "0x1234…abcd" esconde justo el
   // medio, que es donde no se nota.
-  partes.push(fila('A la dirección', String(d.destino || '')))
+  partes.push(fila('To the address', String(d.destino || '')))
   partes.push(fila('Red', String(d.red || '') + (d.mainnet ? ' — MAINNET' : '')))
 
   if (g.fee != null) {
     const f = formatearMonto(g.fee, g.feeDecimals == null ? 18 : g.feeDecimals, 8)
     partes.push(
-      fila('Gas estimado', f.texto + (g.feeSymbol ? ' ' + g.feeSymbol : '') + ' (estimado)')
+      fila('Estimated gas', f.texto + (g.feeSymbol ? ' ' + g.feeSymbol : '') + ' (estimado)')
     )
   } else {
     // Regla 2: sin dato se dice, no se pone un cero tranquilizador.
-    partes.push(fila('Gas estimado', '— no se pudo estimar', 'tenue'))
+    partes.push(fila('Estimated gas', '— could not estimate', 'tenue'))
   }
 
   if (d.assetVerificado === false) {
     partes.push(
-      '<div class="w-aviso malo">Este token NO está verificado contra la cadena: su símbolo ' +
-        'y sus decimales son los que alguien escribió en la configuración. Si están mal, ' +
-        'el monto que se manda no es el que dice acá.</div>'
+      '<div class="w-aviso malo">This token is NOT verified against the chain: its symbol ' +
+        'and its decimals are whatever somebody typed into the settings. If they are wrong, ' +
+        'the amount sent is not the one shown here.</div>'
     )
   }
 
   partes.push(
     '<div class="w-envio-acc">' +
       '<button class="w-onb-b" id="w-env-volver">Volver</button>' +
-      '<button class="w-onb-b primaria" id="w-env-confirmar">Enviar</button>' +
+      '<button class="w-onb-b primaria" id="w-env-confirmar">Send</button>' +
       '</div>' +
       '<div id="w-env-msg" class="w-onb-msg" role="status"></div>' +
       '</div>'
@@ -1076,10 +1076,10 @@ export function htmlDeEstadoEnvio(estado) {
   const clase = e.estado === 'fallida' ? 'malo' : e.estado === 'confirmada' ? 'bueno' : 'tibio'
   const titulo =
     e.estado === 'fallida'
-      ? 'No se pudo enviar'
+      ? 'Could not send'
       : e.estado === 'confirmada'
-        ? 'Transacción confirmada'
-        : 'Transacción enviada'
+        ? 'Transaction confirmed'
+        : 'Transaction sent'
 
   const partes = ['<div class="w-envio">']
   partes.push('<div class="w-envio-tit">' + escaparHtml(titulo) + '</div>')
@@ -1087,7 +1087,7 @@ export function htmlDeEstadoEnvio(estado) {
   if (e.estado === 'fallida') {
     partes.push(
       '<div class="w-aviso malo">' +
-        escaparHtml(e.error || 'la cadena no aceptó la transacción') +
+        escaparHtml(e.error || 'the chain did not accept the transaction') +
         '</div>'
     )
     // El volcado crudo de la cadena, a un click. No se descarta —a veces el
@@ -1095,7 +1095,7 @@ export function htmlDeEstadoEnvio(estado) {
     // donde tapa la frase que si se entiende.
     if (e.detalle && e.detalle !== e.error) {
       partes.push(
-        '<details class="w-envio-det"><summary>lo que contestó la cadena, completo</summary>' +
+        '<details class="w-envio-det"><summary>what the chain answered, in full</summary>' +
           '<pre>' +
           escaparHtml(e.detalle) +
           '</pre></details>'
@@ -1115,7 +1115,7 @@ export function htmlDeEstadoEnvio(estado) {
         ) +
         (e.estado === 'confirmada'
           ? ''
-          : ' — se difundió a la red. Confirmarla es cosa de la cadena, no de este nodo.') +
+          : ' — broadcast to the network. Confirming it is the chain business, not this node.') +
         '</div>'
     )
   }
@@ -1177,8 +1177,8 @@ export function htmlDeOnboarding(v) {
   if (!v.puedeCrear) {
     return (
       '<div class="w-onb">' +
-      '<div class="w-onb-tit">Este nodo todavía no tiene wallet de cobro</div>' +
-      '<div class="w-onb-txt">El nodo todavía no está listo para crearla — probá de ' +
+      '<div class="w-onb-tit">This node has no payout wallet yet</div>' +
+      '<div class="w-onb-txt">The node is not ready to create it yet — try again in ' +
       'nuevo en unos segundos.</div>' +
       (v.crearMotivo ? '<div class="w-fila-err">' + escaparHtml(v.crearMotivo) + '</div>' : '') +
       '</div>'
@@ -1186,17 +1186,17 @@ export function htmlDeOnboarding(v) {
   }
   return (
     '<div class="w-onb">' +
-    '<div class="w-onb-tit">Creá la wallet de cobro de este nodo</div>' +
-    '<div class="w-onb-txt">Se genera acá y se guarda cifrada en la máquina del nodo. ' +
-    'Las 24 palabras se muestran una sola vez para que las anotes — son el único ' +
-    'respaldo. También podés importar una que ya tengas.</div>' +
+    '<div class="w-onb-tit">Create this node payout wallet</div>' +
+    '<div class="w-onb-txt">It is generated here and stored encrypted on the node machine. ' +
+    'The 24 words are shown once so you can write them down — they are the only ' +
+    'backup. You can also import one you already have.</div>' +
     '<div class="w-onb-acc">' +
     '<button class="w-onb-b primaria" id="w-onb-crear">Crear una nueva</button>' +
     '<button class="w-onb-b" id="w-onb-importar-toggle">Importar 24 palabras</button>' +
     '</div>' +
     '<div id="w-onb-import" class="w-onb-import" hidden>' +
     '<textarea id="w-onb-frase" rows="3" autocomplete="off" spellcheck="false" ' +
-    'placeholder="pegá las 12–24 palabras separadas por espacios"></textarea>' +
+    'placeholder="paste the 12–24 words separated by spaces"></textarea>' +
     '<button class="w-onb-b primaria" id="w-onb-importar">Importar</button>' +
     '</div>' +
     '<div id="w-onb-msg" class="w-onb-msg" role="status"></div>' +
@@ -1216,21 +1216,21 @@ export function htmlDeSeed(frase, address) {
   }
   return (
     '<div class="w-seed">' +
-    '<div class="w-seed-tit">Anotá estas ' +
+    '<div class="w-seed-tit">Write down these ' +
     palabras.length +
-    ' palabras — en papel, no en una foto</div>' +
+    ' words — on paper, not in a photo</div>' +
     '<div class="w-seed-grid">' +
     grid +
     '</div>' +
     '<button class="w-copy grande" data-copy="' +
     escaparHtml(palabras.join(' ')) +
-    '">copiar al portapapeles</button>' +
+    '">copy to clipboard</button>' +
     '<div class="w-aviso malo">No se vuelven a mostrar. Quien tenga estas palabras ' +
     'controla los fondos de <code>' +
     escaparHtml(address) +
-    '</code>. Si las perdés y se pierde el keystore, se pierde la wallet.</div>' +
+    '</code>. If you lose them and the keystore is lost, the wallet is lost.</div>' +
     '<label class="w-seed-ok"><input type="checkbox" id="w-seed-check"> ' +
-    'Ya las anoté en un lugar seguro</label>' +
+    'I have written them down somewhere safe</label>' +
     '<button class="w-onb-b primaria" id="w-seed-listo" disabled>Listo</button>' +
     '</div>'
   )
@@ -1248,10 +1248,10 @@ export function htmlDeSelectorRed(v) {
     partes.push(
       '<div class="w-red-val">' +
         escaparHtml(v.red.texto) +
-        (v.red.esPrueba ? ' — PRUEBA' : ' — MAINNET') +
+        (v.red.esPrueba ? ' — TESTNET' : ' — MAINNET') +
         '</div>' +
         '<div class="w-red-nota">la fija <code>PYRUS_WALLET_RED</code> en el entorno; ' +
-        'quitá esa variable para elegir desde acá</div>'
+        'remove that variable to choose from here</div>'
     )
     partes.push('</div>')
     return partes.join('')
@@ -1276,10 +1276,10 @@ export function htmlDeSelectorRed(v) {
       '<select id="w-red-sel" class="w-red-sel">' +
       opts +
       '</select>' +
-      '<button class="w-onb-b" id="w-red-aplicar">Cambiar</button>' +
+      '<button class="w-onb-b" id="w-red-aplicar">Switch</button>' +
       '</div>' +
-      '<div class="w-red-nota">el cambio toma efecto al reiniciar el nodo. Ir a MAINNET ' +
-      'pide confirmación y, para cobrar por x402, el flag del contrato verificado.</div>' +
+      '<div class="w-red-nota">the change takes effect when the node restarts. Going to MAINNET ' +
+      'asks for confirmation and, to charge over x402, the verified-contract flag.</div>' +
       '<div id="w-red-msg" class="w-onb-msg" role="status"></div>'
   )
   partes.push('</div>')
@@ -1317,15 +1317,15 @@ export function htmlDeListaTokens(v) {
     partes.push(
       '<div class="w-red-nota">en <b>' +
         escaparHtml(v.red.texto) +
-        '</b> — una dirección de token no vale en otra red, así que la lista es por red.</div>'
+        '</b> — a token address is not valid on another network, so the list is per network.</div>'
     )
   }
 
   const toks = v.tokensGuardados || []
   if (!toks.length) {
     partes.push(
-      '<div class="w-vacio">Ninguno todavía. El activo nativo y USD₮0 se leen igual, ' +
-        'sin agregarlos.</div>'
+      '<div class="w-vacio">None yet. The native asset and USD₮0 are read anyway, ' +
+        'without adding them.</div>'
     )
   } else {
     partes.push('<div class="w-set-toks">')
@@ -1341,7 +1341,7 @@ export function htmlDeListaTokens(v) {
           ' decimales</span></div>' +
           '<div class="w-name">' +
           escaparHtml(t.addressCorta) +
-          ' · sin verificar contra la cadena</div>' +
+          ' · unverified against the chain</div>' +
           '</div>' +
           '<button class="w-onb-b w-set-quitar" data-w-token-del="' +
           escaparHtml(t.address) +
@@ -1355,15 +1355,15 @@ export function htmlDeListaTokens(v) {
   partes.push(
     '<div class="w-set-form">' +
       '<input id="w-token-addr" type="text" autocomplete="off" spellcheck="false" ' +
-      'placeholder="dirección del contrato (0x…40 hex)">' +
+      'placeholder="contract address (0x…40 hex)">' +
       '<div class="w-set-form-row">' +
-      '<input id="w-token-sym" type="text" autocomplete="off" placeholder="símbolo">' +
+      '<input id="w-token-sym" type="text" autocomplete="off" placeholder="symbol">' +
       '<input id="w-token-dec" type="number" min="0" max="36" step="1" placeholder="decimales">' +
-      '<button class="w-onb-b primaria" id="w-token-add">Agregar</button>' +
+      '<button class="w-onb-b primaria" id="w-token-add">Add</button>' +
       '</div>' +
-      '<div class="w-red-nota">No se comprueba nada contra la cadena: el símbolo y los ' +
-      'decimales son los que escribas, y un token agregado acá se muestra marcado ' +
-      '<b>sin verificar</b>. Decimales equivocados muestran un saldo equivocado.</div>' +
+      '<div class="w-red-nota">Nothing is checked against the chain: the symbol and the ' +
+      'decimals are whatever you type, and a token added here is shown marked ' +
+      '<b>unverified</b>. Wrong decimals show a wrong balance.</div>' +
       '<div id="w-token-msg" class="w-onb-msg" role="status"></div>' +
       '</div>'
   )
@@ -1383,7 +1383,7 @@ export function htmlDeSettings(v) {
   const partes = ['<div class="w-set-ov" id="w-set-ov"><div class="w-set">']
   partes.push(
     '<div class="w-set-head">' +
-      '<div class="w-set-tit">Configuración</div>' +
+      '<div class="w-set-tit">Settings</div>' +
       '<button class="w-copy" id="w-set-cerrar" title="cerrar (Esc)">✕</button>' +
       '</div>'
   )
@@ -1415,7 +1415,7 @@ export function htmlDeSettings(v) {
     }
     if (v.info.version) {
       filas.push(
-        '<div class="w-set-dato"><span>Versión del nodo</span><code>' +
+        '<div class="w-set-dato"><span>Node version</span><code>' +
           escaparHtml(v.info.version) +
           '</code></div>'
       )

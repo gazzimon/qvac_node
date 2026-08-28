@@ -19,25 +19,25 @@ let pending = null
 
 const promptCmd = command(
   'prompt',
-  summary('Responder un prompt con inferencia 100% local'),
+  summary('Answer a prompt with 100% local inference'),
   description(
-    'Carga un LLM con QVAC y responde sin salir de esta maquina.\n' +
-      'Los pesos viajan por hypercore (P2P), no por HTTP, y quedan\n' +
-      'cacheados en ~/.qvac/models para las corridas siguientes.'
+    'Loads an LLM with QVAC and answers without leaving this machine.\n' +
+      'The weights travel over hypercore (P2P), not over HTTP, and stay\n' +
+      'cached in ~/.qvac/models for the following runs.'
   ),
-  arg('<prompt>', 'el texto a responder, o "-" para leerlo de stdin'),
+  arg('<prompt>', 'the text to answer, or "-" to read it from stdin'),
   flag(
     '--model <alias>',
-    `modelo: ${Object.keys(MODELS).join(' | ')} o un nombre exacto del registry (default ${DEFAULT_MODEL})`
+    `model: ${Object.keys(MODELS).join(' | ')} or an exact registry name (default ${DEFAULT_MODEL})`
   ),
-  flag('--ctx <n>', `tamano de contexto (default ${DEFAULT_CTX_SIZE})`),
+  flag('--ctx <n>', `context size (default ${DEFAULT_CTX_SIZE})`),
   flag(
     '--gpu-layers <n>',
-    'capas a mandar a la GPU. 0 = todo CPU. Sin el flag decide el SDK.' +
-      ' En una iGPU floja (Intel UHD 620) 0 es 5x mas rapido: ver NOTES.md'
+    'layers to send to the GPU. 0 = all CPU. Without the flag the SDK decides.' +
+      ' On a weak iGPU (Intel UHD 620) 0 is 5x faster: see NOTES.md'
   ),
-  flag('--no-download', 'fallar en vez de bajar los pesos si no estan en cache'),
-  flag('--quiet|-q', 'imprimir solo la respuesta, sin diagnostico ni mediciones'),
+  flag('--no-download', 'fail instead of downloading the weights when they are not cached'),
+  flag('--quiet|-q', 'print only the answer, with no diagnostics or measurements'),
   () => {
     pending = runPrompt()
   }
@@ -45,75 +45,76 @@ const promptCmd = command(
 
 const serveCmd = command(
   'serve',
-  summary('Levantar el gateway compatible con OpenAI y los paneles'),
+  summary('Start the OpenAI-compatible gateway and the panels'),
   description(
-    'Sirve los 3 paneles (cliente/proveedor/admin) y POST /v1/chat/completions\n' +
-      'en formato OpenAI: { model, messages[], stream }.\n\n' +
-      'Arranca con el registro VACIO: sin nodos anunciados devuelve un error\n' +
-      'claro de "no hay nodos sirviendo ese modelo", que es el estado real\n' +
-      'mientras el descubrimiento por swarm no este conectado (Fase 2-b).\n' +
-      'Con --demo se puebla con nodos SIMULADOS para el video.'
+    'Serves the 3 panels (client/provider/admin) and POST /v1/chat/completions\n' +
+      'in OpenAI format: { model, messages[], stream }.\n\n' +
+      'It starts with an EMPTY registry: with no announced nodes it returns a\n' +
+      'clear "no nodes serving that model" error, which is the real state\n' +
+      'while swarm discovery is not connected (Phase 2-b).\n' +
+      'With --demo it is populated with SIMULATED nodes for the video.'
   ),
-  flag('--port <n>', 'puerto HTTP del gateway (default 8787)'),
+  flag('--port <n>', 'gateway HTTP port (default 8787)'),
   flag(
     '--demo',
-    'poblar el registro con nodos simulados (1 real + 3 mocks) para la demo.' +
-      ' Sin este flag el gateway arranca sin ningun nodo.'
+    'populate the registry with simulated nodes (1 real + 3 mocks) for the demo.' +
+      ' Without this flag the gateway starts with no nodes at all.'
   ),
-  flag('--swarm', 'unirse al topic P2P y poblar el registro con pares verificados (Fase 2-b)'),
+  flag('--swarm', 'join the P2P topic and populate the registry with verified peers (Phase 2-b)'),
   flag(
     '--no-store',
-    'no abrir el Hyperbee/Hyperdrive: el nodo corre sin persistencia ni archivos,' +
-      ' como antes de Fase 5. Util para correr dos nodos sobre el mismo --storage.'
+    'do not open the Hyperbee/Hyperdrive: the node runs with no persistence and no files,' +
+      ' as before Phase 5. Useful to run two nodes over the same --storage.'
   ),
-  flag('--operator <nombre>', 'nombre del operador que se anuncia en el manifiesto'),
+  flag('--operator <name>', 'operator name announced in the manifest'),
   flag(
     '--gpu-layers <n>',
-    'capas a mandar a la GPU del nodo real. 0 = todo CPU (8x mas rapido en la iGPU de la demo, ver NOTES.md)'
+    'layers to send to the real node GPU. 0 = all CPU (8x faster on the demo iGPU, see NOTES.md)'
   ),
   () => {
     pending = runServe()
   }
 )
 
-// El comando que verifica el DoD de Fase 2 sin levantar el gateway: se une al
-// topic, anuncia su manifiesto firmado y reporta que pares aparecieron y si su
-// manifiesto verifico. Es lo que se corre en las DOS maquinas del runbook.
+// The command that verifies the Phase 2 DoD without starting the gateway: it
+// joins the topic, announces its signed manifest and reports which peers showed
+// up and whether their manifest verified. This is what runs on BOTH machines in
+// the runbook.
 const peersCmd = command(
   'peers',
-  summary('Unirse al topic P2P y listar los pares con manifiesto verificado'),
+  summary('Join the P2P topic and list the peers with a verified manifest'),
   description(
-    'Anuncia el manifiesto firmado de este nodo en el topic fijo y muestra los\n' +
-      'pares que se descubren, con el tiempo de join -> primer par y\n' +
-      'join -> primer manifiesto verificado (D7 del ROADMAP).\n\n' +
-      'Sale solo con --timeout, o con Ctrl+C.'
+    'Announces this node signed manifest on the fixed topic and shows the peers\n' +
+      'that get discovered, with the join -> first peer and\n' +
+      'join -> first verified manifest timings (D7 of the ROADMAP).\n\n' +
+      'It only exits with --timeout, or with Ctrl+C.'
   ),
-  flag('--operator <nombre>', 'nombre del operador que se anuncia en el manifiesto'),
-  flag('--timeout <s>', 'salir despues de N segundos (default: no sale, Ctrl+C)'),
-  flag('--expect <n>', 'exit code 1 si al salir no hay al menos N pares verificados'),
+  flag('--operator <name>', 'operator name announced in the manifest'),
+  flag('--timeout <s>', 'exit after N seconds (default: never exits, Ctrl+C)'),
+  flag('--expect <n>', 'exit code 1 if fewer than N verified peers are present on exit'),
   () => {
     pending = runPeers()
   }
 )
 
 // ---------------------------------------------------------------------------
-// Archivos entre maquinas (Hyperdrive). Ver qvac/files.mjs.
+// Files between machines (Hyperdrive). See qvac/files.mjs.
 // ---------------------------------------------------------------------------
 
 const sendCmd = command(
   'send',
-  summary('Publicar un archivo o carpeta y compartirlo por P2P'),
+  summary('Publish a file or folder and share it over P2P'),
   description(
-    'Mete el archivo en el Hyperdrive de este nodo y lo anuncia en la DHT.\n' +
-      'Imprime un link qvac:// que la otra maquina baja con `pyrusllm fetch`.\n\n' +
-      'El proceso QUEDA CORRIENDO a proposito: Hypercore no es store-and-forward,\n' +
-      'no hay servidor donde el archivo quede guardado. Los bytes salen de esta\n' +
-      'maquina, asi que tiene que estar prendida mientras la otra baja.\n\n' +
-      'Solo se transfiere lo que se pide: un drive con 40 GB publicados no\n' +
-      'obliga a nadie a bajar mas que el archivo que eligio.'
+    'Puts the file into this node Hyperdrive and announces it on the DHT.\n' +
+      'Prints a qvac:// link the other machine downloads with `pyrusllm fetch`.\n\n' +
+      'The process STAYS RUNNING on purpose: Hypercore is not store-and-forward,\n' +
+      'there is no server where the file is kept. The bytes come out of this\n' +
+      'machine, so it has to stay on while the other one downloads.\n\n' +
+      'Only what is asked for is transferred: a drive with 40 GB published does\n' +
+      'not force anyone to download more than the file they picked.'
   ),
-  arg('<ruta>', 'archivo o carpeta a publicar'),
-  flag('--as <nombre>', 'nombre con el que se publica (default: el del archivo)'),
+  arg('<path>', 'file or folder to publish'),
+  flag('--as <name>', 'name it is published under (default: the file name)'),
   () => {
     pending = runSend()
   }
@@ -121,16 +122,16 @@ const sendCmd = command(
 
 const fetchCmd = command(
   'fetch',
-  summary('Bajar un archivo publicado por otra maquina'),
+  summary('Download a file published by another machine'),
   description(
-    'Toma un link qvac://<clave>/<ruta> y baja ese archivo a disco.\n\n' +
-      'Cada bloque se verifica contra el merkle root del drive al llegar: un\n' +
-      'archivo alterado a mitad de camino no puede completarse. Lo que la clave\n' +
-      'NO prueba es de quien es; eso depende del canal por el que llego el link.'
+    'Takes a qvac://<key>/<path> link and downloads that file to disk.\n\n' +
+      'Every block is verified against the drive merkle root as it arrives: a\n' +
+      'file tampered with midway cannot complete. What the key does NOT prove\n' +
+      'is whose it is; that depends on the channel the link arrived through.'
   ),
-  arg('<link>', 'link qvac:// que imprimio `pyrusllm send`'),
-  flag('--out <dir>', 'carpeta destino (default: la actual)'),
-  flag('--timeout <s>', 'cuanto esperar a que aparezca un par con el drive (default 60)'),
+  arg('<link>', 'qvac:// link printed by `pyrusllm send`'),
+  flag('--out <dir>', 'destination folder (default: the current one)'),
+  flag('--timeout <s>', 'how long to wait for a peer with the drive to appear (default 60)'),
   () => {
     pending = runFetch()
   }
@@ -138,14 +139,15 @@ const fetchCmd = command(
 
 const filesCmd = command(
   'files',
-  summary('Listar los archivos publicados por este nodo o por un par'),
+  summary('List the files published by this node or by a peer'),
   description(
-    'Sin argumentos lista lo que publica esta maquina.\n' +
-      'Con --link lista lo que publica el drive de otra, sin bajar el contenido:\n' +
-      'la metadata de un Hyperdrive se replica aparte de los blobs.'
+    'With no arguments it lists what this machine publishes.\n' +
+      'With --link it lists what another machine drive publishes, without\n' +
+      'downloading the content: Hyperdrive metadata replicates separately from\n' +
+      'the blobs.'
   ),
-  flag('--link <qvac://…>', 'listar el drive de otra maquina en vez del propio'),
-  flag('--timeout <s>', 'cuanto esperar al par remoto (default 30)'),
+  flag('--link <qvac://…>', 'list another machine drive instead of our own'),
+  flag('--timeout <s>', 'how long to wait for the remote peer (default 30)'),
   () => {
     pending = runFiles()
   }
@@ -153,20 +155,21 @@ const filesCmd = command(
 
 const walletCmd = command(
   'wallet',
-  summary('Ver, crear o restaurar la wallet de cobro de este nodo'),
+  summary('Show, create or restore this node payout wallet'),
   description(
-    'Sin flags muestra la direccion de cobro, o dice que todavia no hay wallet.\n' +
+    'With no flags it shows the payout address, or says there is no wallet yet.\n' +
       '\n' +
-      'La seed se guarda CIFRADA con la passphrase de PYRUS_WALLET_PASSPHRASE\n' +
-      '(se puede poner en el .env). Limite honesto: si ese .env vive al lado del\n' +
-      'keystore, el cifrado protege de un backup o de un repo, no de alguien que\n' +
-      'ya tiene acceso a esta maquina.\n' +
+      'The seed is stored ENCRYPTED with the PYRUS_WALLET_PASSPHRASE passphrase\n' +
+      '(it can go in the .env). Honest limit: if that .env lives next to the\n' +
+      'keystore, the encryption protects against a backup or a repo, not against\n' +
+      'somebody who already has access to this machine.\n' +
       '\n' +
-      '--crear muestra las 24 palabras UNA vez. Anotalas: sin ellas y sin el\n' +
-      'keystore, la wallet se pierde. --restaurar <frase> las vuelve a usar.'
+      '--create shows the 24 words ONCE. Write them down: without them and\n' +
+      'without the keystore, the wallet is lost. --restore <phrase> uses them\n' +
+      'again.'
   ),
-  flag('--crear', 'generar una wallet nueva para este nodo'),
-  flag('--restaurar <frase>', 'restaurar desde las 24 palabras de un respaldo'),
+  flag('--create', 'generate a new wallet for this node'),
+  flag('--restore <phrase>', 'restore from the 24 words of a backup'),
   () => {
     pending = runWallet()
   }
@@ -178,10 +181,10 @@ const cmd = command(
   flag('--version|-v', 'Print the current version'),
   flag('--storage <dir>', 'custom storage directory'),
   flag('--no-updates', 'disable OTA updates for this run'),
-  flag('--port <n>', 'puerto HTTP de la app (default 8787)'),
-  flag('--no-serve', 'solo el updater OTA, sin levantar la app'),
-  flag('--no-open', 'no abrir el navegador al arrancar'),
-  flag('--update-delay <ms>', 'ventana de jitter del OTA en ms (default 10000)'),
+  flag('--port <n>', 'app HTTP port (default 8787)'),
+  flag('--no-serve', 'only the OTA updater, without starting the app'),
+  flag('--no-open', 'do not open the browser on start'),
+  flag('--update-delay <ms>', 'OTA jitter window in ms (default 10000)'),
   promptCmd,
   serveCmd,
   peersCmd,
@@ -218,7 +221,7 @@ async function runPrompt() {
   const text = promptCmd.args.prompt === '-' ? await readStdin() : promptCmd.args.prompt
 
   if (!text || text.trim() === '') {
-    console.error('[qvac] el prompt esta vacio.')
+    console.error('[pyrusllm] the prompt is empty.')
     Bare.exitCode = 1
     return
   }
@@ -237,7 +240,7 @@ async function runPrompt() {
     const mb = (entry.expectedSize / 1e6).toFixed(0)
 
     say()
-    say(`  QVAC-NODE v${pkg.version} - inferencia 100% local`)
+    say(`  PyrusLLM v${pkg.version} - 100% local inference`)
     say()
     say(`  modelo   : ${name}  ${entry.params}  ${mb} MB`)
     say(`  pesos    : ${cached ? 'en cache' : 'faltan, se bajan por hypercore'}`)
@@ -294,7 +297,7 @@ async function runPrompt() {
     say(`  respuesta completa  : ${secs(tEnd - tLoaded)}`)
     say()
   } catch (err) {
-    console.error('\n[qvac] fallo la inferencia:', (err && err.message) || err)
+    console.error('\n[pyrusllm] inference failed:', (err && err.message) || err)
     Bare.exitCode = 1
   } finally {
     // Sin esto el proceso no termina: `unloadModel` deja arriba el swarm, el
@@ -518,7 +521,7 @@ async function startGateway(opts = {}) {
   gw.setWalletRed(cobro.red)
 
   // FASE 11 — crear o importar la wallet de cobro desde el panel /wallet, sin
-  // `pyrusllm wallet --crear` y sin tocar el entorno. El closure es el dueño de
+  // `pyrusllm wallet --create` and without touching the environment. El closure es el dueño de
   // dir + passphrase: el gateway lo invoca y re-cablea economic/firmante/red,
   // pero NO ve la seed — se genera acá, se escribe cifrada, y la frase vuelve
   // una sola vez para que el panel la muestre y el operador la anote.
@@ -1009,16 +1012,17 @@ async function runWallet() {
   const wallet = await import('./qvac/wallet.mjs')
   const dir = await walletStorageDir()
   const red = wallet.redDe(env, { dir })
-  // FASE 11 — del entorno, o de `wallet.pass` si el onboarding del panel la
-  // generó. Así `pyrusllm wallet` ve una wallet creada desde el navegador.
+  // PHASE 11 — from the environment, or from `wallet.pass` if the panel
+  // onboarding generated it. That way `pyrusllm wallet` sees a wallet created
+  // from the browser.
   const { passphrase } = wallet.resolverPassphrase(dir, { env })
-  const restaurar = walletCmd.flags.restaurar
+  const restore = walletCmd.flags.restore
 
-  if (walletCmd.flags.crear || restaurar) {
+  if (walletCmd.flags.create || restore) {
     if (!passphrase) {
-      console.error(`  falta ${wallet.VAR_PASSPHRASE}: es con lo que se cifra la seed.`)
+      console.error(`  missing ${wallet.VAR_PASSPHRASE}: it is what the seed is encrypted with.`)
       console.error(
-        `  Ponela en el .env de este directorio, o crea la wallet desde el panel /wallet.`
+        `  Put it in the .env of this directory, or create the wallet from the /wallet panel.`
       )
       process.exitCode = 1
       return
@@ -1026,30 +1030,30 @@ async function runWallet() {
     try {
       const r = await wallet.crear(dir, passphrase, {
         red,
-        frase: typeof restaurar === 'string' ? restaurar : null
+        frase: typeof restore === 'string' ? restore : null
       })
       console.log('')
-      console.log(`  direccion de cobro: ${r.address}`)
-      console.log(`  redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
-      console.log(`  red activa: ${red.nombre} (eip155:${red.chainId})`)
+      console.log(`  payout address: ${r.address}`)
+      console.log(`  networks: ${wallet.CHAINS.join(', ')} — settlement: ${wallet.SETTLEMENT}`)
+      console.log(`  active network: ${red.nombre} (eip155:${red.chainId})`)
       console.log('')
       if (r.restaurada) {
-        console.log('  wallet RESTAURADA desde el respaldo.')
+        console.log('  wallet RESTORED from the backup.')
       } else {
-        // Se muestran UNA vez y no vuelven a estar disponibles sin la
-        // passphrase. Decirlo con todas las letras es parte del trabajo: quien
-        // no las anote se entera el dia que pierda el keystore.
-        console.log('  ANOTA ESTAS 24 PALABRAS. No se vuelven a mostrar:')
+        // They are shown ONCE and are never available again without the
+        // passphrase. Saying so in plain words is part of the job: whoever
+        // does not write them down finds out the day they lose the keystore.
+        console.log('  WRITE DOWN THESE 24 WORDS. They are not shown again:')
         console.log('')
         const p = r.frase.split(' ')
         for (let i = 0; i < p.length; i += 6) {
           console.log('    ' + p.slice(i, i + 6).join(' '))
         }
         console.log('')
-        console.log('  Sin ellas Y sin el keystore, la wallet se pierde.')
+        console.log('  Without them AND without the keystore, the wallet is lost.')
       }
       console.log('')
-      console.log(`  keystore: ${path.join(dir, 'wallet.json')} (cifrado)`)
+      console.log(`  keystore: ${path.join(dir, 'wallet.json')} (encrypted)`)
       console.log('')
     } catch (err) {
       console.error(`  ${(err && err.message) || err}`)
@@ -1060,10 +1064,10 @@ async function runWallet() {
 
   if (!wallet.existe(dir)) {
     console.log('')
-    console.log('  Este nodo todavia no tiene wallet, asi que no declara direccion de cobro.')
-    console.log('  Su manifiesto anuncia `economic` como mock, y eso esta marcado.')
+    console.log('  This node has no wallet yet, so it declares no payout address.')
+    console.log('  Its manifest announces `economic` as a mock, and that is marked.')
     console.log('')
-    console.log(`  Para crear una:  ${appName} wallet --crear`)
+    console.log(`  To create one:  ${appName} wallet --create`)
     console.log('')
     return
   }
@@ -1071,10 +1075,10 @@ async function runWallet() {
   try {
     const abierta = await wallet.abrir(dir, passphrase, { red })
     console.log('')
-    console.log(`  direccion de cobro: ${abierta.address}`)
-    console.log(`  redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
-    console.log(`  red activa: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
-    console.log(`  keystore: ${path.join(dir, 'wallet.json')} (cifrado)`)
+    console.log(`  payout address: ${abierta.address}`)
+    console.log(`  networks: ${wallet.CHAINS.join(', ')} — settlement: ${wallet.SETTLEMENT}`)
+    console.log(`  active network: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
+    console.log(`  keystore: ${path.join(dir, 'wallet.json')} (encrypted)`)
     if (red.mainnet) {
       console.log('')
       console.log(`  OJO: ${red.nombre} es MAINNET. D30: se estrena en testnet.`)
@@ -1282,7 +1286,7 @@ async function runSend() {
     await sesion.files.serve()
 
     console.log('')
-    console.log(`  QVAC-NODE v${pkg.version} — compartiendo por P2P`)
+    console.log(`  PyrusLLM v${pkg.version} — sharing over P2P`)
     console.log('')
     if (esDir) {
       console.log(`  carpeta  : ${res.base}  (${res.files.length} archivo/s)`)
@@ -1444,10 +1448,11 @@ async function runNode() {
   const storage = cmd.flags.storage || (isDev ? null : path.join(persistent(), appName))
   const dir = storage || path.join(os.tmpdir(), 'pear', appName)
 
-  // Banner. El numero de version se imprime a proposito en grande: es lo que
-  // cambia en vivo cuando se demuestra el OTA, y tiene que verse en el proyector.
+  // Banner. The version number is printed large on purpose: it is what changes
+  // live when the OTA is demonstrated, and it has to be readable on a
+  // projector.
   console.log('')
-  console.log('  QVAC-NODE  v' + pkg.version)
+  console.log('  PyrusLLM  v' + pkg.version)
   console.log('  ' + pkg.description)
   console.log('')
   console.log(`  runtime  : ${runtimeLabel}`)

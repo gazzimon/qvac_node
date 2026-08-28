@@ -1,27 +1,27 @@
-// Login demo por rol para el panel (Cliente/Proveedor/Admin). Gate REAL de
-// las rutas del navegador -- no confundir con apikeys.mjs, que emite
-// credenciales para consumir el gateway OpenAI-compatible desde AFUERA del
-// panel (Telegram, terminal, etc.).
+// Demo login by role for the panel (Client/Provider/Admin). REAL gate for the
+// browser routes -- not to be confused with apikeys.mjs, which issues
+// credentials to consume the OpenAI-compatible gateway from OUTSIDE the panel
+// (Telegram, terminal, etc.).
 //
-// 3 combos fijos, sin base de datos: son credenciales de demo, publicas en
-// el repo (ver docs/superpowers/specs/2026-08-23-login-demo-roles-design.md,
-// seccion "Seguridad"). Lo que SI es real es el manejo de sesion: token
-// aleatorio criptografico y comparacion de password en tiempo constante,
-// mismo patron que ya usa apikeys.mjs.
+// 3 fixed combos, no database: these are demo credentials, public in the repo
+// (see docs/superpowers/specs/2026-08-23-login-demo-roles-design.md, section
+// "Security"). What IS real is the session handling: cryptographically random
+// token and constant-time password comparison, the same pattern apikeys.mjs
+// already uses.
 //
-// Sesiones en memoria, se resetean con el proceso -- para una demo alcanza y
-// evita tener que limpiar estado entre corridas.
+// Sessions live in memory and reset with the process -- good enough for a demo
+// and it avoids having to clean state between runs.
 
 import crypto from 'hypercore-crypto'
 
 const USERS = {
-  cliente: { password: 'demo123', role: 'cliente' },
-  proveedor: { password: 'demo123', role: 'proveedor' },
+  client: { password: 'demo123', role: 'client' },
+  provider: { password: 'demo123', role: 'provider' },
   admin: { password: 'demo123', role: 'admin' }
 }
 
 const sessions = new Map() // token -> { role, createdAt }
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000 // 24h, alcanza y sobra para una demo
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000 // 24h, plenty for a demo
 
 function randomToken(bytes) {
   return crypto
@@ -32,8 +32,8 @@ function randomToken(bytes) {
     .replace(/=+$/, '')
 }
 
-// Compara en tiempo constante: una password es una credencial y `===` corta
-// en el primer byte distinto, o sea que el tiempo filtra el prefijo.
+// Compares in constant time: a password is a credential and `===` bails out at
+// the first differing byte, which means the timing leaks the prefix.
 function equalConstantTime(a, b) {
   if (a.length !== b.length) return false
   let diff = 0
@@ -41,8 +41,8 @@ function equalConstantTime(a, b) {
   return diff === 0
 }
 
-export function login(usuario, password) {
-  const entry = USERS[usuario]
+export function login(username, password) {
+  const entry = USERS[username]
   if (!entry || !equalConstantTime(entry.password, String(password || ''))) return null
   const token = randomToken(24)
   sessions.set(token, { role: entry.role, createdAt: Date.now() })

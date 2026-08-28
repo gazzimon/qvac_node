@@ -1,17 +1,17 @@
-// Los 3 paneles del marketplace simulado, como strings HTML puros.
+// The 3 panels of the simulated marketplace, as plain HTML strings.
 //
-// Van embebidos en JS (no como archivos .html sueltos en /public) a proposito:
-// bare-pack arma el binario standalone siguiendo el grafo de imports de
-// bin.mjs, y un archivo estatico fuera de ese grafo no viaja con el binario.
-// Un string exportado si viaja, sin tener que resolver paths a mano ni
-// depender de bare-fs para servir contenido estatico.
+// They are embedded in JS (not as loose .html files under /public) on purpose:
+// bare-pack builds the standalone binary by following the import graph from
+// bin.mjs, and a static file outside that graph does not travel with the
+// binary. An exported string does travel, with no need to resolve paths by hand
+// nor to depend on bare-fs to serve static content.
 //
-// FASE 9 — lo que la fase emitia y no se veia (el 402, el recibo, la atestacion
-// de D24 y el split de D25) se dibuja con `qvac/panel-x402.mjs`. Ese archivo NO
-// se importa para llamarlo desde aca: se importa para PEGAR SU CODIGO adentro
-// del <script> de cada pagina, y asi la suite prueba las mismas funciones que
-// corre el navegador. La nota larga de por que esta ahi y no aca vive en la
-// cabecera de ese archivo.
+// PHASE 9 - what the phase emitted but was not visible (the 402, the receipt,
+// the D24 attestation and the D25 split) is drawn by `qvac/panel-x402.mjs`.
+// That file is NOT imported to be called from here: it is imported to PASTE ITS
+// CODE inside the <script> of each page, so the suite tests the very same
+// functions the browser runs. The long note on why it lives there and not here
+// is in that file's header.
 
 import { FUENTE_EMBEBIDA } from './panel-x402.mjs'
 import { FUENTE_EMBEBIDA_WALLET } from './panel-wallet.mjs'
@@ -54,12 +54,12 @@ const STYLE = `
   }
   .card:hover { border-color: #4a7dfc; }
   .card.selected { border-color: #4a7dfc; box-shadow: 0 0 0 1px #4a7dfc; }
-  /* Jerarquia invertida a proposito: el titular es QUIEN provee, no que modelo
-     corre. Con el modelo de titulo, dos tarjetas de operadores distintos se
-     veian practicamente iguales -el nombre del modelo es el mismo en los dos
-     nodos- y la demo es justamente "le compro inferencia a la otra maquina".
-     El overflow-wrap es obligatorio: los modelId no tienen espacios y se
-     cortaban a la mitad ("llama_3.2_1b_intruct_tool_calli"). */
+  /* Hierarchy inverted on purpose: the headline is WHO provides, not which
+     model runs. With the model as the title, two cards from different operators
+     looked practically identical -the model name is the same on both nodes- and
+     the demo is precisely "I buy inference from the other machine".
+     The overflow-wrap is mandatory: modelIds have no spaces and were being cut
+     in half ("llama_3.2_1b_intruct_tool_calli"). */
   .card h3 { margin: 0 0 .1rem; font-size: 1.05rem; overflow-wrap: anywhere; }
   .card .model {
     font-family: ui-monospace, monospace; font-size: .72rem; color: #8b93a7;
@@ -75,23 +75,24 @@ const STYLE = `
   .price b { display: block; font-size: 1rem; color: #e6e6e6; }
   .price span { display: block; font-size: .74rem; color: #8b93a7; }
 
-  /* Reemplaza a la barra en 0%: una barra vacia con "0%" no dice si el nodo
-     esta libre o colgado. El estado se nombra. */
+  /* Replaces the bar at 0%: an empty bar reading "0%" does not say whether the
+     node is idle or hung. The state is named. */
   .state { font-size: .8rem; font-weight: 600; margin-top: .6rem; }
   .state.libre { color: #4ade80; }
   .state.busy { color: #fbbf24; }
   .state.full { color: #f87171; }
 
-  /* La linea de evidencia bajo la respuesta: sin esto, el texto aparece y nada
-     dice que viajo por P2P desde otra maquina. Es la prueba, no un adorno. */
+  /* The evidence line under the answer: without it the text just shows up and
+     nothing says it travelled over P2P from another machine. It is the proof,
+     not an ornament. */
   .meta {
     display: flex; flex-wrap: wrap; gap: .25rem .75rem; margin-top: .5rem;
     font-size: .76rem; color: #8b93a7; font-family: ui-monospace, monospace;
   }
   .meta b { color: #4ade80; font-weight: 600; }
 
-  /* El descubrimiento por DHT tarda ~17s medidos. Sin estado de carga, eso son
-     17 segundos de pantalla vacia delante del jurado, que se leen como roto. */
+  /* DHT discovery takes a measured ~17s. With no loading state that is 17
+     seconds of blank screen in front of the judges, which reads as broken. */
   .hint { color: #8b93a7; font-size: .88rem; margin: 0 0 1rem; }
   .hint b { color: #9fd6ff; font-weight: 600; font-family: ui-monospace, monospace; }
   .skel { background: #171a21; border: 1px solid #262b36; border-radius: 10px; padding: 1rem; }
@@ -107,9 +108,9 @@ const STYLE = `
   .bar { flex: 1; height: 6px; background: #262b36; border-radius: 999px; overflow: hidden; }
   .bar > div { height: 100%; border-radius: 999px; transition: width .4s ease; }
   .pct { font-size: .75rem; color: #a9b4cc; min-width: 3ch; text-align: right; }
-  /* Los dos medidores de My Node (Fase 6.5 y 6.6). Se apilan en pantalla
-     angosta: son dos lecturas independientes, no una comparacion lado a lado
-     que se rompa al perder el ancho. */
+  /* The two My Node gauges (Phase 6.5 and 6.6). They stack on a narrow screen:
+     they are two independent readings, not a side-by-side comparison that
+     breaks when the width is lost. */
   .econ-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem; }
   @media (max-width: 700px) { .econ-grid { grid-template-columns: 1fr; } }
   .econ-grid h4 { margin: 0 0 .3rem; font-size: .95rem; }
@@ -121,9 +122,9 @@ const STYLE = `
   }
   .econ-row code { color: #8b93a7; }
 
-  /* El interruptor del asistente externo (Fase 8.5). Ambar como el badge del
-     upstream: el mismo color en el panel, en la lista de nodos y en la linea de
-     procedencia del chat, para que "esto sale de la red" se aprenda una vez. */
+  /* The external-assistant switch (Phase 8.5). Amber like the upstream badge:
+     the same color in the panel, in the node list and in the chat provenance
+     line, so that "this leaves the network" is learned once. */
   .up-switch {
     display: flex; align-items: center; justify-content: space-between; gap: 1rem;
     border: 1px solid #262b36; border-radius: 10px; padding: .9rem 1rem; margin-top: 1rem;
@@ -144,16 +145,16 @@ const STYLE = `
   .badge.offline { background: #3a1414; color: #f87171; }
   .badge.real { background: #1a2740; color: #7db8ff; }
   .badge.mock { background: #2a2440; color: #c7a9ff; }
-  /* Verde como 'online': un par P2P verificado es la cosa buena que muestra
-     la demo, no puede parecerse a un mock. */
+  /* Green like 'online': a verified P2P peer is the good thing the demo shows,
+     it cannot look like a mock. */
   .badge.peer { background: #10331f; color: #4ade80; }
-  /* Ambar, el color de aviso del resto de la UI: el externo funciona, pero es
-     el unico camino donde el prompt sale de la red y cuesta plata. Ni el verde
-     del par verificado ni el azul de esta maquina. */
+  /* Amber, the warning color used across the rest of the UI: the external path
+     works, but it is the only one where the prompt leaves the network and costs
+     money. Neither the verified peer's green nor this machine's blue. */
   .badge.upstream { background: #3a2a10; color: #fbbf24; }
-  /* Acciones por tarjeta. "Chatear" queda primero y en azul: es la accion que
-     cuenta la demo sola. "Conectar" es secundaria pero es la que prueba que
-     esto es un gateway de verdad y no un chat con pasos extra. */
+  /* Per-card actions. "Chat" comes first and in blue: it is the action that
+     tells the demo by itself. "Connect" is secondary but it is the one proving
+     this is a real gateway and not a chat with extra steps. */
   .actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; }
   .actions button { margin-top: 0; font-size: .8rem; padding: .4rem .75rem; }
 
@@ -180,9 +181,9 @@ const STYLE = `
   .tabs button:hover { background: #1f2430; color: #cfd6e4; }
   .tabs button.on { background: none; color: #9fd6ff; border-bottom-color: #4a7dfc; }
 
-  /* Pasos numerados. Sin la numeracion, cuatro bloques de comandos seguidos se
-     leen como alternativas y no como una secuencia -pasaba con el modal de
-     Open WebUI, que la gente ejecutaba salteado-. */
+  /* Numbered steps. Without the numbering, four command blocks in a row read
+     as alternatives rather than as a sequence -that happened with the Open
+     WebUI modal, which people ran out of order-. */
   .step { display: flex; gap: .65rem; margin-bottom: 1rem; }
   .step .n {
     flex: none; width: 1.55rem; height: 1.55rem; border-radius: 999px;
@@ -206,15 +207,15 @@ const STYLE = `
   }
   .cmd button:hover { background: #3a445e; }
 
-  /* Estado real del servicio externo, no "asumamos que arranco". */
+  /* Real state of the external service, not "let us assume it started". */
   .dot { display: inline-flex; align-items: center; gap: .45rem; font-size: .82rem; color: #8b93a7; }
   .dot i { width: .5rem; height: .5rem; border-radius: 999px; background: #6b7386; font-style: normal; }
   .dot.up { color: #4ade80 } .dot.up i { background: #4ade80 }
   .dot.down { color: #f87171 } .dot.down i { background: #f87171 }
 
-  /* Advertencia previa a los pasos. WhatsApp no vincula un bot sino LA cuenta
-     personal del operador: eso hay que leerlo antes de escanear el QR, no
-     despues, asi que va arriba y no en el pie de la receta. */
+  /* Warning ahead of the steps. WhatsApp does not link a bot but THE
+     operator's personal account: that has to be read before scanning the QR,
+     not after, so it goes on top and not in the recipe's footer. */
   .aviso {
     background: #241d10; border: 1px solid #4a3a17; border-radius: 8px;
     padding: .6rem .75rem; margin: 0 0 1.1rem;
@@ -251,8 +252,9 @@ const STYLE = `
   .log div { padding: .25rem 0; border-bottom: 1px solid #1a1e28; }
   .muted { color: #6b7386; }
 
-  /* Estado del agente, visible en las tres paginas: es la condicion que decide
-     si se llega a la red o no, asi que no puede vivir solo en una pantalla. */
+  /* Agent state, visible on all three pages: it is the condition that decides
+     whether the network is reachable at all, so it cannot live on one screen
+     only. */
   .nav .agent { margin-left: auto; display: inline-flex; align-items: center; gap: .45rem; font-size: .8rem; }
   .nav .agent i { width: .5rem; height: .5rem; border-radius: 999px; background: #6b7386; display: block; flex: none; }
   .nav .agent b { font-weight: 600; }
@@ -262,19 +264,19 @@ const STYLE = `
   .nav .agent.error { color: #f87171 } .nav .agent.error i { background: #f87171 }
 
   /* ---------------------------------------------------------------- chat */
-  /* 'chatpage' y no 'chat': ya existe una clase .chat en el panel Network
-     (el bloque de chat viejo) con margin-top, y el body la heredaba. */
+  /* 'chatpage' and not 'chat': a .chat class already exists in the Network
+     panel (the old chat block) carrying margin-top, and body inherited it. */
   body.chatpage { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
   body.chatpage main {
     flex: 1; min-height: 0; display: flex; flex-direction: column;
     max-width: 780px; width: 100%; padding: 0 1.25rem;
   }
-  /* El JS le pone display:flex al mostrarlo; la direccion y el flex-1 tienen
-     que estar aca, o el hilo y el composer quedan uno al lado del otro. */
+  /* The JS sets display:flex when showing it; the direction and the flex-1
+     have to live here, or the thread and the composer end up side by side. */
   #chat { flex: 1; min-height: 0; flex-direction: column; }
   #thread { flex: 1; min-height: 0; overflow-y: auto; padding: 1.5rem 0 1rem; }
 
-  /* La puerta. Es lo primero que se ve mientras el agente esta apagado. */
+  /* The gate. It is the first thing seen while the agent is off. */
   .gate { max-width: 30rem; margin: auto; padding: 3rem 0; text-align: center; }
   .gate h1 { font-size: 1.5rem; margin-bottom: .6rem; }
   .gate p { color: #8b93a7; font-size: .92rem; line-height: 1.6; margin: 0 0 1.5rem; }
@@ -317,8 +319,8 @@ const STYLE = `
   @keyframes blink { 50% { opacity: 0 } }
   @media (prefers-reduced-motion: reduce) { .msg .caret::after { animation: none } }
 
-  /* La linea de procedencia: quien contesto, cuanto tardo. Sin esto el chat es
-     indistinguible de cualquier otro y la red deja de ser visible. */
+  /* The provenance line: who answered, how long it took. Without it the chat
+     is indistinguishable from any other and the network stops being visible. */
   .prov {
     display: flex; flex-wrap: wrap; gap: .25rem .7rem; margin-top: .5rem;
     font-size: .74rem; color: #8b93a7; font-family: ui-monospace, monospace;
@@ -327,8 +329,8 @@ const STYLE = `
   .prov .peer { color: #4ade80; font-weight: 600; }
   .prov .local { color: #7db8ff; font-weight: 600; }
   .prov .upstream { color: #fbbf24; font-weight: 600; }
-  /* El costo no se resalta como el operador: es un dato, no una alarma. Se
-     distingue de la latencia sin gritar. */
+  /* The cost is not highlighted the way the operator is: it is a figure, not
+     an alarm. It stands apart from the latency without shouting. */
   .prov .cost { font-variant-numeric: tabular-nums; }
 
   .composer { border-top: 1px solid #262b36; padding: .9rem 0 1.1rem; }
@@ -349,9 +351,9 @@ const STYLE = `
   .composer select:disabled { opacity: .55; }
   .composer label.chk { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
 
-  /* Paleta de acciones (Ctrl+K). Vive en el chat y no en un panel aparte
-     porque lo que hace -- cambiar de modelo, limpiar, ver el gasto -- son
-     decisiones que se toman MIENTRAS se escribe, no antes. */
+  /* Action palette (Ctrl+K). It lives in the chat and not in a separate panel
+     because what it does -- switch model, clear, check spending -- are
+     decisions taken WHILE typing, not before. */
   .pal-overlay {
     position: fixed; inset: 0; background: rgba(8,10,16,.72);
     display: flex; align-items: flex-start; justify-content: center;
@@ -381,9 +383,10 @@ const STYLE = `
   .pal-item .der { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
   .pal-item .val { font-size: .8rem; color: #9aa4b8; }
 
-  /* La marca de mock NO es decorativa: el proyecto exige que todo lo simulado
-     se vea. Un control que parece funcionar y no hace nada es peor que uno
-     ausente, porque el que lo usa cree que ya lo configuro. */
+  /* The mock marker is NOT decorative: the project requires everything
+     simulated to be visible. A control that looks functional and does nothing
+     is worse than a missing one, because whoever uses it believes it is already
+     configured. */
   .pal-item .mock {
     font-size: .66rem; text-transform: uppercase; letter-spacing: .05em;
     background: #3a2f16; color: #e0b95a; border: 1px solid #5a4a20;
@@ -392,8 +395,9 @@ const STYLE = `
   .pal-item[disabled] { cursor: default; }
   .pal-item[disabled]:hover { background: transparent; }
 
-  /* Interruptor y escalon: son controles de aspecto real aunque casi todos
-     esten mockeados, porque el punto del pedido es ver la forma. */
+  /* Switch and stepper: they are real-looking controls even though almost all
+     of them are mocked, because the point of the request is to see the shape.
+     */
   .sw { width: 34px; height: 19px; border-radius: 999px; background: #2c3348; position: relative; flex: none; }
   .sw.on { background: #4f7cff; }
   .sw i { position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #e8ecf6; transition: left .12s; }
@@ -406,7 +410,7 @@ const STYLE = `
   .pal-pie { border-top: 1px solid #2c3348; padding: .5rem 1rem; font-size: .72rem; color: #7c8699; }
   .pal-vacio { padding: 1.2rem 1rem; color: #7c8699; font-size: .88rem; }
 
-  /* El "+" del composer */
+  /* The composer's "+" */
   .mas-menu {
     position: absolute; bottom: calc(100% + .4rem); left: 0; min-width: 210px;
     background: #161b28; border: 1px solid #2c3348; border-radius: 10px;
@@ -424,20 +428,22 @@ const STYLE = `
   .composer .note a { color: #9fd6ff; }
 
   /* -------------------------------------------------------------------------
-     FASE 9 — los cuatro artefactos que la fase emite y que hasta ahora solo se
-     veian con curl. El HTML lo arma qvac/panel-x402.mjs; aca esta como se ve.
+     PHASE 9 — the four artifacts the phase emits that until now were only
+     visible through curl. The HTML is built by qvac/panel-x402.mjs; here is how
+     it looks.
 
-     Los tres tonos son la parte que NO es decoracion, y por eso estan juntos:
+     The three tones are the part that is NOT decoration, which is why they sit
+     together:
 
-       bueno    un hecho comprobado ACA (un hash recomputado que coincide);
-       tibio    un dato con una salvedad que hay que leer -- una ausencia con
-                motivo, un tx hash que nadie verifico contra la cadena, una
-                firma que esta pagina no comprueba;
-       malo     algo que se lee como prueba y no lo es: un mock, un hash que no
-                coincide, un tx sintetico, una liquidacion que fallo.
+       good     a fact verified HERE (a recomputed hash that matches);
+       warm     a figure with a caveat that has to be read -- an absence with a
+                reason, a tx hash nobody checked against the chain, a signature
+                this page does not verify;
+       bad      something that reads as proof and is not: a mock, a hash that
+                does not match, a synthetic tx, a settlement that failed.
 
-     Un mock pintado de verde seria exactamente el mock que parece funcional que
-     la regla del proyecto prohibe.
+     A mock painted green would be exactly the functional-looking mock the
+     project rule forbids.
      ------------------------------------------------------------------------- */
   .x402 {
     border: 1px solid #2c3348; border-left: 3px solid #5fa8ff; border-radius: 8px;
@@ -459,8 +465,8 @@ const STYLE = `
     color: #8b93a7; font-size: .72rem; min-width: 11ch; flex: 0 0 auto;
     text-transform: none; letter-spacing: .02em;
   }
-  /* overflow-wrap obligatorio: direcciones, hashes y firmas no tienen espacios
-     y se salian de la tarjeta cortadas a la mitad. */
+  /* overflow-wrap is mandatory: addresses, hashes and signatures have no
+     spaces and were spilling out of the card cut in half. */
   .x-v { color: #dbe2ef; overflow-wrap: anywhere; min-width: 0; }
   .x-v.mono, .x-pre { font-family: ui-monospace, monospace; font-size: .72rem; }
   .x-v.malo { color: #f87171; }
@@ -478,9 +484,9 @@ const STYLE = `
     background: #0f1218; border: 1px solid #262b36; border-radius: 6px; padding: .5rem;
     margin: .4rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #a9b4cc;
   }
-  /* D25 — "medido" y "estimado" NO comparten color. Es la regla entera: un
-     conteo de chunks de SSE pintado igual que un usage del proveedor es la
-     forma mas barata de convertir una estimacion en un numero. */
+  /* D25 — "measured" and "estimated" do NOT share a color. That is the whole
+     rule: a count of SSE chunks painted like a provider usage is the cheapest
+     way to turn an estimate into a number. */
   .x-conteo {
     font-family: ui-monospace, monospace; font-size: .71rem; white-space: nowrap;
     border-radius: 999px; padding: .05rem .5rem; border: 1px solid transparent;
@@ -497,9 +503,9 @@ const STYLE = `
   .x-buscar button { margin: 0; white-space: nowrap; }
 
   /* -----------------------------------------------------------------------
-     Panel /wallet (Fase 11). Columna angosta tipo billetera de celular: la
-     referencia visual es una wallet movil, no una tabla. Solo lectura — los
-     botones de enviar se dibujan deshabilitados, ver qvac/panel-wallet.mjs.
+     /wallet panel (Phase 11). Narrow phone-wallet column: the visual reference
+     is a mobile wallet, not a table. Read-only — the send buttons are drawn
+     disabled, see qvac/panel-wallet.mjs.
      ----------------------------------------------------------------------- */
   .w-root { max-width: 460px; margin: 1.5rem auto 0; }
   .w-card {
@@ -586,14 +592,15 @@ const STYLE = `
   .w-dep-nota b { color: #cfd6e4; }
   .w-dep-link { display: inline-block; margin-top: .6rem; font-size: .78rem; color: #9fd6ff; }
 
-  /* El QR (Fase 12). El fondo blanco lo pone el propio <svg> y NO sigue el tema
-     oscuro: un lector de QR necesita contraste oscuro-sobre-claro, y uno
-     invertido no escanea en muchos telefonos. Es lo unico claro del panel. */
+  /* The QR (Phase 12). The white background comes from the <svg> itself and
+     does NOT follow the dark theme: a QR reader needs dark-on-light contrast,
+     and an inverted one will not scan on many phones. It is the only light
+     thing in the panel. */
   .w-qr { display: flex; justify-content: center; margin: .2rem 0 .8rem; }
   .w-qr svg { border-radius: 8px; max-width: 100%; height: auto; }
 
-  /* Historial (Fase 12). Mismas filas que los activos, con la flecha de
-     direccion adelante y el monto con signo. */
+  /* History (Phase 12). Same rows as the assets, with the direction arrow up
+     front and the amount signed. */
   .w-hist { display: flex; flex-direction: column; gap: .4rem; }
   .w-hist-fila {
     display: flex; align-items: center; gap: .7rem; padding: .6rem .1rem;
@@ -612,8 +619,8 @@ const STYLE = `
   .w-aviso.tibio { background: #2a2413; color: #fcd34d; border: 1px solid #4a3d18; }
   .w-aviso.bueno { background: #12291c; color: #86efac; border: 1px solid #1f4a31; }
 
-  /* Enviar (Fase 12). Tapa la tarjeta mientras dura: form -> revision ->
-     estado. El poll no repinta hasta que se vuelve. */
+  /* Send (Phase 12). Covers the card while it lasts: form -> review -> status.
+     The poll does not repaint until you come back. */
   .w-envio { display: flex; flex-direction: column; gap: .7rem; padding: .3rem 0 .5rem; }
   .w-envio-tit { font-size: 1rem; color: #f2f5fb; font-weight: 600; }
   .w-envio-campo { display: flex; flex-direction: column; gap: .3rem; }
@@ -655,7 +662,7 @@ const STYLE = `
   .w-tab.on { color: #9fd6ff; }
   .w-tab:disabled { opacity: .4; cursor: not-allowed; }
 
-  /* Onboarding: crear o importar la wallet desde el panel (Fase 11). */
+  /* Onboarding: create or import the wallet from the panel (Phase 11). */
   .w-onb { display: flex; flex-direction: column; gap: .8rem; padding: .4rem 0 .6rem; }
   .w-onb-tit { font-size: 1rem; color: #e6e6e6; font-weight: 600; }
   .w-onb-txt { font-size: .82rem; color: #a9b4cc; line-height: 1.5; }
@@ -675,7 +682,7 @@ const STYLE = `
   .w-onb-ok { color: #86efac; }
   .w-onb-err { color: #fca5a5; }
 
-  /* La pantalla de las 24 palabras: se muestra una sola vez. */
+  /* The 24-word screen: shown exactly once. */
   .w-seed { display: flex; flex-direction: column; gap: .8rem; padding: .3rem 0 .5rem; }
   .w-seed-tit { font-size: .95rem; color: #f2f5fb; font-weight: 600; }
   .w-seed-grid {
@@ -691,7 +698,7 @@ const STYLE = `
   .w-seed-ok { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: #cfd6e4; }
   .w-seed-ok input { width: auto; }
 
-  /* Selector de red (Fase 11). No hace hot-swap: guarda y pide reiniciar. */
+  /* Network selector (Phase 11). No hot-swap: it saves and asks for a restart. */
   .w-red-box {
     border-top: 1px solid #262b36; margin: .2rem -1.1rem 0; padding: .8rem 1.1rem .4rem;
     display: flex; flex-direction: column; gap: .4rem;
@@ -709,9 +716,9 @@ const STYLE = `
   .w-red-nota b { color: #a9b4cc; }
 
   /* -----------------------------------------------------------------------
-     Settings (Fase 12). Overlay ADENTRO de la tarjeta, no un modal global: la
-     billetera es una columna angosta y su configuracion pertenece a esa
-     columna. Se cierra por ✕, por Esc y por click afuera.
+     Settings (Phase 12). Overlay INSIDE the card, not a global modal: the
+     wallet is a narrow column and its configuration belongs to that column. It
+     closes with ✕, with Esc and by clicking outside.
      ----------------------------------------------------------------------- */
   .w-set-ov {
     position: fixed; inset: 0; z-index: 40; background: #05070bcc;
@@ -725,8 +732,9 @@ const STYLE = `
   }
   .w-set-head { display: flex; align-items: center; gap: .5rem; }
   .w-set-tit { font-size: 1rem; color: #f2f5fb; font-weight: 600; margin-right: auto; }
-  /* El selector de red, mudado acá, ya no necesita el borde que lo separaba
-     del resto de la tarjeta: ahora TODO en esta pantalla es configuracion. */
+  /* The network selector, moved here, no longer needs the border that set it
+     apart from the rest of the card: EVERYTHING on this screen is
+     configuration now. */
   .w-set .w-red-box { border-top: 0; margin: 0; padding: 0; }
   .w-set-bloque {
     border-top: 1px solid #262b36; padding-top: .8rem;
@@ -760,13 +768,13 @@ const STYLE = `
   .w-set-flag { color: #fbbf24; font-size: .72rem; }
 </style>`
 
-// Escapado de HTML, inyectado en el script de los 3 paneles.
+// HTML escaping, injected into the script of the 3 panels.
 //
-// No es paranoia de manual: el precio lo escribe el proveedor desde su panel y
-// se muestra crudo en los tres. Un precio como `<img src=x onerror=alert(1)>`
-// se ejecutaba al abrir la pagina —probado—. Se escapa TODO lo que venga del
-// servidor, no solo el precio, porque el dia que un nombre de operador o un
-// tag se vuelvan editables el agujero vuelve solo.
+// This is not textbook paranoia: the price is written by the provider from
+// their own panel and shown raw in all three. A price like
+// `<img src=x onerror=alert(1)>` executed on page load —tested—. EVERYTHING
+// coming from the server is escaped, not just the price, because the day an
+// operator name or a tag becomes editable the hole comes back on its own.
 const ESC = `
     function esc(v) {
       return String(v == null ? '' : v)
@@ -774,18 +782,18 @@ const ESC = `
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
     }`
 
-// El chip del nav vive en las TRES paginas y se pinta solo. Es el unico estado
-// compartido, y tiene que serlo: si el agente esta apagado la red no contesta,
-// y eso hay que verlo desde donde sea que uno este parado -- no solo en el chat.
+// The nav chip lives on ALL THREE pages and paints itself. It is the only
+// shared state, and it has to be: if the agent is off the network does not
+// answer, and that has to be visible from wherever you are standing -- not
+// just in the chat.
 const AGENT_CHIP = `
 <script>
   // ---------------------------------------------------------------------
-  // La credencial del panel.
+  // The panel credential.
   //
-  // El gate del gateway dejo de aceptar requests sin Authorization, y la
-  // pagina no esta exenta: pide la suya y la manda como cualquier otro
-  // cliente. Un solo camino de autenticacion, sin puerta trasera para el
-  // navegador.
+  // The gateway gate stopped accepting requests without Authorization, and the
+  // page is not exempt: it asks for its own and sends it like any other
+  // client. One single authentication path, with no back door for the browser.
   // ---------------------------------------------------------------------
   window.__panelKey = null
 
@@ -795,7 +803,7 @@ const AGENT_CHIP = `
       const r = await fetch('/v1/keys/panel')
       const d = await r.json()
       window.__panelKey = d.key
-    } catch (e) { /* sin key el gate responde 401 y se ve el motivo */ }
+    } catch (e) { /* with no key the gate answers 401 and the reason shows */ }
     return window.__panelKey
   }
 
@@ -824,7 +832,7 @@ const AGENT_CHIP = `
         chip.querySelector('[data-agent-label]').textContent = label[a.status] || a.status
       }
       if (typeof window.onAgent === 'function') window.onAgent(a)
-    } catch (err) { /* el gateway se cayo: el chip se queda como estaba */ }
+    } catch (err) { /* the gateway went down: the chip stays as it was */ }
   }
   pollAgent()
   setInterval(pollAgent, 2500)
@@ -847,26 +855,26 @@ function page(title, body, bodyClass) {
 </html>`
 }
 
-// Piezas del modal, compartidas por /network (archivos) y /node (conectar).
-// Viven aca y no adentro de una pagina porque "Conectar" se mudo a My Node
-// -- la credencial autentica contra TU gateway, no contra el nodo ajeno --
-// y copiar/cerrar/formatear las siguen necesitando las dos.
+// Modal pieces, shared by /network (files) and /node (connect).
+// They live here and not inside one page because "Connect" moved to My Node
+// -- the credential authenticates against YOUR gateway, not the remote node --
+// and copy/close/format are still needed by both.
 const MODAL_JS = `
-    // navigator.clipboard NO existe fuera de un contexto seguro. El panel se
-    // abre por http://localhost (seguro) pero tambien por http://192.168.x.x
-    // desde otra maquina de la LAN, donde la API no esta y el boton "Copiar"
-    // no hacia nada en silencio. Por eso el fallback con execCommand.
-    async function copiar(texto, btn) {
+    // navigator.clipboard does NOT exist outside a secure context. The panel
+    // opens over http://localhost (secure) but also over http://192.168.x.x
+    // from another machine on the LAN, where the API is missing and the "Copy"
+    // button silently did nothing. Hence the execCommand fallback.
+    async function copyText(text, btn) {
       let ok = false
       try {
         if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(texto)
+          await navigator.clipboard.writeText(text)
           ok = true
         }
-      } catch { /* cae al fallback */ }
+      } catch { /* falls through to the fallback */ }
       if (!ok) {
         const ta = document.createElement('textarea')
-        ta.value = texto
+        ta.value = text
         ta.style.position = 'fixed'
         ta.style.opacity = '0'
         document.body.appendChild(ta)
@@ -874,9 +882,9 @@ const MODAL_JS = `
         try { ok = document.execCommand('copy') } catch { ok = false }
         document.body.removeChild(ta)
       }
-      const antes = btn.textContent
-      btn.textContent = ok ? 'Copiado' : 'Copiá a mano'
-      setTimeout(() => { btn.textContent = antes }, 1600)
+      const before = btn.textContent
+      btn.textContent = ok ? 'Copied' : 'Copy it by hand'
+      setTimeout(() => { btn.textContent = before }, 1600)
     }
 
     let estadoPoll = null
@@ -890,14 +898,14 @@ const MODAL_JS = `
 
     function onEsc(ev) { if (ev.key === 'Escape') cerrarModal() }
 
-    // Modal simple para contenido ya armado. Los paneles que necesitan uno con
-    // tabs y polling siguen escribiendo #modal a mano; este es para el caso
-    // comun -- un titulo y un cuerpo -- que antes obligaba a repetir el
-    // overlay, el cierre por Esc y el cierre por click afuera en cada lugar.
-    function abrirModal(titulo, cuerpoHtml) {
+    // Simple modal for already-built content. The panels that need one with
+    // tabs and polling still write #modal by hand; this is for the common case
+    // -- a title and a body -- which used to force repeating the overlay, the
+    // Esc close and the click-outside close in every single place.
+    function openModal(title, bodyHtml) {
       document.getElementById('modal').innerHTML =
         '<div class="modal-overlay" id="modal-overlay"><div class="modal">' +
-        '<h3>' + esc(titulo) + '</h3>' + cuerpoHtml +
+        '<h3>' + esc(title) + '</h3>' + bodyHtml +
         '<div style="margin-top:1rem"><button class="ghost" id="modal-cerrar">Close</button></div>' +
         '</div></div>'
       document.getElementById('modal-cerrar').addEventListener('click', cerrarModal)
@@ -915,18 +923,18 @@ const MODAL_JS = `
     }
 `
 
-// Las recetas de "Conectar": el mismo nodo, consumido desde afuera del panel.
-// Es la prueba de que esto es un gateway OpenAI-compatible de verdad y no un
-// chat con nuestro protocolo adentro.
+// The "Connect" recipes: the same node, consumed from outside the panel.
+// It is the proof that this is a genuine OpenAI-compatible gateway and not a
+// chat with our own protocol inside.
 const CONNECT_JS = `
-    function recetas(c) {
-      const modelo = c.node.modelId
+    function recipes(c) {
+      const model = c.node.modelId
 
-      // El bloque de proveedor es identico para todos los canales de OpenClaw
-      // -lo unico que cambia es que canal se enciende-, asi que se arma una
-      // sola vez y cada receta le pasa SU bloque de channels. Duplicar el
-      // config entero por canal garantizaba que uno quedara desactualizado.
-      const configOpenclaw = (canal) => [
+      // The provider block is identical for every OpenClaw channel -the only
+      // thing that changes is which channel is turned on-, so it is built once
+      // and each recipe passes ITS OWN channels block. Duplicating the whole
+      // config per channel guaranteed one of them would drift out of date.
+      const configOpenclaw = (channel) => [
         '{',
         '  models: {',
         '    providers: {',
@@ -934,18 +942,18 @@ const CONNECT_JS = `
         '        baseUrl: "' + c.baseUrl + '",',
         '        apiKey: "' + c.apiKey + '",',
         '        api: "openai-completions",',
-        '        models: [{ id: "' + modelo + '", name: "QVAC · red P2P" }]',
+        '        models: [{ id: "' + model + '", name: "PyrusLLM · P2P network" }]',
         '      }',
         '    }',
         '  },',
-        '  agents: { defaults: { model: "qvac/' + modelo + '" } },',
+        '  agents: { defaults: { model: "qvac/' + model + '" } },',
         '  channels: {',
-        canal,
+        channel,
         '  }',
         '}'
       ].join('\\n')
 
-      const proveedorQvac = configOpenclaw([
+      const providerQvac = configOpenclaw([
         '    telegram: {',
         '      enabled: true,',
         '      botToken: "PEGA_ACA_EL_TOKEN_DE_BOTFATHER",',
@@ -953,7 +961,7 @@ const CONNECT_JS = `
         '    }'
       ].join('\\n'))
 
-      const proveedorWhatsapp = configOpenclaw([
+      const providerWhatsapp = configOpenclaw([
         '    whatsapp: {',
         '      enabled: true,',
         '      dmPolicy: "pairing",',
@@ -963,75 +971,75 @@ const CONNECT_JS = `
 
       return {
         telegram: {
-          titulo: 'Telegram',
-          pie: 'OpenClaw es un runtime de agente self-hosted. Le escribís al bot desde el celular y la respuesta la genera este nodo — sin OpenAI ni servidor de terceros en el medio.',
-          pasos: [
-            { texto: 'Instalá OpenClaw.', cmd: 'npm install -g openclaw' },
-            { texto: 'En Telegram, hablale a <b>@BotFather</b>, mandá <b>/newbot</b> y guardá el token que te da (tiene forma <code>123:abc</code>).' },
-            { texto: 'Pegá esto en <code>~/.openclaw/openclaw.json</code>, reemplazando el token del paso 2:', cmd: proveedorQvac },
-            { texto: 'Arrancá el gateway y aprobá el pareo. El código vale 1 hora.', cmd: 'openclaw gateway\\nopenclaw pairing list telegram\\nopenclaw pairing approve telegram <CODIGO>' }
+          title: 'Telegram',
+          footer: 'OpenClaw is a self-hosted agent runtime. You message the bot from your phone and this node generates the answer — no OpenAI and no third-party server in between.',
+          steps: [
+            { text: 'Install OpenClaw.', cmd: 'npm install -g openclaw' },
+            { text: 'On Telegram, talk to <b>@BotFather</b>, send <b>/newbot</b> and save the token it gives you (it looks like <code>123:abc</code>).' },
+            { text: 'Paste this into <code>~/.openclaw/openclaw.json</code>, replacing the token from step 2:', cmd: providerQvac },
+            { text: 'Start the gateway and approve the pairing. The code is valid for 1 hour.', cmd: 'openclaw gateway\\nopenclaw pairing list telegram\\nopenclaw pairing approve telegram <CODE>' }
           ]
         },
         whatsapp: {
-          titulo: 'WhatsApp',
-          aviso: '<b>No es un bot.</b> WhatsApp no tiene @BotFather: OpenClaw vincula <b>tu cuenta personal</b> como un dispositivo más (igual que WhatsApp Web). Usá un número que puedas dedicar a esto y dejá <code>dmPolicy: "pairing"</code>, así nadie te escribe al nodo sin que vos lo apruebes.',
-          pie: 'Mismo gateway que Telegram, otro canal. La respuesta la genera este nodo: WhatsApp sólo transporta el texto.',
-          estado: {
+          title: 'WhatsApp',
+          warning: '<b>This is not a bot.</b> WhatsApp has no @BotFather: OpenClaw links <b>your personal account</b> as one more device (just like WhatsApp Web). Use a number you can dedicate to this and leave <code>dmPolicy: "pairing"</code>, so nobody reaches the node without your approval.',
+          footer: 'Same gateway as Telegram, different channel. This node generates the answer: WhatsApp only carries the text.',
+          status: {
             url: 'http://127.0.0.1:18789/',
-            up: 'El gateway de OpenClaw responde en 127.0.0.1:18789',
-            down: 'El gateway de OpenClaw todavía no responde'
+            up: 'The OpenClaw gateway answers on 127.0.0.1:18789',
+            down: 'The OpenClaw gateway is not answering yet'
           },
-          pasos: [
-            { texto: 'Instalá OpenClaw y el plugin del canal.', cmd: 'npm install -g openclaw\\nopenclaw plugins install clawhub:@openclaw/whatsapp' },
-            { texto: 'Pegá esto en <code>~/.openclaw/openclaw.json</code>, con tu número en formato internacional (<code>+549…</code>) en <code>allowFrom</code>:', cmd: proveedorWhatsapp },
-            { texto: 'Vinculá la cuenta: el comando imprime un <b>QR en la terminal</b>. En el celular: <b>WhatsApp → Ajustes → Dispositivos vinculados → Vincular un dispositivo</b> y escaneá. El QR dura ~60 s; si vence, repetí el comando.', cmd: 'openclaw channels login --channel whatsapp' },
-            { texto: 'Arrancá el gateway y aprobá el primer mensaje. El pedido vale 1 hora.', cmd: 'openclaw gateway\\nopenclaw pairing list whatsapp\\nopenclaw pairing approve whatsapp <CODIGO>' },
-            { texto: 'El semáforo de arriba sólo dice si el gateway está vivo. Que WhatsApp haya quedado <b>vinculado</b> lo confirma este comando, y es lo primero que hay que mirar si no llega la respuesta — antes que el log del nodo.', cmd: 'openclaw channels status --probe' }
+          steps: [
+            { text: 'Install OpenClaw and the channel plugin.', cmd: 'npm install -g openclaw\\nopenclaw plugins install clawhub:@openclaw/whatsapp' },
+            { text: 'Paste this into <code>~/.openclaw/openclaw.json</code>, with your number in international format (<code>+549…</code>) under <code>allowFrom</code>:', cmd: providerWhatsapp },
+            { text: 'Link the account: the command prints a <b>QR in the terminal</b>. On your phone: <b>WhatsApp → Settings → Linked devices → Link a device</b> and scan it. The QR lasts ~60 s; if it expires, run the command again.', cmd: 'openclaw channels login --channel whatsapp' },
+            { text: 'Start the gateway and approve the first message. The request is valid for 1 hour.', cmd: 'openclaw gateway\\nopenclaw pairing list whatsapp\\nopenclaw pairing approve whatsapp <CODE>' },
+            { text: 'The indicator above only says whether the gateway is alive. That WhatsApp actually stayed <b>linked</b> is confirmed by this command, and it is the first thing to check when no answer arrives — before the node log.', cmd: 'openclaw channels status --probe' }
           ]
         },
         terminal: {
-          titulo: 'Terminal',
-          pie: 'Forma OpenAI exacta. Si este curl anda, anda cualquier cliente compatible.',
-          pasos: [
-            { texto: 'Pedile una respuesta al nodo con streaming:', cmd: 'curl ' + c.baseUrl + '/chat/completions \\\\\\n  -H "Authorization: Bearer ' + c.apiKey + '" \\\\\\n  -H "Content-Type: application/json" \\\\\\n  -d \\'{"model":"' + modelo + '","messages":[{"role":"user","content":"hola"}],"stream":true}\\'' },
-            { texto: 'Y el catálogo de modelos de la red, igual que la API de OpenAI:', cmd: 'curl ' + c.baseUrl + '/models -H "Authorization: Bearer ' + c.apiKey + '"' }
+          title: 'Terminal',
+          footer: 'Exact OpenAI shape. If this curl works, any compatible client works.',
+          steps: [
+            { text: 'Ask the node for a streaming answer:', cmd: 'curl ' + c.baseUrl + '/chat/completions \\\\\\n  -H "Authorization: Bearer ' + c.apiKey + '" \\\\\\n  -H "Content-Type: application/json" \\\\\\n  -d \\'{"model":"' + model + '","messages":[{"role":"user","content":"hello"}],"stream":true}\\'' },
+            { text: 'And the network model catalog, just like the OpenAI API:', cmd: 'curl ' + c.baseUrl + '/models -H "Authorization: Bearer ' + c.apiKey + '"' }
           ]
         },
         hermes: {
-          titulo: 'Hermes Agent',
-          pie: 'Agente con memoria persistente (SQLite local, sin servicio externo). No hay código nuestro acá: es configuración suya.',
-          pasos: [
-            { texto: 'Pegá esto en <code>~/.hermes/config.yaml</code>:', cmd: 'model:\\n  provider: custom\\n  base_url: ' + c.baseUrl + '\\n  api_key: ' + c.apiKey + '\\n  default: ' + modelo },
-            { texto: 'Arrancá Hermes. Usá chat simple, sin tool calls.', cmd: 'hermes' }
+          title: 'Hermes Agent',
+          footer: 'Agent with persistent memory (local SQLite, no external service). None of this is our code: it is their configuration.',
+          steps: [
+            { text: 'Paste this into <code>~/.hermes/config.yaml</code>:', cmd: 'model:\\n  provider: custom\\n  base_url: ' + c.baseUrl + '\\n  api_key: ' + c.apiKey + '\\n  default: ' + model },
+            { text: 'Start Hermes. Use plain chat, no tool calls.', cmd: 'hermes' }
           ]
         },
         webui: {
-          titulo: 'Open WebUI',
-          pie: 'Cara de ChatGPT, self-hosted, apuntada a este nodo. Necesita Docker Desktop corriendo.',
-          estado: {
+          title: 'Open WebUI',
+          footer: 'A ChatGPT-style face, self-hosted, pointed at this node. Needs Docker Desktop running.',
+          status: {
             url: 'http://localhost:3000/',
-            up: 'Open WebUI responde en localhost:3000',
-            down: 'Open WebUI todavía no responde'
+            up: 'Open WebUI answers on localhost:3000',
+            down: 'Open WebUI is not answering yet'
           },
-          pasos: [
-            { texto: 'Levantá el contenedor apuntado a este gateway:', cmd: 'docker run -d -p 3000:8080 \\\\\\n  -e OPENAI_API_BASE_URL=' + c.baseUrl + ' \\\\\\n  -e OPENAI_API_KEY=' + c.apiKey + ' \\\\\\n  -v open-webui:/app/backend/data \\\\\\n  --name open-webui ghcr.io/open-webui/open-webui:main' },
-            { texto: 'Abrí <a href="http://localhost:3000" target="_blank" rel="noopener">localhost:3000</a> y elegí el modelo <code>' + modelo + '</code>.' }
+          steps: [
+            { text: 'Bring up the container pointed at this gateway:', cmd: 'docker run -d -p 3000:8080 \\\\\\n  -e OPENAI_API_BASE_URL=' + c.baseUrl + ' \\\\\\n  -e OPENAI_API_KEY=' + c.apiKey + ' \\\\\\n  -v open-webui:/app/backend/data \\\\\\n  --name open-webui ghcr.io/open-webui/open-webui:main' },
+            { text: 'Open <a href="http://localhost:3000" target="_blank" rel="noopener">localhost:3000</a> and pick the model <code>' + model + '</code>.' }
           ]
         }
       }
     }
 
-    // El servicio corre en OTRO origen, asi que un fetch normal da CORS aunque
-    // este arriba. Con mode:no-cors la respuesta es opaca -no se puede leer-
-    // pero la promesa resuelve si el puerto contesta y rechaza si no: alcanza
-    // para "esta arriba o no", que es lo unico que se pregunta.
+    // The service runs on ANOTHER origin, so a normal fetch hits CORS even
+    // when it is up. With mode:no-cors the response is opaque -it cannot be
+    // read- but the promise resolves if the port answers and rejects if it
+    // does not: enough for "is it up or not", which is all we ask.
     //
-    // Lo unico. Vale para Open WebUI y para el gateway de OpenClaw por igual,
-    // y de ahi el limite honesto del semaforo: dice que el proceso contesta,
-    // NO que WhatsApp quedo vinculado. Eso solo lo sabe 'channels status', que
-    // es un comando y no un puerto. Pintar "vinculado" desde aca seria inventar
-    // un estado que el panel no puede ver.
-    async function servicioArriba(url) {
+    // All we ask. It holds for Open WebUI and for the OpenClaw gateway alike,
+    // and hence the indicator's honest limit: it says the process answers, NOT
+    // that WhatsApp stayed linked. Only 'channels status' knows that, and it is
+    // a command, not a port. Painting "linked" from here would be inventing a
+    // state the panel cannot see.
+    async function serviceUp(url) {
       try {
         await fetch(url, { mode: 'no-cors', cache: 'no-store' })
         return true
@@ -1040,69 +1048,70 @@ const CONNECT_JS = `
       }
     }
 
-    function pintarEstado(e, arriba) {
+    function paintStatus(e, up) {
       const el = document.getElementById('estado-dot')
       if (!el) return
-      el.className = 'dot ' + (arriba ? 'up' : 'down')
-      el.innerHTML = '<i></i>' + (arriba ? e.up : e.down)
+      el.className = 'dot ' + (up ? 'up' : 'down')
+      el.innerHTML = '<i></i>' + (up ? e.up : e.down)
     }
 
-    function pintarTab(rs, clave) {
+    function paintTab(rs, key) {
       document.querySelectorAll('.tabs button').forEach(b => {
-        b.classList.toggle('on', b.dataset.tab === clave)
+        b.classList.toggle('on', b.dataset.tab === key)
       })
-      const r = rs[clave]
-      const cuerpo = document.getElementById('tab-body')
-      cuerpo.innerHTML =
-        (r.aviso ? '<p class="aviso">' + r.aviso + '</p>' : '') +
-        (r.estado ? '<p><span class="dot" id="estado-dot"><i></i>chequeando…</span></p>' : '') +
-        r.pasos.map((p, i) => \`
+      const r = rs[key]
+      const body = document.getElementById('tab-body')
+      body.innerHTML =
+        (r.warning ? '<p class="aviso">' + r.warning + '</p>' : '') +
+        (r.status ? '<p><span class="dot" id="estado-dot"><i></i>checking…</span></p>' : '') +
+        r.steps.map((p, i) => \`
           <div class="step">
             <div class="n">\${i + 1}</div>
             <div class="body">
-              <p>\${p.texto}</p>
-              \${p.cmd ? '<div class="cmd"><pre>' + esc(p.cmd) + '</pre><button data-copy="' + i + '">Copiar</button></div>' : ''}
+              <p>\${p.text}</p>
+              \${p.cmd ? '<div class="cmd"><pre>' + esc(p.cmd) + '</pre><button data-copy="' + i + '">Copy</button></div>' : ''}
             </div>
           </div>\`).join('') +
-        '<p class="sub" style="margin:1rem 0 0">' + r.pie + '</p>'
+        '<p class="sub" style="margin:1rem 0 0">' + r.footer + '</p>'
 
-      cuerpo.querySelectorAll('[data-copy]').forEach(btn => {
-        btn.addEventListener('click', () => copiar(r.pasos[Number(btn.dataset.copy)].cmd, btn))
+      body.querySelectorAll('[data-copy]').forEach(btn => {
+        btn.addEventListener('click', () => copyText(r.steps[Number(btn.dataset.copy)].cmd, btn))
       })
 
       clearInterval(estadoPoll)
       estadoPoll = null
-      if (r.estado) {
-        const e = r.estado
-        const chequear = () => servicioArriba(e.url).then(arriba => pintarEstado(e, arriba))
-        chequear()
-        estadoPoll = setInterval(chequear, 3000)
+      if (r.status) {
+        const e = r.status
+        const check = () => serviceUp(e.url).then(up => paintStatus(e, up))
+        check()
+        estadoPoll = setInterval(check, 3000)
       }
     }
 
-    // Recibe TU nodo local, no un id de nodo ajeno.
+    // Takes YOUR local node, not a remote node id.
     //
-    // Antes esto pegaba a /v1/connection/:id y emitia una credencial "para
-    // hablarle a tal proveedor", que era una idea equivocada: la key autentica
-    // contra tu propio gateway, y es el quien despues decide a que nodo rutear.
-    // Una key por nodo remoto sugeria un camino privilegiado que no existe.
-    async function abrirConexion(nodo, apiKey) {
+    // This used to hit /v1/connection/:id and issue a credential "to talk to
+    // that provider", which was the wrong idea: the key authenticates against
+    // your own gateway, and it is the gateway that then decides which node to
+    // route to. One key per remote node suggested a privileged path that does
+    // not exist.
+    async function openConnection(node, apiKey) {
       let c
       try {
         c = {
           apiKey: apiKey,
-          // El host lo dice el browser, no una constante: si entraste por la IP
-          // de la LAN, el comando que copiaas tiene que apuntar ahi y no a
-          // 127.0.0.1, que en la maquina del cliente es otra cosa.
+          // The host comes from the browser, not from a constant: if you came
+          // in through the LAN IP, the command you copy has to point there and
+          // not at 127.0.0.1, which on the client machine is something else.
           baseUrl: 'http://' + location.host + '/v1',
-          node: nodo
+          node: node
         }
       } catch (err) {
         alert('Could not build the connection: ' + (err && err.message ? err.message : err))
         return
       }
 
-      const rs = recetas(c)
+      const rs = recipes(c)
       document.getElementById('modal').innerHTML = \`
         <div class="modal-overlay" id="modal-overlay">
           <div class="modal">
@@ -1120,23 +1129,23 @@ const CONNECT_JS = `
               <button data-tab="webui">Open WebUI</button>
             </div>
             <div id="tab-body"></div>
-            <button class="ghost" id="cerrar-modal">Cerrar</button>
+            <button class="ghost" id="cerrar-modal">Close</button>
           </div>
         </div>\`
 
       document.querySelectorAll('.tabs button').forEach(b => {
-        b.addEventListener('click', () => pintarTab(rs, b.dataset.tab))
+        b.addEventListener('click', () => paintTab(rs, b.dataset.tab))
       })
       document.getElementById('cerrar-modal').addEventListener('click', cerrarModal)
-      // Cerrar clickeando el fondo, pero NO cuando el click nace adentro del
-      // panel: sin el chequeo de target, seleccionar texto de un comando y
-      // soltar el mouse afuera cerraba el modal.
+      // Close by clicking the backdrop, but NOT when the click starts inside
+      // the panel: without the target check, selecting text from a command and
+      // releasing the mouse outside closed the modal.
       document.getElementById('modal-overlay').addEventListener('click', ev => {
         if (ev.target.id === 'modal-overlay') cerrarModal()
       })
       document.addEventListener('keydown', onEsc)
 
-      pintarTab(rs, 'telegram')
+      paintTab(rs, 'telegram')
     }
 `
 
@@ -1153,13 +1162,13 @@ export const NETWORK_HTML = page(
   <script>
     let nodesById = {}
 
-    // Tres clases de nodo, y la diferencia importa demasiado para taparla con
-    // un booleano: 'peer' es un nodo REMOTO de verdad, descubierto por el
-    // swarm y con su manifiesto firmado verificado. Antes caia en el mismo
-    // 'simulado' que los mocks -- justo al revés de lo que pasa.
-    // Un upstream local se nombra por lo que es -- un motor de esta maquina al
-    // que se le habla por HTTP -- y no por como se le pide.
-    function etiquetaDe (n) {
+    // Three classes of node, and the difference matters far too much to hide
+    // behind a boolean: 'peer' is a genuinely REMOTE node, discovered through
+    // the swarm and with its signed manifest verified. It used to fall into
+    // the same 'simulated' bucket as the mocks -- exactly backwards.
+    // A local upstream is named for what it is -- an engine on this machine
+    // spoken to over HTTP -- and not for how it is asked.
+    function labelFor (n) {
       if (n.local) return 'local engine · this machine'
       return KIND_LABEL[n.kind] || esc(n.kind)
     }
@@ -1168,17 +1177,18 @@ export const NETWORK_HTML = page(
       real: 'this machine',
       peer: 'verified P2P peer',
       mock: 'simulated',
-      // El kind que manda el prompt FUERA de la red: a una API de un tercero,
-      // con la cuenta del operador. La etiqueta lo dice sin eufemismos porque
-      // es la unica que acota la promesa de privacidad.
+      // The kind that sends the prompt OUTSIDE the network: to a third-party
+      // API, on the operator's account. The label says so without euphemisms
+      // because it is the only one that limits the privacy promise.
       //
-      // OJO: no todo upstream es un tercero. Un llama-server o un NIM en
-      // localhost tambien entra por HTTP y tambien es kind 'upstream', pero el
-      // prompt no sale de la maquina. Ese caso lo separa n.local en
-      // etiquetaDe(); esta entrada es solo el default.
+      // CAREFUL: not every upstream is a third party. A llama-server or a NIM
+      // on localhost also comes in over HTTP and is also kind 'upstream', but
+      // the prompt never leaves the machine. That case is split out by n.local
+      // in labelFor(); this entry is only the default.
       upstream: 'external API · third party',
-      // Sale del directorio Hyperbee: su manifiesto verifico alguna vez, pero
-      // ahora no hay socket. Nunca es candidato de ruteo (ver store.mjs).
+      // Comes from the Hyperbee directory: its manifest verified at some
+      // point, but there is no socket now. Never a routing candidate (see
+      // store.mjs).
       known: 'known · disconnected'
     }
 ${ESC}
@@ -1187,19 +1197,19 @@ ${ESC}
       return pct < 50 ? '#4ade80' : pct < 80 ? '#fbbf24' : '#f87171'
     }
 
-    // El grid se ARMA una vez y despues solo se actualizan los numeros.
+    // The grid is BUILT once and after that only the numbers are updated.
     //
-    // Antes se hacia innerHTML del grid entero en cada poll (cada 3s): las
-    // tarjetas se destruian y se volvian a crear sin parar, asi que un click
-    // que cayera justo en ese momento se perdia -Playwright no pudo ni
-    // clickear una tarjeta: "element was detached from the DOM"-. Ademas
-    // reiniciaba la transicion CSS de las barras en cada vuelta.
+    // It used to innerHTML the whole grid on every poll (every 3s): the cards
+    // were destroyed and recreated non-stop, so a click landing right at that
+    // moment was lost -Playwright could not even click a card: "element was
+    // detached from the DOM"-. It also restarted the bars' CSS transition on
+    // every round.
     let gridKey = null
 
     function buildGrid(nodes) {
       document.getElementById('grid').innerHTML = nodes.map(n => \`
         <div class="card" data-id="\${esc(n.id)}">
-          <span class="badge \${n.local ? 'real' : esc(n.kind)}">\${etiquetaDe(n)}</span>
+          <span class="badge \${n.local ? 'real' : esc(n.kind)}">\${labelFor(n)}</span>
           <h3>\${esc(n.operator)}</h3>
           <div class="model">\${esc(n.displayName)}</div>
           <div class="tags">\${n.tags.map(t => \`<span class="tag">\${esc(t)}</span>\`).join('')}</div>
@@ -1213,39 +1223,39 @@ ${ESC}
           </div>
         </div>
       \`).join('')
-      // Mirar el marketplace y elegir una maquina para hablarle es el recorrido
-      // que faltaba: hasta ahora el chat solo dejaba nombrar un MODELO, y dos
-      // pares sirviendo el mismo colapsaban en una opcion. El pin viaja por
-      // sessionStorage porque es una eleccion de esta sesion, no una
-      // preferencia que deba sobrevivir al navegador.
+      // Browsing the marketplace and picking a machine to talk to was the
+      // missing journey: until now the chat only let you name a MODEL, and two
+      // peers serving the same one collapsed into a single option. The pin
+      // travels through sessionStorage because it is a choice made for this
+      // session, not a preference that should outlive the browser.
       document.querySelectorAll('[data-usar]').forEach(el => {
         el.addEventListener('click', ev => {
           ev.stopPropagation()
-          try { sessionStorage.setItem('pyrus.pin', el.dataset.usar) } catch (e) { /* modo privado */ }
+          try { sessionStorage.setItem('pyrus.pin', el.dataset.usar) } catch (e) { /* private mode */ }
           window.location.href = '/'
         })
       })
 
-      // "Conectar" se mudo a /node porque la credencial autentica contra TU
-      // gateway y no contra el nodo ajeno que muestra la tarjeta.
+      // "Connect" moved to /node because the credential authenticates against
+      // YOUR gateway and not against the remote node the card shows.
       document.querySelectorAll('[data-files]').forEach(el => {
         el.addEventListener('click', ev => {
           ev.stopPropagation()
-          abrirArchivos(el.dataset.files)
+          openFiles(el.dataset.files)
         })
       })
     }
 
-    // Estado de carga del descubrimiento. Medido: el primer par tarda ~17s en
-    // aparecer por la DHT. Sin esto son 17 segundos de grilla vacia delante
-    // del jurado, que no se leen como "buscando" sino como "esta roto".
-    const abiertoEn = Date.now()
-    let buscando = false
+    // Discovery loading state. Measured: the first peer takes ~17s to show up
+    // over the DHT. Without this it is 17 seconds of empty grid in front of
+    // the judges, which does not read as "searching" but as "it is broken".
+    const openedAt = Date.now()
+    let searching = false
 
-    function renderBuscando() {
-      if (buscando) return
-      buscando = true
-      const seg = () => Math.round((Date.now() - abiertoEn) / 1000)
+    function renderSearching() {
+      if (searching) return
+      searching = true
+      const seg = () => Math.round((Date.now() - openedAt) / 1000)
       document.getElementById('grid').innerHTML = \`
         <div class="skel"><div style="width:60%"></div><div style="width:85%"></div><div style="width:40%"></div></div>
         <div class="skel"><div style="width:70%"></div><div style="width:50%"></div><div style="width:65%"></div></div>
@@ -1265,18 +1275,18 @@ ${ESC}
       if (!nodes.length) {
         gridKey = null
         nodesById = {}
-        return renderBuscando()
+        return renderSearching()
       }
-      if (buscando) {
-        buscando = false
+      if (searching) {
+        searching = false
         clearInterval(window.__segTimer)
         document.getElementById('buscando').style.display = 'none'
       }
 
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
 
-      // Solo la identidad de los nodos justifica rearmar el DOM; el precio y
-      // la carga cambian seguido y se actualizan en el lugar.
+      // Only node identity justifies rebuilding the DOM; price and load change
+      // often and are updated in place.
       const key = nodes.map(n => n.id + '|' + n.displayName + '|' + n.operator + '|' + n.tags.join('/')).join(',')
       if (key !== gridKey) {
         gridKey = key
@@ -1287,49 +1297,50 @@ ${ESC}
         const card = document.querySelector('.card[data-id="' + CSS.escape(n.id) + '"]')
         if (!card) continue
 
-        // El precio se parte en monto (grande) y unidad (chica). Se arma con
-        // nodos y textContent y NO con innerHTML: el precio lo escribe el
-        // proveedor desde su panel, y ya se probo que un <img src=x onerror>
-        // ahi adentro ejecuta al abrir la pagina.
-        const precio = card.querySelector('[data-price]')
-        precio.textContent = ''
-        const corte = String(n.pricing).indexOf(' / ')
-        const monto = document.createElement('b')
-        const unidad = document.createElement('span')
-        monto.textContent = corte === -1 ? n.pricing : String(n.pricing).slice(0, corte)
-        unidad.textContent = corte === -1 ? '' : String(n.pricing).slice(corte + 3)
-        precio.appendChild(monto)
-        precio.appendChild(unidad)
+        // The price is split into amount (large) and unit (small). It is built
+        // with nodes and textContent and NOT with innerHTML: the price is
+        // written by the provider from their panel, and an <img src=x onerror>
+        // in there was already proven to execute on page load.
+        const price = card.querySelector('[data-price]')
+        price.textContent = ''
+        const cut = String(n.pricing).indexOf(' / ')
+        const amount = document.createElement('b')
+        const unit = document.createElement('span')
+        amount.textContent = cut === -1 ? n.pricing : String(n.pricing).slice(0, cut)
+        unit.textContent = cut === -1 ? '' : String(n.pricing).slice(cut + 3)
+        price.appendChild(amount)
+        price.appendChild(unit)
 
-        // Se muestra uno u otro, sin recrear nodos: asi la transicion CSS de
-        // la barra anima de verdad en vez de reiniciarse en cada poll.
+        // One or the other is shown, without recreating nodes: that way the
+        // bar's CSS transition really animates instead of restarting on every
+        // poll.
         const load = card.querySelector('[data-load]')
         const offline = card.querySelector('[data-offline]')
-        const estado = card.querySelector('[data-state]')
-        const caido = n.loadPct === null
-        offline.style.display = caido ? '' : 'none'
-        estado.style.display = caido ? 'none' : ''
+        const state = card.querySelector('[data-state]')
+        const down = n.loadPct === null
+        offline.style.display = down ? '' : 'none'
+        state.style.display = down ? 'none' : ''
 
-        // La barra solo aparece cuando hay carga de verdad. Al 0% era una
-        // barra vacia con un "0%" al lado que no distinguia "libre" de
-        // "colgado"; el estado ahora se dice con palabras.
-        load.style.display = !caido && n.loadPct > 0 ? '' : 'none'
-        if (!caido) {
-          // Tres estados, no dos: un nodo con 1 de 4 slots tomados NO esta
-          // "ocupado" -acepta trabajo-, y decirlo asi desalienta al comprador
-          // en la unica pantalla donde elige. "Ocupado" se reserva para el que
-          // de verdad no tiene lugar.
-          const activos = n.activeRequests
-          const tope = n.maxConcurrentRequests
-          const lleno = activos >= tope
-          const ocupado = activos > 0
-          estado.className = 'state ' + (lleno ? 'full' : ocupado ? 'busy' : 'libre')
-          estado.textContent = lleno
-            ? 'At capacity · ' + activos + '/' + tope
-            : ocupado
-              ? 'Serving · ' + activos + '/' + tope
+        // The bar only appears when there is real load. At 0% it was an empty
+        // bar with a "0%" next to it that did not tell "idle" from "hung"; the
+        // state is now said in words.
+        load.style.display = !down && n.loadPct > 0 ? '' : 'none'
+        if (!down) {
+          // Three states, not two: a node with 1 of 4 slots taken is NOT
+          // "busy" -it accepts work-, and saying so discourages the buyer on
+          // the one screen where they choose. "Busy" is reserved for the node
+          // that genuinely has no room.
+          const active = n.activeRequests
+          const cap = n.maxConcurrentRequests
+          const full = active >= cap
+          const busy = active > 0
+          state.className = 'state ' + (full ? 'full' : busy ? 'busy' : 'libre')
+          state.textContent = full
+            ? 'At capacity · ' + active + '/' + cap
+            : busy
+              ? 'Serving · ' + active + '/' + cap
               : 'Available'
-          if (ocupado) {
+          if (busy) {
             const fill = load.querySelector('[data-fill]')
             fill.style.width = n.loadPct + '%'
             fill.style.background = barColor(n.loadPct)
@@ -1341,49 +1352,50 @@ ${ESC}
 
 
     // -----------------------------------------------------------------------
-    // "Conectar": el mismo nodo, consumido desde afuera del panel.
+    // "Connect": the same node, consumed from outside the panel.
     //
-    // Es la prueba de que esto es un gateway OpenAI-compatible de verdad y no
-    // un chat con nuestro protocolo adentro: el comando que se copia aca es el
-    // que usaria cualquier cliente de terceros, sin camino privilegiado.
+    // It is the proof that this is a genuine OpenAI-compatible gateway and not
+    // a chat with our own protocol inside: the command copied here is the one
+    // any third-party client would use, with no privileged path.
     // -----------------------------------------------------------------------
 
 ${MODAL_JS}
 
-    async function abrirArchivos(id) {
+    async function openFiles(id) {
       try {
-        // El nodo local (kind 'real'/'mock') no tiene peerKey: ese es SU
-        // propio drive. Un nodo 'peer' si lo tiene, y sin pasarlo el gateway
-        // siempre devolvia el drive local, sin importar que tarjeta se
-        // hubiera clickeado.
-        const nodo = nodesById[id]
-        const peerKey = nodo && nodo.peerKey
+        // The local node (kind 'real'/'mock') has no peerKey: that is ITS own
+        // drive. A 'peer' node does have one, and without passing it the
+        // gateway always returned the local drive, no matter which card had
+        // been clicked.
+        const node = nodesById[id]
+        const peerKey = node && node.peerKey
         const url = peerKey ? '/v1/files?peerKey=' + encodeURIComponent(peerKey) : '/v1/files'
         const r = await fetch(url)
         if (!r.ok) throw new Error('HTTP ' + r.status)
         const data = await r.json()
 
-        // Muestra el drive del nodo que eligio, con link qvac:// que se puede
-        // pegar en otra maquina para bajarlo sin conexion P2P previa.
-        const archivos = data.files || []
+        // Shows the drive of the node they picked, with a qvac:// link that
+        // can be pasted on another machine to download it with no prior P2P
+        // connection.
+        const files = data.files || []
         const modal = document.getElementById('modal')
         modal.innerHTML = \`
           <div class="modal-overlay" id="modal-overlay">
             <div class="modal">
-              <h3>Archivos en \${esc(nodo ? nodo.operator : 'este nodo')}</h3>
-              <p class="sub">Los links <code>qvac://</code> se pueden copiar y pegar en otra máquina para bajar sin pairing previo.</p>
-              \${archivos.length === 0
-                ? '<p class="muted">Sin archivos publicados.</p>'
-                : '<table><thead><tr><th>Nombre</th><th>Tamaño</th><th>Link</th></tr></thead><tbody>' +
-                  archivos.map(f => \`
+              <h3>Files on \${esc(node ? node.operator : 'this node')}</h3>
+              <p class="sub"><code>qvac://</code> links can be copied and pasted on another machine to download with no prior pairing.</p>
+              \${files.length === 0
+                ? '<p class="muted">No published files.</p>'
+                : '<table><thead><tr><th>Name</th><th>Size</th><th>Link</th></tr></thead><tbody>' +
+                  files.map(f => \`
                     <tr>
                       <td>\${esc(f.path)}</td>
                       <td>\${formatBytes(f.bytes)}</td>
-                      <td><button class="ghost" data-copy-file="\${esc(f.link)}" style="font-size:.75rem">Copiar</button></td>
+                      <td><button class="ghost" data-copy-file="\${esc(f.link)}" style="font-size:.75rem">Copy</button></td>
                     </tr>\`).join('') +
                   '</tbody></table>'
               }
-              <button class="ghost" id="cerrar-modal">Cerrar</button>
+              <button class="ghost" id="cerrar-modal">Close</button>
             </div>
           </div>\`
 
@@ -1392,7 +1404,7 @@ ${MODAL_JS}
           if (ev.target.id === 'modal-overlay') cerrarModal()
         })
         document.querySelectorAll('[data-copy-file]').forEach(btn => {
-          btn.addEventListener('click', () => copiar(btn.dataset.copyFile, btn))
+          btn.addEventListener('click', () => copyText(btn.dataset.copyFile, btn))
         })
         document.addEventListener('keydown', onEsc)
       } catch (err) {
@@ -1407,7 +1419,8 @@ ${MODAL_JS}
     }
 
 
-    // El poll pisa el grid entero, asi que si falla no puede tumbar el panel.
+    // The poll overwrites the whole grid, so a failure must not take the panel
+    // down.
     refresh().catch(() => {})
     setInterval(() => refresh().catch(() => {}), 3000)
   </script>
@@ -1543,17 +1556,17 @@ export const NODE_HTML = page(
   <script>
     let nodesById = {}
     let current = null
-    let shellFor = null // para que nodo esta armado el DOM de #detail
-    let isMine = false  // el nodo elegido, es ESTE gateway? (solo ahi se puede re-firmar)
+    let shellFor = null // which node the #detail DOM is built for
+    let isMine = false  // is the chosen node THIS gateway? (only there can we re-sign)
     let swarmActive = false
-    let catalogById = {} // alias -> {displayName, sizeGB, fits}, de /v1/swarm/manifest
+    let catalogById = {} // alias -> {displayName, sizeGB, fits}, from /v1/swarm/manifest
 ${ESC}
 ${FUENTE_EMBEBIDA}
 ${MODAL_JS}
 ${CONNECT_JS}
 
     // -------------------------------------------------------------------
-    // Onboarding: aparece solo si este gateway no se unio al swarm todavia.
+    // Onboarding: only shows up if this gateway has not joined the swarm yet.
     // -------------------------------------------------------------------
     function renderOnboarding(swarm) {
       swarmActive = !!swarm
@@ -1576,9 +1589,9 @@ ${CONNECT_JS}
     }
 
     // -------------------------------------------------------------------
-    // Detalle del nodo elegido. Se arma UNA vez por nodo y despues solo se
-    // actualizan los textos que cambian -- ver la nota vieja mas abajo sobre
-    // por que (el input de precio perdia lo que el usuario tipeaba).
+    // Detail of the chosen node. Built ONCE per node and after that only the
+    // texts that change are updated -- see the older note below on why (the
+    // price input kept losing whatever the user was typing).
     // -------------------------------------------------------------------
     function buildShell(n) {
       document.getElementById('detail').innerHTML = \`
@@ -1600,14 +1613,14 @@ ${CONNECT_JS}
       document.getElementById('save-pricing').addEventListener('click', saveFields)
       document.getElementById('toggle').addEventListener('click', toggleStatus)
       shellFor = n.id
-      mineFieldsBuiltFor = null // fuerza reconstruir el bloque "mine-fields" tambien
+      mineFieldsBuiltFor = null // forces rebuilding the "mine-fields" block too
     }
 
-    // Los campos que solo tienen sentido sobre TU PROPIO nodo P2P -- editarlos
-    // implica re-firmar el manifiesto con tu identidad, algo que no se puede
-    // hacer sobre el nodo de otro. Se arman aparte de buildShell() porque
-    // "es mio" puede cambiar sin que cambie el nodo elegido (ej. arrancaste
-    // --swarm recien).
+    // The fields that only make sense on YOUR OWN P2P node -- editing them
+    // means re-signing the manifest with your identity, something that cannot
+    // be done on somebody else's node. They are built apart from buildShell()
+    // because "it is mine" can change without the chosen node changing (e.g.
+    // you just started --swarm).
     let mineFieldsBuiltFor = null
 
     function buildMineFields() {
@@ -1660,7 +1673,8 @@ ${CONNECT_JS}
       document.getElementById('toggle').textContent =
         n.status === 'online' ? 'Go offline' : 'Go back online'
 
-      // Lo unico que el usuario edita: solo se pisa si NO lo esta tocando.
+      // The only thing the user edits: only overwritten when they are NOT
+      // touching it.
       const pricing = document.getElementById('pricing')
       if (document.activeElement !== pricing) pricing.value = n.pricing
 
@@ -1677,9 +1691,9 @@ ${CONNECT_JS}
     }
 
     // -------------------------------------------------------------------
-    // Selector de modelo: solo ofrece lo que entra en la RAM de ESTA
-    // maquina (ver /v1/swarm/manifest -> models[].fits). Cambiar de modelo
-    // pasa por un modal de confirmacion porque dispara una carga real.
+    // Model selector: only offers what fits in THIS machine's RAM (see
+    // /v1/swarm/manifest -> models[].fits). Switching model goes through a
+    // confirmation modal because it triggers a real load.
     // -------------------------------------------------------------------
     let modelSelectBuiltWith = null
     let modelLoadPoll = null
@@ -1705,9 +1719,9 @@ ${CONNECT_JS}
 
       const info = catalogById[nextAlias]
       const proceed = confirm(
-        'Cambiar el modelo de este nodo a "' + (info ? info.displayName : nextAlias) + '".\\n\\n' +
-        'Puede tardar varios segundos -o fallar por falta de memoria- mientras el ' +
-        'nodo sigue respondiendo con el modelo actual. Si falla, se mantiene el modelo de ahora.'
+        'Switch this node\\'s model to "' + (info ? info.displayName : nextAlias) + '".\\n\\n' +
+        'It can take several seconds -or fail for lack of memory- while the ' +
+        'node keeps answering with the current model. If it fails, the current model is kept.'
       )
       if (!proceed) { e.target.value = n.modelId; return }
 
@@ -1718,7 +1732,7 @@ ${CONNECT_JS}
       })
       if (!r.ok) {
         const data = await r.json().catch(() => ({}))
-        alert((data.error && data.error.message) || 'no se pudo cambiar el modelo')
+        alert((data.error && data.error.message) || 'could not switch the model')
         e.target.value = n.modelId
         return
       }
@@ -1751,19 +1765,20 @@ ${CONNECT_JS}
 
     async function refresh() {
       const r = await authFetch('/v1/nodes')
-      const { nodes: todos, swarm } = await r.json()
+      const { nodes: all, swarm } = await r.json()
 
-      // Esta pagina es SOLO sobre tu maquina. Antes listaba la red entera y
-      // arrancaba en todos[0], que suele ser un par remoto: el panel decia
-      // "Tu nodo" y mostraba el de otra persona, con un campo de precio y un
-      // boton de guardar al lado que no podian hacer nada sobre el manifiesto
-      // firmado de un tercero. Los nodos ajenos se miran en /network.
-      const nodes = todos.filter(n => n.kind === 'real')
+      // This page is ONLY about your machine. It used to list the whole
+      // network and start on all[0], which is usually a remote peer: the panel
+      // said "Your node" and showed somebody else's, with a price field and a
+      // save button next to it that could do nothing to a third party's signed
+      // manifest. Other people's nodes are viewed in /network.
+      const nodes = all.filter(n => n.kind === 'real')
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
       if (!current || !nodesById[current]) current = nodes[0]?.id
 
-      // Un desplegable con una sola opcion es ruido: casi siempre hay un unico
-      // nodo local, y solo se muestra el selector si de verdad hay que elegir.
+      // A dropdown with a single option is noise: there is almost always just
+      // one local node, and the selector only shows when there is a real
+      // choice to make.
       document.getElementById('node-picker').style.display = nodes.length > 1 ? '' : 'none'
       document.getElementById('no-node').style.display = nodes.length ? 'none' : ''
       if (!nodes.length) {
@@ -1785,8 +1800,8 @@ ${CONNECT_JS}
         }
       }
 
-      // El <select> se repinta solo si cambio la lista de nodos. Repintarlo en
-      // cada poll cerraba el desplegable si lo tenias abierto.
+      // The <select> is only repainted when the node list changed. Repainting
+      // it on every poll closed the dropdown if you had it open.
       const key = nodes.map(n => n.id + '|' + n.displayName + '|' + n.operator).join(',')
       if (key !== optionsKey) {
         optionsKey = key
@@ -1810,9 +1825,9 @@ ${CONNECT_JS}
         if (mc && Number.isFinite(+mc.value) && +mc.value > 0) patch.maxConcurrentRequests = +mc.value
       }
 
-      // Sin el blur, el input sigue teniendo el foco y el refresh de abajo no
-      // lo actualiza: quedaria mostrando lo tipeado aunque el server lo haya
-      // recortado, y no se veria que quedo guardado de verdad.
+      // Without the blur, the input keeps focus and the refresh below does not
+      // update it: it would keep showing what was typed even if the server
+      // trimmed it, and what actually got saved would not be visible.
       document.activeElement && document.activeElement.blur && document.activeElement.blur()
 
       await authFetch('/v1/nodes/' + encodeURIComponent(current), {
@@ -1853,12 +1868,13 @@ ${CONNECT_JS}
 
 
     // ------------------------------------------------------------------
-    // Credenciales. Varias a proposito: una por cliente, para poder cortar a
-    // un bot sin tocar a los demas y para que el rastro sepa cual pidio que.
+    // Credentials. Several on purpose: one per client, so a single bot can be
+    // cut off without touching the rest and so the trace knows which one asked
+    // for what.
     // ------------------------------------------------------------------
     let keys = []
 
-    function edad(ts) {
+    function age(ts) {
       if (!ts) return 'never'
       const s = Math.round((Date.now() - ts) / 1000)
       if (s < 60) return s + 's ago'
@@ -1867,7 +1883,7 @@ ${CONNECT_JS}
       return Math.round(s / 86400) + 'd ago'
     }
 
-    function pintarKeys() {
+    function paintKeys() {
       const box = document.getElementById('keys')
       if (!keys.length) {
         box.innerHTML = '<p class="hint">No keys issued yet.</p>'
@@ -1880,7 +1896,7 @@ ${CONNECT_JS}
             '<td>' + esc(k.label) + '</td>' +
             '<td class="muted" style="font-family:ui-monospace,monospace;font-size:.75rem;overflow-wrap:anywhere">' +
               esc(k.key) + '</td>' +
-            '<td class="muted">' + edad(k.lastUsedAt) + '</td>' +
+            '<td class="muted">' + age(k.lastUsedAt) + '</td>' +
             '<td style="white-space:nowrap">' +
               '<button class="ghost" data-copy-key="' + esc(k.key) + '" style="font-size:.75rem;margin:0">Copy</button> ' +
               '<button class="ghost" data-connect-key="' + esc(k.key) + '" style="font-size:.75rem;margin:0">Connect</button> ' +
@@ -1889,13 +1905,13 @@ ${CONNECT_JS}
         }).join('') + '</tbody></table>'
 
       box.querySelectorAll('[data-copy-key]').forEach(function (b) {
-        b.addEventListener('click', function () { copiar(b.dataset.copyKey, b) })
+        b.addEventListener('click', function () { copyText(b.dataset.copyKey, b) })
       })
       box.querySelectorAll('[data-connect-key]').forEach(function (b) {
         b.addEventListener('click', function () {
           const n = nodesById[current]
           if (!n) return alert('This gateway is not serving any model yet.')
-          abrirConexion(n, b.dataset.connectKey)
+          openConnection(n, b.dataset.connectKey)
         })
       })
       box.querySelectorAll('[data-revoke]').forEach(function (b) {
@@ -1906,7 +1922,7 @@ ${CONNECT_JS}
             const r = await authFetch('/v1/keys/' + encodeURIComponent(b.dataset.revoke), { method: 'DELETE' })
             const d = await r.json()
             keys = d.keys || []
-            pintarKeys()
+            paintKeys()
           } catch (err) {
             alert('Could not revoke: ' + ((err && err.message) || err))
             b.disabled = false
@@ -1915,12 +1931,12 @@ ${CONNECT_JS}
       })
     }
 
-    async function cargarKeys() {
+    async function loadKeys() {
       try {
         const r = await authFetch('/v1/keys')
         const d = await r.json()
         keys = d.keys || []
-        pintarKeys()
+        paintKeys()
       } catch (e) {
         document.getElementById('keys').innerHTML = '<p class="hint">Could not read the keys.</p>'
       }
@@ -1936,15 +1952,15 @@ ${CONNECT_JS}
           body: JSON.stringify({ label: label })
         })
         if (!r.ok) throw new Error('HTTP ' + r.status)
-        await cargarKeys()
+        await loadKeys()
       } catch (err) {
         alert('Could not create the key: ' + ((err && err.message) || err))
       }
     })
 
     document.getElementById('revoke-all').addEventListener('click', async function (e) {
-      // El numero va en la pregunta: decir "se revoca la key actual" cuando hay
-      // cinco emitidas es mentirle a quien esta por apretar.
+      // The number goes in the question: saying "the current key is revoked"
+      // when five are issued is lying to whoever is about to click.
       const n = keys.length
       if (!confirm('Revoke all ' + n + (n === 1 ? ' key' : ' keys') +
         '? Every client using them stops working immediately.')) return
@@ -1954,10 +1970,11 @@ ${CONNECT_JS}
         const r = await authFetch('/v1/keys/revoke-all', { method: 'POST' })
         const d = await r.json()
         keys = d.keys || []
-        // El panel se re-credencia solo: su key vieja acaba de morir con el
-        // resto, y sin esto la pagina quedaria sin poder hablarle al gateway.
+        // The panel re-credentials itself: its old key just died with the
+        // rest, and without this the page would be left unable to talk to the
+        // gateway.
         window.__panelKey = null
-        pintarKeys()
+        paintKeys()
       } catch (err) {
         alert('Could not revoke: ' + ((err && err.message) || err))
       }
@@ -1965,66 +1982,67 @@ ${CONNECT_JS}
     })
 
     // ------------------------------------------------------------------
-    // Trafico. Las dos direcciones salen del MISMO rastro, separadas por
-    // kind: 'served' es lo que este nodo produjo para un par (lo escribe
-    // provider.mjs) y 'route' es lo que este nodo le pidio a alguien.
+    // Traffic. Both directions come out of the SAME trace, separated by kind:
+    // 'served' is what this node produced for a peer (written by provider.mjs)
+    // and 'route' is what this node asked of somebody else.
     // ------------------------------------------------------------------
     let flow = 'in'
 
-    function filaFlujo(e) {
-      const hora = esc(new Date(e.ts).toLocaleTimeString())
-      const quien = esc(e.operator || 'unknown')
+    function flowRow(e) {
+      const time = esc(new Date(e.ts).toLocaleTimeString())
+      const who = esc(e.operator || 'unknown')
       const bits = []
       if (e.tokens) bits.push(e.tokens + ' tok')
       if (e.ttftMs !== null && e.ttftMs !== undefined) bits.push('ttft ' + e.ttftMs + 'ms')
       if (e.tokensPerSec) bits.push(e.tokensPerSec + ' tok/s')
       bits.push(e.ms + 'ms')
-      const fallo = e.ok === false ? ' <b style="color:#f87171">FAILED</b>' : ''
-      // FASE 9 / D25 \u2014 el split va en su propia columna y con su procedencia
-      // pegada. Sumar prefill y decode en el "tok" de al lado los volveria a
-      // mezclar, que es justo lo que D25 separo; y sin la procedencia, un
-      // conteo de chunks de SSE se lee igual que un usage del proveedor.
+      const failed = e.ok === false ? ' <b style="color:#f87171">FAILED</b>' : ''
+      // PHASE 9 / D25 \u2014 the split gets its own column with its provenance
+      // attached. Folding prefill and decode into the "tok" next to it would
+      // mix them again, which is exactly what D25 separated; and without the
+      // provenance, a count of SSE chunks reads just like a provider usage.
       //
-      // D27 al lado: sin finishReason, en el rastro un corte del cliente y
-      // una respuesta completa se ven identicos.
+      // D27 alongside: without finishReason, a client cut and a complete
+      // answer look identical in the trace.
       const conteo = htmlDeConteo(vistaDeConteo(e))
       const fin = e.finishReason
         ? '<div class="x-nota" style="margin:.2rem 0 0">' +
           esc(e.finishReason) + ' \u2014 ' + esc(textoDeFinishReason(e.finishReason)) + '</div>'
         : ''
-      return '<tr><td class="muted">' + hora + '</td><td>' + quien + '</td>' +
+      return '<tr><td class="muted">' + time + '</td><td>' + who + '</td>' +
         '<td class="muted">' + esc(e.modelId || '') + '</td>' +
-        '<td class="muted">' + esc(bits.join(' \u00b7 ')) + fallo + '</td>' +
+        '<td class="muted">' + esc(bits.join(' \u00b7 ')) + failed + '</td>' +
         '<td>' + conteo + fin + '</td></tr>'
     }
 
-    function pintarFlujo(log) {
-      const entradas = flow === 'in'
+    function paintFlow(log) {
+      const entries = flow === 'in'
         ? log.filter(e => e.kind === 'served')
-        // Lo ruteado al propio equipo no es una transaccion con nadie: sin este
-        // filtro, "lo que le pedimos a otros" se llenaba de nuestro propio nodo.
+        // Work routed to our own machine is not a transaction with anybody:
+        // without this filter, "what we asked of others" filled up with our
+        // own node.
         : log.filter(e => e.kind === 'route' && e.target && e.target !== 'local')
 
       const box = document.getElementById('flow-body')
-      if (!entradas.length) {
+      if (!entries.length) {
         box.innerHTML = '<p class="hint" style="margin:1rem 0 0">' + (flow === 'in'
           ? 'Nobody has asked this machine for inference yet.'
           : 'This machine has not consumed another node yet.') + '</p>'
         return
       }
 
-      const tokens = entradas.reduce((a, e) => a + (e.tokens || 0), 0)
+      const tokens = entries.reduce((a, e) => a + (e.tokens || 0), 0)
       box.innerHTML =
-        '<p class="hint" style="margin:.9rem 0 .2rem">' + entradas.length +
-        (entradas.length === 1 ? ' request' : ' requests') + ' \u00b7 ' + tokens + ' tokens</p>' +
+        '<p class="hint" style="margin:.9rem 0 .2rem">' + entries.length +
+        (entries.length === 1 ? ' request' : ' requests') + ' \u00b7 ' + tokens + ' tokens</p>' +
         '<table><thead><tr><th>Time</th><th>' +
         (flow === 'in' ? 'Asked by' : 'Answered by') +
         '</th><th>Model</th><th></th><th>prefill / decode (D25)</th></tr></thead><tbody>' +
-        entradas.map(filaFlujo).join('') + '</tbody></table>' +
-        '<p class="x-nota">D25 registra las dos dimensiones por separado porque no escalan ' +
-        'igual: el prefill procesa el prompt en paralelo y lo limita el computo, el decode ' +
-        'genera token a token y lo limita el ancho de banda de memoria. El precio sigue siendo ' +
-        'plano (D22): esto se registra para poder decidir con datos, no para tarifar hoy.</p>'
+        entries.map(flowRow).join('') + '</tbody></table>' +
+        '<p class="x-nota">D25 records the two dimensions separately because they do not ' +
+        'scale alike: prefill processes the prompt in parallel and is compute-bound, decode ' +
+        'generates token by token and is memory-bandwidth-bound. Pricing stays flat (D22): ' +
+        'this is recorded to be able to decide with data, not to bill on it today.</p>'
     }
 
     document.querySelectorAll('#flow-tabs button').forEach(b => {
@@ -2033,54 +2051,55 @@ ${CONNECT_JS}
         document.querySelectorAll('#flow-tabs button').forEach(x => {
           x.classList.toggle('on', x.dataset.flow === flow)
         })
-        refrescarFlujo()
+        refreshFlow()
       })
     })
 
-    async function refrescarFlujo() {
+    async function refreshFlow() {
       try {
         const r = await authFetch('/v1/routing-log')
         const { log } = await r.json()
-        pintarFlujo(log || [])
-      } catch (e) { /* el poll siguiente reintenta */ }
+        paintFlow(log || [])
+      } catch (e) { /* the next poll retries */ }
     }
 
     // -------------------------------------------------------------------
-    // FASE 9 — el recibo y la atestacion de un request cobrado.
+    // PHASE 9 — the receipt and the attestation of a paid request.
     //
-    // Va con fetch PELADO y no con authFetch, y no es un olvido: la ruta
-    // GET /v1/receipts/:id es la unica del sistema que NO pide credencial, a
-    // proposito. Quien pago por 402 no tiene ninguna -- ese es todo el punto
-    // del 402 --, asi que exigirle una para ver su propio recibo lo dejaria sin
-    // poder auditar justamente lo que pago. Mandarle la key del panel aca
-    // ademas escondería esa propiedad detras de un header que no hace falta.
+    // It uses a BARE fetch and not authFetch, and that is not an oversight: the
+    // GET /v1/receipts/:id route is the only one in the system that does NOT
+    // ask for a credential, on purpose. Whoever paid through a 402 has none --
+    // that is the entire point of the 402 -- so demanding one to see their own
+    // receipt would leave them unable to audit precisely what they paid for.
+    // Sending the panel key here would also hide that property behind a header
+    // that is not needed.
     //
-    // No hay ruta que LISTE recibos y no se inventa una: la Fase 9 esta cerrada
-    // y agregarle superficie la reabre. Se busca por id, que es el que vuelve
-    // con la respuesta.
+    // There is no route that LISTS receipts and none is invented: Phase 9 is
+    // closed and adding surface reopens it. You look one up by id, which is
+    // what comes back with the answer.
     // -------------------------------------------------------------------
-    async function verRecibo() {
+    async function viewReceipt() {
       const box = document.getElementById('recibo-box')
       const id = document.getElementById('recibo-id').value.trim()
       if (!id) {
-        box.innerHTML = '<p class="hint">Falta el id de la completion.</p>'
+        box.innerHTML = '<p class="hint">The completion id is missing.</p>'
         return
       }
-      // Vacio es AUSENTE, no cadena vacia: el hash de "" es un hash valido, y
-      // compararlo contra el declarado diria "NO coincide" cuando lo cierto es
-      // que no hay con que comparar. Son dos estados distintos y la vista los
-      // distingue.
+      // Empty means ABSENT, not empty string: the hash of "" is a valid hash,
+      // and comparing it against the declared one would say "does NOT match"
+      // when the truth is there is nothing to compare against. They are two
+      // different states and the view tells them apart.
       const texto = document.getElementById('recibo-texto').value
       const ctx = texto.length ? { textoRecibido: texto } : {}
 
-      box.innerHTML = '<p class="hint">Buscando…</p>'
+      box.innerHTML = '<p class="hint">Looking it up…</p>'
       try {
         const r = await fetch('/v1/receipts/' + encodeURIComponent(id))
         if (r.status === 404) {
           box.innerHTML =
-            '<div class="x402"><div class="x-aviso tibio">No hay recibo para ese id. ' +
-            'Los recibos viven en memoria del proceso y se guardan los ultimos 200: ' +
-            'no es un ledger, el ledger de verdad es la cadena. Un reinicio los borra.' +
+            '<div class="x402"><div class="x-aviso tibio">There is no receipt for that id. ' +
+            'Receipts live in process memory and only the last 200 are kept: ' +
+            'this is not a ledger, the real ledger is the chain. A restart wipes them.' +
             '</div></div>'
           return
         }
@@ -2097,33 +2116,34 @@ ${CONNECT_JS}
     }
 
     document.getElementById('recibo-ver').addEventListener('click', () => {
-      verRecibo().catch(() => {})
+      viewReceipt().catch(() => {})
     })
     document.getElementById('recibo-id').addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') verRecibo().catch(() => {})
+      if (ev.key === 'Enter') viewReceipt().catch(() => {})
     })
 
     // -------------------------------------------------------------------
-    // Los dos medidores (Fase 6.5 y 6.6). Se piden juntos porque son la misma
-    // pregunta vista de los dos lados, pero vienen de endpoints distintos a
-    // proposito: /v1/quota lo lleva el proveedor y /v1/budget el gateway.
+    // The two meters (Phase 6.5 and 6.6). They are requested together because
+    // they are the same question seen from both sides, but they come from
+    // different endpoints on purpose: /v1/quota is kept by the provider and
+    // /v1/budget by the gateway.
     //
-    // Cada uno falla por su cuenta. Si el nodo no esta sirviendo todavia no
-    // hay cuota que mostrar, y eso no tiene por que borrar el gasto.
+    // Each fails on its own. If the node is not serving yet there is no quota
+    // to show, and that is no reason to wipe out the spending figure.
     // -------------------------------------------------------------------
-    function miles(n) {
+    function thousands(n) {
       return Number(n || 0).toLocaleString('en-US')
     }
 
-    async function refrescarCuota() {
+    async function refreshQuota() {
       try {
         const r = await authFetch('/v1/quota')
         if (!r.ok) return
         const q = await r.json()
 
-        document.getElementById('q-given').textContent = miles(q.given_tokens) + ' tokens'
+        document.getElementById('q-given').textContent = thousands(q.given_tokens) + ' tokens'
         document.getElementById('q-window').textContent =
-          miles(q.quota_tokens) + ' output tokens per peer, per ' + q.window_hours + ' h — ' +
+          thousands(q.quota_tokens) + ' output tokens per peer, per ' + q.window_hours + ' h — ' +
           'a sliding window, so it tops back up on its own'
 
         const box = document.getElementById('q-peers')
@@ -2134,63 +2154,64 @@ ${CONNECT_JS}
         box.innerHTML = q.peers.map((p) => \`
           <div class="econ-row">
             <code>\${esc(p.peer)}</code>
-            <span>\${miles(p.used)} used · \${miles(p.remaining)} left</span>
+            <span>\${thousands(p.used)} used · \${thousands(p.remaining)} left</span>
           </div>
         \`).join('')
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
-    async function refrescarGasto() {
+    async function refreshSpend() {
       try {
         const r = await authFetch('/v1/budget')
         if (!r.ok) return
         const b = await r.json()
 
-        // B13 — hay DOS topes y el que corta puede ser cualquiera de los dos.
-        // Se muestra el MENOR de los dos remanentes, porque ese es el que
-        // manda: con el de la cuenta en USD 20 y el del nodo en USD 2, decir
-        // "te quedan 20" es prometer diecinueve que no existen.
-        const nodo = b.node || {}
-        const nodoManda =
-          nodo.remaining_micros !== undefined && nodo.remaining_micros < b.remaining_micros
-        const restante = nodoManda ? nodo.remaining : b.remaining
-        document.getElementById('b-remaining').textContent = restante + ' left'
+        // B13 — there are TWO caps and either one can be the one that cuts.
+        // The SMALLER of the two remainders is shown, because that is the one
+        // in charge: with the account one at USD 20 and the node one at USD 2,
+        // saying "you have 20 left" promises nineteen that do not exist.
+        const nodeCap = b.node || {}
+        const nodeRules =
+          nodeCap.remaining_micros !== undefined && nodeCap.remaining_micros < b.remaining_micros
+        const remaining = nodeRules ? nodeCap.remaining : b.remaining
+        document.getElementById('b-remaining').textContent = remaining + ' left'
 
-        // El porcentaje se calcula sobre el tope, no sobre lo que queda: con
-        // el tope en cero no hay division por cero ni una barra al 100%.
-        const capMicros = nodoManda ? nodo.cap_micros : b.cap_micros
-        const spentMicros = nodoManda ? nodo.spent_micros : b.spent_micros
-        const usado = capMicros > 0 ? (spentMicros / capMicros) * 100 : 0
-        document.getElementById('b-bar').style.width = Math.min(100, usado).toFixed(1) + '%'
+        // The percentage is computed against the cap, not against what is
+        // left: with the cap at zero there is no division by zero and no bar
+        // sitting at 100%.
+        const capMicros = nodeRules ? nodeCap.cap_micros : b.cap_micros
+        const spentMicros = nodeRules ? nodeCap.spent_micros : b.spent_micros
+        const used = capMicros > 0 ? (spentMicros / capMicros) * 100 : 0
+        document.getElementById('b-bar').style.width = Math.min(100, used).toFixed(1) + '%'
 
         document.getElementById('b-detail').textContent =
-          (nodoManda ? nodo.spent + ' spent of ' + nodo.cap + ' on this machine' : b.spent + ' spent of ' + b.cap + ' by this client') +
+          (nodeRules ? nodeCap.spent + ' spent of ' + nodeCap.cap + ' on this machine' : b.spent + ' spent of ' + b.cap + ' by this client') +
           ' this period (' + b.period + ')' +
           (b.reserved_micros > 0 ? ' · ' + b.reserved + ' committed to requests in flight' : '') +
-          (nodoManda
+          (nodeRules
             ? ' · your client cap is ' + b.cap + ', but the machine total is what cuts first'
-            : nodo.cap
-              ? ' · machine total: ' + nodo.spent + ' of ' + nodo.cap
+            : nodeCap.cap
+              ? ' · machine total: ' + nodeCap.spent + ' of ' + nodeCap.cap
               : '')
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
     // -------------------------------------------------------------------
-    // El asistente externo y su interruptor (Fase 8.5).
+    // The external assistant and its switch (Phase 8.5).
     //
-    // El endpoint para prenderlo existia desde el principio y solo se podia
-    // usar con curl. El caso que lo motivo es "se saturo la red en medio de una
-    // demo", y en ese momento nadie abre una terminal.
+    // The endpoint to turn it on existed from the start and could only be used
+    // with curl. The case that motivated it is "the network saturated in the
+    // middle of a demo", and at that moment nobody opens a terminal.
     //
-    // El boton dice lo que va a PASAR, no el estado en el que esta: "Turn on"
-    // cuando esta apagado. Un boton que dice "On" y ademas esta prendido no se
-    // sabe si es un estado o una accion, y este en particular decide si el
-    // prompt de alguien sale de la maquina.
+    // The button says what WILL HAPPEN, not the state it is in: "Turn on" when
+    // it is off. A button that says "On" and is also lit up leaves you unsure
+    // whether it is a state or an action, and this one in particular decides
+    // whether somebody's prompt leaves the machine.
     // -------------------------------------------------------------------
-    // FASE 7 — la direccion de cobro. Que NO haya wallet es un estado normal y
-    // se dice como tal: un nodo que solo consume no necesita una. Lo que no
-    // puede pasar es que se lea como si algo estuviera roto.
-    async function refrescarWallet() {
+    // PHASE 7 — the payout address. Having NO wallet is a normal state and is
+    // said as such: a node that only consumes does not need one. What must not
+    // happen is that it reads as if something were broken.
+    async function refreshWallet() {
       const estado = document.getElementById('wallet-estado')
       if (!estado) return
       try {
@@ -2198,12 +2219,12 @@ ${CONNECT_JS}
         if (!r.ok) return
         const w = await r.json()
 
-        if (!w.configurada) {
+        if (!w.configured) {
           estado.innerHTML =
             '<p class="hint">This node has no wallet yet, so its manifest announces ' +
             '<code>economic</code> as a marked mock &mdash; it declares no payment address. ' +
             'That is fine for a node that only consumes.</p>' +
-            '<p class="hint">To create one: <code>pyrusllm wallet --crear</code>. It prints ' +
+            '<p class="hint">To create one: <code>pyrusllm wallet --create</code>. It prints ' +
             '24 words <b>once</b> &mdash; write them down. The seed is stored encrypted with ' +
             '<code>PYRUS_WALLET_PASSPHRASE</code>.</p>'
           return
@@ -2221,11 +2242,11 @@ ${CONNECT_JS}
           '<p class="hint">Nothing is charged yet: the manifest says who to pay, paying is ' +
           'still to come. <b>Plasma is not a testnet</b> &mdash; whatever lands here is real.</p>'
       } catch (e) {
-        /* sin gateway el resto de la pagina ya lo dice */
+        /* with no gateway the rest of the page already says so */
       }
     }
 
-    async function refrescarUpstream() {
+    async function refreshUpstream() {
       try {
         const r = await authFetch('/v1/upstream')
         if (!r.ok) return
@@ -2235,9 +2256,9 @@ ${CONNECT_JS}
         const sw = document.getElementById('up-switch')
         const estado = document.getElementById('up-estado')
 
-        // Sin ningun upstream configurado, el interruptor no tiene nada que
-        // prender: se explica como se configura y no se ofrece un boton que no
-        // haria nada.
+        // With no upstream configured the switch has nothing to turn on: the
+        // configuration is explained and no button that would do nothing is
+        // offered.
         if (!u.upstreams.length) {
           sw.style.display = 'none'
           estado.innerHTML = '<p class="hint">No external assistant is configured. ' +
@@ -2247,10 +2268,11 @@ ${CONNECT_JS}
         }
 
         estado.innerHTML = u.upstreams.map(function (m) {
-          // La credencial es lo unico que puede faltar y verse igual que todo
-          // lo demas: el modelo aparece en la lista, con nombre y precio, y no
-          // contesta nunca. Se dice cual variable de entorno falta, no "error".
-          var cred = m.credencial
+          // The credential is the only thing that can be missing while
+          // looking like everything else: the model shows up in the list, with
+          // a name and a price, and never answers. Which environment variable
+          // is missing is named, not "error".
+          var cred = m.credential
             ? '<span class="ok">ready</span>'
             : '<span class="off">no credential &mdash; set ' + esc(m.apiKeyEnv) + '</span>'
           return '<div class="up-fila"><span>' + esc(m.displayName) + ' <code>' +
@@ -2266,40 +2288,40 @@ ${CONNECT_JS}
         boton.textContent = u.optIn ? 'Turn off' : 'Turn on'
         boton.className = u.optIn ? 'danger' : ''
         boton.dataset.next = u.optIn ? 'false' : 'true'
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
     document.getElementById('up-toggle').addEventListener('click', async function (ev) {
       const boton = ev.currentTarget
-      const encender = boton.dataset.next === 'true'
+      const turnOn = boton.dataset.next === 'true'
       boton.disabled = true
       try {
         await authFetch('/v1/upstream/opt-in', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: encender })
+          body: JSON.stringify({ enabled: turnOn })
         })
-      } catch (e) { /* el refresco de abajo muestra el estado que quedo */ }
+      } catch (e) { /* the refresh below shows whatever state it ended in */ }
       boton.disabled = false
-      refrescarUpstream()
+      refreshUpstream()
     })
 
-    function refrescarEconomia() {
-      refrescarCuota()
-      refrescarGasto()
-      refrescarUpstream()
-      refrescarWallet()
+    function refreshEconomics() {
+      refreshQuota()
+      refreshSpend()
+      refreshUpstream()
+      refreshWallet()
     }
 
-    cargarKeys()
-    refrescarFlujo()
-    setInterval(refrescarFlujo, 3000)
+    loadKeys()
+    refreshFlow()
+    setInterval(refreshFlow, 3000)
 
-    // Mas lento que el resto: estos dos numeros se mueven de a un request, no
-    // de a un token. Pollear cada 2,5 s seria pedirle al gateway que recorra
-    // el ledger para decir lo mismo cuatro veces seguidas.
-    refrescarEconomia()
-    setInterval(refrescarEconomia, 8000)
+    // Slower than the rest: these two numbers move one request at a time, not
+    // one token at a time. Polling every 2.5 s would be asking the gateway to
+    // walk the ledger to say the same thing four times in a row.
+    refreshEconomics()
+    setInterval(refreshEconomics, 8000)
 
     refresh().catch(() => {})
     setInterval(() => refresh().catch(() => {}), 2500)
@@ -2310,17 +2332,17 @@ ${CONNECT_JS}
 export const ADMIN_HTML = page(
   'PyrusLLM · Admin',
   `
-  <h1>Panel de administración</h1>
-  <p class="sub">Todos los nodos de la red y el log de ruteo del gateway.</p>
+  <h1>Admin panel</h1>
+  <p class="sub">Every node on the network and the gateway routing log.</p>
 
   <table>
     <thead>
-      <tr><th>Nodo</th><th>Operador</th><th>Tipo</th><th>Estado</th><th>Carga</th><th>Precio</th><th></th></tr>
+      <tr><th>Node</th><th>Operator</th><th>Kind</th><th>Status</th><th>Load</th><th>Price</th><th></th></tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
 
-  <h3 style="margin-top:2rem">Log de ruteo</h3>
+  <h3 style="margin-top:2rem">Routing log</h3>
   <div id="log" class="log"></div>
 
   <script>
@@ -2335,17 +2357,17 @@ ${FUENTE_EMBEBIDA}
           <td>\${esc(n.displayName)}</td>
           <td class="muted">\${esc(n.operator)}</td>
           <td><span class="badge \${esc(n.kind)}">\${esc(n.kind)}</span></td>
-          <td><span class="badge \${esc(n.status)}">\${n.status === 'online' ? 'en línea' : 'fuera de línea'}</span></td>
+          <td><span class="badge \${esc(n.status)}">\${n.status === 'online' ? 'online' : 'offline'}</span></td>
           <td>\${n.loadPct === null ? '—' : esc(n.loadPct + '% (' + n.activeRequests + '/' + n.maxConcurrentRequests + ')')}</td>
           <td>\${esc(n.pricing)}</td>
-          <td><button class="\${n.status === 'online' ? 'danger' : 'ghost'}" data-id="\${esc(n.id)}" data-action="\${n.status === 'online' ? 'kick' : 'restore'}">\${n.status === 'online' ? 'Tirar' : 'Reactivar'}</button></td>
+          <td><button class="\${n.status === 'online' ? 'danger' : 'ghost'}" data-id="\${esc(n.id)}" data-action="\${n.status === 'online' ? 'kick' : 'restore'}">\${n.status === 'online' ? 'Kick' : 'Restore'}</button></td>
         </tr>
       \`).join('')
       document.querySelectorAll('button[data-id]').forEach(btn => {
         btn.addEventListener('click', async () => {
           const id = encodeURIComponent(btn.dataset.id)
           const action = btn.dataset.action
-          btn.disabled = true // el poll repinta la tabla: evita doble click
+          btn.disabled = true // the poll repaints the table: avoids a double click
           if (action === 'kick') {
             await authFetch('/v1/nodes/' + id + '/kick', { method: 'POST' })
           } else {
@@ -2360,40 +2382,41 @@ ${FUENTE_EMBEBIDA}
       })
     }
 
-    // El rastro dejo de ser solo de ruteo: ahora trae model_load y los dos
-    // eventos D7 del swarm, que no tienen modelId ni nodo destino. Pintarlos
-    // con la plantilla vieja mostraba "undefined → undefined (undefinedms)".
+    // The trace stopped being only about routing: it now carries model_load
+    // and the two D7 swarm events, which have neither a modelId nor a target
+    // node. Painting them with the old template showed
+    // "undefined → undefined (undefinedms)".
     const linea = (e) => {
-      const hora = esc(new Date(e.ts).toLocaleTimeString())
-      const detalle = \`<span class="muted">\${esc(e.reason || '')}</span>\`
+      const time = esc(new Date(e.ts).toLocaleTimeString())
+      const detail = \`<span class="muted">\${esc(e.reason || '')}</span>\`
 
       if (e.kind && e.kind !== 'route') {
-        return \`<div>\${hora} — <b>\${esc(e.kind)}</b> \${detalle}</div>\`
+        return \`<div>\${time} — <b>\${esc(e.kind)}</b> \${detail}</div>\`
       }
 
-      // Los tres numeros de la demo. Se muestran solo si existen: un request
-      // que fallo antes del primer token no tiene tok/s, y un "0 tok/s" ahi
-      // seria una medicion inventada.
-      const metricas = []
-      if (e.tokens) metricas.push(esc(e.tokens) + ' tok')
-      if (e.ttftMs !== null && e.ttftMs !== undefined) metricas.push('ttft ' + esc(e.ttftMs) + 'ms')
-      if (e.tokensPerSec) metricas.push(esc(e.tokensPerSec) + ' tok/s')
-      metricas.push(esc(e.ms) + 'ms')
+      // The three numbers of the demo. Shown only if they exist: a request
+      // that failed before the first token has no tok/s, and a "0 tok/s" there
+      // would be an invented measurement.
+      const metrics = []
+      if (e.tokens) metrics.push(esc(e.tokens) + ' tok')
+      if (e.ttftMs !== null && e.ttftMs !== undefined) metrics.push('ttft ' + esc(e.ttftMs) + 'ms')
+      if (e.tokensPerSec) metrics.push(esc(e.tokensPerSec) + ' tok/s')
+      metrics.push(esc(e.ms) + 'ms')
 
-      const destino = e.target ? \` <b>[\${esc(e.target)}]</b>\` : ''
-      const fallo = e.ok === false ? \` <b>FALLO\${e.code ? ' ' + esc(e.code) : ''}</b>\` : ''
+      const target = e.target ? \` <b>[\${esc(e.target)}]</b>\` : ''
+      const failed = e.ok === false ? \` <b>FAILED\${e.code ? ' ' + esc(e.code) : ''}</b>\` : ''
 
-      // FASE 9 / D25 y D27. El split va con su procedencia y no sumado a
-      // "metricas": metido ahi seria un numero mas al lado de los tok/s, y la
-      // diferencia entre un token medido y un chunk de SSE contado se pierde
-      // exactamente en ese renglon.
+      // PHASE 9 / D25 and D27. The split goes with its provenance and not
+      // folded into "metrics": dropped in there it would be one more number
+      // next to the tok/s, and the difference between a measured token and a
+      // counted SSE chunk is lost on exactly that line.
       const conteo = ' ' + htmlDeConteo(vistaDeConteo(e))
       const fin = e.finishReason
         ? \` <span class="muted">\${esc(e.finishReason)} — \${esc(textoDeFinishReason(e.finishReason))}</span>\`
         : ''
 
-      return \`<div>\${hora} — \${esc(e.modelId)}\${destino} → \${esc(e.operator)}\` +
-        \` (\${metricas.join(' · ')})\${conteo}\${fin}\${fallo} \${detalle}</div>\`
+      return \`<div>\${time} — \${esc(e.modelId)}\${target} → \${esc(e.operator)}\` +
+        \` (\${metrics.join(' · ')})\${conteo}\${fin}\${failed} \${detail}</div>\`
     }
 
     async function refreshLog() {
@@ -2401,7 +2424,7 @@ ${FUENTE_EMBEBIDA}
       const { log } = await r.json()
       document.getElementById('log').innerHTML = log.length
         ? log.map(linea).join('')
-        : '<div class="muted">todavía no hay requests ruteados</div>'
+        : '<div class="muted">no requests routed yet</div>'
     }
 
     refreshNodes().catch(() => {})
@@ -2413,14 +2436,15 @@ ${FUENTE_EMBEBIDA}
 )
 
 // ---------------------------------------------------------------------------
-// El chat. Es la pantalla que abre la app: preguntar primero, y la topologia
-// de la red -que nodo, que precio- como algo que se mira despues y no como el
-// paso previo obligatorio a poder escribir un prompt.
+// The chat. It is the screen the app opens on: ask first, with the network
+// topology -which node, which price- as something you look at afterwards and
+// not as the mandatory step before being allowed to type a prompt.
 // ---------------------------------------------------------------------------
 
-// String.raw: adentro viven regex con backslashes y, sin esto, el template
-// literal se los come al evaluar pages.mjs -- /\*\*/ llegaria al browser
-// como /**/. No lleva backticks ni interpolaciones justamente por eso.
+// String.raw: regexes with backslashes live inside and, without this, the
+// template literal eats them when pages.mjs is evaluated -- /\*\*/ would reach
+// the browser as /**/. It carries no backticks and no interpolations for
+// exactly that reason.
 const CHAT_JS = String.raw`
     var msgs = []
     var nodes = []
@@ -2429,20 +2453,20 @@ const CHAT_JS = String.raw`
     var userPicked = false
     var skipped = sessionStorage.getItem('pyrus.skipGate') === '1'
 
-    // Backticks y sentinelas armados en runtime: este script viaja adentro de
-    // un template literal de pages.mjs, y un backtick suelto lo cierra al medio.
+    // Backticks and sentinels built at runtime: this script travels inside a
+    // template literal in pages.mjs, and a stray backtick closes it midway.
     var BT = String.fromCharCode(96)
     var S = String.fromCharCode(1)
     var fenceRe = new RegExp(BT + BT + BT + '(\w*)\n?([\s\S]*?)' + BT + BT + BT, 'g')
     var codeRe = new RegExp(BT + '([^' + BT + '\n]+)' + BT, 'g')
     var slotRe = new RegExp(S + 'C(\d+)' + S, 'g')
 
-    // Markdown minimo, a mano. Sin CDN a proposito: estas paginas viajan como
-    // string adentro del binario standalone -- ver la nota de arriba del
-    // archivo-, y una dependencia externa no viaja con ellas.
+    // Minimal markdown, by hand. No CDN on purpose: these pages travel as a
+    // string inside the standalone binary -- see the note at the top of the
+    // file -- and an external dependency does not travel with them.
     //
-    // Se escapa PRIMERO y se marca despues: al reves, cualquier respuesta del
-    // modelo con un "<script>" adentro seria HTML de verdad en la pagina.
+    // Escaping happens FIRST and marking afterwards: the other way around, any
+    // model answer with a "<script>" inside would be real HTML on the page.
     function md(src) {
       var blocks = []
       var t = esc(src)
@@ -2488,20 +2512,20 @@ const CHAT_JS = String.raw`
       return nodes.filter(function (n) { return n.kind === 'real' })[0] || null
     }
 
-    // "Auto" = el mejor disponible. Nombra el MODELO y deja que el gateway
-    // elija la maquina: desde la fase 8 eso lo decide pickCandidate por carga,
-    // asi que Auto por fin significa algo. Antes se apoyaba en que
-    // findAllByModelId prefiriera al par, que era una preferencia de demo.
+    // "Auto" = the best available. It names the MODEL and lets the gateway
+    // pick the machine: since phase 8 that is decided by pickCandidate based
+    // on load, so Auto finally means something. It used to lean on
+    // findAllByModelId preferring the peer, which was a demo preference.
     function autoModelId() {
       var p = peersOnline()[0]
       var l = localNode()
       return (p && p.modelId) || (l && l.modelId) || 'llama1b'
     }
 
-    // Todos los candidatos que se pueden fijar a mano, uno por MAQUINA y no
-    // por modelo. Antes se deduplicaba por modelId y dos pares sirviendo
-    // llama1b colapsaban en una sola opcion: no habia forma de elegir cual.
-    function fijables() {
+    // Every candidate that can be pinned by hand, one per MACHINE and not per
+    // model. It used to dedupe by modelId and two peers serving llama1b
+    // collapsed into a single option: there was no way to pick which one.
+    function pinnable() {
       return nodes.filter(function (n) {
         return (
           n.status === 'online' &&
@@ -2510,26 +2534,26 @@ const CHAT_JS = String.raw`
       })
     }
 
-    // El nodo que quedo fijado desde /network ("Use this node").
-    function pinGuardado() {
+    // The node pinned from /network ("Use this node").
+    function savedPin() {
       try { return sessionStorage.getItem('pyrus.pin') } catch (e) { return null }
     }
 
-    function guardarPin(id) {
+    function savePin(id) {
       try {
         if (id) sessionStorage.setItem('pyrus.pin', id)
         else sessionStorage.removeItem('pyrus.pin')
-      } catch (e) { /* modo privado: el pin vive solo en el selector */ }
+      } catch (e) { /* private mode: the pin lives only in the selector */ }
     }
 
-    // -------------------------------------------------------------- la puerta
+    // -------------------------------------------------------------- the gate
     window.onAgent = function (a) {
       var gate = document.getElementById('gate')
       var chat = document.getElementById('chat')
-      var mostrarGate = a.status !== 'live' && !skipped
+      var showGate = a.status !== 'live' && !skipped
 
-      gate.style.display = mostrarGate ? 'block' : 'none'
-      chat.style.display = mostrarGate ? 'none' : 'flex'
+      gate.style.display = showGate ? 'block' : 'none'
+      chat.style.display = showGate ? 'none' : 'flex'
 
       var btn = document.getElementById('launch')
       btn.disabled = a.status === 'launching'
@@ -2554,13 +2578,13 @@ const CHAT_JS = String.raw`
       btn.textContent = 'Joining the network...'
       try {
         await fetch('/v1/agent/launch', { method: 'POST' })
-      } catch (e) { /* el poll del chip repinta el estado real */ }
+      } catch (e) { /* the chip poll repaints the real state */ }
       pollAgent()
     })
 
-    // Sigue existiendo una salida: el modelo propio no depende de la red, y un
-    // primer arranque que no deja producir un solo token contra la maquina que
-    // ya tenes adelante es una pared sin nada atras.
+    // A way out still exists: your own model does not depend on the network,
+    // and a first launch that will not let you produce a single token against
+    // the machine already in front of you is a wall with nothing behind it.
     document.getElementById('skip').addEventListener('click', function () {
       skipped = true
       sessionStorage.setItem('pyrus.skipGate', '1')
@@ -2568,41 +2592,41 @@ const CHAT_JS = String.raw`
       document.getElementById('prompt').focus()
     })
 
-    // ------------------------------------------------------------- opciones
-    // El selector tiene TRES modos, que son dos preguntas distintas:
-    // que modelo se quiere y en que maquina. Hasta ahora solo se podia
-    // contestar la primera.
+    // ------------------------------------------------------------- options
+    // The selector has THREE modes, which are two different questions: which
+    // model you want and on which machine. Until now only the first one could
+    // be answered.
     //
-    //   local        -> esta maquina, y nada sale de aca   (local:true)
-    //   auto         -> el mejor disponible, decide el gateway por carga
-    //   node:<id>    -> una maquina concreta                (node:<id>)
+    //   local        -> this machine, and nothing leaves here  (local:true)
+    //   auto         -> the best available, the gateway decides by load
+    //   node:<id>    -> one specific machine                    (node:<id>)
     //
-    // El checkbox "Local only" se absorbio en la primera opcion. Existiendo
-    // los dos por separado se podian contradecir -- elegir el modelo de un par
-    // Y tildar local only daba 404, porque el gateway filtra los pares
-    // despues de elegir.
+    // The "Local only" checkbox was absorbed into the first option. With both
+    // existing separately they could contradict each other -- picking a peer's
+    // model AND ticking local only gave a 404, because the gateway filters the
+    // peers after the choice is made.
     function paintOptions() {
       var sel = document.getElementById('model')
-      var vivo = agentLive()
+      var live = agentLive()
       var loc = localNode()
-      var elegido = sel.value || pinGuardado() && 'node:' + pinGuardado()
+      var chosen = sel.value || savedPin() && 'node:' + savedPin()
 
       var opts = []
       if (loc) {
         opts.push('<option value="local">' + esc(loc.displayName) + ' - this machine only</option>')
       }
-      opts.push('<option value="auto"' + (vivo ? '' : ' disabled') + '>Auto - best available node</option>')
+      opts.push('<option value="auto"' + (live ? '' : ' disabled') + '>Auto - best available node</option>')
 
-      // Una opcion por MAQUINA, con su carga: es lo que hace posible elegir
-      // entre dos pares que sirven el mismo modelo.
-      var lista = fijables()
-      if (lista.length) {
+      // One option per MACHINE, with its load: that is what makes it possible
+      // to choose between two peers serving the same model.
+      var list = pinnable()
+      if (list.length) {
         opts.push('<optgroup label="Specific node">')
-        lista.forEach(function (n) {
-          var carga = typeof n.loadPct === 'number' ? ' - ' + n.loadPct + '% busy' : ''
+        list.forEach(function (n) {
+          var load = typeof n.loadPct === 'number' ? ' - ' + n.loadPct + '% busy' : ''
           opts.push(
             '<option value="node:' + esc(n.id) + '">' +
-            esc(n.operator) + ' - ' + esc(n.displayName) + carga +
+            esc(n.operator) + ' - ' + esc(n.displayName) + load +
             '</option>'
           )
         })
@@ -2610,50 +2634,51 @@ const CHAT_JS = String.raw`
       }
       sel.innerHTML = opts.join('')
 
-      var sigue = false
+      var stillThere = false
       for (var i = 0; i < sel.options.length; i++) {
-        if (sel.options[i].value === elegido && !sel.options[i].disabled) sigue = true
+        if (sel.options[i].value === chosen && !sel.options[i].disabled) stillThere = true
       }
 
-      // Un pin que llego desde /network manda sobre el default, pero solo si
-      // ese nodo sigue estando: si se fue, se cae a Auto y se limpia, en vez
-      // de dejar el selector apuntando a un fantasma.
-      var pin = pinGuardado()
-      if (pin && !sigue) {
-        var vivoPin = false
+      // A pin that arrived from /network wins over the default, but only if
+      // that node is still around: if it left, we fall back to Auto and clear
+      // it, instead of leaving the selector pointing at a ghost.
+      var pin = savedPin()
+      if (pin && !stillThere) {
+        var pinAlive = false
         for (var j = 0; j < sel.options.length; j++) {
-          if (sel.options[j].value === 'node:' + pin) vivoPin = true
+          if (sel.options[j].value === 'node:' + pin) pinAlive = true
         }
-        // Solo se descarta un pin cuando SABEMOS que el nodo no esta: con la
-        // grilla todavia vacia -- el primer pintado ocurre antes de que
-        // conteste /v1/nodes -- ningun pin figura, y borrarlo ahi tiraba
-        // siempre el que acababa de llegar desde /network.
-        if (!vivoPin && lista.length) { guardarPin(null); pin = null }
+        // A pin is only discarded when we KNOW the node is gone: with the grid
+        // still empty -- the first paint happens before /v1/nodes answers --
+        // no pin shows up, and clearing it there always threw away the one
+        // that had just arrived from /network.
+        if (!pinAlive && list.length) { savePin(null); pin = null }
       }
 
-      // Si nadie eligio a mano, Auto gana apenas queda disponible: antes el
-      // nodo se ponia vivo y el selector seguia clavado en el modelo local
-      // porque era la unica opcion valida cuando se pinto la primera vez.
-      if (sigue) sel.value = elegido
+      // If nobody picked by hand, Auto wins as soon as it becomes available:
+      // the node used to come alive while the selector stayed nailed to the
+      // local model, because that was the only valid option the first time it
+      // was painted.
+      if (stillThere) sel.value = chosen
       else if (pin) sel.value = 'node:' + pin
-      else if (!userPicked && vivo) sel.value = 'auto'
-      else sel.value = vivo ? 'auto' : (loc ? 'local' : 'auto')
+      else if (!userPicked && live) sel.value = 'auto'
+      else sel.value = live ? 'auto' : (loc ? 'local' : 'auto')
 
-      var nota = document.getElementById('routing')
-      var pares = peersOnline()
+      var note = document.getElementById('routing')
+      var peers = peersOnline()
       if (sel.value === 'local') {
-        nota.textContent = 'Nothing leaves this machine.'
+        note.textContent = 'Nothing leaves this machine.'
       } else if (sel.value.indexOf('node:') === 0) {
-        nota.textContent = 'Pinned to one machine - no fallback if it is busy.'
-      } else if (!vivo) {
-        nota.textContent = 'Node offline - the network is out of reach.'
+        note.textContent = 'Pinned to one machine - no fallback if it is busy.'
+      } else if (!live) {
+        note.textContent = 'Node offline - the network is out of reach.'
       } else {
-        nota.textContent = pares.length + (pares.length === 1 ? ' node' : ' nodes') + ' reachable'
+        note.textContent = peers.length + (peers.length === 1 ? ' node' : ' nodes') + ' reachable'
       }
     }
 
-    // Traduce el modo del selector a los tres campos del request.
-    function destino() {
+    // Translates the selector mode into the three request fields.
+    function target() {
       var v = document.getElementById('model').value
       if (v === 'local') {
         var l = localNode()
@@ -2667,7 +2692,7 @@ const CHAT_JS = String.raw`
       return { model: autoModelId(), local: false, node: null }
     }
 
-    // --------------------------------------------------------------- el hilo
+    // -------------------------------------------------------------- the thread
     function render() {
       var el = document.getElementById('thread')
       if (!msgs.length) {
@@ -2676,23 +2701,24 @@ const CHAT_JS = String.raw`
         return
       }
       el.innerHTML = msgs.map(function (m) {
-        var quien = m.role === 'user' ? 'You' : 'Assistant'
-        var cuerpo = m.role === 'user' ? '<p>' + esc(m.content).replace(/\n/g, '<br>') + '</p>' : md(m.content)
-        var clase = 'body' + (m.streaming && !m.content ? ' caret' : '')
+        var who = m.role === 'user' ? 'You' : 'Assistant'
+        var body = m.role === 'user' ? '<p>' + esc(m.content).replace(/\n/g, '<br>') + '</p>' : md(m.content)
+        var cls = 'body' + (m.streaming && !m.content ? ' caret' : '')
         return '<div class="msg ' + m.role + '">' +
-          '<div class="who">' + quien + '</div>' +
-          '<div class="' + clase + '">' + cuerpo + '</div>' +
+          '<div class="who">' + who + '</div>' +
+          '<div class="' + cls + '">' + body + '</div>' +
           (m.meta ? prov(m.meta) : '') +
-          // FASE 9 — el desafio y el recibo van PEGADOS al turno que los
-          // produjo. En una pestaña aparte serian dos artefactos sueltos que
-          // hay que correlacionar a mano; aca la evidencia esta al lado de la
-          // respuesta sobre la que habla.
+          // PHASE 9 — the challenge and the receipt go ATTACHED to the turn
+          // that produced them. On a separate tab they would be two loose
+          // artifacts to correlate by hand; here the evidence sits next to the
+          // answer it talks about.
           //
-          // El outputHash se recomputa contra m.content, que es exactamente
-          // el texto que este navegador acumulo delta a delta. Ese es el punto
-          // entero de D24: el hash es del TEXTO y no depende del troceo, asi
-          // que compararlo aca comprueba de verdad que lo atestiguado es lo que
-          // se recibio -- no que dos campos del mismo JSON coincidan.
+          // The outputHash is recomputed against m.content, which is exactly
+          // the text this browser accumulated delta by delta. That is the
+          // entire point of D24: the hash is over the TEXT and does not depend
+          // on the chunking, so comparing it here really does check that what
+          // was attested is what was received -- not that two fields of the
+          // same JSON agree.
           (m.x402 ? htmlDeDesafio(m.x402) : '') +
           (m.recibo
             ? htmlDeRecibo(m.recibo, { textoRecibido: m.content, messages: m.enviado })
@@ -2702,48 +2728,49 @@ const CHAT_JS = String.raw`
       el.scrollTop = el.scrollHeight
     }
 
-    // La linea de procedencia. Es lo que separa a esto de cualquier otro chat:
-    // el nodo que contesto sale nombrado, no supuesto.
+    // The provenance line. It is what sets this apart from any other chat:
+    // the node that answered is named, not assumed.
     function prov(m) {
-      // El que decide es scope (header X-Pyrus-Scope), no el kind: un
-      // upstream puede ser un tercero o un motor propio detras de HTTP, y la
-      // diferencia es justamente la que esta linea existe para declarar.
-      var afuera = m.scope === 'external'
-      var clase = m.kind === 'peer' ? 'peer' : afuera ? 'upstream' : 'local'
-      // "(this machine)" es una afirmacion, no un adorno: colgarsela a una API
-      // de terceros diria que el prompt no salio de aca cuando salio. Y al
-      // reves, ponerle "(external API)" a un llama-server de localhost seria
-      // acusar de una fuga que no hubo.
-      var quien =
+      // What decides is scope (the X-Pyrus-Scope header), not the kind: an
+      // upstream can be a third party or an engine of our own behind HTTP, and
+      // that difference is precisely what this line exists to declare.
+      var outside = m.scope === 'external'
+      var cls = m.kind === 'peer' ? 'peer' : outside ? 'upstream' : 'local'
+      // "(this machine)" is a claim, not an ornament: hanging it on a
+      // third-party API would say the prompt never left here when it did. And
+      // the other way around, putting "(external API)" on a localhost
+      // llama-server would accuse it of a leak that never happened.
+      var who =
         m.kind === 'peer'
           ? m.operator
-          : afuera
+          : outside
             ? m.operator + ' (external API)'
             : m.operator + ' (this machine)'
-      // Cada parte en su propio span: unidas en un solo nodo de texto, el gap
-      // del flex no aplica y se leia "18150ms1 tok/s20.2s".
-      var partes = ['<span class="' + clase + '">' + esc(quien) + '</span>']
-      if (m.ttft !== null) partes.push('<span>first token ' + m.ttft + 'ms</span>')
-      if (m.tps) partes.push('<span>' + m.tps + ' tok/s</span>')
-      partes.push('<span>' + m.secs + 's total</span>')
-      // El costo va SIEMPRE, incluido el cero, y el cero se escribe con
-      // palabras. "USD 0.0000" se lee como "salio muy barato" y no es eso: es
-      // que a nadie se le cobra, porque el pago P2P todavia no existe. Y
-      // "up to" tampoco es un adorno: este numero es el techo con el que se
-      // autorizo el gasto, no lo que termino saliendo.
+      // Each part in its own span: joined into a single text node, the flex
+      // gap does not apply and it read "18150ms1 tok/s20.2s".
+      var parts = ['<span class="' + cls + '">' + esc(who) + '</span>']
+      if (m.ttft !== null) parts.push('<span>first token ' + m.ttft + 'ms</span>')
+      if (m.tps) parts.push('<span>' + m.tps + ' tok/s</span>')
+      parts.push('<span>' + m.secs + 's total</span>')
+      // The cost is ALWAYS there, zero included, and zero is written out in
+      // words. "USD 0.0000" reads as "it came out very cheap" and that is not
+      // it: it is that nobody is charged, because P2P payment does not exist
+      // yet. And "up to" is not an ornament either: this number is the ceiling
+      // the spend was authorised against, not what it ended up costing.
       //
-      // El texto lo arma textoDeCostoEstimado, en panel-x402.mjs, y no una
-      // funcion de aca: es la MISMA regla que aplican las vistas nuevas de la
-      // Fase 9, y con dos implementaciones una de las dos se afloja sola. Los
-      // seis decimales viven ahi por la misma razon de siempre -- con cuatro,
-      // un turno de menos de 50 micros se muestra "USD 0.0000", identico a
-      // gratis, que es justo la distincion que esta linea existe para hacer.
+      // The text is built by textoDeCostoEstimado, in panel-x402.mjs, and not
+      // by a function in here: it is the SAME rule the new Phase 9 views
+      // apply, and with two implementations one of them drifts on its own. The
+      // six decimals live there for the usual reason -- with four, a turn
+      // under 50 micros shows as "USD 0.0000", identical to free, which is
+      // exactly the distinction this line exists to make.
       //
-      // Un turno VIEJO, sin el campo, no dibuja nada: decirle "no charge" seria
-      // afirmar que fue gratis cuando lo unico cierto es que no se registro.
-      if (m.cost === undefined || m.cost === null) { /* turno viejo, sin el dato */ }
-      else partes.push('<span class="cost">' + esc(textoDeCostoEstimado(m.cost).texto) + '</span>')
-      return '<div class="prov">' + partes.join('') + '</div>'
+      // An OLD turn, without the field, draws nothing: calling it "no charge"
+      // would claim it was free when all that is certain is it was not
+      // recorded.
+      if (m.cost === undefined || m.cost === null) { /* old turn, no data */ }
+      else parts.push('<span class="cost">' + esc(textoDeCostoEstimado(m.cost).texto) + '</span>')
+      return '<div class="prov">' + parts.join('') + '</div>'
     }
 
     function toggleButtons() {
@@ -2755,17 +2782,17 @@ const CHAT_JS = String.raw`
     async function send() {
       if (streaming) return
       var ta = document.getElementById('prompt')
-      var texto = ta.value.trim()
-      if (!texto) return
+      var text = ta.value.trim()
+      if (!text) return
 
-      var dest = destino()
+      var dest = target()
 
-      msgs.push({ role: 'user', content: texto })
-      // x402 y recibo arrancan nulos y casi siempre se quedan asi: solo
-      // existen cuando el request paso por el camino de pago. enviado guarda
-      // los mensajes TAL CUAL viajaron, que es contra lo que se recomputa el
-      // promptHash de la atestacion -- el hash es sobre la conversacion entera
-      // canonicalizada, no sobre el ultimo turno.
+      msgs.push({ role: 'user', content: text })
+      // x402 and recibo start out null and almost always stay that way: they
+      // only exist when the request went through the payment path. enviado
+      // keeps the messages EXACTLY as they travelled, which is what the
+      // attestation's promptHash is recomputed against -- the hash is over the
+      // whole canonicalised conversation, not over the last turn.
       var slot = {
         role: 'assistant',
         content: '',
@@ -2788,12 +2815,13 @@ const CHAT_JS = String.raw`
       ctrl = new AbortController()
 
       try {
-        // El historial COMPLETO, menos el slot vacio que se esta llenando. Sin
-        // esto cada turno arrancaba de cero y el modelo no recordaba nada.
-        var historial = msgs.filter(function (m) { return !m.streaming }).map(function (m) {
+        // The COMPLETE history, minus the empty slot being filled. Without
+        // this every turn started from scratch and the model remembered
+        // nothing.
+        var history = msgs.filter(function (m) { return !m.streaming }).map(function (m) {
           return { role: m.role, content: m.content }
         })
-        slot.enviado = historial
+        slot.enviado = history
 
         var resp = await authFetch('/v1/chat/completions', {
           method: 'POST',
@@ -2801,57 +2829,59 @@ const CHAT_JS = String.raw`
           signal: ctrl.signal,
           body: JSON.stringify({
             model: dest.model,
-            messages: historial,
+            messages: history,
             stream: true,
             local: dest.local,
-            // El campo node solo viaja cuando el usuario fijo una maquina: mandarlo
-            // en null en todos los requests ensuciaria el contrato para los
-            // clientes que nunca lo usan.
+            // The node field only travels when the user pinned a machine:
+            // sending it as null on every request would muddy the contract for
+            // the clients that never use it.
             node: dest.node || undefined
           })
         })
 
         if (!resp.ok) {
-          var msj = 'HTTP ' + resp.status
+          var msg = 'HTTP ' + resp.status
           var b = null
           try {
             b = await resp.json()
-            if (b && b.error && b.error.message) msj = b.error.message
-          } catch (e) { /* el cuerpo no era JSON: queda el status */ }
+            if (b && b.error && b.error.message) msg = b.error.message
+          } catch (e) { /* the body was not JSON: the status is what is left */ }
 
-          // FASE 9 — un 402 con accepts[] NO es un error de texto: es el nodo
-          // diciendo cuanto cobra, a quien, en que red y hasta cuantos tokens.
-          // Aplanarlo a "[error] HTTP 402" tiraba los cuatro datos que el DoD
-          // de la fase le exige al desafio.
+          // PHASE 9 — a 402 with accepts[] is NOT a text error: it is the node
+          // saying how much it charges, to whom, on which network and up to
+          // how many tokens. Flattening it to "[error] HTTP 402" threw away
+          // the four facts the phase DoD demands of the challenge.
           //
-          // Se llega aca cuando el request sale SIN credencial valida contra un
-          // nodo con wallet: la key del panel revocada desde /node, o el
-          // bootstrap de /v1/keys/panel que no contesto. Es el mismo 402 que ve
-          // un desconocido con curl, y ahora se lee igual.
+          // We get here when the request goes out WITHOUT a valid credential
+          // against a node that has a wallet: the panel key revoked from
+          // /node, or the /v1/keys/panel bootstrap that never answered. It is
+          // the same 402 a stranger sees with curl, and now it reads the same.
           //
-          // El otro 402 que existe -- presupuesto agotado (B13) -- no trae
-          // accepts y sigue por el camino de texto, que para ese caso es el
-          // correcto: no hay nada que pagar, hay un tope que se toco.
-          var vistaDesafio = vistaDeDesafio(b)
-          if (resp.status === 402 && vistaDesafio.esDesafio) {
-            slot.x402 = vistaDesafio
+          // The other 402 that exists -- budget exhausted (B13) -- carries no
+          // accepts and continues down the text path, which for that case is
+          // the right one: there is nothing to pay, there is a cap that was
+          // hit.
+          var challengeView = vistaDeDesafio(b)
+          if (resp.status === 402 && challengeView.esDesafio) {
+            slot.x402 = challengeView
             slot.content = ''
             return
           }
 
-          slot.content = '[error] ' + msj
+          slot.content = '[error] ' + msg
           return
         }
 
-        // Quien contesto viaja en headers, no en el cuerpo: ver
-        // provenanceHeaders() en gateway.mjs.
-        var operador = decodeURIComponent(resp.headers.get('X-Pyrus-Operator') || '') || 'unknown node'
-        var tipo = resp.headers.get('X-Pyrus-Kind') || 'real'
-        var alcance = resp.headers.get('X-Pyrus-Scope') || 'local'
-        // FASE 8 — lo que este turno puede llegar a costar. Es el TECHO con el
-        // que se autorizo el gasto, no lo que salio: en SSE los headers salen
-        // antes del primer token, asi que el real todavia no existe.
-        var costo = parseInt(resp.headers.get('X-Pyrus-Cost-Estimate-Micros') || '0', 10) || 0
+        // Who answered travels in headers, not in the body: see
+        // provenanceHeaders() in gateway.mjs.
+        var operator = decodeURIComponent(resp.headers.get('X-Pyrus-Operator') || '') || 'unknown node'
+        var kind = resp.headers.get('X-Pyrus-Kind') || 'real'
+        var scope = resp.headers.get('X-Pyrus-Scope') || 'local'
+        // PHASE 8 — what this turn may end up costing. It is the CEILING the
+        // spend was authorised against, not what it cost: in SSE the headers
+        // go out before the first token, so the real figure does not exist
+        // yet.
+        var cost = parseInt(resp.headers.get('X-Pyrus-Cost-Estimate-Micros') || '0', 10) || 0
 
         var reader = resp.body.getReader()
         var dec = new TextDecoder()
@@ -2860,37 +2890,37 @@ const CHAT_JS = String.raw`
           var r = await reader.read()
           if (r.done) break
           buf += dec.decode(r.value, { stream: true })
-          var trozos = buf.split('\n\n')
-          buf = trozos.pop()
-          for (var i = 0; i < trozos.length; i++) {
-            var linea = trozos[i]
-            if (linea.indexOf('data: ') !== 0) continue
-            var carga = linea.slice(6)
-            if (carga === '[DONE]') continue
-            var ev = JSON.parse(carga)
+          var chunks = buf.split('\n\n')
+          buf = chunks.pop()
+          for (var i = 0; i < chunks.length; i++) {
+            var line = chunks[i]
+            if (line.indexOf('data: ') !== 0) continue
+            var payload = line.slice(6)
+            if (payload === '[DONE]') continue
+            var ev = JSON.parse(payload)
             if (ev.error) {
               slot.content += '\n[error] ' + (ev.error.message || ev.error)
               continue
             }
-            // FASE 9 / D12 — el recibo viaja como EVENTO SSE FINAL y no en
-            // X-PAYMENT-RESPONSE, porque con stream los headers ya salieron
-            // antes del primer token. Se reconoce por paymentResponse, que es
-            // la clave que el gateway le cuelga; no es un chunk de completion y
-            // no tiene choices.
+            // PHASE 9 / D12 — the receipt travels as a FINAL SSE EVENT and
+            // not in X-PAYMENT-RESPONSE, because with streaming the headers
+            // already went out before the first token. It is recognised by
+            // paymentResponse, the key the gateway hangs on it; it is not a
+            // completion chunk and it has no choices.
             //
-            // Se guarda entero (recibo + atestacion + el motivo cuando falta) y
-            // se dibuja abajo de la respuesta. receiptUrl queda para poder
-            // volver a mirarlo desde /node despues.
+            // It is stored whole (receipt + attestation + the reason when it
+            // is missing) and drawn below the answer. receiptUrl stays so it
+            // can be looked at again from /node later.
             if (ev.paymentResponse || ev.attestation || ev.attestationMissing) {
               slot.recibo = ev
               continue
             }
             var d = ev.choices && ev.choices[0] && ev.choices[0].delta
-            var pedazo = (d && d.content) || ''
-            if (pedazo) {
+            var piece = (d && d.content) || ''
+            if (piece) {
               if (ttft === null) ttft = Date.now() - t0
               toks++
-              slot.content += pedazo
+              slot.content += piece
               render()
             }
           }
@@ -2898,13 +2928,13 @@ const CHAT_JS = String.raw`
 
         var total = (Date.now() - t0) / 1000
         slot.meta = {
-          operator: operador,
-          kind: tipo,
-          scope: alcance,
+          operator: operator,
+          kind: kind,
+          scope: scope,
           ttft: ttft,
           tps: ttft !== null && total > 0 ? Math.round(toks / total) : 0,
           secs: total.toFixed(1),
-          cost: costo
+          cost: cost
         }
       } catch (err) {
         if (err && err.name === 'AbortError') slot.content += '\n[stopped]'
@@ -2922,7 +2952,7 @@ const CHAT_JS = String.raw`
     function save() {
       try {
         sessionStorage.setItem('pyrus.chat', JSON.stringify(msgs.slice(-40)))
-      } catch (e) { /* sin storage el chat anda igual, solo no sobrevive al reload */ }
+      } catch (e) { /* with no storage the chat still works, it just does not survive a reload */ }
     }
 
     function load() {
@@ -2938,10 +2968,11 @@ const CHAT_JS = String.raw`
     })
     document.getElementById('model').addEventListener('change', function () {
       userPicked = true
-      // Elegir a mano descarta el pin que venia de /network: el selector es la
-      // ultima palabra, si no el chip diria una cosa y el request haria otra.
-      if (this.value.indexOf('node:') !== 0) guardarPin(null)
-      else guardarPin(this.value.slice(5))
+      // Picking by hand discards the pin that came from /network: the
+      // selector has the last word, otherwise the chip would say one thing and
+      // the request would do another.
+      if (this.value.indexOf('node:') !== 0) savePin(null)
+      else savePin(this.value.slice(5))
       paintOptions()
     })
     document.getElementById('new').addEventListener('click', function () {
@@ -2968,48 +2999,48 @@ const CHAT_JS = String.raw`
         var j = await r.json()
         nodes = j.nodes || []
         paintOptions()
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
     // ======================================================================
-    // Paleta de acciones (Ctrl+K) y menu "+" del composer.
+    // Action palette (Ctrl+K) and the composer's "+" menu.
     //
-    // La mitad de estas acciones estan CABLEADAS contra endpoints que ya
-    // existen; la otra mitad es forma sin fondo todavia. Las segundas llevan
-    // una etiqueta MOCK visible, no solo un comentario: un control que parece
-    // funcionar y no hace nada es peor que uno ausente, porque el que lo toca
-    // se queda creyendo que ya lo configuro.
+    // Half of these actions are WIRED to endpoints that already exist; the
+    // other half is shape with nothing behind it yet. The latter carry a
+    // visible MOCK label, not just a comment: a control that looks functional
+    // and does nothing is worse than a missing one, because whoever touches it
+    // walks away believing they already configured it.
     // ======================================================================
 
-    var opciones = { thinking: false, esfuerzo: 2, rapido: false, cambiarSiFlag: false, modo: 'auto' }
+    var options = { thinking: false, effort: 2, fast: false, switchOnFlag: false, mode: 'auto' }
     try {
-      var guardadas = JSON.parse(sessionStorage.getItem('pyrus.opts') || 'null')
-      if (guardadas) opciones = Object.assign(opciones, guardadas)
-    } catch (e) { /* sin sesion, quedan los defaults */ }
+      var saved = JSON.parse(sessionStorage.getItem('pyrus.opts') || 'null')
+      if (saved) options = Object.assign(options, saved)
+    } catch (e) { /* with no session, the defaults stand */ }
 
-    function guardarOpts() {
-      try { sessionStorage.setItem('pyrus.opts', JSON.stringify(opciones)) } catch (e) {}
+    function saveOpts() {
+      try { sessionStorage.setItem('pyrus.opts', JSON.stringify(options)) } catch (e) {}
     }
 
-    var adjuntos = []
+    var attachments = []
 
-    function pintarAdjuntos() {
+    function paintAttachments() {
       var cont = document.getElementById('adjuntos')
-      cont.innerHTML = adjuntos.map(function (a, i) {
-        return '<span class="adjunto">' + esc(a.nombre) +
+      cont.innerHTML = attachments.map(function (a, i) {
+        return '<span class="adjunto">' + esc(a.name) +
           ' <button data-quita="' + i + '" title="Remove">&times;</button></span>'
       }).join('')
       cont.querySelectorAll('[data-quita]').forEach(function (b) {
         b.addEventListener('click', function () {
-          adjuntos.splice(Number(b.dataset.quita), 1)
-          pintarAdjuntos()
+          attachments.splice(Number(b.dataset.quita), 1)
+          paintAttachments()
         })
       })
     }
 
-    function interruptor(on) { return '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>' }
+    function toggleSwitch(on) { return '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>' }
 
-    function escalon(n) {
+    function stepper(n) {
       var out = '<span class="esf">'
       for (var i = 0; i < 5; i++) {
         var cls = i === 4 ? (n >= 4 ? 'pico' : '') : (i <= n ? 'on' : '')
@@ -3020,57 +3051,57 @@ const CHAT_JS = String.raw`
 
     var NIVELES = ['Minimal', 'Low', 'Medium', 'High', 'Max']
 
-    // Cada accion declara si esta cableada. mock:true pinta la etiqueta.
-    function acciones() {
+    // Each action declares whether it is wired. mock:true paints the label.
+    function actions() {
       return [
-        { g: 'Context', t: 'Attach file...', d: 'Sube al drive de este nodo e inserta su nombre', f: adjuntarArchivo },
-        { g: 'Context', t: 'Mention file from this node...', d: 'Lista lo que este nodo publica', f: mencionarArchivo },
+        { g: 'Context', t: 'Attach file...', d: 'Uploads to this node drive and inserts its name', f: attachFile },
+        { g: 'Context', t: 'Mention file from this node...', d: 'Lists what this node publishes', f: mentionFile },
         { g: 'Context', t: 'Clear conversation', f: function () { document.getElementById('new').click() } },
-        { g: 'Context', t: 'Rewind', d: 'Deshace el ultimo intercambio', f: rebobinar, off: msgs.length < 2 },
-        { g: 'Context', t: 'Browse the web', mock: true, d: 'No hay herramienta de web todavia' },
+        { g: 'Context', t: 'Rewind', d: 'Undoes the last exchange', f: rewind, off: msgs.length < 2 },
+        { g: 'Context', t: 'Browse the web', mock: true, d: 'There is no web tool yet' },
 
-        { g: 'Model', t: 'Switch model...', v: etiquetaModelo(), f: function () {
+        { g: 'Model', t: 'Switch model...', v: modelLabel(), f: function () {
           cerrarPal()
           var sel = document.getElementById('model')
           sel.focus()
           if (sel.showPicker) { try { sel.showPicker() } catch (e) {} }
         } },
-        { g: 'Model', t: 'Effort', v: NIVELES[opciones.esfuerzo], extra: escalon(opciones.esfuerzo), mock: true,
-          f: function () { opciones.esfuerzo = (opciones.esfuerzo + 1) % 5; guardarOpts(); repintarPal() } },
-        { g: 'Model', t: 'Thinking', extra: interruptor(opciones.thinking), mock: true,
-          d: 'Medido: prenderlo en nemotron-3.5 cuesta 100x tokens. El toggle todavia no viaja al upstream',
-          f: function () { opciones.thinking = !opciones.thinking; guardarOpts(); repintarPal() } },
-        { g: 'Model', t: 'Switch models when a message is flagged', extra: interruptor(opciones.cambiarSiFlag), mock: true,
-          f: function () { opciones.cambiarSiFlag = !opciones.cambiarSiFlag; guardarOpts(); repintarPal() } },
-        { g: 'Model', t: 'Toggle fast mode', extra: interruptor(opciones.rapido), mock: true,
-          f: function () { opciones.rapido = !opciones.rapido; guardarOpts(); repintarPal() } },
-        { g: 'Model', t: 'Account & usage...', d: 'Gasto y cuota reales de este nodo', f: verCuenta },
+        { g: 'Model', t: 'Effort', v: NIVELES[options.effort], extra: stepper(options.effort), mock: true,
+          f: function () { options.effort = (options.effort + 1) % 5; saveOpts(); repintarPal() } },
+        { g: 'Model', t: 'Thinking', extra: toggleSwitch(options.thinking), mock: true,
+          d: 'Measured: turning it on for nemotron-3.5 costs 100x the tokens. The toggle does not reach the upstream yet',
+          f: function () { options.thinking = !options.thinking; saveOpts(); repintarPal() } },
+        { g: 'Model', t: 'Switch models when a message is flagged', extra: toggleSwitch(options.switchOnFlag), mock: true,
+          f: function () { options.switchOnFlag = !options.switchOnFlag; saveOpts(); repintarPal() } },
+        { g: 'Model', t: 'Toggle fast mode', extra: toggleSwitch(options.fast), mock: true,
+          f: function () { options.fast = !options.fast; saveOpts(); repintarPal() } },
+        { g: 'Model', t: 'Account & usage...', d: 'Real spending and quota for this node', f: viewAccount },
 
-        { g: 'Modes', t: 'Manual', d: 'Pide aprobacion antes de cada accion', mock: true,
-          v: opciones.modo === 'manual' ? 'activo' : '',
-          f: function () { opciones.modo = 'manual'; guardarOpts(); repintarPal() } },
-        { g: 'Modes', t: 'Plan', d: 'Explora y propone antes de tocar nada', mock: true,
-          v: opciones.modo === 'plan' ? 'activo' : '',
-          f: function () { opciones.modo = 'plan'; guardarOpts(); repintarPal() } },
-        { g: 'Modes', t: 'Auto', d: 'Aprueba lo seguro y frena en lo riesgoso', mock: true,
-          v: opciones.modo === 'auto' ? 'activo' : '',
-          f: function () { opciones.modo = 'auto'; guardarOpts(); repintarPal() } }
+        { g: 'Modes', t: 'Manual', d: 'Asks for approval before every action', mock: true,
+          v: options.mode === 'manual' ? 'active' : '',
+          f: function () { options.mode = 'manual'; saveOpts(); repintarPal() } },
+        { g: 'Modes', t: 'Plan', d: 'Explores and proposes before touching anything', mock: true,
+          v: options.mode === 'plan' ? 'active' : '',
+          f: function () { options.mode = 'plan'; saveOpts(); repintarPal() } },
+        { g: 'Modes', t: 'Auto', d: 'Approves what is safe and stops at what is risky', mock: true,
+          v: options.mode === 'auto' ? 'active' : '',
+          f: function () { options.mode = 'auto'; saveOpts(); repintarPal() } }
       ]
     }
 
-    function etiquetaModelo() {
+    function modelLabel() {
       var sel = document.getElementById('model')
       if (!sel || sel.selectedIndex < 0) return ''
       var t = sel.options[sel.selectedIndex].textContent
       return t.length > 34 ? t.slice(0, 33) + '…' : t
     }
 
-    // ---------------------------------------------------- acciones reales
+    // ---------------------------------------------------- real actions
 
-    function rebobinar() {
-      // Se saca el ultimo par usuario/asistente. Es local y exacto: el
-      // historial COMPLETO se manda en cada request, asi que deshacerlo aca
-      // deshace de verdad lo que el modelo va a ver en el turno siguiente.
+    function rewind() {
+      // The last user/assistant pair is dropped. It is local and exact: the
+      // COMPLETE history is sent on every request, so undoing it here really
+      // undoes what the model will see on the next turn.
       cerrarPal()
       while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
       if (msgs.length) msgs.pop()
@@ -3078,9 +3109,9 @@ const CHAT_JS = String.raw`
       render()
     }
 
-    async function verCuenta() {
+    async function viewAccount() {
       cerrarPal()
-      abrirModal('Account & usage', '<p class="hint">Cargando...</p>')
+      openModal('Account & usage', '<p class="hint">Loading...</p>')
       try {
         var res = await Promise.all([
           authFetch('/v1/budget').then(function (x) { return x.json() }),
@@ -3088,35 +3119,35 @@ const CHAT_JS = String.raw`
         ])
         var b = res[0]
         var q = res[1]
-        abrirModal('Account & usage',
-          '<p class="sub">Numeros reales de este nodo, no un ejemplo.</p>' +
-          '<h4 style="margin:.6rem 0 .3rem">Gasto en APIs externas (' + esc(b.period || '') + ')</h4>' +
-          '<p>Gastado <b>' + esc(b.spent || '-') + '</b> de un tope de <b>' + esc(b.cap || '-') +
-          '</b> &middot; queda ' + esc(b.remaining || '-') + '</p>' +
-          '<h4 style="margin:.9rem 0 .3rem">Cuota que este nodo REGALA a sus pares</h4>' +
-          '<p><b>' + esc(String(q.given_tokens != null ? q.given_tokens : 0)) + '</b> tokens entregados &middot; ' +
-          esc(String(q.quota_tokens || 0)) + ' por par cada ' + esc(String(q.window_hours || 0)) + ' h &middot; ' +
-          esc(String((q.peers || []).length)) + ' par(es) consumiendo</p>')
+        openModal('Account & usage',
+          '<p class="sub">Real numbers from this node, not an example.</p>' +
+          '<h4 style="margin:.6rem 0 .3rem">Spending on external APIs (' + esc(b.period || '') + ')</h4>' +
+          '<p>Spent <b>' + esc(b.spent || '-') + '</b> of a cap of <b>' + esc(b.cap || '-') +
+          '</b> &middot; ' + esc(b.remaining || '-') + ' left</p>' +
+          '<h4 style="margin:.9rem 0 .3rem">Quota this node GIVES AWAY to its peers</h4>' +
+          '<p><b>' + esc(String(q.given_tokens != null ? q.given_tokens : 0)) + '</b> tokens given &middot; ' +
+          esc(String(q.quota_tokens || 0)) + ' per peer every ' + esc(String(q.window_hours || 0)) + ' h &middot; ' +
+          esc(String((q.peers || []).length)) + ' peer(s) consuming</p>')
       } catch (e) {
-        abrirModal('Account & usage', '<p class="hint">No se pudo leer: ' + esc(e.message) + '</p>')
+        openModal('Account & usage', '<p class="hint">Could not read it: ' + esc(e.message) + '</p>')
       }
     }
 
-    async function mencionarArchivo() {
+    async function mentionFile() {
       cerrarPal()
-      abrirModal('Mention a file', '<p class="hint">Leyendo el drive de este nodo...</p>')
+      openModal('Mention a file', '<p class="hint">Reading this node drive...</p>')
       try {
         var res = await authFetch('/v1/files')
         var j = await res.json()
         var fs = j.files || []
         if (!fs.length) {
-          abrirModal('Mention a file', '<p class="hint">Este nodo no publica ningun archivo todavia. ' +
-            'Subi uno con "Attach file" o desde <a href="/node">my node</a>.</p>')
+          openModal('Mention a file', '<p class="hint">This node does not publish any file yet. ' +
+            'Upload one with "Attach file" or from <a href="/node">my node</a>.</p>')
           return
         }
-        abrirModal('Mention a file', '<div class="pal-lista">' + fs.map(function (f) {
-          var nombre = f.name || f.path || ''
-          return '<button class="pal-item" data-men="' + esc(nombre) + '">' + esc(nombre) +
+        openModal('Mention a file', '<div class="pal-lista">' + fs.map(function (f) {
+          var name = f.name || f.path || ''
+          return '<button class="pal-item" data-men="' + esc(name) + '">' + esc(name) +
             '<span class="der"><span class="val">' + esc(String(f.size != null ? f.size : '')) +
             '</span></span></button>'
         }).join('') + '</div>')
@@ -3129,41 +3160,41 @@ const CHAT_JS = String.raw`
           })
         })
       } catch (e) {
-        abrirModal('Mention a file', '<p class="hint">No se pudo listar: ' + esc(e.message) + '</p>')
+        openModal('Mention a file', '<p class="hint">Could not list it: ' + esc(e.message) + '</p>')
       }
     }
 
-    function adjuntarArchivo() {
+    function attachFile() {
       cerrarPal()
       var inp = document.createElement('input')
       inp.type = 'file'
       inp.addEventListener('change', async function () {
         var f = inp.files && inp.files[0]
         if (!f) return
-        adjuntos.push({ nombre: f.name + ' (subiendo...)' })
-        pintarAdjuntos()
-        var i = adjuntos.length - 1
+        attachments.push({ name: f.name + ' (uploading...)' })
+        paintAttachments()
+        var i = attachments.length - 1
         try {
-          // Sube DE VERDAD al Hyperdrive de este nodo. Lo que no existe es un
-          // modelo que lea el archivo: por eso se inserta el nombre en el
-          // prompt y no se manda el binario al chat.
+          // It REALLY uploads to this node's Hyperdrive. What does not exist
+          // is a model that reads the file: hence the name is inserted into
+          // the prompt and the binary is not sent to the chat.
           var res = await authFetch('/v1/files/upload?name=' + encodeURIComponent(f.name), {
             method: 'POST',
             body: f
           })
           if (!res.ok) throw new Error('HTTP ' + res.status)
-          adjuntos[i] = { nombre: f.name }
+          attachments[i] = { name: f.name }
           var ta = document.getElementById('prompt')
           ta.value = (ta.value ? ta.value + ' ' : '') + '@' + f.name
         } catch (e) {
-          adjuntos[i] = { nombre: f.name + ' (fallo)' }
+          attachments[i] = { name: f.name + ' (failed)' }
         }
-        pintarAdjuntos()
+        paintAttachments()
       })
       inp.click()
     }
 
-    // ------------------------------------------------------------ la paleta
+    // ------------------------------------------------------------ the palette
 
     var palAbierta = false
     var palFiltro = ''
@@ -3171,7 +3202,7 @@ const CHAT_JS = String.raw`
 
     function visibles() {
       var q = palFiltro.toLowerCase()
-      return acciones().filter(function (a) {
+      return actions().filter(function (a) {
         return !q || (a.t + ' ' + (a.d || '') + ' ' + a.g).toLowerCase().indexOf(q) !== -1
       })
     }
@@ -3193,7 +3224,7 @@ const CHAT_JS = String.raw`
           (a.mock ? '<span class="mock">mock</span>' : '') +
           (a.extra || '') + '</span></button>'
       })
-      if (!html) html = '<div class="pal-vacio">Nada coincide con ese filtro.</div>'
+      if (!html) html = '<div class="pal-vacio">Nothing matches that filter.</div>'
 
       document.getElementById('pal-lista').innerHTML = html
       document.querySelectorAll('#pal-lista .pal-item').forEach(function (b) {
@@ -3212,8 +3243,8 @@ const CHAT_JS = String.raw`
         '<div class="pal-overlay" id="pal-ov"><div class="pal">' +
         '<input class="filtro" id="pal-filtro" placeholder="Filter actions..." autocomplete="off">' +
         '<div class="pal-lista" id="pal-lista"></div>' +
-        '<div class="pal-pie">Enter para ejecutar &middot; Esc para cerrar &middot; ' +
-        'lo marcado <b>mock</b> todavia no hace nada</div></div></div>'
+        '<div class="pal-pie">Enter to run &middot; Esc to close &middot; ' +
+        'anything marked <b>mock</b> does nothing yet</div></div></div>'
       repintarPal()
       var inp = document.getElementById('pal-filtro')
       inp.focus()
@@ -3261,13 +3292,13 @@ const CHAT_JS = String.raw`
       }
     })
 
-    // --------------------------------------------------------- el menu "+"
+    // --------------------------------------------------------- the "+" menu
 
     document.getElementById('mas').addEventListener('click', function (ev) {
       ev.stopPropagation()
-      var ya = document.getElementById('mas-menu')
-      if (ya) { ya.remove(); return }
-      var fila = document.getElementById('mas').parentNode
+      var already = document.getElementById('mas-menu')
+      if (already) { already.remove(); return }
+      var row = document.getElementById('mas').parentNode
       var m = document.createElement('div')
       m.className = 'mas-menu'
       m.id = 'mas-menu'
@@ -3276,12 +3307,12 @@ const CHAT_JS = String.raw`
         '<button class="pal-item" data-m="ctx">Add context</button>' +
         '<button class="pal-item" data-m="web">Browse the web<span class="der">' +
         '<span class="mock">mock</span></span></button>'
-      fila.appendChild(m)
+      row.appendChild(m)
       m.querySelectorAll('[data-m]').forEach(function (b) {
         b.addEventListener('click', function () {
           m.remove()
-          if (b.dataset.m === 'subir') adjuntarArchivo()
-          if (b.dataset.m === 'ctx') mencionarArchivo()
+          if (b.dataset.m === 'subir') attachFile()
+          if (b.dataset.m === 'ctx') mentionFile()
         })
       })
       document.addEventListener('click', function cerrar() {
@@ -3343,18 +3374,19 @@ ${CHAT_JS}
 )
 
 // -----------------------------------------------------------------------------
-// Panel /wallet (Fase 11) — la wallet de COBRO de este nodo, SOLO LECTURA.
+// /wallet panel (Phase 11) — this node's PAYOUT wallet, READ ONLY.
 //
-// El dibujo entero lo deciden las funciones puras de `qvac/panel-wallet.mjs`,
-// pegadas aca por `FUENTE_EMBEBIDA_WALLET` igual que panel-x402: probarlas en
-// la suite es probarlas aca. Este archivo solo aporta el poll y el cableado de
-// clicks. Enviar y hacer swap NO estan: los botones se ven deshabilitados.
+// The entire drawing is decided by the pure functions in
+// `qvac/panel-wallet.mjs`, pasted here by `FUENTE_EMBEBIDA_WALLET` just like
+// panel-x402: testing them in the suite is testing them here. This file only
+// contributes the poll and the click wiring. Send and swap are NOT here: the
+// buttons are drawn disabled.
 // -----------------------------------------------------------------------------
 export const WALLET_HTML = page(
   'PyrusLLM · Wallet',
   `
   <h1>Wallet</h1>
-  <p class="sub">La wallet de cobro de este nodo: dirección, saldo, movimientos y en qué red. Se puede crear, importar, recibir y enviar desde acá; la red y los tokens que se vigilan se configuran con el ☰. La firma la hace el nodo, no el navegador: la seed nunca sale del proceso que la abre. La dirección es la misma que viaja firmada en el manifiesto.</p>
+  <p class="sub">This node's payout wallet: address, balance, movements and which network it is on. You can create, import, receive and send from here; the network and the tokens being watched are configured with the ☰. The node signs, not the browser: the seed never leaves the process that opens it. The address is the same one that travels signed inside the manifest.</p>
   <div id="wallet-root" class="w-root"><div class="skel"><div style="width:55%"></div><div style="width:80%"></div><div style="width:35%"></div></div></div>
 
   <script>
@@ -3366,34 +3398,34 @@ ${MODAL_JS}
     let filtroWallet = ''
     let tabWallet = 'assets'
 
-    // FASE 12 — el historial. Queda en null hasta que se entra al tab: leerlo en cada
-    // poll seria pegarle al explorer cada 15 s por una pantalla que quiza nadie
-    // esta mirando.
+    // PHASE 12 — the history. Stays null until the tab is entered: reading it
+    // on every poll would mean hitting the explorer every 15 s for a screen
+    // nobody may be looking at.
     let vistaHist = null
 
-    // Maquina de estados del onboarding. 'seed' es la pantalla de las 24
-    // palabras: una vez ahi, el poll NO puede repintar hasta que se confirme.
+    // Onboarding state machine. 'seed' is the 24-word screen: once there, the
+    // poll must NOT repaint until it is confirmed.
     let onbEstado = 'idle'   // 'idle' | 'seed'
     let onbSeed = null        // { frase, address }
     let onbOcupado = false
 
-    // FASE 12 — Settings abierto. Mismo criterio que 'seed': mientras esta
-    // arriba, el poll de 15 s NO repinta. Un formulario a medio llenar (una
-    // address de token de 42 caracteres pegada a mano) no se puede pisar solo.
+    // PHASE 12 — Settings open. Same criterion as 'seed': while it is up, the
+    // 15 s poll does NOT repaint. A half-filled form (a 42-character token
+    // address pasted by hand) cannot be overwritten on its own.
     let settingsAbierto = false
 
-    // FASE 12 — la maquina de estados de enviar. Mismo criterio de nuevo: con
-    // algo distinto de 'idle' arriba, el poll NO repinta. Que un refresco de
-    // saldos borre una direccion de destino a medio pegar, o peor, tape la
-    // pantalla que dice el hash de una transaccion recien mandada, no puede pasar.
+    // PHASE 12 — the send state machine. Same criterion again: with anything
+    // other than 'idle' up, the poll does NOT repaint. A balance refresh
+    // wiping a half-pasted destination address, or worse, covering the screen
+    // showing the hash of a just-sent transaction, cannot be allowed.
     let envioEstado = 'idle'   // 'idle' | 'form' | 'revision' | 'enviando' | 'resultado'
     let envioDatos = null      // { destino, monto, asset, simbolo, red, mainnet, ... }
-    let envioGas = null        // lo que contesto /v1/wallet/send/quote
+    let envioGas = null        // whatever /v1/wallet/send/quote answered
     let envioResultado = null  // { estado, hash, explorer, ... }
 
-    // Leer y dibujar estan separados porque Settings necesita releer SIN
-    // repintar la tarjeta de atras: despues de agregar un token lo que se
-    // refresca es el overlay, no la billetera que esta tapada.
+    // Reading and drawing are separate because Settings needs to re-read
+    // WITHOUT repainting the card behind it: after adding a token what gets
+    // refreshed is the overlay, not the wallet that is covered.
     async function cargarVistaWallet () {
       try {
         const r = await authFetch('/v1/wallet/balances')
@@ -3401,7 +3433,7 @@ ${MODAL_JS}
         vistaWallet = vistaDeSaldos(await r.json())
       } catch (e) {
         vistaWallet = vistaDeSaldos({
-          error: 'no se pudo leer /v1/wallet/balances: ' + ((e && e.message) || e)
+          error: 'could not read /v1/wallet/balances: ' + ((e && e.message) || e)
         })
       }
     }
@@ -3411,9 +3443,9 @@ ${MODAL_JS}
       pintarWallet()
     }
 
-    // En cada poll (15 s) se repinta la tarjeta entera, SALVO que estemos en la
-    // pantalla de la frase (no se pisa), o que el foco este en el buscador (ahi
-    // se toca solo #w-filas para no comerse lo tipeado).
+    // On every poll (15 s) the whole card is repainted, UNLESS we are on the
+    // seed-phrase screen (never overwritten), or the focus is in the search box
+    // (there only #w-filas is touched so what was typed is not eaten).
     function pintarWallet () {
       if (onbEstado === 'seed') return
       if (settingsAbierto) return
@@ -3428,20 +3460,20 @@ ${MODAL_JS}
       cablearWallet()
     }
 
-    // FASE 12 — los movimientos. Se pide al entrar al tab y en el poll SOLO si
-    // el tab sigue abierto: el explorer es un tercero y no hay por que pegarle
-    // cada 15 s desde una pantalla que nadie tiene arriba.
+    // PHASE 12 — the movements. Requested when entering the tab and on the
+    // poll ONLY if the tab is still open: the explorer is a third party and
+    // there is no reason to hit it every 15 s from a screen nobody has up.
     async function cargarHistorial () {
       try {
         const r = await authFetch('/v1/wallet/history')
         if (!r.ok) throw new Error('HTTP ' + r.status)
         vistaHist = vistaDeHistorial(await r.json())
       } catch (e) {
-        // Un fetch que falla NO es "no hubo movimientos": se arma la vista con
-        // el motivo, que es lo que htmlDeHistorial dibuja como "—".
+        // A failing fetch is NOT "there were no movements": the view is built
+        // with the reason, which is what htmlDeHistorial draws as "—".
         vistaHist = vistaDeHistorial({
           ok: false,
-          error: 'no se pudo leer /v1/wallet/history: ' + ((e && e.message) || e)
+          error: 'could not read /v1/wallet/history: ' + ((e && e.message) || e)
         })
       }
       if (tabWallet === 'history') pintarWallet()
@@ -3454,19 +3486,21 @@ ${MODAL_JS}
       const listo = document.getElementById('w-seed-listo')
       chk.addEventListener('change', () => { listo.disabled = !chk.checked })
       listo.addEventListener('click', () => {
-        // La frase se suelta de memoria y se vuelve a la billetera normal.
+        // The phrase is released from memory and we go back to the normal
+        // wallet.
         onbSeed = null
         onbEstado = 'idle'
         cargarWallet()
       })
       document.querySelectorAll('.w-card [data-copy]').forEach(b => {
-        b.addEventListener('click', () => copiar(b.dataset.copy, b))
+        b.addEventListener('click', () => copyText(b.dataset.copy, b))
       })
     }
 
     // ---------------------------------------------------------------------
-    // FASE 12 — enviar. La pantalla TAPA la tarjeta (como la de la frase) y el
-    // poll no la repinta. La firma la hace el nodo: de acá salen tres strings.
+    // PHASE 12 — send. The screen COVERS the card (like the seed one) and the
+    // poll does not repaint it. The node does the signing: three strings leave
+    // from here.
     // ---------------------------------------------------------------------
     function msgEnvio (texto, malo) {
       const el = document.getElementById('w-env-msg')
@@ -3475,14 +3509,14 @@ ${MODAL_JS}
     }
 
     function pintarEnvio () {
-      const raiz = document.getElementById('wallet-root')
+      const root = document.getElementById('wallet-root')
       if (envioEstado === 'form') {
-        raiz.innerHTML = '<div class="w-card">' + htmlDeEnvio(vistaWallet) + '</div>'
+        root.innerHTML = '<div class="w-card">' + htmlDeEnvio(vistaWallet) + '</div>'
       } else if (envioEstado === 'revision' || envioEstado === 'enviando') {
-        raiz.innerHTML = '<div class="w-card">' +
+        root.innerHTML = '<div class="w-card">' +
           htmlDeRevisionEnvio(vistaWallet, envioDatos, envioGas) + '</div>'
       } else {
-        raiz.innerHTML = '<div class="w-card">' + htmlDeEstadoEnvio(envioResultado) + '</div>'
+        root.innerHTML = '<div class="w-card">' + htmlDeEstadoEnvio(envioResultado) + '</div>'
       }
       cablearEnvio()
     }
@@ -3493,8 +3527,8 @@ ${MODAL_JS}
       envioGas = null
       envioResultado = null
       cargarWallet()
-      // Lo que se acaba de mandar tiene que aparecer en el historial la proxima
-      // vez que se abra: se tira el cache para no mostrarlo desactualizado.
+      // Whatever was just sent has to show up in the history the next time it
+      // is opened: the cache is dropped so it is not shown stale.
       vistaHist = null
     }
 
@@ -3504,10 +3538,10 @@ ${MODAL_JS}
       const monto = ((document.getElementById('w-env-monto') || {}).value || '').trim()
 
       if (!envioParecePlausible({ destino, monto, asset })) {
-        msgEnvio('revisá el destino (0x + 40 hex) y el monto (un decimal mayor que cero)', true)
+        msgEnvio('check the destination (0x + 40 hex) and the amount (a decimal greater than zero)', true)
         return
       }
-      msgEnvio('estimando el gas…', false)
+      msgEnvio('estimating gas…', false)
       try {
         const r = await authFetch('/v1/wallet/send/quote', {
           method: 'POST',
@@ -3521,36 +3555,36 @@ ${MODAL_JS}
         envioEstado = 'revision'
         pintarEnvio()
       } catch (e) {
-        msgEnvio('no se pudo estimar: ' + ((e && e.message) || e), true)
+        msgEnvio('could not estimate: ' + ((e && e.message) || e), true)
       }
     }
 
     async function confirmarEnvio () {
       if (envioEstado === 'enviando') return
-      // Los tres campos salen de lo que devolvio la COTIZACION, no de leer los
-      // inputs de nuevo: son los mismos sobre los que se estimo el gas y los
-      // mismos que la persona acaba de revisar en pantalla. Releer el formulario
-      // acá abriria la puerta a revisar una cosa y mandar otra.
+      // The three fields come from what the QUOTE returned, not from reading
+      // the inputs again: they are the same ones gas was estimated on and the
+      // same ones the person just reviewed on screen. Re-reading the form here
+      // would open the door to reviewing one thing and sending another.
       const cuerpo = {
         destino: envioDatos.destino,
         monto: envioDatos.monto,
         asset: envioDatos.asset || 'native'
       }
 
-      // MAINNET pide escribirlo, igual que el selector de red — y acá pesa mas,
-      // porque esto no se deshace reiniciando.
+      // MAINNET asks you to type it, same as the network selector — and here
+      // it weighs more, because this is not undone by restarting.
       if (envioDatos.mainnet) {
-        const c = prompt('MAINNET mueve plata real y esto no se puede deshacer.\\n\\n' +
-          envioDatos.monto + ' ' + (envioDatos.simbolo || '') + ' a ' + envioDatos.destino +
-          '\\n\\nEscribí MAINNET para confirmar:')
-        if (c !== 'MAINNET') { msgEnvio('cancelado', true); return }
+        const c = prompt('MAINNET moves real money and this cannot be undone.\\n\\n' +
+          envioDatos.monto + ' ' + (envioDatos.simbolo || '') + ' to ' + envioDatos.destino +
+          '\\n\\nType MAINNET to confirm:')
+        if (c !== 'MAINNET') { msgEnvio('cancelled', true); return }
         cuerpo.confirmar = 'MAINNET'
       }
 
       envioEstado = 'enviando'
       const boton = document.getElementById('w-env-confirmar')
       if (boton) boton.disabled = true
-      msgEnvio('firmando y difundiendo…', false)
+      msgEnvio('signing and broadcasting…', false)
       try {
         const r = await authFetch('/v1/wallet/send', {
           method: 'POST',
@@ -3573,7 +3607,7 @@ ${MODAL_JS}
       } catch (e) {
         envioResultado = {
           estado: 'fallida',
-          error: 'no se pudo enviar: ' + ((e && e.message) || e),
+          error: 'could not send: ' + ((e && e.message) || e),
           destino: envioDatos.destino,
           monto: envioDatos.monto,
           simbolo: envioDatos.simbolo
@@ -3597,11 +3631,12 @@ ${MODAL_JS}
     }
 
     // ---------------------------------------------------------------------
-    // FASE 12 — Settings, detras del ☰.
+    // PHASE 12 — Settings, behind the ☰.
     //
-    // Se dibuja en un contenedor APARTE de #wallet-root, no adentro: asi
-    // cerrarlo no obliga a repintar la tarjeta entera, y un poll que llegue
-    // mientras esta abierto (no puede: pintarWallet corta) no lo arrastraria.
+    // It is drawn in a container SEPARATE from #wallet-root, not inside it:
+    // that way closing it does not force repainting the whole card, and a poll
+    // arriving while it is open (it cannot: pintarWallet bails) would not drag
+    // it along.
     // ---------------------------------------------------------------------
     function contenedorSettings () {
       let el = document.getElementById('w-set-host')
@@ -3617,8 +3652,9 @@ ${MODAL_JS}
       settingsAbierto = false
       contenedorSettings().innerHTML = ''
       document.removeEventListener('keydown', onEscSettings)
-      // Al volver se recarga: puede haberse agregado o quitado un token, y la
-      // lista de activos tiene que reflejarlo sin esperar al proximo poll.
+      // On the way back it reloads: a token may have been added or removed,
+      // and the asset list has to reflect that without waiting for the next
+      // poll.
       cargarWallet()
     }
 
@@ -3627,9 +3663,10 @@ ${MODAL_JS}
     function pintarSettings () {
       contenedorSettings().innerHTML = htmlDeSettings(vistaWallet)
       document.getElementById('w-set-cerrar').addEventListener('click', cerrarSettings)
-      // Click AFUERA de la tarjeta cierra; adentro no. Se compara el target
-      // exacto para que soltar el mouse afuera despues de seleccionar texto no
-      // cierre, que es el bug que ya tenia el modal de /network.
+      // A click OUTSIDE the card closes it; inside it does not. The exact
+      // target is compared so that releasing the mouse outside after selecting
+      // text does not close it, which is the bug the /network modal already
+      // had.
       document.getElementById('w-set-ov').addEventListener('click', ev => {
         if (ev.target.id === 'w-set-ov') cerrarSettings()
       })
@@ -3652,19 +3689,20 @@ ${MODAL_JS}
         })
         const d = await r.json().catch(() => ({}))
         if (!r.ok) { msgToken((d && d.error && d.error.message) || ('HTTP ' + r.status), true); return }
-        // La vista se recarga del server y se repinta el overlay: la lista que
-        // se ve es la que quedo EN DISCO, no la que el navegador supone.
+        // The view is reloaded from the server and the overlay repainted: the
+        // list you see is the one that ended up ON DISK, not the one the
+        // browser assumes.
         await cargarVistaWallet()
         pintarSettings()
         if (alTerminar) alTerminar()
       } catch (e) {
-        msgToken('no se pudo guardar: ' + ((e && e.message) || e), true)
+        msgToken('could not save: ' + ((e && e.message) || e), true)
       }
     }
 
     function cablearSettings () {
-      // Agregar un token. La forma se chequea ACA antes de postear — es la
-      // misma regla que el nodo aplica antes de tocar disco.
+      // Adding a token. The shape is checked HERE before posting — it is the
+      // same rule the node applies before touching disk.
       const bAdd = document.getElementById('w-token-add')
       if (bAdd) {
         bAdd.addEventListener('click', () => {
@@ -3673,12 +3711,12 @@ ${MODAL_JS}
           const dec = (document.getElementById('w-token-dec') || {}).value || ''
           const tok = { address: addr.trim(), symbol: sym.trim(), decimals: Number(dec) }
           if (!tokenParecePlausible(tok)) {
-            msgToken('revisá los tres campos: dirección 0x + 40 hex, símbolo de 1 a 12 ' +
-              'caracteres, decimales enteros de 0 a 36', true)
+            msgToken('check the three fields: address 0x + 40 hex, symbol of 1 to 12 ' +
+              'characters, decimals an integer from 0 to 36', true)
             return
           }
           bAdd.disabled = true
-          tokensFetch('POST', tok, () => msgToken('agregado — se muestra sin verificar', false))
+          tokensFetch('POST', tok, () => msgToken('added — shown unverified', false))
         })
       }
 
@@ -3700,7 +3738,7 @@ ${MODAL_JS}
     async function crearWallet (frase) {
       if (onbOcupado) return
       onbOcupado = true
-      msgOnb(frase ? 'importando…' : 'generando la wallet…', false)
+      msgOnb(frase ? 'importing…' : 'generating the wallet…', false)
       try {
         const r = await authFetch('/v1/wallet/create', {
           method: 'POST',
@@ -3713,19 +3751,19 @@ ${MODAL_JS}
           return
         }
         if (d.frase) {
-          // Wallet nueva: a la pantalla de la frase, una sola vez.
+          // New wallet: on to the seed-phrase screen, exactly once.
           onbSeed = { frase: d.frase, address: d.address }
           onbEstado = 'seed'
           pintarSeed()
         } else {
-          // Import: no hay frase que mostrar, se va derecho a la billetera.
+          // Import: there is no phrase to show, straight to the wallet.
           await cargarWallet()
         }
         if (d.swarmActivo && !d.swarmReanunciado) {
-          msgOnb('wallet lista, pero el manifiesto no se pudo re-anunciar: reiniciá el nodo para que los pares vean la dirección', true)
+          msgOnb('wallet ready, but the manifest could not be re-announced: restart the node so peers see the address', true)
         }
       } catch (e) {
-        msgOnb('no se pudo crear la wallet: ' + ((e && e.message) || e), true)
+        msgOnb('could not create the wallet: ' + ((e && e.message) || e), true)
       } finally {
         onbOcupado = false
       }
@@ -3745,19 +3783,20 @@ ${MODAL_JS}
         b.addEventListener('click', () => {
           tabWallet = b.dataset.wTab
           pintarWallet()
-          // El historial se pide recien acá, la primera vez que se abre el tab.
+          // The history is only requested here, the first time the tab is
+          // opened.
           if (tabWallet === 'history' && !vistaHist) cargarHistorial()
         })
       })
       document.querySelectorAll('.w-card [data-copy]').forEach(b => {
-        b.addEventListener('click', () => copiar(b.dataset.copy, b))
+        b.addEventListener('click', () => copyText(b.dataset.copy, b))
       })
 
-      // Onboarding: crear / importar.
+      // Onboarding: create / import.
       const bCrear = document.getElementById('w-onb-crear')
       if (bCrear) {
         bCrear.addEventListener('click', () => {
-          if (confirm('Se van a generar 24 palabras que se muestran UNA sola vez. Anotalas en papel. ¿Seguir?')) {
+          if (confirm('24 words will be generated and shown ONCE only. Write them down on paper. Continue?')) {
             crearWallet(null)
           }
         })
@@ -3775,14 +3814,14 @@ ${MODAL_JS}
           const ta = document.getElementById('w-onb-frase')
           const frase = ta ? ta.value : ''
           if (!fraseParecePlausible(frase)) {
-            msgOnb('eso no parece una frase BIP-39 (12 a 24 palabras en minúscula)', true)
+            msgOnb('that does not look like a BIP-39 phrase (12 to 24 lowercase words)', true)
             return
           }
           crearWallet(palabrasDeFrase(frase).join(' '))
         })
       }
 
-      // FASE 12 — Send abre su propia pantalla, que tapa la tarjeta.
+      // PHASE 12 — Send opens its own screen, which covers the card.
       const bSend = document.getElementById('w-acc-send')
       if (bSend) {
         bSend.addEventListener('click', () => {
@@ -3794,8 +3833,8 @@ ${MODAL_JS}
         })
       }
 
-      // FASE 12 — el ☰ abre Settings. Todo lo que antes era configuracion
-      // suelta en la tarjeta vive ahi adentro.
+      // PHASE 12 — the ☰ opens Settings. Everything that used to be loose
+      // configuration on the card lives in there now.
       const bSet = document.getElementById('w-set-abrir')
       if (bSet) {
         bSet.addEventListener('click', () => {
@@ -3805,32 +3844,33 @@ ${MODAL_JS}
       }
     }
 
-    // Selector de red. NO hace hot-swap: guarda y pide reiniciar. Ir a
-    // MAINNET pide escribir MAINNET, que es lo que el endpoint exige.
+    // Network selector. It does NOT hot-swap: it saves and asks for a
+    // restart. Going to MAINNET requires typing MAINNET, which is what the
+    // endpoint demands.
     //
-    // FASE 12 — se mudo de cablearWallet a acá SIN cambiarle nada: el
-    // selector ahora se dibuja adentro de Settings, así que su cableado va con
-    // el resto de esa pantalla.
+    // PHASE 12 — moved here from cablearWallet WITHOUT changing anything: the
+    // selector is now drawn inside Settings, so its wiring goes with the rest
+    // of that screen.
     function cablearSelectorRed () {
       const bRed = document.getElementById('w-red-aplicar')
       if (bRed) {
         bRed.addEventListener('click', async () => {
           const sel = document.getElementById('w-red-sel')
           const msg = document.getElementById('w-red-msg')
-          const escribir = (t, malo) => {
+          const write = (t, malo) => {
             if (msg) msg.innerHTML =
               '<span class="' + (malo ? 'w-onb-err' : 'w-onb-ok') + '">' + esc(t) + '</span>'
           }
           if (!sel) return
           const red = sel.value
           const opt = sel.options[sel.selectedIndex]
-          const esMainnet = opt && opt.dataset.mainnet === '1'
-          const actual = (vistaWallet.red && vistaWallet.red.nombre) || ''
-          if (red === actual) { escribir('ya estás en esa red', true); return }
+          const isMainnet = opt && opt.dataset.mainnet === '1'
+          const current = (vistaWallet.red && vistaWallet.red.nombre) || ''
+          if (red === current) { write('you are already on that network', true); return }
           const cuerpo = { red }
-          if (esMainnet) {
-            const c = prompt('MAINNET mueve plata real. Escribí MAINNET para confirmar:')
-            if (c !== 'MAINNET') { escribir('cancelado', true); return }
+          if (isMainnet) {
+            const c = prompt('MAINNET moves real money. Type MAINNET to confirm:')
+            if (c !== 'MAINNET') { write('cancelled', true); return }
             cuerpo.confirmar = 'MAINNET'
           }
           bRed.disabled = true
@@ -3841,14 +3881,14 @@ ${MODAL_JS}
               body: JSON.stringify(cuerpo)
             })
             const d = await r.json().catch(() => ({}))
-            if (!r.ok) { escribir((d && d.error && d.error.message) || ('HTTP ' + r.status), true); return }
-            escribir(
-              'guardado: ' + d.red + ' (eip155:' + d.chainId + '). Reiniciá el nodo para que tome efecto.' +
+            if (!r.ok) { write((d && d.error && d.error.message) || ('HTTP ' + r.status), true); return }
+            write(
+              'saved: ' + d.red + ' (eip155:' + d.chainId + '). Restart the node for it to take effect.' +
               (d.avisoX402 ? ' ' + d.avisoX402 : ''),
               false
             )
           } catch (e) {
-            escribir('no se pudo guardar: ' + ((e && e.message) || e), true)
+            write('could not save: ' + ((e && e.message) || e), true)
           } finally {
             bRed.disabled = false
           }
@@ -3859,7 +3899,7 @@ ${MODAL_JS}
     cargarWallet()
     setInterval(() => {
       cargarWallet()
-      // El historial se refresca solo mientras su tab esta abierto.
+      // The history only refreshes while its tab is open.
       if (tabWallet === 'history') cargarHistorial()
     }, 15000)
   </script>`

@@ -1,33 +1,34 @@
-// Gateway del marketplace. Sirve los 3 paneles y una API compatible con OpenAI.
+// Marketplace gateway. Serves the 3 panels and an OpenAI-compatible API.
 //
-// QUE ES COMPATIBLE (probado en test/index.js):
-//   POST /v1/chat/completions  acepta { model, messages[], stream } y responde
-//     - con stream:true  -> SSE de `chat.completion.chunk` (choices[].delta.content)
-//     - con stream:false -> un `chat.completion` (choices[].message.content)
-//   GET  /v1/models            devuelve { object:"list", data:[{id,object:"model",...}] }
-//   Los errores viajan como { error: { message, type, code } }, la forma de OpenAI.
+// WHAT IS COMPATIBLE (tested in test/index.js):
+//   POST /v1/chat/completions  accepts { model, messages[], stream } and answers
+//     - with stream:true  -> SSE of `chat.completion.chunk` (choices[].delta.content)
+//     - with stream:false -> a `chat.completion` (choices[].message.content)
+//   GET  /v1/models            returns { object:"list", data:[{id,object:"model",...}] }
+//   Errors travel as { error: { message, type, code } }, the OpenAI shape.
 //
-// QUE NO ESTA (dicho aca para que nadie lo descubra en la demo):
-//   - `usage` (conteo de tokens) NO se emite. El SDK no lo expone por ahora y
-//     un conteo inventado es peor que un campo ausente: un cliente que factura
-//     por token leeria un numero falso. Ausente es honesto y no rompe a nadie
-//     que use chat simple.
-//   - Sin `tools`/`function_call`, sin `n`>1, sin `logprobs`.
+// WHAT IS MISSING (said here so nobody discovers it during the demo):
+//   - `usage` (token count) is NOT emitted. The SDK does not expose it for now
+//     and an invented count is worse than an absent field: a client billing per
+//     token would read a false number. Absent is honest and breaks nobody using
+//     plain chat.
+//   - No `tools`/`function_call`, no `n`>1, no `logprobs`.
 //
-// EXTENSIONES PROPIAS (no chocan con OpenAI, ningun cliente suyo las manda):
-//   - El request tambien acepta la forma corta { modelId, prompt }.
-//   - GET /v1/nodes devuelve la vista rica del marketplace (precio, operador,
-//     carga) que consumen los paneles. /v1/models queda para el protocolo.
+// OUR OWN EXTENSIONS (they do not clash with OpenAI, no client of theirs sends
+// them):
+//   - The request also accepts the short form { modelId, prompt }.
+//   - GET /v1/nodes returns the rich marketplace view (price, operator, load)
+//     the panels consume. /v1/models is left to the protocol.
 //
-// RUTEO: contra el registro en memoria (store.mjs), que se puebla de tres
-// fuentes distintas y las trata distinto:
-//   kind 'peer' -> par descubierto por Hyperswarm con manifiesto firmado
-//                  verificado. La inferencia viaja por chat:request/chat:chunk
-//                  sobre el FramedStream del swarm (D1). Requiere --swarm.
-//   kind 'real' -> este equipo, via engine.mjs.
-//   kind 'mock' -> respuesta enlatada. Solo existe con --demo.
-// Para un mismo modelId se prefiere el par P2P (ver findAllByModelId), y el
-// log de routing dice cuantos candidatos hubo.
+// ROUTING: against the in-memory registry (store.mjs), populated from three
+// different sources and treating each differently:
+//   kind 'peer' -> peer discovered over Hyperswarm with a verified signed
+//                  manifest. Inference travels over chat:request/chat:chunk on
+//                  the swarm FramedStream (D1). Requires --swarm.
+//   kind 'real' -> this machine, via engine.mjs.
+//   kind 'mock' -> canned answer. Only exists with --demo.
+// For the same modelId the P2P peer is preferred (see findAllByModelId), and
+// the routing log says how many candidates there were.
 
 import http from 'bare-http1'
 import * as store from './store.mjs'
@@ -61,13 +62,14 @@ function truncate(s, n = 60) {
   return s.length > n ? s.slice(0, n) + '…' : s
 }
 
-// Tokens por segundo de la GENERACION, no del request: se descuenta el TTFT.
-// Mezclarlos daria un numero que baja cuando el modelo tarda en arrancar
-// aunque despues escupa tokens igual de rapido, y esa es justo la confusion
-// que el par de numeros (ttft + tok/s) existe para evitar.
+// Tokens per second of the GENERATION, not of the request: the TTFT is
+// subtracted. Mixing them would give a number that drops when the model is slow
+// to start even if it then spits tokens just as fast, and that is exactly the
+// confusion the pair of numbers (ttft + tok/s) exists to avoid.
 //
-// Devuelve null en vez de 0 cuando no hay nada que medir: un request que fallo
-// antes del primer token no genero "a cero tokens por segundo", no genero.
+// Returns null instead of 0 when there is nothing to measure: a request that
+// failed before the first token did not generate "at zero tokens per second",
+// it did not generate.
 function tokensPerSec({ tokens, ttftMs, ms }) {
   if (!tokens || ttftMs === null) return null
   const genMs = ms - ttftMs
@@ -75,13 +77,13 @@ function tokensPerSec({ tokens, ttftMs, ms }) {
   return Number(((tokens / genMs) * 1000).toFixed(2))
 }
 
-// El modelo real se carga UNA sola vez, perezoso -recien en el primer chat
-// que lo necesita-, igual que el "cero modelo" que ya define Fase 3: el
-// gateway arranca sin haber descargado ni cargado nada.
+// The real model is loaded ONCE, lazily -only on the first chat that needs
+// it-, just like the "zero model" Phase 3 already defines: the gateway starts
+// without having downloaded or loaded anything.
 let engineMod = null
 let realModelId = null
 let realModelLoading = null
-let gpuLayers // undefined = deja decidir al SDK
+let gpuLayers // undefined = let the SDK decide
 
 function ensureRealModel() {
   if (realModelId) return Promise.resolve(realModelId)
@@ -92,25 +94,25 @@ function ensureRealModel() {
       const { modelSrc } = await engineMod.resolveModel('llama1b')
       realModelId = await engineMod.loadModel({ modelSrc, gpuLayers })
 
-      // La carga perezosa es la explicacion de casi todo TTFT anomalo: el
-      // primer chat despues de arrancar paga la descarga y la carga del
-      // modelo, y sin esta entrada el rastro muestra un request lentisimo sin
-      // ninguna causa visible al lado.
+      // Lazy loading explains nearly every anomalous TTFT: the first chat
+      // after starting pays for the download and the model load, and without
+      // this entry the trace shows an extremely slow request with no visible
+      // cause next to it.
       store.pushLog({
         kind: 'model_load',
         modelId: 'llama1b',
         target: 'local',
         ok: true,
         gpuLayers: gpuLayers ?? null,
-        reason: `modelo real cargado en ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+        reason: `real model loaded in ${((Date.now() - t0) / 1000).toFixed(1)}s`,
         ms: Date.now() - t0
       })
       return realModelId
     })()
-    // Si la carga falla, hay que SOLTAR la promesa rechazada. Si queda
-    // cacheada, todo request posterior recibe el mismo rechazo al instante y
-    // el gateway no se recupera nunca sin reiniciarlo -un timeout del registry
-    // por wifi mala dejaba el nodo real muerto para toda la sesion-.
+    // If the load fails, the rejected promise has to be RELEASED. Left
+    // cached, every later request gets the same rejection instantly and the
+    // gateway never recovers without a restart -a registry timeout caused by
+    // bad wifi left the real node dead for the whole session-.
     realModelLoading.catch(() => {
       realModelLoading = null
     })
@@ -119,39 +121,40 @@ function ensureRealModel() {
 }
 
 // ---------------------------------------------------------------------------
-// Forma OpenAI
+// OpenAI shape
 // ---------------------------------------------------------------------------
 
 let idCounter = 0
 
-// `crypto.randomUUID` no existe en bare, y el id solo tiene que ser unico
-// dentro de este proceso: es la clave con la que el cliente correlaciona los
-// chunks de UNA respuesta, no un identificador global.
+// `crypto.randomUUID` does not exist in bare, and the id only has to be unique
+// within this process: it is the key the client correlates the chunks of ONE
+// answer with, not a global identifier.
 function completionId() {
   return 'chatcmpl-' + Date.now().toString(36) + (idCounter++).toString(36)
 }
 
-// B14 / D9 — el `finish_reason` que ve el cliente.
+// B14 / D9 — the `finish_reason` the client sees.
 //
-// D9 lo declara NO NEGOCIABLE: si la respuesta se corto por el tope, tiene que
-// decir `length`. Cobrar por un tope y reportar terminacion normal es mentir en
-// el unico campo que el cliente mira para saber si le falta texto -- y el que
-// mira un agente para decidir si pedir la continuacion.
+// D9 declares it NON-NEGOTIABLE: if the answer was cut off by the cap, it has
+// to say `length`. Charging for a cap and reporting a normal ending is lying in
+// the one field the client looks at to know whether text is missing -- and the
+// one an agent looks at to decide whether to ask for the continuation.
 //
-// El dato lo da QUIEN GENERO: el proveedor externo lo manda en el ultimo chunk
-// (upstream.mjs lo lee y lo reporta por `onFinish`). Contarlo de este lado no
-// serviria: contamos deltas de SSE, no tokens, asi que compararlos contra el
-// tope daria un numero parecido y no el hecho.
+// The value comes from WHOEVER GENERATED: the external provider sends it in the
+// last chunk (upstream.mjs reads it and reports it through `onFinish`).
+// Counting it on this side would not work: we count SSE deltas, not tokens, so
+// comparing them against the cap would give a similar number and not the fact.
 //
-// Sin dato se reporta `stop`, que es lo que el gateway hacia con TODAS las
-// respuestas. La diferencia es que ahora es el default de "nadie lo dijo" y no
-// una afirmacion sobre todas.
+// With no value, `stop` is reported, which is what the gateway did for ALL
+// answers. The difference is that it is now the default for "nobody said" and
+// not a claim about all of them.
 function finishReasonDe(reportado) {
   if (typeof reportado !== 'string' || reportado === '') return 'stop'
-  // Se pasa tal cual el vocabulario de OpenAI, que es el que el cliente espera:
-  // stop, length, content_filter, tool_calls. Un valor que no conocemos viaja
-  // igual en vez de aplanarse a 'stop': inventarle un final conocido a algo que
-  // el proveedor nombro distinto es la misma mentira mas chica.
+  // The OpenAI vocabulary is passed through as-is, which is what the client
+  // expects: stop, length, content_filter, tool_calls. A value we do not know
+  // travels anyway instead of being flattened to 'stop': inventing a known
+  // ending for something the provider named differently is the same lie, only
+  // smaller.
   return reportado
 }
 
@@ -165,12 +168,13 @@ function chunkEvent({ id, created, model, delta, finishReason = null }) {
   }
 }
 
-// La forma exacta de un error de OpenAI. Los clientes (incluido Hermes) leen
-// `error.message`; devolver un string plano los deja sin mensaje que mostrar.
-// FASE 12 — `detalle` es opcional y solo aparece cuando hay algo mas largo que
-// el mensaje: el volcado crudo de la cadena, que el panel deja a un click. Un
-// campo de mas no rompe a ningun cliente de OpenAI —los suyos leen `message`—
-// y evita tener que elegir entre un mensaje legible y uno completo.
+// The exact shape of an OpenAI error. Clients (Hermes included) read
+// `error.message`; returning a plain string leaves them with no message to
+// show.
+// PHASE 12 — `detalle` is optional and only shows up when there is something
+// longer than the message: the raw chain dump, which the panel leaves one click
+// away. One extra field breaks no OpenAI client —theirs read `message`— and it
+// avoids having to choose between a readable message and a complete one.
 function sendError(
   res,
   statusCode,
@@ -190,24 +194,24 @@ function sendJson(res, statusCode, body, extraHeaders = null) {
   res.end(payload)
 }
 
-// Quien contesto, en la respuesta misma.
+// Who answered, in the answer itself.
 //
-// Va en headers y no en el cuerpo a proposito: meter un campo propio adentro
-// de un `chat.completion.chunk` ensuciaria el formato de OpenAI, que es
-// justamente lo que este gateway promete respetar. Un header extra no lo ve
-// ningun cliente de terceros y el chat propio lo lee con headers.get().
+// It goes in headers and not in the body on purpose: putting a field of our own
+// inside a `chat.completion.chunk` would pollute the OpenAI format, which is
+// precisely what this gateway promises to respect. An extra header is invisible
+// to any third-party client and our own chat reads it with headers.get().
 //
-// encodeURIComponent porque un header no puede llevar bytes fuera de latin-1 y
-// el nombre del operador lo elige una persona ("Nodo de Ramón").
-// Un upstream que corre en esta maquina NO es un tercero. Todo lo que decide
-// privacidad y gasto -- el opt-in, el filtro de `local: true`, la condicion de
-// "sin capacidad local" -- pregunta esto y no el `kind`, que solo dice COMO se
-// le pide (por HTTP) y no A QUIEN.
+// encodeURIComponent because a header cannot carry bytes outside latin-1 and
+// the operator name is chosen by a person ("Ramón's node").
+// An upstream running on this machine is NOT a third party. Everything that
+// decides privacy and spending -- the opt-in, the `local: true` filter, the "no
+// local capacity" condition -- asks this and not the `kind`, which only says
+// HOW it is asked (over HTTP) and not WHO.
 function esTercero(node) {
   return !!node && node.kind === 'upstream' && node.local !== true
 }
 
-// Con que etiqueta entra al rastro lo que genero este candidato.
+// Which label what this candidate generated enters the trace under.
 function targetDe(node) {
   if (!node) return 'none'
   if (node.kind === 'peer') return 'peer'
@@ -215,24 +219,27 @@ function targetDe(node) {
   return esTercero(node) ? 'upstream' : 'local'
 }
 
-// FASE 8 — `costMicros` es el ESTIMADO, no el real, y la diferencia importa.
+// PHASE 8 — `costMicros` is the ESTIMATE, not the real figure, and the
+// difference matters.
 //
-// El real se sabe al terminar; estos headers salen ANTES del primer token,
-// porque en SSE no hay otro momento (R4 del roadmap). Asi que lo que viaja es
-// la COTA SUPERIOR con la que se autorizo el gasto -- el mismo numero que
-// aparto la reserva --, y el chat lo muestra como techo y no como precio.
+// The real one is known when it finishes; these headers go out BEFORE the first
+// token, because with SSE there is no other moment (R4 of the roadmap). So what
+// travels is the UPPER BOUND the spend was authorised against -- the same
+// number the reservation set aside -- and the chat shows it as a ceiling, not
+// as a price.
 //
-// Mandar el real obligaria a un trailer HTTP o a un segundo request contra el
-// log, y las dos cosas son peores que decir la verdad de lo que se sabe cuando
-// se sabe.
+// Sending the real one would require an HTTP trailer or a second request
+// against the log, and both are worse than telling the truth about what is
+// known when it is known.
 function provenanceHeaders(node, costMicros = 0) {
   return {
     'X-Pyrus-Operator': encodeURIComponent((node && node.operator) || ''),
     'X-Pyrus-Kind': (node && node.kind) || 'unknown',
     'X-Pyrus-Cost-Estimate-Micros': String(Math.max(0, Math.ceil(Number(costMicros) || 0))),
-    // De que lado del borde de la maquina se genero la respuesta. `kind` no
-    // alcanza: un upstream puede ser un tercero o un motor propio detras de
-    // HTTP, y el chat necesita saber cual para no prometer de menos ni de mas.
+    // Which side of the machine boundary the answer was generated on. `kind`
+    // is not enough: an upstream can be a third party or an engine of our own
+    // behind HTTP, and the chat needs to know which so it neither over- nor
+    // under-promises.
     'X-Pyrus-Scope': esTercero(node) ? 'external' : 'local',
     'X-Pyrus-Model': encodeURIComponent((node && node.modelId) || '')
   }
@@ -243,11 +250,12 @@ function sendHtml(res, html) {
   res.end(html)
 }
 
-// El nombre llega de la query, o sea del browser, o sea de cualquiera que le
-// pegue al endpoint. Sin esto, un name de "../../.ssh/authorized_keys" escribe
-// donde no debe: el path se arma con join() y `..` lo saca de la carpeta.
-// Se queda SOLO con el nombre base y con caracteres que existan en los tres
-// sistemas de archivos que nos importan.
+// The name arrives from the query, which is to say from the browser, which is
+// to say from anybody who hits the endpoint. Without this, a name of
+// "../../.ssh/authorized_keys" writes where it must not: the path is built with
+// join() and `..` takes it out of the folder.
+// It keeps ONLY the base name and only characters that exist on the three file
+// systems we care about.
 function sanitizeFilename(nombre) {
   const base = String(nombre).replace(/\\/g, '/').split('/').pop() || ''
   const limpio = base
@@ -268,16 +276,16 @@ function descargasDir() {
   return storageSubdir('descargas')
 }
 
-// Las dos carpetas cuelgan del storage del nodo y no del cwd: `serve` puede
-// arrancar desde cualquier lado y los archivos no tienen por que aparecer
-// donde el operador ejecuto el comando.
+// Both folders hang off the node storage and not off the cwd: `serve` can be
+// started from anywhere and the files have no reason to show up wherever the
+// operator ran the command.
 function storageSubdir(nombre) {
   const base = filesApi && filesApi.dir ? filesApi.dir : '.'
   return base.replace(/[\\/]+$/, '') + '/' + nombre
 }
 
-// Se escribe por stream, no con Buffer.concat: un archivo grande bufferizado
-// entero es memoria del proceso que ademas esta sirviendo inferencia.
+// Written by stream, not with Buffer.concat: a large file buffered whole is
+// memory taken from the process that is also serving inference.
 async function recibirArchivo(req, nombre) {
   const fs = await import('bare-fs')
   const dir = uploadsDir()
@@ -287,11 +295,11 @@ async function recibirArchivo(req, nombre) {
   let total = 0
   const out = fs.default.createWriteStream(destino)
 
-  // Enganchado ANTES de escribir nada. Un 'error' de stream sin listener es
-  // una excepcion no capturada que tumba TODO el proceso -el que tambien
-  // esta sirviendo inferencia-, no solo este upload. Se guarda en vez de
-  // reaccionar en el acto: el for-await de abajo es quien decide cuando
-  // cortar, para no pisar el catch de "demasiado grande" a mitad de un write.
+  // Hooked up BEFORE writing anything. A stream 'error' with no listener is an
+  // uncaught exception that takes down the WHOLE process -the one also serving
+  // inference-, not just this upload. It is stored instead of reacted to on the
+  // spot: the for-await below is what decides when to stop, so the "too large"
+  // catch is not stepped on midway through a write.
   let streamErr = null
   out.on('error', (err) => {
     streamErr = streamErr || err
@@ -676,9 +684,9 @@ function balanceDelCall(raw) {
     return {
       raw: null,
       error:
-        'el contrato no devolvió un balance (respondió ' +
-        (s === '0x' || s === '' ? 'vacío' : JSON.stringify(s.slice(0, 12) + '…')) +
-        '): puede que en esa dirección no haya un token en esta red'
+        'the contract did not return a balance (it answered ' +
+        (s === '0x' || s === '' ? 'empty' : JSON.stringify(s.slice(0, 12) + '…')) +
+        '): there may be no token at that address on this network'
     }
   }
   return { raw: s, error: null }
@@ -1700,7 +1708,7 @@ async function handleChatConReintentos({
       // `finish_reason: "stop"`. O sea exactamente lo que el comentario de
       // abajo decia que no habia que devolver, en la mitad de los casos.
       if (!headersSent && contenido === '') {
-        return sendError(res, 502, 'el par termino el request sin devolver ningun token', {
+        return sendError(res, 502, 'the peer ended the request without returning a single token', {
           type: 'server_error',
           code: 'empty_response'
         })
@@ -2162,7 +2170,7 @@ async function handleChat(req, res) {
   try {
     body = await readJsonBody(req)
   } catch {
-    return sendError(res, 400, 'body invalido, se esperaba JSON')
+    return sendError(res, 400, 'invalid body, JSON expected')
   }
 
   const norm = normalizeRequest(body)
@@ -2599,10 +2607,10 @@ async function onRequest(req, res) {
       try {
         cuerpo = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'body invalido, se esperaba JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
       if (typeof cuerpo.enabled !== 'boolean') {
-        return sendError(res, 400, 'falta "enabled" (booleano)')
+        return sendError(res, 400, 'missing "enabled" (boolean)')
       }
       setUpstreamOptIn(cuerpo.enabled)
       console.log(`[upstream] opt-in ${upstreamOptIn ? 'PRENDIDO' : 'apagado'} por HTTP`)
@@ -2754,7 +2762,7 @@ async function onRequest(req, res) {
       })
     }
     // FASE 11 — crear o importar la wallet de cobro desde el panel /wallet, sin
-    // `pyrusllm wallet --crear`. Cuerpo vacio -> wallet nueva; `{ frase }` ->
+    // `pyrusllm wallet --create`. Cuerpo vacio -> wallet nueva; `{ frase }` ->
     // importar 24 palabras.
     //
     // Localhost por el bind a 127.0.0.1 (ver server.listen), y ademas pide
@@ -2769,12 +2777,12 @@ async function onRequest(req, res) {
         return sendError(
           res,
           503,
-          'el nodo todavía no está listo para crear la wallet, probá de nuevo en unos segundos',
+          'the node is not ready to create the wallet yet, try again in a few seconds',
           { code: 'no_listo', type: 'service_unavailable' }
         )
       }
       if (economicPropio) {
-        return sendError(res, 409, 'este nodo ya tiene una wallet de cobro', {
+        return sendError(res, 409, 'this node already has a payout wallet', {
           code: 'wallet_existe'
         })
       }
@@ -2783,7 +2791,7 @@ async function onRequest(req, res) {
       try {
         body = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'body inválido: se esperaba JSON o cuerpo vacío')
+        return sendError(res, 400, 'invalid body: JSON or an empty body expected')
       }
       const frase = typeof body.frase === 'string' && body.frase.trim() ? body.frase.trim() : null
 
@@ -2824,12 +2832,12 @@ async function onRequest(req, res) {
           return sendError(
             res,
             400,
-            'las palabras no validan (checksum BIP-39): revisá el orden y la ortografía',
+            'the words do not validate (BIP-39 checksum): check the order and the spelling',
             { code: 'frase_invalida' }
           )
         }
-        console.error(`[wallet] falló la creación desde el panel: ${msg}`)
-        return sendError(res, 500, 'no se pudo crear la wallet: ' + msg)
+        console.error(`[wallet] creation from the panel failed: ${msg}`)
+        return sendError(res, 500, 'could not create the wallet: ' + msg)
       }
     }
     // FASE 11 — cambiar la red de cobro desde el selector del panel. Escribe
@@ -2844,7 +2852,7 @@ async function onRequest(req, res) {
         return sendError(
           res,
           503,
-          'el nodo todavía no está listo para cambiar de red, probá de nuevo en unos segundos',
+          'the node is not ready to switch networks yet, try again in a few seconds',
           { code: 'no_listo', type: 'service_unavailable' }
         )
       }
@@ -2852,7 +2860,7 @@ async function onRequest(req, res) {
         return sendError(
           res,
           409,
-          'la red la fija PYRUS_WALLET_RED en el entorno: quitá esa variable para elegir desde el panel',
+          'the network is pinned by PYRUS_WALLET_RED in the environment: remove that variable to choose from the panel',
           { code: 'fijada_por_env' }
         )
       }
@@ -2861,7 +2869,7 @@ async function onRequest(req, res) {
       try {
         body = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'body inválido, se esperaba JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
 
       try {
@@ -2878,13 +2886,13 @@ async function onRequest(req, res) {
           // es un paso humano (mirar el contrato en el explorer). Se dice acá
           // para que no se descubra el día que un 402 sale en Stable.
           avisoX402: r.mainnet
-            ? 'para cobrar en Plasma mainnet por x402 falta PYRUS_X402_PLASMA_ASSET_VERIFICADO=1 (verificá el contrato USD₮0 en el explorer primero)'
+            ? 'to charge on Plasma mainnet over x402, PYRUS_X402_PLASMA_ASSET_VERIFICADO=1 is missing (verify the USD₮0 contract on the explorer first)'
             : null
         })
       } catch (err) {
         const code = (err && err.code) || null
         if (code === 'confirmar_mainnet') {
-          return sendError(res, 400, (err && err.message) || 'confirmá el cambio a mainnet', {
+          return sendError(res, 400, (err && err.message) || 'confirm the switch to mainnet', {
             code
           })
         }
@@ -2892,7 +2900,7 @@ async function onRequest(req, res) {
           return sendError(res, 400, (err && err.message) || 'red desconocida', { code })
         }
         console.error(`[wallet] no se pudo guardar la red: ${(err && err.message) || err}`)
-        return sendError(res, 500, 'no se pudo guardar la red: ' + ((err && err.message) || err))
+        return sendError(res, 500, 'could not save the network: ' + ((err && err.message) || err))
       }
     }
     // FASE 12 — mandar plata desde el panel.
@@ -2917,12 +2925,12 @@ async function onRequest(req, res) {
         return sendError(
           res,
           503,
-          'este nodo no tiene una wallet abierta con la que enviar: creala o revisá la passphrase',
+          'this node has no open wallet to send from: create it or check the passphrase',
           { code: 'sin_wallet', type: 'service_unavailable' }
         )
       }
       if (!walletRed) {
-        return sendError(res, 409, 'este nodo no tiene una red de cobro resuelta todavía', {
+        return sendError(res, 409, 'this node has no payout network resolved yet', {
           code: 'sin_red'
         })
       }
@@ -2931,12 +2939,12 @@ async function onRequest(req, res) {
       try {
         envio = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'body inválido, se esperaba JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
 
       const destino = String((envio && envio.destino) || '').trim()
       if (!/^0x[0-9a-fA-F]{40}$/.test(destino)) {
-        return sendError(res, 400, 'el destino tiene que ser una dirección EVM (0x + 40 hex)', {
+        return sendError(res, 400, 'the destination has to be an EVM address (0x + 40 hex)', {
           code: 'destino'
         })
       }
@@ -2953,7 +2961,7 @@ async function onRequest(req, res) {
           return sendError(
             res,
             400,
-            'el activo tiene que ser "native" o la dirección de un token',
+            'the asset has to be "native" or a token address',
             {
               code: 'asset'
             }
@@ -2969,7 +2977,7 @@ async function onRequest(req, res) {
           return sendError(
             res,
             400,
-            'ese token no está en la lista de esta red: agregalo en la configuración del panel primero',
+            'that token is not in this network list: add it in the panel settings first',
             { code: 'asset_desconocido' }
           )
         }
@@ -2985,7 +2993,7 @@ async function onRequest(req, res) {
       // decimales esa diferencia es plata.
       const montoTexto = String((envio && envio.monto) != null ? envio.monto : '').trim()
       if (!/^\d+(\.\d+)?$/.test(montoTexto)) {
-        return sendError(res, 400, 'el monto tiene que ser un número decimal positivo', {
+        return sendError(res, 400, 'the amount has to be a positive decimal number', {
           code: 'monto'
         })
       }
@@ -3004,7 +3012,7 @@ async function onRequest(req, res) {
         BigInt(partes[0] || '0') * 10n ** BigInt(decimales) +
         BigInt((partes[1] || '').padEnd(decimales, '0').slice(0, decimales) || '0')
       if (base <= 0n) {
-        return sendError(res, 400, 'el monto tiene que ser mayor que cero', { code: 'monto' })
+        return sendError(res, 400, 'the amount has to be greater than zero', { code: 'monto' })
       }
 
       // D30 otra vez: mainnet no se toca sin que alguien lo escriba. Mismo
@@ -3015,7 +3023,7 @@ async function onRequest(req, res) {
           res,
           400,
           `estás por mandar ${montoTexto} ${simbolo || 'unidades'} en ${walletRed.nombre}, ` +
-            'que es MAINNET y mueve plata real: mandá "confirmar":"MAINNET"',
+            'which is MAINNET and moves real money: send "confirmar":"MAINNET"',
           { code: 'confirmar_mainnet' }
         )
       }
@@ -3079,7 +3087,7 @@ async function onRequest(req, res) {
             return sendError(
               res,
               504,
-              'la cadena no contestó la estimación de gas a tiempo. No se firmó ni se envió nada.',
+              'the chain did not answer the gas estimate in time. Nothing was signed and nothing was sent.',
               { code: 'timeout_cotizar', type: 'upstream_error' }
             )
           }
@@ -3087,14 +3095,14 @@ async function onRequest(req, res) {
           // alguien mande de nuevo y pague dos veces.
           console.error(
             '[wallet] el envio no volvio a tiempo: PUEDE haberse difundido. ' +
-              'Reiniciá el nodo antes de reintentar y mirá el explorer primero.'
+              'Restart the node before retrying and check the explorer first.'
           )
           return sendError(
             res,
             504,
-            'la cadena no contestó a tiempo y NO se sabe si la transacción salió. ' +
-              'Mirá la dirección en el explorer ANTES de volver a intentar: si ya se ' +
-              'difundió, reintentar la manda dos veces.',
+            'the chain did not answer in time and it is NOT known whether the transaction went out. ' +
+              'Check the address on the explorer BEFORE trying again: if it was ' +
+              'already broadcast, retrying sends it twice.',
             { code: 'timeout_enviar', type: 'upstream_error' }
           )
         }
@@ -3215,7 +3223,7 @@ async function onRequest(req, res) {
             fuente: 'explorer'
           })
         } catch (err) {
-          fallos.push('la API del explorer no contestó: ' + ((err && err.message) || err))
+          fallos.push('the explorer API did not answer: ' + ((err && err.message) || err))
         }
       } else {
         fallos.push('esta red no tiene API de explorer configurada')
@@ -3275,8 +3283,8 @@ async function onRequest(req, res) {
           // El panel lo dibuja: lo que se ve por acá es un subconjunto, y esa
           // diferencia no puede quedar entre el nodo y el que mira la pantalla.
           parcial:
-            'leído del RPC, no del explorer: solo transferencias de tokens de los ' +
-            'últimos 10.000 bloques, sin movimientos del activo nativo',
+            'read from the RPC, not the explorer: only token transfers from the ' +
+            'last 10,000 blocks, with no native-asset movements',
           error: fallos.join(' · ') || null
         })
       } catch (err) {
@@ -3307,12 +3315,12 @@ async function onRequest(req, res) {
         return sendError(
           res,
           503,
-          'el nodo todavía no está listo para guardar tokens, probá de nuevo en unos segundos',
+          'the node is not ready to save tokens yet, try again in a few seconds',
           { code: 'no_listo', type: 'service_unavailable' }
         )
       }
       if (!walletRed || !walletRed.caip2) {
-        return sendError(res, 409, 'este nodo no tiene una red de cobro resuelta todavía', {
+        return sendError(res, 409, 'this node has no payout network resolved yet', {
           code: 'sin_red'
         })
       }
@@ -3321,14 +3329,14 @@ async function onRequest(req, res) {
       try {
         cuerpoTok = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'body inválido, se esperaba JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
 
       try {
         if (req.method === 'DELETE') {
           const address = String((cuerpoTok && cuerpoTok.address) || '').trim()
           if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
-            return sendError(res, 400, 'falta "address" (0x + 40 hex)', { code: 'forma' })
+            return sendError(res, 400, 'missing "address" (0x + 40 hex)', { code: 'forma' })
           }
           const lista = walletTokensStore.quitar(walletRed.caip2, address)
           return sendJson(res, 200, { red: walletRed.caip2, tokens: lista || [] })
@@ -3354,7 +3362,7 @@ async function onRequest(req, res) {
           return sendError(res, 400, msg, { code: 'forma' })
         }
         console.error(`[wallet] no se pudo guardar el token: ${msg}`)
-        return sendError(res, 500, 'no se pudo guardar el token: ' + msg)
+        return sendError(res, 500, 'could not save the token: ' + msg)
       }
     }
     // FASE 9 / D12 — recuperar el recibo de un request que se pago.
@@ -3368,7 +3376,7 @@ async function onRequest(req, res) {
       const id = decodeURIComponent(pathname.slice('/v1/receipts/'.length))
       const guardado = recibos.get(id)
       if (!guardado) {
-        return sendError(res, 404, 'no hay recibo para ese id', { code: 'receipt_not_found' })
+        return sendError(res, 404, 'there is no receipt for that id', { code: 'receipt_not_found' })
       }
       // El recibo de liquidacion se sigue devolviendo APLANADO en la raiz: es la
       // forma que ya leen los clientes y el test, y anidarlo ahora romperia a
@@ -3523,7 +3531,7 @@ async function onRequest(req, res) {
     //
     if (pathname === '/v1/swarm/manifest') {
       if (!swarmRef) {
-        return sendError(res, 503, 'no hay swarm activo (correr con "serve --swarm")', {
+        return sendError(res, 503, 'no active swarm (run with "serve --swarm")', {
           type: 'service_unavailable'
         })
       }
@@ -3552,11 +3560,11 @@ async function onRequest(req, res) {
         try {
           body = await readJsonBody(req)
         } catch {
-          return sendError(res, 400, 'body invalido, se esperaba JSON')
+          return sendError(res, 400, 'invalid body, JSON expected')
         }
 
         const current = currentModelEntry()
-        if (!current) return sendError(res, 500, 'este nodo no tiene ningun modelo anunciado')
+        if (!current) return sendError(res, 500, 'this node announces no model at all')
 
         // El cambio de modelo es el unico que dispara una carga pesada -- se
         // responde de inmediato con "loading" y el panel hace poll del GET de
@@ -3673,7 +3681,7 @@ async function onRequest(req, res) {
         return sendError(
           res,
           503,
-          'los archivos necesitan "serve --swarm" (hace falta el Corestore)',
+          'files require "serve --swarm" (the Corestore is needed)',
           {
             type: 'service_unavailable'
           }
@@ -3696,7 +3704,7 @@ async function onRequest(req, res) {
           // la clave del drive -- esa la anuncia el par por su cuenta via
           // files:announce (swarm.mjs) y solo el swarm sabe atarla al peer.
           if (!swarmRef) {
-            return sendError(res, 503, 'los archivos de un par necesitan "serve --swarm"', {
+            return sendError(res, 503, 'a peer files require "serve --swarm"', {
               type: 'service_unavailable'
             })
           }
@@ -3705,7 +3713,7 @@ async function onRequest(req, res) {
             return sendError(
               res,
               404,
-              'ese par no anuncio ningun archivo (todavia no conecto, o no publico nada)'
+              'that peer announced no files (it has not connected yet, or it publishes nothing)'
             )
           }
           const files = await filesApi.listRemote(par.driveKey, '/', { timeoutMs: 20000 })
@@ -3715,7 +3723,7 @@ async function onRequest(req, res) {
           const { parseLink } = await import('./files.mjs')
           const keyHex = key || parseLink(link).keyHex
           if (!/^[0-9a-f]{64}$/.test(keyHex)) {
-            return sendError(res, 400, 'la clave del drive tiene que ser hex de 32 bytes')
+            return sendError(res, 400, 'the drive key has to be 32 bytes of hex')
           }
           const files = await filesApi.listRemote(keyHex, '/', { timeoutMs: 20000 })
           return sendJson(res, 200, { keyHex, remote: true, files })
@@ -3729,7 +3737,7 @@ async function onRequest(req, res) {
         return sendError(
           res,
           502,
-          'no se pudo leer el drive: ' + (err && err.message ? err.message : err)
+          'could not read the drive: ' + (err && err.message ? err.message : err)
         )
       }
     }
@@ -3747,7 +3755,7 @@ async function onRequest(req, res) {
 
       const q = new URLSearchParams(req.url.split('?')[1] || '')
       const nombre = sanitizeFilename(q.get('name') || '')
-      if (!nombre) return sendError(res, 400, 'falta "name" en la query')
+      if (!nombre) return sendError(res, 400, 'missing "name" in the query')
 
       try {
         const guardado = await recibirArchivo(req, nombre)
@@ -3756,7 +3764,7 @@ async function onRequest(req, res) {
       } catch (err) {
         const msg = err && err.message ? err.message : String(err)
         const code = msg.includes('demasiado grande') ? 413 : 500
-        return sendError(res, code, 'no se pudo publicar: ' + msg)
+        return sendError(res, code, 'could not publish: ' + msg)
       }
     }
 
@@ -3769,15 +3777,15 @@ async function onRequest(req, res) {
       try {
         body = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'body invalido, se esperaba JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
-      if (typeof body.link !== 'string') return sendError(res, 400, 'falta "link"')
+      if (typeof body.link !== 'string') return sendError(res, 400, 'missing "link"')
 
       try {
         const { parseLink } = await import('./files.mjs')
         const { keyHex, path: ruta } = parseLink(body.link)
         if (ruta === '/')
-          return sendError(res, 400, 'el link apunta al drive entero, no a un archivo')
+          return sendError(res, 400, 'the link points at the whole drive, not at a file')
 
         const fs = await import('bare-fs')
         const path = await import('bare-path')
@@ -3787,7 +3795,7 @@ async function onRequest(req, res) {
         const r = await filesApi.pull(keyHex, ruta, destino, { timeoutMs: 60000 })
         return sendJson(res, 200, { destino, bytes: r && r.bytes ? r.bytes : null })
       } catch (err) {
-        return sendError(res, 502, 'no se pudo bajar: ' + (err && err.message ? err.message : err))
+        return sendError(res, 502, 'could not download: ' + (err && err.message ? err.message : err))
       }
     }
 
@@ -3804,7 +3812,7 @@ async function onRequest(req, res) {
       if (motivoKick) return sendError(res, 401, motivoKick)
 
       const node = store.kick(decodeURIComponent(kickMatch[1]))
-      return node ? sendJson(res, 200, node) : sendError(res, 404, 'nodo desconocido')
+      return node ? sendJson(res, 200, node) : sendError(res, 404, 'unknown node')
     }
 
     const nodeMatch = pathname.match(/^\/v1\/nodes\/([^/]+)$/)
@@ -3813,13 +3821,13 @@ async function onRequest(req, res) {
       if (motivoPatch) return sendError(res, 401, motivoPatch)
 
       const id = decodeURIComponent(nodeMatch[1])
-      if (!store.getNode(id)) return sendError(res, 404, 'nodo desconocido')
+      if (!store.getNode(id)) return sendError(res, 404, 'unknown node')
 
       let patch
       try {
         patch = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'body invalido, se esperaba JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
 
       // Antes se pisaba `updated` con el resultado de cada set: un status
@@ -3833,13 +3841,13 @@ async function onRequest(req, res) {
       const hasStatus = patch.status !== undefined
 
       if (!hasPricing && !hasStatus) {
-        return sendError(res, 400, 'nada para actualizar: mandá "pricing" o "status"')
+        return sendError(res, 400, 'nothing to update: send "pricing" or "status"')
       }
       if (hasPricing && typeof patch.pricing !== 'string') {
-        return sendError(res, 400, '"pricing" tiene que ser un string')
+        return sendError(res, 400, '"pricing" has to be a string')
       }
       if (hasStatus && patch.status !== 'online' && patch.status !== 'offline') {
-        return sendError(res, 400, '"status" tiene que ser "online" u "offline"')
+        return sendError(res, 400, '"status" has to be "online" or "offline"')
       }
 
       let updated = null

@@ -1,19 +1,20 @@
-// Banco de pruebas de inferencia: compara modelos y mide carga / TTFT / total.
+// Inference test bench: compares models and measures load / TTFT / total.
 //
 //   ./node_modules/.bin/bare qvac/infer.mjs --download
 //   ./node_modules/.bin/bare qvac/infer.mjs --model smol --download
 //
-// Es la herramienta con la que se eligio el modelo default (ver NOTES.md,
-// "Eleccion de modelo"). Para USAR el nodo esta `qvac-node prompt "..."`, que
-// corre sobre el mismo `engine.mjs`; esto queda como harness de medicion.
+// This is the tool the default model was chosen with (see NOTES.md, "Model
+// choice"). To USE the node there is `pyrusllm prompt "..."`, which runs on the
+// same `engine.mjs`; this stays as a measurement harness.
 //
-// La descarga es OPT-IN con --download a proposito, al reves que en el CLI:
-// aca el punto es medir, y bajar 800 MB sin querer arruina la medicion.
+// Downloading is OPT-IN through --download on purpose, the opposite of the
+// CLI: the point here is to measure, and pulling 800 MB by accident ruins the
+// measurement.
 
 import bareProcess from 'bare-process'
 import * as engine from './engine.mjs'
 
-const PROMPT = 'Respondé en una sola frase: ¿qué es una red peer-to-peer?'
+const PROMPT = 'Answer in a single sentence: what is a peer-to-peer network?'
 
 const argv = Bare.argv.slice(2)
 const allowDownload = argv.includes('--download')
@@ -31,34 +32,34 @@ try {
   const { entry, name, cached, modelSrc } = await engine.resolveModel(pick)
   const mb = (entry.expectedSize / 1e6).toFixed(0)
   console.log(
-    `[qvac] modelo: ${name}  ${entry.params}  ${mb} MB  (${cached ? 'cacheado' : 'falta'})`
+    `[pyrusllm] model: ${name}  ${entry.params}  ${mb} MB  (${cached ? 'cached' : 'missing'})`
   )
-  if (gpuLayers !== undefined) console.log(`[qvac] gpu_layers: ${gpuLayers}`)
+  if (gpuLayers !== undefined) console.log(`[pyrusllm] gpu_layers: ${gpuLayers}`)
 
   if (!cached && !allowDownload) {
-    console.log('\n[qvac] sin --download no se baja nada. Volve a correr con:')
+    console.log('\n[pyrusllm] without --download nothing is fetched. Run again with:')
     console.log('       bare qvac/infer.mjs --download\n')
     await engine.shutdown(null)
     Bare.exit(0)
   }
 
   let lastPct = -1
-  console.log('[qvac] cargando (la primera vez descarga)...')
+  console.log('[pyrusllm] loading (the first time it downloads)...')
   modelId = await engine.loadModel({
     modelSrc,
     gpuLayers,
     onProgress: (p) => {
-      if (cached) return // con el modelo en cache el SDK igual emite progreso
+      if (cached) return // with the model cached the SDK still emits progress
       const pct = Math.floor((p && (p.progress ?? p.percent ?? 0)) * 100)
       if (pct !== lastPct && pct % 5 === 0) {
         lastPct = pct
-        console.log(`[qvac] descarga ${pct}%`)
+        console.log(`[pyrusllm] download ${pct}%`)
       }
     }
   })
 
   const tLoaded = Date.now()
-  console.log(`[qvac] modelo listo en ${((tLoaded - t0) / 1000).toFixed(1)}s -> ${modelId}`)
+  console.log(`[pyrusllm] model ready in ${((tLoaded - t0) / 1000).toFixed(1)}s -> ${modelId}`)
   console.log(`\n> ${PROMPT}\n`)
 
   let firstTokenAt = null
@@ -69,14 +70,14 @@ try {
 
   const tEnd = Date.now()
   console.log('\n')
-  console.log('=== MEDICIONES ===')
-  console.log(`carga del modelo    : ${((tLoaded - t0) / 1000).toFixed(1)}s`)
+  console.log('=== MEASUREMENTS ===')
+  console.log(`model load          : ${((tLoaded - t0) / 1000).toFixed(1)}s`)
   console.log(
-    `primer token (TTFT) : ${firstTokenAt ? ((firstTokenAt - tLoaded) / 1000).toFixed(2) + 's' : 'n/d'}`
+    `first token (TTFT)  : ${firstTokenAt ? ((firstTokenAt - tLoaded) / 1000).toFixed(2) + 's' : 'n/a'}`
   )
-  console.log(`total de la respuesta: ${((tEnd - tLoaded) / 1000).toFixed(1)}s`)
+  console.log(`answer total         : ${((tEnd - tLoaded) / 1000).toFixed(1)}s`)
 } catch (err) {
-  console.error('\n[qvac] FALLO:', err && err.message)
+  console.error('\n[pyrusllm] FAILED:', err && err.message)
   console.error(err)
   Bare.exitCode = 1
 } finally {

@@ -1,14 +1,14 @@
-// Pantalla de login, separada de pages.mjs a proposito: ese archivo tiene
-// el NAV/STYLE compartido de los 3 paneles y esta en edicion activa de otra
-// persona del equipo en paralelo. Este modulo no importa nada de ahi -- el
-// look dark se copia a mano (mismos colores, cero dependencia).
+// Login screen, deliberately kept out of pages.mjs: that file holds the NAV and
+// STYLE shared by the 3 panels and is under active edit by someone else on the
+// team in parallel. This module imports nothing from there -- the dark look is
+// copied by hand (same colors, zero dependency).
 
 export const LOGIN_HTML = `<!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>QVAC · login</title>
+  <title>PyrusLLM · login</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -44,19 +44,19 @@ export const LOGIN_HTML = `<!doctype html>
 </head>
 <body>
   <div class="box">
-    <h1>QVAC · marketplace</h1>
-    <p class="sub">Ingresá con tu usuario para entrar al panel que te corresponde.</p>
-    <p class="error" id="error">Usuario o contraseña incorrectos.</p>
+    <h1>PyrusLLM · marketplace</h1>
+    <p class="sub">Sign in with your username to reach the panel you belong to.</p>
+    <p class="error" id="error">Wrong username or password.</p>
     <form id="form">
       <div class="field">
-        <label for="usuario">Usuario</label>
-        <input type="text" id="usuario" name="usuario" autocomplete="username" autofocus>
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" autofocus>
       </div>
       <div class="field">
-        <label for="password">Contraseña</label>
+        <label for="password">Password</label>
         <input type="password" id="password" name="password" autocomplete="current-password">
       </div>
-      <button type="submit" id="submit">Ingresar</button>
+      <button type="submit" id="submit">Sign in</button>
     </form>
   </div>
   <script>
@@ -68,14 +68,14 @@ export const LOGIN_HTML = `<!doctype html>
       ev.preventDefault()
       errorEl.classList.remove('on')
       submitBtn.disabled = true
-      submitBtn.textContent = 'Ingresando…'
+      submitBtn.textContent = 'Signing in…'
       try {
-        const usuario = document.getElementById('usuario').value
+        const username = document.getElementById('username').value
         const password = document.getElementById('password').value
         const r = await fetch('/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usuario, password })
+          body: JSON.stringify({ username, password })
         })
         const data = await r.json()
         if (r.ok && data.ok) {
@@ -87,7 +87,7 @@ export const LOGIN_HTML = `<!doctype html>
         errorEl.classList.add('on')
       }
       submitBtn.disabled = false
-      submitBtn.textContent = 'Ingresar'
+      submitBtn.textContent = 'Sign in'
     })
   </script>
 </body>

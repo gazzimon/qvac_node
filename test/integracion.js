@@ -400,7 +400,7 @@ test('el selector del chat ofrece los tres modos', async (t) => {
   t.ok(r.body.indexOf('localonly') === -1, 'el checkbox se absorbio en el modo 1')
   // Una opcion por MAQUINA, no por modelo: es lo que hacia imposible elegir
   // entre dos pares sirviendo el mismo modelId.
-  t.ok(r.body.indexOf('function fijables') !== -1, 'la lista ya no deduplica por modelId')
+  t.ok(r.body.indexOf('function pinnable') !== -1, 'la lista ya no deduplica por modelId')
 })
 
 // ---------------------------------------------------------------------------
@@ -1601,7 +1601,7 @@ test('con las dos puertas abiertas contesta la de casa, no la que cobra', async 
   // "mas barato", el criterio nuevo es el que mando.
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   t.ok(
-    log.json.log[0].reason.includes('mas barato'),
+    log.json.log[0].reason.includes('cheaper'),
     'el log dice POR QUE, y el por que es el precio: ' + log.json.log[0].reason
   )
   t.is(r.headers['x-pyrus-cost-estimate-micros'], '0', 'el motor de casa no cuesta dolares')
@@ -1692,7 +1692,7 @@ test('entre dos proveedores que cobran, rutea al mas barato y lo dice', async (t
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const reason = log.json.log[0].reason
-  t.ok(reason.includes('mas barato'), 'el motivo es el precio: ' + reason)
+  t.ok(reason.includes('cheaper'), 'el motivo es el precio: ' + reason)
   t.ok(reason.includes('0.000514'), 'con el numero del elegido: ' + reason)
   t.ok(reason.includes('0.00514'), 'y el del que perdio: ' + reason)
 
@@ -3571,8 +3571,8 @@ test('FASE 12: un eth_call que devuelve vacío NO es un saldo cero', async (t) =
     const r = await pedir('GET', '/v1/wallet/balances', { key: KEY })
     const fila = r.json.tokens[0]
     t.is(fila.raw, null, 'un "0x" pelado no es un balance: queda en null')
-    t.ok(/no devolvió un balance/.test(fila.error), 'con el motivo')
-    t.ok(/no haya un token/.test(fila.error), 'que además dice la causa más probable')
+    t.ok(/did not return a balance/.test(fila.error), 'con el motivo')
+    t.ok(/no token at that address/.test(fila.error), 'que además dice la causa más probable')
 
     // Y el panel lo dibuja como "—", no como cero.
     const pw = await import('../qvac/panel-wallet.mjs')
@@ -3608,7 +3608,7 @@ test('FASE 12: sin store cableado, /v1/wallet/tokens dice que no esta listo', as
     // 503 y no 500: es el estado de un nodo que todavia esta arrancando, y el
     // panel puede reintentar. Un 500 diria "esto se rompio".
     t.is(r.status, 503, 'durante el arranque contesta 503, no un error')
-    t.ok(/probá de nuevo/.test(r.json.error.message), 'diciendo que se puede reintentar')
+    t.ok(/try again/.test(r.json.error.message), 'diciendo que se puede reintentar')
   } finally {
     gw.setEconomic(null)
   }
@@ -3777,7 +3777,7 @@ test('FASE 12: si el explorer se cae, el historial cae al RPC y lo DICE', async 
     // LO QUE EL RESPALDO NO VE tiene que estar escrito: sin esto, una lista
     // corta se leeria como "esto es todo lo que pasó".
     t.ok(r.json.parcial, 'y que lo que se ve es un subconjunto: ' + r.json.parcial)
-    t.ok(/nativo/.test(r.json.parcial), 'nombrando que el nativo no entra por acá')
+    t.ok(/native/.test(r.json.parcial), 'nombrando que el nativo no entra por acá')
 
     // Sin el token guardado no hay decimales, y el monto NO se escala.
     const pw = await import('../qvac/panel-wallet.mjs')
@@ -4018,7 +4018,7 @@ test('FASE 12: en MAINNET no se manda sin escribir MAINNET', async (t) => {
     // El mensaje dice QUE se estaba por mandar y A DONDE: un "confirmá" pelado
     // se confirma sin leer.
     t.ok(/1 XPL/.test(sinConfirmar.json.error.message), 'el aviso dice el monto')
-    t.ok(/plata real/.test(sinConfirmar.json.error.message), 'y que es plata real')
+    t.ok(/real money/.test(sinConfirmar.json.error.message), 'y que es plata real')
     t.is(sender.pedidos.length, 0, 'y no se firmó nada')
 
     // Cotizar en mainnet NO pide confirmación: mirar cuánto sale no mueve nada.
@@ -4128,11 +4128,11 @@ test('FASE 12: un envío que no vuelve NO se reporta como fallado', async (t) =>
     // LO QUE NO PUEDE DECIR. La transacción pudo haberse difundido, y afirmar
     // que falló es la mentira que hace que alguien pague dos veces.
     const msg = r.json.error.message
-    t.is(msg.indexOf('falló'), -1, 'NUNCA dice que falló: puede haber salido')
-    t.is(msg.indexOf('no se envió'), -1, 'ni que no se envió')
-    t.ok(/NO se sabe/.test(msg), 'dice que no se sabe, que es la verdad')
+    t.is(msg.indexOf('failed'), -1, 'NUNCA dice que falló: puede haber salido')
+    t.is(msg.indexOf('not sent'), -1, 'ni que no se envió')
+    t.ok(/NOT known/.test(msg), 'dice que no se sabe, que es la verdad')
     t.ok(/explorer/.test(msg), 'y manda a mirar el explorer antes de reintentar')
-    t.ok(/dos veces/.test(msg), 'nombrando el riesgo concreto de reintentar')
+    t.ok(/twice/.test(msg), 'nombrando el riesgo concreto de reintentar')
   } finally {
     gw.setWalletSender(null)
     gw.setEconomic(null)
@@ -4159,7 +4159,7 @@ test('FASE 12: una cotización que no vuelve SÍ se puede dar por no ocurrida', 
     // Es la diferencia con el test de arriba, y es toda la razón de que sean
     // dos códigos distintos y no uno.
     t.ok(
-      /No se firmó ni se envió nada/.test(r.json.error.message),
+      /Nothing was signed and nothing was sent/.test(r.json.error.message),
       'y acá sí se puede afirmar que no pasó nada, porque cotizar no mueve nada'
     )
   } finally {
@@ -4180,7 +4180,7 @@ test('FASE 12: sin wallet abierta, enviar dice que no hay con qué firmar', asyn
     body: { destino: '0x' + 'cd'.repeat(20), monto: '1' }
   })
   t.is(r.status, 503, 'no es un 500: falta la wallet, no se rompió nada')
-  t.ok(/no tiene una wallet abierta/.test(r.json.error.message), 'y dice exactamente qué falta')
+  t.ok(/no open wallet/.test(r.json.error.message), 'y dice exactamente qué falta')
 })
 
 test('cierra el facilitator falso', async (t) => {

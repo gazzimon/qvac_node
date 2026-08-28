@@ -61,7 +61,7 @@ pyrusllm                                    # app on http://localhost:8787, open
 pyrusllm prompt "what is a p2p network?"    # 100% local inference, nothing opens
 pyrusllm serve --swarm --operator "Node A"  # start already joined to the network
 pyrusllm peers --timeout 90 --expect 1      # verify discovery against another machine
-pyrusllm wallet --crear                     # generate the payout wallet for this node
+pyrusllm wallet --create                    # generate the payout wallet for this node
 pyrusllm send ./plan.pdf                    # publish a file, get a qvac:// link
 ```
 

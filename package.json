@@ -1,7 +1,7 @@
 {
   "name": "pyrusllm",
-  "version": "0.12.0",
-  "description": "Nodo de inferencia LLM distribuido por Pear. Se instala por P2P y se actualiza solo por OTA.",
+  "version": "0.12.1",
+  "description": "LLM inference node distributed over Pear. Installs over P2P and updates itself over OTA.",
   "bin": {
     "pyrusllm": "cli.js"
   },
