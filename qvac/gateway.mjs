@@ -40,6 +40,7 @@ import * as costs from './costs.mjs'
 import * as quota from './quota.mjs'
 import { pickCandidate, estaSaturado } from './routing.mjs'
 import { DEFAULT_MODEL } from './models.mjs'
+import { InferenceProgress } from './progress.mjs'
 // Ver la nota de upstream.mjs: bajo Bare esto no es un global.
 import AbortController from 'bare-abort-controller'
 
@@ -100,6 +101,12 @@ let modeloLocal = DEFAULT_MODEL
 // llegar nunca a cerrar el <think>. 2048 son prompt + razonamiento + respuesta
 // juntos.
 let ctxLocal // undefined = el default de engine.mjs
+
+// Progreso en vivo de la generacion, en la terminal del `serve`. Apagado por
+// default: es ruido para quien solo quiere el nodo prendido, y es exactamente
+// lo que falta cuando se esta debugueando por que una respuesta tarda cuatro
+// minutos. `serve --log-inference` lo prende.
+let logInferencia = false
 
 export function modeloLocalActual() {
   return modeloLocal
@@ -925,6 +932,12 @@ async function streamFromLocal({
   onFinish
 }) {
   let started = false
+  // Arranca ANTES de `ensureRealModel()` a proposito: la carga del modelo es
+  // justamente el tramo en el que no se emite nada y en el que uno se pregunta
+  // si el proceso murio.
+  const progreso = logInferencia
+    ? new InferenceProgress({ model: node.modelId, node: node.id }).start()
+    : null
   try {
     let crudos
     if (node.kind === 'real') {
@@ -953,8 +966,10 @@ async function streamFromLocal({
       // cancelacion a mano hasta el socket del proveedor.
       if (signal.aborted) break
       started = true
+      if (progreso) progreso.chunk(delta)
       onChunk(delta)
     }
+    if (progreso) progreso.done(signal.aborted ? 'cancelled' : 'done')
     return { ok: true, started, code: null, message: null }
   } catch (err) {
     // FASE 9 / D27 — si el que corto fuimos NOSOTROS, no es una falla del
@@ -973,9 +988,11 @@ async function streamFromLocal({
     // `completar()` con su propio controlador (B16)--, asi que un proveedor
     // colgado no entra por aca.
     if (signal.aborted && started) {
+      if (progreso) progreso.done('cancelled')
       return { ok: true, started, cortado: true, code: null, message: null }
     }
     const message = String((err && err.message) || err)
+    if (progreso) progreso.done('failed')
     return {
       ok: false,
       started,
@@ -990,6 +1007,10 @@ async function streamFromLocal({
           : 'local_error',
       message
     }
+  } finally {
+    // `done()` ya frena el timer, pero un camino de salida que no lo llame
+    // dejaria un intervalo vivo por cada request. El `finally` es la garantia.
+    if (progreso) progreso.stop()
   }
 }
 
@@ -3072,12 +3093,20 @@ async function onRequest(req, res) {
   }
 }
 
-export function createGateway({ port = 8787, gpuLayers: gpu, demo = false, model, ctx } = {}) {
+export function createGateway({
+  port = 8787,
+  gpuLayers: gpu,
+  demo = false,
+  model,
+  ctx,
+  logInference = false
+} = {}) {
   gpuLayers = Number.isFinite(gpu) ? gpu : undefined
   // El modelo que carga el motor. Lo elige quien levanta el gateway, y es el
   // MISMO que `bin.mjs` anuncia en el manifiesto: una sola fuente.
   if (model) modeloLocal = model
   if (Number.isFinite(ctx)) ctxLocal = ctx
+  logInferencia = logInference === true
 
   // Sin --demo el gateway arranca VACIO: cero nodos, cero mocks. Es el estado
   // real de Fase 3 antes de que un peer se anuncie por el swarm, y hace que el

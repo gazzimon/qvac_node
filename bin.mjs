@@ -81,6 +81,11 @@ const serveCmd = command(
     '--gpu-layers <n>',
     'capas a mandar a la GPU del nodo real. 0 = todo CPU (8x mas rapido en la iGPU de la demo, ver NOTES.md)'
   ),
+  flag(
+    '--log-inference',
+    'mostrar el progreso de cada generacion: TTFT, bytes y chunks cada 5s.' +
+      ' Sin esto, una respuesta que tarda minutos se ve igual que un proceso colgado.'
+  ),
   () => {
     pending = runServe()
   }
@@ -507,8 +512,10 @@ async function startGateway(opts = {}) {
     throw new Error(`--ctx "${serveCmd.flags.ctx}" tiene que ser un entero >= 512`)
   }
 
+  const logInference = !!(serveCmd.flags && serveCmd.flags.logInference)
+
   const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
-  const server = createGateway({ port, gpuLayers, demo, model: modelo, ctx })
+  const server = createGateway({ port, gpuLayers, demo, model: modelo, ctx, logInference })
 
   const gw = await import('./qvac/gateway.mjs')
   const store = await import('./qvac/store.mjs')
