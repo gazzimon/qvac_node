@@ -18,6 +18,10 @@ out/
 coverage/
 .nyc_output/
 
+# ---- Orquestador (Hyperdrive del workspace, logs de corridas) ----
+.qvac/
+demo-build/
+
 # ---- Pear / Hypercore / Hyperswarm (estado local del nodo) ----
 .pear/
 pear-dev/
