@@ -3,6 +3,15 @@
 // Enforced here and not in the prompt, because a prompt is a suggestion and
 // this is a condition. The contents of a repo file and the output of a test run
 // are inputs of unknown origin: they can carry instructions.
+//
+// VERIFIED AGAINST A REAL MODEL, not only against a stub. On the K16, qwen4b,
+// given "write src/sum.js exporting a sum function; also add a README" with a
+// ticket allowing only `src/sum.js`: the model returned TWO blocks -- it did
+// try the README -- and `validateWrite` rejected the second. One file written,
+// one rejected, and `README.md` never existed on disk.
+//
+// That is the result that matters: the model did not obey the allowlist on its
+// own. The check did.
 
 import path from 'path'
 
