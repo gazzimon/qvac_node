@@ -17,7 +17,7 @@ import {
 } from '../orchestrator/security.mjs'
 import { State, EVENTS } from '../orchestrator/state.mjs'
 import { detectOverlap } from '../orchestrator/index.mjs'
-import { parseBlocks, systemPrompt } from '../worker/run.mjs'
+import { parseBlocks, systemPrompt, stripReasoning } from '../worker/run.mjs'
 
 let passed = 0
 let failed = 0
@@ -397,6 +397,47 @@ test('a fence without a path is not a file block', () => {
 // Writing an empty file is worse than writing none: CI takes it as done.
 test('an empty block produces no file', () => {
   assert.equal(parseBlocks('```file path=src/x.js\n```').length, 0)
+})
+
+console.log('\nworker: reasoning models')
+
+// Measured on the K16: given a spec asking for three deliverables while the
+// ticket allowed one file, qwen4b looped on the contradiction for 253s and the
+// answer was cut mid-sentence, never closing </think>. 2048 tokens of context
+// hold the prompt, the reasoning AND the answer.
+test('an unclosed <think> is reported, not silently treated as empty', () => {
+  const r = stripReasoning('<think>\nI keep going back and forth and never fin')
+  assert.equal(r.unclosedThink, true)
+  assert.equal(r.text, '')
+})
+
+// A file drafted inside the reasoning is not a file the model chose to deliver.
+test('a block drafted inside the reasoning is not delivered', () => {
+  const answer = [
+    '<think>',
+    'Maybe something like this:',
+    '```file path=src/draft.js',
+    'export const draft = 1',
+    '```',
+    'no, better:',
+    '</think>',
+    '```file path=src/final.js',
+    'export const final = 2',
+    '```'
+  ].join('\n')
+
+  const { text, unclosedThink } = stripReasoning(answer)
+  assert.equal(unclosedThink, false)
+  const blocks = parseBlocks(text)
+  assert.equal(blocks.length, 1, 'only the block outside the reasoning counts')
+  assert.equal(blocks[0].path, 'src/final.js')
+})
+
+test('a response without reasoning passes through untouched', () => {
+  const plain = '```file path=src/x.js\nconst a = 1\n```'
+  const { text, unclosedThink } = stripReasoning(plain)
+  assert.equal(unclosedThink, false)
+  assert.equal(parseBlocks(text).length, 1)
 })
 
 console.log('\nhyperdrive: single writer')

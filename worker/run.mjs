@@ -43,6 +43,27 @@ const OPENING = /^```\s*file\b[:=\s]*(?:path\s*=\s*)?['"`]?([^'"`\s]+)['"`]?\s*$
 // noise, not content.
 const CLOSING = /^```[;,.\s]*$/
 
+// Reasoning models (Qwen3 among them) wrap their scratch work in <think>…
+// </think>. Two consequences, both measured against qwen4b:
+//
+//   - A file drafted INSIDE the reasoning is not a file the model chose to
+//     deliver. Parsing it would write a draft as if it were the answer, so the
+//     reasoning is removed before looking for blocks.
+//
+//   - An UNCLOSED <think> means the model ran out of room while still thinking
+//     and never got to answer. That is a completely different failure from
+//     "wrote the wrong format", and it has a different fix (a bigger context
+//     window, or a task it does not have to agonise over), so it is reported
+//     separately instead of collapsing into "0 blocks".
+export function stripReasoning(text) {
+  const s = String(text)
+  const opens = (s.match(/<think>/gi) || []).length
+  const closes = (s.match(/<\/think>/gi) || []).length
+
+  if (opens > closes) return { text: '', unclosedThink: true }
+  return { text: s.replace(/<think>[\s\S]*?<\/think>/gi, ''), unclosedThink: false }
+}
+
 // Models return whole files, not diffs: a badly applied diff is a broken file
 // that still parses, whereas a whole file either lands or does not.
 //
@@ -317,9 +338,17 @@ export class Worker {
     // nothing at all.
     this.saveResponse(text)
 
-    const blocks = parseBlocks(text)
+    const { text: delivered, unclosedThink } = stripReasoning(text)
+    const blocks = parseBlocks(delivered)
     const mark = tokenSource === 'provider' ? '' : ' (estimated: the gateway sends no usage)'
     this.log(`the model returned ${blocks.length} block(s), ${tokens} tokens${mark}`)
+
+    if (unclosedThink) {
+      this.log('the model ran out of room while still reasoning: it never finished thinking.')
+      this.log('raise the context window (serve --ctx) or give the ticket a narrower spec.')
+      this.log(`full text in ${this.responsePath()}`)
+      return { ok: false, reason: 'reasoning never closed; no answer was produced' }
+    }
 
     if (blocks.length === 0) {
       this.log('no file blocks: nothing to write')

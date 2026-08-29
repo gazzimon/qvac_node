@@ -93,6 +93,14 @@ let gpuLayers // undefined = deja decidir al SDK
 // Ahora entra por `createGateway({ model })`, que es tambien lo que se anuncia.
 let modeloLocal = DEFAULT_MODEL
 
+// La ventana de contexto del motor. Antes NO se pasaba, asi que el modelo se
+// cargaba siempre con el default de 2048 -- y eso alcanza para un chat corto
+// pero no para un modelo "thinking": medido con qwen4b, el razonamiento se
+// comio la ventana entera y la respuesta se corto a mitad de una oracion, sin
+// llegar nunca a cerrar el <think>. 2048 son prompt + razonamiento + respuesta
+// juntos.
+let ctxLocal // undefined = el default de engine.mjs
+
 export function modeloLocalActual() {
   return modeloLocal
 }
@@ -104,7 +112,11 @@ function ensureRealModel() {
       const t0 = Date.now()
       engineMod = engineMod || (await import('./engine.mjs'))
       const { modelSrc } = await engineMod.resolveModel(modeloLocal)
-      realModelId = await engineMod.loadModel({ modelSrc, gpuLayers })
+      realModelId = await engineMod.loadModel({
+        modelSrc,
+        gpuLayers,
+        ...(Number.isFinite(ctxLocal) ? { ctxSize: ctxLocal } : {})
+      })
 
       // La carga perezosa es la explicacion de casi todo TTFT anomalo: el
       // primer chat despues de arrancar paga la descarga y la carga del
@@ -3060,11 +3072,12 @@ async function onRequest(req, res) {
   }
 }
 
-export function createGateway({ port = 8787, gpuLayers: gpu, demo = false, model } = {}) {
+export function createGateway({ port = 8787, gpuLayers: gpu, demo = false, model, ctx } = {}) {
   gpuLayers = Number.isFinite(gpu) ? gpu : undefined
   // El modelo que carga el motor. Lo elige quien levanta el gateway, y es el
   // MISMO que `bin.mjs` anuncia en el manifiesto: una sola fuente.
   if (model) modeloLocal = model
+  if (Number.isFinite(ctx)) ctxLocal = ctx
 
   // Sin --demo el gateway arranca VACIO: cero nodos, cero mocks. Es el estado
   // real de Fase 3 antes de que un peer se anuncie por el swarm, y hace que el

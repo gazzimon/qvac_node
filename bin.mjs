@@ -73,6 +73,11 @@ const serveCmd = command(
       ' Es el que se anuncia en el manifiesto Y el que carga el motor: una sola fuente.'
   ),
   flag(
+    '--ctx <n>',
+    `ventana de contexto del modelo (default ${DEFAULT_CTX_SIZE}). Son prompt + razonamiento +` +
+      ' respuesta JUNTOS: un modelo "thinking" con 2048 se queda sin lugar antes de contestar.'
+  ),
+  flag(
     '--gpu-layers <n>',
     'capas a mandar a la GPU del nodo real. 0 = todo CPU (8x mas rapido en la iGPU de la demo, ver NOTES.md)'
   ),
@@ -497,8 +502,13 @@ async function startGateway(opts = {}) {
   // que anunciar un modelo que el motor despues no puede cargar.
   const modelo = modeloElegido()
 
+  const ctx = serveCmd.flags && serveCmd.flags.ctx ? Number(serveCmd.flags.ctx) : undefined
+  if (ctx !== undefined && (!Number.isFinite(ctx) || ctx < 512)) {
+    throw new Error(`--ctx "${serveCmd.flags.ctx}" tiene que ser un entero >= 512`)
+  }
+
   const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
-  const server = createGateway({ port, gpuLayers, demo, model: modelo })
+  const server = createGateway({ port, gpuLayers, demo, model: modelo, ctx })
 
   const gw = await import('./qvac/gateway.mjs')
   const store = await import('./qvac/store.mjs')
