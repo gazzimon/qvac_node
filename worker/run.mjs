@@ -260,11 +260,18 @@ export class Worker {
       max_tokens: this.harness.remaining().tokens
     }
 
-    const res = await fetch(`${this.gateway}/v1/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body)
-    })
+    const url = `${this.gateway}/v1/chat/completions`
+
+    // `fetch` throws a bare "fetch failed" when it cannot connect, with the
+    // real reason buried in `.cause`. On its own that message says neither what
+    // failed nor what it was talking to — which is the worst kind of error to
+    // hand someone whose gateway is simply not running.
+    let res
+    try {
+      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
+    } catch (err) {
+      throw describeFetchFailure(err, url)
+    }
 
     if (!res.ok) {
       const err = new Error(`gateway returned ${res.status}: ${await res.text()}`)
@@ -299,7 +306,13 @@ export class Worker {
   async resolveModel() {
     if (this.model) return this.model
     const headers = this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}
-    const res = await fetch(`${this.gateway}/v1/models`, { headers })
+    const url = `${this.gateway}/v1/models`
+    let res
+    try {
+      res = await fetch(url, { headers })
+    } catch (err) {
+      throw describeFetchFailure(err, url)
+    }
     if (!res.ok) throw new Error(`could not read the catalogue: ${res.status}`)
     const data = await res.json()
     const first = data.data?.[0]?.id
@@ -453,6 +466,28 @@ export class Worker {
     fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
     this.log(`log: ${file}`)
   }
+}
+
+// Turns undici's "fetch failed" into something that names the target and the
+// actual reason, and — for a refused connection — says what to check. The
+// underlying code is preserved on the error so the harness can still classify
+// it as transient.
+export function describeFetchFailure(err, url) {
+  const cause = err && err.cause ? err.cause : null
+  const code = (cause && cause.code) || err.code || null
+
+  let hint = ''
+  if (code === 'ECONNREFUSED') {
+    hint = ` — nothing is listening there. Is the node up? (\`pyrusllm serve\`)`
+  } else if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+    hint = ' — the host does not resolve'
+  }
+
+  const reason = (cause && cause.message) || err.message || String(err)
+  const wrapped = new Error(`cannot reach the gateway at ${url}: ${reason}${hint}`)
+  wrapped.code = code
+  wrapped.cause = err
+  return wrapped
 }
 
 function parseArgv(argv) {

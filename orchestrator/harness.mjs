@@ -190,13 +190,29 @@ export function isTimeout(err) {
   return !!err && /timed out after \d+ms/.test(err.message || '')
 }
 
+const TRANSIENT_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'EAI_AGAIN',
+  'UND_ERR_SOCKET'
+])
+
 export function isTransient(err) {
   if (!err) return false
   if (typeof err.status === 'number') return TRANSIENT_STATUS.has(err.status)
-  if (err.code === 'ECONNRESET' || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
-    return true
+
+  // `fetch` wraps the real reason in `.cause`, so a refused connection arrives
+  // as a bare "fetch failed" with `err.code` undefined and the code one level
+  // down. Checking only the top level missed every connection failure — a
+  // gateway restarting mid-run was reported as a hard error instead of being
+  // retried.
+  for (let e = err, depth = 0; e && depth < 4; e = e.cause, depth++) {
+    if (e.code && TRANSIENT_CODES.has(e.code)) return true
   }
-  return /timed out|timeout|socket hang up|network/i.test(err.message || '')
+
+  return /timed out|timeout|socket hang up|network|fetch failed/i.test(err.message || '')
 }
 
 function backoffMs(attempt) {

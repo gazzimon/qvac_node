@@ -17,7 +17,12 @@ import {
 } from '../orchestrator/security.mjs'
 import { State, EVENTS } from '../orchestrator/state.mjs'
 import { detectOverlap } from '../orchestrator/index.mjs'
-import { parseBlocks, systemPrompt, stripReasoning } from '../worker/run.mjs'
+import {
+  parseBlocks,
+  systemPrompt,
+  stripReasoning,
+  describeFetchFailure
+} from '../worker/run.mjs'
 
 let passed = 0
 let failed = 0
@@ -184,6 +189,30 @@ test('the per-tool timeout must be smaller than the per-task one', () => {
 test('a 500 is transient; a 400 is not', () => {
   assert.ok(isTransient(Object.assign(new Error('x'), { status: 500 })))
   assert.ok(!isTransient(Object.assign(new Error('x'), { status: 400 })))
+})
+
+// Measured: with the gateway down, the worker died with a bare "fetch failed".
+// `fetch` hides the real code in `.cause`, so checking only the top level
+// missed every connection failure — a gateway restarting mid-run was reported
+// as a hard error instead of being retried.
+test('a refused connection is transient even though fetch hides the code', () => {
+  const refused = new TypeError('fetch failed')
+  refused.cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8787'), {
+    code: 'ECONNREFUSED'
+  })
+  assert.ok(isTransient(refused))
+})
+
+test('an unreachable gateway is described with its target and a hint', () => {
+  const refused = new TypeError('fetch failed')
+  refused.cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8787'), {
+    code: 'ECONNREFUSED'
+  })
+  const described = describeFetchFailure(refused, 'http://localhost:8787/v1/chat/completions')
+  assert.match(described.message, /localhost:8787/, 'it has to name what it could not reach')
+  assert.match(described.message, /serve/, 'and say what to check')
+  assert.equal(described.code, 'ECONNREFUSED')
+  assert.ok(isTransient(described), 'the wrapper must stay classifiable')
 })
 
 await testAsync('a hung tool fails on timeout without hanging the task', async () => {
