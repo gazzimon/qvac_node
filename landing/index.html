@@ -236,10 +236,11 @@
   .roles h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); }
   .roles .cards {
     margin-top: clamp(2.25rem, 5vw, 3.25rem);
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
     background: var(--line); border: 1px solid var(--line);
   }
-  @media (max-width: 760px) { .roles .cards { grid-template-columns: 1fr; } }
+  @media (max-width: 980px) { .roles .cards { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .roles .cards { grid-template-columns: 1fr; } }
   .role {
     background: var(--surface); padding: 1.9rem 1.7rem;
     display: flex; flex-direction: column; gap: .9rem;
@@ -248,48 +249,94 @@
   .role h3 { font-size: 1.15rem; }
   .role p { font-size: .92rem; }
 
-  /* ---------------------------------------------------------------- proof */
-  .proof { background: var(--surface); }
-  .proof .grid {
-    display: grid; grid-template-columns: 1.1fr 1fr; gap: clamp(2rem, 5vw, 4rem);
-    align-items: start;
+  /* Miniaturas de las 4 pantallas reales. No son capturas: es el mismo HTML
+     de la app, recreado a escala, con los colores fijos que la UI siempre
+     usa — oscura sea cual sea el tema del landing. Reutiliza el idioma
+     visual de la ventana de .term (barra + puntos) para que no se sientan
+     una pieza importada. */
+  .role .shot {
+    margin: -1.9rem -1.7rem 0; border-bottom: 1px solid var(--line);
+    background: #0b0d12;
   }
-  @media (max-width: 760px) { .proof .grid { grid-template-columns: 1fr; } }
-  .proof h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); max-width: 18ch; }
-  .proof p.lede { margin-top: 1.1rem; }
-  .facts { margin-top: 1.75rem; display: grid; gap: 1.1rem; }
-  .fact { display: flex; gap: .9rem; align-items: baseline; }
-  .fact .n { font-family: "IBM Plex Mono", monospace; color: var(--network); font-size: .82rem; flex: none; width: 2ch; }
-  .fact p { color: var(--ink); font-size: .95rem; }
-  .fact p span { color: var(--mute); }
-
-  /* -------------------------------------------------------------- payments */
-  .pay { background: var(--surface); }
-  .pay .grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: clamp(2rem, 5vw, 4rem);
-    align-items: start;
+  .shot .bar {
+    display: flex; align-items: center; gap: .4rem;
+    padding: .55rem .75rem; border-bottom: 1px solid #1c212b; background: #12151c;
   }
-  @media (max-width: 820px) { .pay .grid { grid-template-columns: 1fr; } }
-  .pay h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); max-width: 20ch; }
-  .pay .lede { margin-top: 1.1rem; }
-  .pay .lede + .lede { margin-top: 1rem; }
-  .pay .lede b { color: var(--signal); font-weight: 600; }
-  .code-block {
-    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
-    overflow: hidden;
+  .shot .bar i { width: .38rem; height: .38rem; border-radius: 50%; background: #262b38; display: block; }
+  .shot .bar span {
+    margin-left: .3rem; font-family: "IBM Plex Mono", monospace;
+    font-size: .62rem; color: #5b6172;
   }
-  .code-block .bar {
-    font-family: "IBM Plex Mono", monospace; font-size: .7rem;
-    letter-spacing: .08em; text-transform: uppercase; color: var(--mute);
-    padding: .6rem .95rem; border-bottom: 1px solid var(--line);
+  .shot .view {
+    padding: .6rem .7rem .75rem; display: flex; flex-direction: column; gap: .5rem;
   }
-  .code-block pre {
-    margin: 0; padding: 1.1rem 1.25rem 1.2rem;
-    font-family: "IBM Plex Mono", monospace; font-size: .76rem; line-height: 1.75;
-    color: var(--ink); overflow-x: auto;
+  .shot .snav {
+    display: flex; align-items: center; gap: .55rem; padding-bottom: .5rem;
+    border-bottom: 1px solid #1c212b; margin-bottom: -0.05rem;
   }
-  .code-block .cm { color: var(--mute); }
-  .code-block + p.fine { margin-top: .9rem; }
+  .shot .slogo { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: .68rem; color: #5fa8ff; }
+  .shot .snav a { font-size: .58rem; color: #5b6172; }
+  .shot .snav a.on { color: #e8eaf0; }
+  .shot .slive {
+    margin-left: auto; display: flex; align-items: center; gap: .25rem;
+    font-size: .5rem; color: #3ecf6e; white-space: nowrap;
+  }
+  .shot .slive i { width: .3rem; height: .3rem; border-radius: 50%; background: #3ecf6e; display: block; }
+  .shot .sh { font-size: .82rem; font-weight: 700; color: #e8eaf0; }
+  .shot .ssub { font-size: .56rem; color: #5b6172; line-height: 1.45; }
+  .shot .srow { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+  .shot .scard {
+    background: #12151c; border: 1px solid #1c212b; border-radius: 4px;
+    padding: .4rem .5rem; display: flex; flex-direction: column; gap: .28rem; flex: 1; min-width: 0;
+  }
+  .shot .sbadge {
+    font-size: .46rem; padding: .06rem .32rem; border-radius: 6px; display: inline-block; width: fit-content;
+  }
+  .shot .sbadge.ok { color: #3ecf6e; background: #0f2016; border: 1px solid #1f4d33; }
+  .shot .sbadge.amber { color: #ffb545; background: #20180f; border: 1px solid #4d3a1f; }
+  .shot .sbadge.mute { color: #5b6172; background: #171b24; border: 1px solid #262b38; }
+  .shot .spill {
+    font-size: .46rem; color: #8891a6; background: #171b24; border: 1px solid #262b38;
+    border-radius: 6px; padding: .06rem .34rem;
+  }
+  .shot .sname { font-size: .58rem; font-weight: 600; color: #e8eaf0; }
+  .shot .smodel { font-size: .5rem; color: #8891a6; }
+  .shot .srate { font-size: .56rem; font-weight: 700; color: #e8eaf0; }
+  .shot .sbtn {
+    font-size: .5rem; color: #e8eaf0; background: #171b24; border: 1px solid #262b38;
+    border-radius: 3px; padding: .18rem .4rem;
+  }
+  .shot .sbtn.primary { background: #3b6fd1; border-color: #3b6fd1; color: #fff; }
+  .shot .sbtn.on { color: #5fa8ff; }
+  .shot .sinput {
+    font-size: .52rem; color: #5b6172; background: #0f1219; border: 1px solid #262b38;
+    border-radius: 4px; padding: .3rem .45rem; flex: 1;
+  }
+  .shot .sfield label { font-size: .5rem; color: #8891a6; display: block; margin-bottom: .18rem; }
+  .shot .sfield .box {
+    font-size: .54rem; color: #e8eaf0; background: #0f1219; border: 1px solid #262b38;
+    border-radius: 4px; padding: .32rem .45rem;
+  }
+  .shot .sdrop { background: #12151c; border: 1px solid #1c212b; border-radius: 4px; overflow: hidden; }
+  .shot .sopt { padding: .3rem .5rem; font-size: .52rem; color: #8891a6; }
+  .shot .sopt.hl { background: #1c3a63; color: #dbe8fb; }
+  .shot .wallet-card {
+    background: #12151c; border: 1px solid #1c212b; border-radius: 5px;
+    padding: .5rem .6rem; display: flex; flex-direction: column; gap: .4rem; align-self: center; width: 84%;
+  }
+  .shot .waddr { display: flex; align-items: center; gap: .3rem; }
+  .shot .wavatar {
+    width: .8rem; height: .8rem; border-radius: 50%; background: #1c3a63; color: #5fa8ff;
+    font-size: .42rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .shot .wmono { font-family: "IBM Plex Mono", monospace; font-size: .54rem; color: #e8eaf0; }
+  .shot .wbal { font-size: .92rem; font-weight: 700; color: #e8eaf0; text-align: center; }
+  .shot .wsub { font-size: .48rem; color: #5b6172; text-align: center; }
+  .shot .wtabs {
+    display: flex; gap: .5rem; padding-top: .35rem; border-top: 1px solid #1c212b; margin-top: .1rem;
+  }
+  .shot .wtabs span { font-size: .48rem; color: #5b6172; }
+  .shot .wtabs span.on { color: #5fa8ff; }
 
   /* -------------------------------------------------------------- install */
   .install { text-align: left; }
@@ -385,7 +432,7 @@
 <section class="problem">
   <div class="wrap">
     <p class="eyebrow reveal">The problem</p>
-    <h2 class="reveal" style="margin-top:.9rem">Today, "using AI" means sending your prompt to somebody else’s machine.</h2>
+    <h2 class="reveal" style="margin-top:.9rem">Today, "using AI" means logging into somebody else’s server — one that remembers everything you’ve asked it.</h2>
     <div class="lines reveal">
       <p>A handful of companies, in a handful of datacenters, set the <b>price, the rate limits
         and the terms</b> — and change them without notice. If one goes down or rewrites the
@@ -394,8 +441,8 @@
         <b>per token</b>, and the seller controls how many tokens get generated.</p>
       <p>You <b>can’t verify which model</b> answered you, or audit its quality against what
         you were promised.</p>
-      <p>Meanwhile, most machines with a GPU or a decent CPU sit <b>powered on and idle</b>
-        for most of the day.</p>
+      <p>Meanwhile, the bar to join is low — <b>a GPU, 32GB of RAM, a little free disk
+        space</b> — and most machines that already clear it just sit there, idle.</p>
     </div>
   </div>
 </section>
@@ -405,22 +452,27 @@
     <div class="grid">
       <div>
         <p class="eyebrow reveal">What it is</p>
-        <h2 class="reveal" style="margin-top:.9rem">The Airbnb of AI compute — or, for anyone who knows the space, a peer-to-peer OpenRouter.</h2>
-        <p class="lede reveal">There is no PyrusLLM server in the middle. Every machine that
-          installs the CLI runs its own model, signs a manifest and announces it on a
-          Hyperswarm topic. Each node is both buyer and seller.</p>
+        <h2 class="reveal" style="margin-top:.9rem">The Airbnb of AI compute. Your machine is the listing.</h2>
+        <p class="lede reveal">Pyrus is the pear tree. A Pear is one machine on it — any server
+          capable of running AI, idle or not, on your own network. Join the orchard and it
+          becomes a live node, running inference from minute one.</p>
+        <p class="lede reveal">There is no PyrusLLM server in the middle. Every node on the
+          network runs a local LLM with QVAC, signs a manifest with Ed25519 and announces
+          itself. Each one is both host and guest — it can serve requests, share files with
+          the rest of the network over Hyperdrive, and send requests of its own.</p>
         <p class="lede reveal">A gateway compatible with the OpenAI API routes each request to
-          the node it belongs to — yours, or another operator’s on the network — and records
-          what was consumed so it can be settled in batches.</p>
+          the node it belongs to — yours, or another operator’s — and meters what got consumed
+          so it can be settled in batches. Reach it from your terminal, Telegram, WhatsApp, Open
+          WebUI, or anything that already speaks OpenAI.</p>
         <p class="seealso reveal">The economics, end to end:
           <a href="https://fiuidao.web.app/docs/api-economics.html" target="_blank" rel="noopener">→ quotas, caps, receipts &amp; x402</a></p>
       </div>
       <div class="reveal">
         <div class="flow">
-          <div class="row"><span class="k">01 node</span><span class="v">runs a local LLM with QVAC</span></div>
-          <div class="row"><span class="k">02 signing</span><span class="v">announces a signed manifest on Hyperswarm</span></div>
-          <div class="row"><span class="k">03 gateway</span><span class="v">exposes /v1/chat/completions, OpenAI format</span></div>
-          <div class="row"><span class="k">04 client</span><span class="v">your terminal, a bot, Open WebUI — unmodified</span></div>
+          <div class="row"><span class="k">01 join</span><span class="v">your server becomes a node on the orchard</span></div>
+          <div class="row"><span class="k">02 sign</span><span class="v">announces a signed manifest on Hyperswarm</span></div>
+          <div class="row"><span class="k">03 serve</span><span class="v">exposes /v1/chat/completions, OpenAI format</span></div>
+          <div class="row"><span class="k">04 spend</span><span class="v">your terminal, a bot, Open WebUI — unmodified</span></div>
         </div>
         <div class="endpoints">
           <div class="ep"><span class="m">GET</span><span class="p">/v1/models</span></div>
@@ -436,31 +488,128 @@
   <div class="wrap">
     <div class="head">
       <p class="eyebrow reveal">The app</p>
-      <h2 class="reveal" style="margin-top:.9rem">It opens on a chat. The network is what answers.</h2>
+      <h2 class="reveal" style="margin-top:.9rem">Four panels, one server. It opens on a chat — the network is what answers.</h2>
       <p class="lede reveal" style="margin-top:1.1rem">Your node starts switched off, and the
-        first thing you see is a single button. Launching it puts your machine on the network —
-        and that is what gets you access to everyone else’s. Until then your own model
-        still answers; the network does not.</p>
+        first thing you see is a single button. Launching it puts your server on the network —
+        and that is what gets you access to everyone else’s. Point a browser at it from
+        anywhere on your LAN; there is nothing to install on the machine you are looking from.</p>
     </div>
     <div class="cards reveal">
       <div class="role">
+        <div class="shot" aria-hidden="true">
+          <div class="bar"><i></i><i></i><i></i><span>pyrusllm.local/</span></div>
+          <div class="view">
+            <div class="snav">
+              <span class="slogo">PyrusLLM</span>
+              <a class="on">Chat</a><a>My Node</a><a>Wallet</a><a>Network</a>
+              <span class="slive"><i></i>Live · serving</span>
+            </div>
+            <p class="ssub">Ask your node anything. Every answer says which machine produced it.</p>
+            <div class="sdrop">
+              <div class="sopt">Llama 3.2 1B Instruct — this machine only</div>
+              <div class="sopt hl">Auto — best available node</div>
+              <div class="sopt">PyrusLLM K16 — 0% busy</div>
+            </div>
+            <div class="srow">
+              <div class="sinput">Ask anything…</div>
+              <span class="sbtn primary">Send</span>
+            </div>
+          </div>
+        </div>
         <span class="path mono">/</span>
         <h3>Chat</h3>
         <p>Ask, and every answer names the machine that produced it — who served it,
           time to first token, tokens per second. Or tick <em>local only</em> and nothing
-          leaves your machine.</p>
+          leaves the server.</p>
       </div>
       <div class="role">
-        <span class="path mono">/node</span>
-        <h3>My Node</h3>
-        <p>Your own machine as a provider: what it publishes, what it charges, how loaded
-          it is, which model it serves.</p>
-      </div>
-      <div class="role">
+        <div class="shot" aria-hidden="true">
+          <div class="bar"><i></i><i></i><i></i><span>pyrusllm.local/network</span></div>
+          <div class="view">
+            <div class="snav">
+              <span class="slogo">PyrusLLM</span>
+              <a>Chat</a><a>My Node</a><a>Wallet</a><a class="on">Network</a>
+              <span class="slive"><i></i>Live</span>
+            </div>
+            <p class="sh" style="margin:0">The network</p>
+            <p class="ssub">Every node this machine knows about, and what it charges.</p>
+            <div class="srow">
+              <div class="scard">
+                <span class="sbadge mute">this machine</span>
+                <span class="sname">PyrusLLM K16</span>
+                <span class="smodel">Llama 3.2 1B</span>
+                <span class="srate">1M QVAC</span>
+                <span class="sbadge ok">Available</span>
+              </div>
+              <div class="scard">
+                <span class="sbadge ok">verified P2P peer</span>
+                <span class="sname">Gustavo — Windows</span>
+                <span class="smodel">Llama 3.2 1B</span>
+                <span class="srate">1M QVAC</span>
+                <span class="sbadge ok">Available</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <span class="path mono">/network</span>
         <h3>Network</h3>
         <p>Everyone else. Price, tags and availability per node, and <em>Connect</em> to
           use any of them from your own OpenAI client.</p>
+      </div>
+      <div class="role">
+        <div class="shot" aria-hidden="true">
+          <div class="bar"><i></i><i></i><i></i><span>pyrusllm.local/node</span></div>
+          <div class="view">
+            <div class="snav">
+              <span class="slogo">PyrusLLM</span>
+              <a>Chat</a><a class="on">My Node</a><a>Wallet</a><a>Network</a>
+              <span class="slive"><i></i>Live</span>
+            </div>
+            <p class="sh" style="margin:0">My node</p>
+            <div class="scard">
+              <span class="sbadge ok">online</span>
+              <span class="sname">Llama 3.2 1B Instruct</span>
+              <span class="smodel">Current load: 0% (0/3 active requests)</span>
+            </div>
+            <div class="sfield"><label>Published rate</label><div class="box">1000000 QVAC / per 1m completion tokens</div></div>
+            <div class="sfield"><label>Published name</label><div class="box">Llama 3.2 1B Instruct</div></div>
+          </div>
+        </div>
+        <span class="path mono">/node</span>
+        <h3>My Node</h3>
+        <p>Your server as a provider: what it publishes, what it charges, how loaded
+          it is, which model it serves.</p>
+      </div>
+      <div class="role">
+        <div class="shot" aria-hidden="true">
+          <div class="bar"><i></i><i></i><i></i><span>pyrusllm.local/wallet</span></div>
+          <div class="view">
+            <div class="snav">
+              <span class="slogo">PyrusLLM</span>
+              <a>Chat</a><a>My Node</a><a class="on">Wallet</a><a>Network</a>
+              <span class="slive"><i></i>Live</span>
+            </div>
+            <div class="wallet-card">
+              <div class="waddr">
+                <span class="wavatar">P</span>
+                <span class="wmono">0xDc0f…3404</span>
+                <span class="sbadge amber" style="margin-left:auto">plasma-testnet</span>
+              </div>
+              <div class="wbal">0.014 XPL</div>
+              <div class="wsub">signed by the node — never leaves the process</div>
+              <div class="srow">
+                <span class="sbtn">↓ Deposit</span>
+                <span class="sbtn primary">↑ Send</span>
+                <span class="sbtn">⇄ Swap</span>
+              </div>
+              <div class="wtabs"><span class="on">Assets</span><span>Deposit</span><span>Stake</span><span>History</span></div>
+            </div>
+          </div>
+        </div>
+        <span class="path mono">/wallet</span>
+        <h3>Wallet</h3>
+        <p>What the node earns, in one place. Balance, send, deposit, and every
+          settlement it has collected — on Plasma, real chain, real receipts.</p>
       </div>
     </div>
   </div>
@@ -471,98 +620,17 @@
     <div class="grid">
       <div>
         <p class="eyebrow reveal">What we can and can’t promise</p>
-        <h2 class="reveal" style="margin-top:.9rem">The honest version of the trust story.</h2>
-        <p class="lede reveal">An inference market has a blind spot: whatever matches a request
-          to a node sees both ends, and whatever meters consumption controls the money. That
-          layer runs so that <b>no corporation aggregates your data at scale</b> — but we won’t
-          oversell it. While it answers, the node reads your prompt in plaintext.</p>
-        <p class="lede reveal">Closing that last leg takes confidential inference. The compute
-          overhead is now measured at <b>4–8%</b> (arXiv:2509.18886), and its limits are known:
-          memory and the interconnect stay unencrypted, and timing still leaks structure. It is
-          the next step, not a shipped feature.</p>
-        <p class="lede reveal">Model substitution is detectable and on the roadmap (phase 10.5).
-          Quantization is not — nobody has a reliable detector (arXiv:2504.04715) — so it is
-          covered the economic way: a signed declaration, a stake, and arbitration, the role
-          DeServe (arXiv:2501.14784) gives to optimistic verification. Economic, not technical,
-          and we say so.</p>
+        <h2 class="reveal" style="margin-top:.9rem">The honest version.</h2>
+        <p class="lede reveal">Whoever matches a request to a machine sees both ends. Whoever meters consumption controls the money. Today those tasks have an owner — us — and the plan is for them to stop having one: they move inside an enclave, where we couldn’t look even if we wanted to.</p>
+        <p class="lede reveal">What you can take as true today: your prompt doesn’t pass through any corporation that aggregates it at scale. What you can’t: <b>the node that answers you reads it in plaintext.</b> To infer, you have to read. Closing that needs confidential inference, which already has measured overhead —<b>4–8%</b>— and known limits: memory and the interconnect stay unencrypted, and timing still leaks structure.</p>
+        <p class="lede reveal">Model substitution is detectable. Quantization is not: that’s covered with a signed declaration, a stake, and arbitration. <b>Economic, not technical</b>, and we say so.</p>
+        <p style="margin-top: 1.4rem; font-size: 0.85em; color: var(--mute); line-height: 1.5;">Measured overhead: arXiv:2509.18886 · Quantization detection: arXiv:2504.04715 · Optimistic verification: arXiv:2501.14784</p>
       </div>
       <div class="flow reveal">
         <div class="row"><span class="k">01 matching</span><span class="v">which node serves each request</span></div>
         <div class="row"><span class="k">02 metering</span><span class="v">tokens consumed and price applied</span></div>
         <div class="row"><span class="k">03 settlement</span><span class="v">batched receipts to each provider</span></div>
         <div class="row"><span class="k">04 reputation</span><span class="v">measured performance, not self-declared</span></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="proof">
-  <div class="wrap">
-    <div class="grid">
-      <div>
-        <p class="eyebrow reveal">Why it is real</p>
-        <h2 class="reveal" style="margin-top:.9rem">Genuinely compatible, not a demo wearing an API’s name.</h2>
-        <p class="lede reveal">/v1/models and /v1/chat/completions follow the OpenAI format to
-          the letter — any existing client hits them without a single line changed.
-          What belongs to the marketplace (price, operator, load) lives apart, in
-          /v1/nodes, so the protocol stays clean.</p>
-        <div class="facts reveal">
-          <div class="fact"><span class="n">→</span><p>The installed copy <span>updates itself over P2P in ~10 seconds</span>, with no user action.</p></div>
-          <div class="fact"><span class="n">→</span><p>Files travel over Hyperdrive: <span>every block is verified against the merkle root</span> on arrival.</p></div>
-          <div class="fact"><span class="n">→</span><p>The distribution channel <span>is the P2P network itself</span> — nothing to clone, nothing to build.</p></div>
-        </div>
-      </div>
-      <div class="endpoints reveal" style="margin-top:0">
-        <div class="ep"><span class="m">GET</span><span class="p">/v1/models</span></div>
-        <div class="ep"><span class="m">POST</span><span class="p">/v1/chat/completions</span></div>
-        <div class="ep"><span class="m">GET</span><span class="p">/v1/nodes</span></div>
-        <div class="ep"><span class="m">POST</span><span class="p">/v1/nodes/:id</span></div>
-        <div class="ep"><span class="m">GET</span><span class="p">/v1/files</span></div>
-        <div class="ep"><span class="m">POST</span><span class="p">/v1/files/upload</span></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="pay" id="payments">
-  <div class="wrap">
-    <div class="grid">
-      <div>
-        <p class="eyebrow reveal">Payments</p>
-        <h2 class="reveal" style="margin-top:.9rem">Paid in the request path, in a stablecoin.</h2>
-        <p class="lede reveal">A request without a credential comes back <b>402</b>, with an
-          <span class="mono">accepts[]</span> array built from the provider’s signed manifest.
-          The payee is the provider — never the gateway. Payment is verified synchronously,
-          before the first token.</p>
-        <p class="lede reveal">Why a stablecoin and not a token: the rail is <b>USDT0</b>, so a
-          user is never exposed to the volatility of a project token. A native token, if there
-          is one, lives in the incentive layer — future work.</p>
-        <p class="lede reveal">Proof is a signed attestation next to the receipt:
-          <span class="mono">/node</span> recomputes the output hash in the browser and checks
-          it against the node’s manifest key.</p>
-      </div>
-      <div class="reveal">
-        <div class="code-block">
-          <div class="bar">402 → receipt + attestation</div>
-          <pre>{
-  "receipt": {
-    "scheme":  "exact",
-    "network": "usdt0",
-    "payTo":   "0x9a…c1",   <span class="cm">// provider address, from the signed manifest</span>
-    "value":   "1875",      <span class="cm">// 6-decimal USDT0 units — 0.001875</span>
-    "auth":    "EIP-3009 transferWithAuthorization"
-  },
-  "attestation": {
-    "model":      "llama-3.1-8b-q4",
-    "tokensOut":  375,
-    "outputHash": "blake2b-256:9c1d…7af2",  <span class="cm">// over the JCS-canonical body</span>
-    "sig":        "ed25519:6b…09"           <span class="cm">// node manifest key</span>
-  }
-}</pre>
-        </div>
-        <p class="fine">Caveat: today, P2P and local requests cost zero, and nothing has
-          launched on mainnet. The verifiable artifact is the signed EIP-3009 receipt and the
-          attestation — not an on-chain transaction hash.</p>
       </div>
     </div>
   </div>
