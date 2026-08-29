@@ -47,6 +47,8 @@ export class Harness {
 
     this.steps = 0
     this.tokensUsed = 0
+    this.tokensEstimados = 0
+    this.fuentes = new Set()
     this.startedAt = Date.now()
     this.events = []
   }
@@ -71,9 +73,16 @@ export class Harness {
     }
   }
 
-  spend({ tokens = 0 } = {}) {
+  // `tokensFuente` viaja con el numero y no se pierde: `proveedor` es lo que
+  // conto el modelo, `gateway` es una estimacion nuestra por bytes. Un tope
+  // calculado sobre estimaciones sigue siendo util, pero el resumen tiene que
+  // decir cual de los dos es -- es la misma distincion que el rastro de ruteo
+  // ya hace en este repo, y por el mismo motivo.
+  spend({ tokens = 0, tokensFuente = null } = {}) {
     this.steps++
     this.tokensUsed += tokens
+    if (tokensFuente === 'gateway') this.tokensEstimados += tokens
+    if (tokensFuente) this.fuentes.add(tokensFuente)
   }
 
   remaining() {
@@ -167,6 +176,8 @@ export class Harness {
       steps: this.steps,
       maxSteps: this.maxSteps,
       tokensUsed: this.tokensUsed,
+      tokensEstimados: this.tokensEstimados,
+      tokensFuentes: [...this.fuentes],
       maxTokens: this.maxTokens,
       elapsedMs: Date.now() - this.startedAt,
       events: this.events.length

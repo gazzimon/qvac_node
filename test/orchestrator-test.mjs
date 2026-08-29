@@ -196,6 +196,26 @@ await testAsync('no se reintenta un error determinista', async () => {
 // Medido: la primera request contra qwen4b baja 2.3 GB y carga el modelo, todo
 // dentro del mismo request. Un techo de 30s ahí no mide "se colgó", mide
 // "estaba bajando". Y reintentarlo tres veces es pedirle al nodo el triple.
+// Medido cuatro veces, con dos modelos: el gateway de este proyecto NO emite
+// `usage` — está documentado y decidido en la cabecera de gateway.mjs. Sin un
+// plan B el tope contaba cero y no cortaba nunca; un tope que no mide no es un
+// tope. Se estima, y el resumen dice que fue estimado.
+test('el gasto estimado se suma pero queda marcado como estimado', () => {
+  const h = new Harness({})
+  h.spend({ tokens: 100, tokensFuente: 'gateway' })
+  h.spend({ tokens: 50, tokensFuente: 'proveedor' })
+  const s = h.summary()
+  assert.equal(s.tokensUsed, 150, 'el tope cuenta las dos fuentes')
+  assert.equal(s.tokensEstimados, 100, 'y sabe cuánto de eso fue estimado')
+  assert.deepEqual(s.tokensFuentes.sort(), ['gateway', 'proveedor'])
+})
+
+test('un tope alimentado con estimaciones igual corta', () => {
+  const h = new Harness({ maxTokens: 100 })
+  h.spend({ tokens: 120, tokensFuente: 'gateway' })
+  assert.throws(() => h.checkBudget(), (e) => e.kind === 'tokens')
+})
+
 test('el default de timeout es de inferencia, no de filesystem', () => {
   const h = new Harness({})
   assert.ok(h.toolTimeoutMs >= 300000, `toolTimeout=${h.toolTimeoutMs}, muy corto para una carga en frío`)

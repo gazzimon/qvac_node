@@ -231,12 +231,14 @@ export class Worker {
     const headers = { 'content-type': 'application/json' }
     if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`
 
+    const mensajes = [
+      { role: 'system', content: promptDeSistema(this.ticket) },
+      { role: 'user', content: this.ticket.spec }
+    ]
+
     const cuerpo = {
       model: this.model,
-      messages: [
-        { role: 'system', content: promptDeSistema(this.ticket) },
-        { role: 'user', content: this.ticket.spec }
-      ],
+      messages: mensajes,
       stream: false,
       max_tokens: this.harness.remaining().tokens
     }
@@ -254,10 +256,26 @@ export class Worker {
     }
 
     const data = await res.json()
-    return {
-      texto: data.choices?.[0]?.message?.content || '',
-      tokens: data.usage?.total_tokens || 0
+    const texto = data.choices?.[0]?.message?.content || ''
+
+    // `usage` puede no venir, y el gateway de este proyecto DELIBERADAMENTE no
+    // lo emite (ver la cabecera de gateway.mjs: el SDK no lo expone y "un
+    // conteo inventado es peor que un campo ausente"). Sin un plan B, el tope
+    // de tokens del harness cuenta cero y no corta NUNCA -- medido cuatro veces
+    // seguidas, con dos modelos distintos.
+    //
+    // Un tope que no mide no es un tope. Se estima por bytes/4, que es la misma
+    // aproximacion que el techo de salida de x402 ya usa en este repo, y se
+    // deja dicho de donde salio el numero: `proveedor` si lo conto el modelo,
+    // `gateway` si lo estimamos aca. Nunca se muestran iguales.
+    const real = data.usage?.total_tokens
+    if (Number.isFinite(real) && real > 0) {
+      return { texto, tokens: real, tokensFuente: 'proveedor' }
     }
+
+    const bytes =
+      mensajes.reduce((n, m) => n + Buffer.byteLength(m.content), 0) + Buffer.byteLength(texto)
+    return { texto, tokens: Math.ceil(bytes / 4), tokensFuente: 'gateway' }
   }
 
   async resolverModelo() {
@@ -283,11 +301,11 @@ export class Worker {
     this.log(`pidiéndole a ${this.model} (hasta ${seg}s; la 1ª vez baja los pesos)`)
 
     const t0 = Date.now()
-    const { texto, tokens } = await this.harness.withRetry('chat', () =>
+    const { texto, tokens, tokensFuente } = await this.harness.withRetry('chat', () =>
       this.harness.runTool('chat/completions', () => this.pedirAlGateway())
     )
     this.log(`respondió en ${((Date.now() - t0) / 1000).toFixed(1)}s`)
-    this.harness.spend({ tokens })
+    this.harness.spend({ tokens, tokensFuente })
 
     // La respuesta cruda se guarda SIEMPRE, junto con el prompt que la produjo.
     // Sin esto, un "0 bloques" no se puede diagnosticar: no hay forma de saber
@@ -295,7 +313,8 @@ export class Worker {
     this.guardarRespuesta(texto)
 
     const bloques = parsearBloques(texto)
-    this.log(`el modelo devolvió ${bloques.length} bloque(s), ${tokens} tokens`)
+    const marca = tokensFuente === 'proveedor' ? '' : ' (estimados: el gateway no manda usage)'
+    this.log(`el modelo devolvió ${bloques.length} bloque(s), ${tokens} tokens${marca}`)
 
     if (bloques.length === 0) {
       this.log('sin bloques de archivo: no hay nada que escribir')
