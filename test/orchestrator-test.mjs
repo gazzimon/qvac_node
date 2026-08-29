@@ -507,6 +507,43 @@ await testAsync('a drive opened with someone else’s key is NOT writable', asyn
   await storeB.close()
 })
 
+console.log('\ncorestore: it wipes what it does not recognise')
+
+// Measured, and it cost a broken demo: `new Corestore(dir).ready()` DELETES the
+// contents of a directory it does not recognise as a corestore. A
+// `requirements.md` written there a moment earlier was gone after `ready()`,
+// replaced by CORESTORE and db.
+//
+// Anything the orchestrator keeps under --storage — the run log, the worker
+// directories, a requirements file someone put there — would be destroyed the
+// first time it opened. Hence the corestore lives in its own subdirectory, and
+// this test states the hazard so nobody moves it back.
+await testAsync('a file under --storage survives the orchestrator opening it', async () => {
+  const Corestore = (await import('corestore')).default
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-hazard-'))
+  const kept = path.join(dir, 'requirements.md')
+  fs.writeFileSync(kept, '# do not eat me\n')
+
+  // The wrong way: straight at the directory.
+  const wrongDir = path.join(dir, 'wrong')
+  fs.mkdirSync(wrongDir)
+  fs.writeFileSync(path.join(wrongDir, 'data.txt'), 'x')
+  const wrong = new Corestore(wrongDir)
+  await wrong.ready()
+  assert.ok(
+    !fs.existsSync(path.join(wrongDir, 'data.txt')),
+    'if this passes, Corestore stopped wiping and the subdirectory is no longer needed'
+  )
+  await wrong.close()
+
+  // The way the orchestrator does it: a subdirectory of its own.
+  const right = new Corestore(path.join(dir, 'corestore'))
+  await right.ready()
+  assert.ok(fs.existsSync(kept), 'the file next to the corestore has to survive')
+  assert.equal(fs.readFileSync(kept, 'utf8'), '# do not eat me\n')
+  await right.close()
+})
+
 console.log('\nstate')
 
 const LOG = path.join(os.tmpdir(), `orch-test-${Date.now()}.jsonl`)

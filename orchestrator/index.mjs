@@ -80,7 +80,14 @@ export class Orchestrator {
 
     this.state = new State(path.join(this.storageDir, 'runs.jsonl'))
 
-    this.store = new Corestore(this.storageDir)
+    // The corestore gets its OWN subdirectory, and this is not tidiness.
+    // `new Corestore(dir).ready()` WIPES a directory whose contents it does not
+    // recognise as a corestore — measured: a `requirements.md` written into
+    // that directory a moment earlier was gone after `ready()`, replaced by
+    // CORESTORE and db. Anything else we keep under --storage (the run log, the
+    // per-worker directories, a requirements file someone put there) would be
+    // destroyed the first time the orchestrator opened it.
+    this.store = new Corestore(path.join(this.storageDir, 'corestore'))
     await this.store.ready()
 
     this.log(`workspace: ${this.workspace}`)

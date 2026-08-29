@@ -206,7 +206,13 @@ export class Worker {
 
     if (this.ticket.allowedFiles.length === 0) throw new Error('missing --allowed-files')
 
-    this.store = new Corestore(this.storageDir)
+    // Its own subdirectory, for the same reason as in the orchestrator:
+    // `Corestore.ready()` wipes a directory whose contents it does not
+    // recognise. The worker keeps its drive key, its JSONL log and the raw
+    // model response under --storage, and a retry of the same ticket would
+    // destroy the previous attempt's evidence — which is exactly what you want
+    // to read after a failure.
+    this.store = new Corestore(path.join(this.storageDir, 'corestore'))
     await this.store.ready()
 
     // No key: this worker is the WRITER of its drive. Handing it somebody
