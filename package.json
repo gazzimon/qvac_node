@@ -75,7 +75,7 @@
     "facilitator": "node scripts/facilitator.js",
     "orchestrator": "node orchestrator/index.mjs",
     "worker": "node worker/run.mjs",
-    "demo:orchestrator": "node orchestrator/index.mjs --requirement ./test/requirements-demo.md --workspace ./demo-build --workers 2"
+    "test:orq": "node test/orchestrator-test.mjs && node test/worker-escribe.mjs && node test/orquestador-e2e.mjs"
   },
   "dependencies": {
     "@qvac/bare-sdk": "^0.17.1",
@@ -113,8 +113,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@modelcontextprotocol/server-filesystem": "^0.2.0",
-    "@modelcontextprotocol/server-git": "^0.2.0",
+    "@modelcontextprotocol/server-filesystem": "^2026.7.10",
     "bare-build": "^1.0.2",
     "brittle": "^3.19.0",
     "lunte": "^1.2.0",

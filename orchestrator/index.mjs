@@ -2,16 +2,24 @@
 // de CI. Los workers no ven el documento entero — cada uno recibe un ticket con
 // la lista exacta de archivos que puede tocar.
 //
-// El workspace es un Hyperdrive compartido: los cambios de cada worker se ven
-// en las otras máquinas mientras suceden, así que no hay branches que mergear
-// al final. Lo que evita que se pisen no es el merge, es que dos tickets nunca
-// declaran el mismo archivo.
+// -----------------------------------------------------------------------------
+// UN DRIVE POR WORKER, NO UNO COMPARTIDO
+//
+// Hypercore es de UN SOLO ESCRITOR: un Hyperdrive abierto por clave es de solo
+// lectura y `put()` sobre él no falla, se CUELGA. Medido. Así que no existe "un
+// workspace donde todos escriben": cada worker crea SU drive, es su escritor, y
+// anuncia la clave. El orquestador los monta en modo lectura y los junta.
+//
+// La unión no tiene conflictos por construcción: `detectarSolapamiento` corta
+// antes de asignar si dos tickets declaran el mismo archivo, así que dos drives
+// nunca traen la misma ruta. Eso es lo que reemplaza al merge de branches — no
+// se resuelven conflictos, se hacen imposibles.
+// -----------------------------------------------------------------------------
 
 import fs from 'fs'
 import path from 'path'
 import { spawn } from 'child_process'
 import Corestore from 'corestore'
-import Hyperdrive from 'hyperdrive'
 import { parseRequirements, buildDAG, assignTickets } from './split.mjs'
 import { runCI } from './ci.mjs'
 import { Estado, EVENTOS } from './state.mjs'
@@ -50,9 +58,10 @@ export class Orchestrator {
     this.requirementFile = opts.requirement || './requirements.md'
     this.dryRun = opts.dryRun === true
 
-    this.drive = null
+    this.store = null
     this.tickets = []
     this.estado = null
+    this.drivesDeWorkers = {} // ticketId -> clave hex del drive de ese worker
   }
 
   log(msg) {
@@ -66,12 +75,9 @@ export class Orchestrator {
 
     this.estado = new Estado(path.join(this.storageDir, 'corridas.jsonl'))
 
-    const store = new Corestore(this.storageDir)
-    await store.ready()
-    this.drive = new Hyperdrive(store)
-    await this.drive.ready()
+    this.store = new Corestore(this.storageDir)
+    await this.store.ready()
 
-    this.log(`Hyperdrive key: ${this.drive.key.toString('hex')}`)
     this.log(`workspace: ${this.workspace}`)
 
     if (!fs.existsSync(this.requirementFile)) {
@@ -97,24 +103,36 @@ export class Orchestrator {
     return this.tickets.filter((t) => !hechos.has(t.id))
   }
 
+  storageDeWorker(ticketId) {
+    return path.join(this.storageDir, 'workers', ticketId)
+  }
+
   lanzarWorker(ticket) {
     const args = [
       path.join(RAIZ, 'worker', 'run.mjs'),
       '--gateway', this.gateway,
-      '--drive-key', this.drive.key.toString('hex'),
       '--ticket', ticket.id,
       '--spec', ticket.spec,
       '--allowed-files', ticket.allowedFiles.join(','),
       '--workspace', this.workspace,
       '--max-steps', String(this.maxSteps),
       '--max-tokens', String(this.maxTokens),
-      '--storage', path.join(this.storageDir, 'workers', ticket.id)
+      '--storage', this.storageDeWorker(ticket.id)
     ]
     if (this.apiKey) args.push('--api-key', this.apiKey)
 
     return new Promise((resolve) => {
       const proc = spawn(process.execPath, args, { stdio: 'inherit' })
-      proc.on('exit', (code) => resolve({ ticketId: ticket.id, ok: code === 0, code }))
+      proc.on('exit', (code) => {
+        // El worker deja su clave en disco al arrancar. Es lo que le permite al
+        // orquestador montar su drive después — y lo que, cuando el worker corra
+        // en otra máquina, viajará por el swarm en vez de por el filesystem.
+        const p = path.join(this.storageDeWorker(ticket.id), 'drive-key')
+        if (fs.existsSync(p)) {
+          this.drivesDeWorkers[ticket.id] = fs.readFileSync(p, 'utf8').trim()
+        }
+        resolve({ ticketId: ticket.id, ok: code === 0, code })
+      })
       proc.on('error', (err) => resolve({ ticketId: ticket.id, ok: false, error: err.message }))
     })
   }
@@ -171,7 +189,18 @@ export class Orchestrator {
     return r
   }
 
+  // El `finally` no es prolijidad: si una corrida se va por una excepción sin
+  // cerrar el corestore, la corrida siguiente sobre el mismo --storage no abre.
+  // Con el cron, eso es el día 2 muerto por un error del día 1.
   async start() {
+    try {
+      return await this.correr()
+    } finally {
+      await this.close()
+    }
+  }
+
+  async correr() {
     await this.init()
     this.estado.agregar(EVENTOS.CORRIDA_INICIO, { tickets: this.tickets.length })
 
@@ -207,10 +236,20 @@ export class Orchestrator {
     return this.resumen()
   }
 
+  // El corestore toma un lock de RocksDB sobre su directorio. Sin cerrarlo, la
+  // corrida siguiente sobre el mismo --storage no abre: "File descriptor could
+  // not be locked". Con el cron eso significa que el día 2 no arranca.
+  async close() {
+    if (this.store) {
+      await this.store.close()
+      this.store = null
+    }
+  }
+
   resumen() {
     const hechos = this.estado.hechos()
     const r = {
-      driveKey: this.drive.key.toString('hex'),
+      drives: { ...this.drivesDeWorkers },
       total: this.tickets.length,
       hechos: hechos.length,
       pendientes: this.tickets.length - hechos.length,

@@ -11,6 +11,22 @@ import Hyperdrive from 'hyperdrive'
 import { Harness, LimitReached } from '../orchestrator/harness.mjs'
 import { validarEscritura, ViolacionDeAlcance } from '../orchestrator/security.mjs'
 
+// -----------------------------------------------------------------------------
+// POR QUE CADA WORKER TIENE SU PROPIO DRIVE
+//
+// Hypercore es de UN SOLO ESCRITOR. Un Hyperdrive abierto por clave
+// (`new Hyperdrive(store, clave)`) es de solo lectura, y `put()` sobre el no
+// falla: se CUELGA esperando un core escribible que nunca llega. Medido: un
+// drive creado en un corestore da `writable: true`, el mismo drive abierto por
+// clave en otro corestore da `writable: false` y la escritura no vuelve nunca.
+//
+// Asi que no hay "un workspace compartido donde todos escriben". Lo que hay es
+// un drive POR WORKER, cada uno escritor del suyo, y el orquestador montando
+// todos en modo lectura. La union no tiene conflictos por construccion: dos
+// tickets nunca declaran el mismo archivo (`detectarSolapamiento` corta antes
+// de asignar), asi que dos drives nunca traen la misma ruta.
+// -----------------------------------------------------------------------------
+
 const BLOQUE = /```file\s+path=([^\n`]+)\n([\s\S]*?)```/g
 
 // El modelo devuelve archivos completos, no diffs: un diff mal aplicado es un
@@ -50,7 +66,6 @@ export class Worker {
     this.gateway = opts.gateway || 'http://localhost:8787'
     this.apiKey = opts.apiKey || null
     this.model = opts.model || null
-    this.driveKey = opts.driveKey
     this.ticket = {
       id: opts.ticket,
       spec: opts.spec || `Implementar ${opts.ticket}`,
@@ -67,7 +82,9 @@ export class Worker {
       maxTokens: parseInt(opts.maxTokens) || 8000
     })
 
+    this.store = null
     this.drive = null
+    this.driveKey = null // sale de `init()`: el worker CREA su drive, no lo recibe
     this.escritos = []
     this.violaciones = []
   }
@@ -81,16 +98,29 @@ export class Worker {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     }
 
-    if (!this.driveKey) throw new Error('falta --drive-key')
     if (this.ticket.allowedFiles.length === 0) throw new Error('falta --allowed-files')
 
-    const store = new Corestore(this.storageDir)
-    await store.ready()
+    this.store = new Corestore(this.storageDir)
+    await this.store.ready()
 
-    this.drive = new Hyperdrive(store, Buffer.from(this.driveKey, 'hex'))
+    // Sin clave: este worker es el ESCRITOR de su drive. Pasarle la clave de
+    // otro lo dejaría en solo lectura y `put()` se colgaría (ver la nota de
+    // arriba).
+    this.drive = new Hyperdrive(this.store)
     await this.drive.ready()
 
-    this.log(`Hyperdrive montado: ${this.driveKey.slice(0, 16)}…`)
+    if (!this.drive.core.writable) {
+      throw new Error('el drive del worker no es escribible — no se puede seguir')
+    }
+
+    this.driveKey = this.drive.key.toString('hex')
+
+    // La clave se deja en disco para que el orquestador la lea después de que
+    // el worker termine. Cuando el worker corra en OTRA máquina, esto mismo
+    // viaja por el swarm; el archivo es el caso local.
+    fs.writeFileSync(path.join(this.storageDir, 'drive-key'), this.driveKey)
+
+    this.log(`drive propio (escribible): ${this.driveKey.slice(0, 16)}…`)
     this.log(`workspace: ${this.workspace}`)
     this.log(`puede escribir: ${this.ticket.allowedFiles.join(', ')}`)
   }
@@ -187,7 +217,7 @@ export class Worker {
     return { ok: this.escritos.length > 0, escritos: this.escritos.length }
   }
 
-  async start() {
+  async start({ cerrar = true } = {}) {
     try {
       await this.init()
       const r = await this.correr()
@@ -202,6 +232,23 @@ export class Worker {
       }
       this.guardarLog()
       throw err
+    } finally {
+      // `cerrar: false` es para los tests, que inspeccionan el drive después.
+      // En el camino normal se cierra siempre: el corestore toma un lock de
+      // RocksDB y un worker que lo deja tomado hace que el reintento del mismo
+      // ticket no abra.
+      if (cerrar) await this.close()
+    }
+  }
+
+  async close() {
+    if (this.drive) {
+      await this.drive.close()
+      this.drive = null
+    }
+    if (this.store) {
+      await this.store.close()
+      this.store = null
     }
   }
 

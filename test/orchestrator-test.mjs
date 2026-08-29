@@ -221,6 +221,44 @@ test('una respuesta sin bloques da lista vacía, no error', () => {
   assert.equal(parsearBloques('acá tenés el código, che').length, 0)
 })
 
+console.log('\nhyperdrive: un solo escritor')
+
+// Esto no prueba código nuestro, prueba un supuesto del que depende toda la
+// arquitectura. Se rompió una vez: el orquestador le pasaba SU clave al worker
+// y `put()` se colgaba para siempre, sin error. El test queda para que el día
+// que alguien escriba `new Hyperdrive(store, claveAjena)` esperando escribir,
+// se entere acá y no colgado.
+await testAsync('un drive abierto por clave ajena NO es escribible', async () => {
+  const Corestore = (await import('corestore')).default
+  const Hyperdrive = (await import('hyperdrive')).default
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-writable-'))
+
+  const storeA = new Corestore(path.join(tmp, 'a'))
+  await storeA.ready()
+  const driveA = new Hyperdrive(storeA)
+  await driveA.ready()
+
+  const storeB = new Corestore(path.join(tmp, 'b'))
+  await storeB.ready()
+  const driveB = new Hyperdrive(storeB, driveA.key)
+  await driveB.ready()
+
+  assert.equal(driveA.core.writable, true, 'el creador SI escribe')
+  assert.equal(driveB.core.writable, false, 'el que abre por clave NO escribe')
+
+  // Y lo que hace que el bug sea traicionero: no falla, se cuelga.
+  const r = await Promise.race([
+    driveB.put('/x', Buffer.from('a')).then(() => 'escribio'),
+    new Promise((res) => setTimeout(() => res('colgado'), 1500))
+  ]).catch(() => 'error')
+  assert.equal(r, 'colgado', 'put() sobre un drive de solo lectura se cuelga, no tira')
+
+  await driveA.close()
+  await driveB.close()
+  await storeA.close()
+  await storeB.close()
+})
+
 console.log('\nstate')
 
 const LOG = path.join(os.tmpdir(), `orq-test-${Date.now()}.jsonl`)
