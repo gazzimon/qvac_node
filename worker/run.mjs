@@ -291,11 +291,18 @@ export class Worker {
   async run() {
     await this.resolveModel()
 
-    // Say how long the wait may be BEFORE waiting. The first request against a
-    // fresh model pays for downloading the weights, and without this line a
-    // worker pulling 2.3 GB looks exactly like a hung one.
+    // Say how long the wait may be BEFORE waiting: without this line a worker
+    // pulling 2.3 GB of weights looks exactly like a hung one.
+    //
+    // The ceiling is stated, not the cause. The worker cannot know whether the
+    // gateway already has this model loaded, and an earlier version of this
+    // line said "the first call downloads the weights" on EVERY run — which
+    // read as though every request re-downloaded. Measured: 106s cold, then
+    // 10-40s warm, the spread being how much text was generated. The weights
+    // are cached under ~/.qvac/models and the loaded model lives as long as the
+    // gateway process.
     const secs = Math.round(this.harness.toolTimeoutMs / 1000)
-    this.log(`asking ${this.model} (up to ${secs}s; the first call downloads the weights)`)
+    this.log(`asking ${this.model} (up to ${secs}s; a cold model pays its download here)`)
 
     const t0 = Date.now()
     const { text, tokens, tokenSource } = await this.harness.withRetry('chat', () =>
