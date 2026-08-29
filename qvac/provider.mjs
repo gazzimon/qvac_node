@@ -295,6 +295,17 @@ export class Provider {
           ...(reciboRes.attestation ? { attestation: reciboRes.attestation } : {}),
           ...(reciboRes.motivo ? { attestationMissing: reciboRes.motivo } : {})
         })
+      } else if (msg.payment && deltas > 0) {
+        // FASE 10 / D27 caso 1 — el cliente corto, pero este nodo sirvio y
+        // atestiguo un prefijo cobrable. El `chat:done` tardio lleva esa
+        // atestacion (o el motivo si no se pudo firmar) para que el gateway la
+        // cuelgue del rastro del ruteado en vez de dejarlo con
+        // attestationMissing. El swarm del otro lado mantiene el chat vivo una
+        // ventana corta justo para recibir esto.
+        reply('chat:done', {
+          ...(reciboRes.attestation ? { attestation: reciboRes.attestation } : {}),
+          ...(reciboRes.motivo ? { attestationMissing: reciboRes.motivo } : {})
+        })
       }
       console.log(
         `[provider] ${msg.requestId} ${entry.cancelled ? 'cancelado' : topeAlcanzado ? 'tope' : 'ok'}: ` +

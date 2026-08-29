@@ -40,6 +40,8 @@
 // lado del token. Por eso el acumulador se indexa por nonce y `marcarLiquidados`
 // habla en nonces.
 
+import fs from 'bare-fs'
+import path from 'bare-path'
 import { canonicalize } from './manifest.mjs'
 import { hashDe } from './atestacion.mjs'
 import * as x402 from './x402.mjs'
@@ -412,6 +414,193 @@ export async function liquidarLote({ lote, liquidar }) {
 const MAX_PENDIENTES = 500
 const _pend = new Map() // nonce -> recibo
 
+// -----------------------------------------------------------------------------
+// Persistencia del acumulador (FASE 10)
+// -----------------------------------------------------------------------------
+//
+// `_pend` es memoria del proceso, y hasta acá un corte entre "servido/verificado"
+// y "liquidado" regalaba el trabajo: la autorización EIP-3009 estaba firmada y en
+// ningún disco. Se espeja a un JSONL —una línea JSON por recibo— con el MISMO
+// patrón de escritura atómica que `apikeys.mjs` y `budget.mjs`: temporal y
+// `rename` encima, porque un `writeFileSync` cortado a la mitad deja un archivo
+// que no parsea y perder este es perder cobros firmados.
+//
+// El archivo vive en el dir PERSISTENTE (no en `budgetDir`, que bajo `bare` es
+// temp —D30.1—): lo abre `bin.mjs` con `abrir()`, antes del gateway, por la misma
+// razón que el ledger y las API keys. `null` => todo en memoria, que es el camino
+// de los tests y el de un nodo sin storage.
+const ARCHIVO = 'lote-pendientes.jsonl'
+
+// Cuántos recibos SIN liquidar disparan un flush por tamaño. Un nodo con tráfico
+// no espera al timer ni al apagado para juntar el lote.
+const FLUSH_POR_TAMANO = 50
+
+// Cada cuánto se intenta un flush aunque no se llegue al umbral. Va MUY por
+// debajo de los `maxTimeoutSeconds` del 402 (300s por defecto): una autorización
+// EIP-3009 vencida no se puede liquidar, así que diferir de más es perder el
+// cobro. Ese es el límite honesto del modo `batch-receipts` y está anotado en el
+// roadmap.
+const FLUSH_INTERVALO_MS = 90_000
+
+let _archivo = null
+let _firmar = null
+let _liquidar = null
+let _timer = null
+let _flushEnCurso = null
+let _umbral = FLUSH_POR_TAMANO
+
+// Escritura atómica del acumulador entero. Igual que `apikeys.guardar`: si falla,
+// se avisa fuerte y se sigue EN MEMORIA —un corte ahí sí pierde el recibo, y eso
+// tiene que verse, no tragarse.
+function persistir() {
+  if (!_archivo) return
+  const tmp = _archivo + '.tmp'
+  try {
+    const lineas = [..._pend.values()].map((r) => JSON.stringify(r)).join('\n')
+    fs.writeFileSync(tmp, lineas ? lineas + '\n' : '', { mode: 0o600 })
+    fs.renameSync(tmp, _archivo)
+  } catch (err) {
+    console.error(`[lote] no se pudo persistir el acumulador: ${(err && err.message) || err}`)
+    console.error(
+      '[lote] los pendientes corren EN MEMORIA: un corte entre servir y liquidar los pierde'
+    )
+    _archivo = null
+  }
+}
+
+// Abre el acumulador contra `dir` y le inyecta con qué firmar y liquidar el
+// lote. Carga lo que haya quedado de una corrida anterior —una línea corrupta se
+// saltea, no se lleva puesto el resto— y arma el timer del flush periódico.
+// Devuelve cuántos recibos se recuperaron.
+export function abrir(
+  dir,
+  {
+    firmar = null,
+    liquidar = null,
+    intervaloMs = FLUSH_INTERVALO_MS,
+    umbral = FLUSH_POR_TAMANO
+  } = {}
+) {
+  _archivo = dir ? path.join(dir, ARCHIVO) : null
+  _firmar = typeof firmar === 'function' ? firmar : null
+  _liquidar = typeof liquidar === 'function' ? liquidar : null
+  _umbral = Number.isFinite(umbral) && umbral > 0 ? umbral : FLUSH_POR_TAMANO
+  _pend.clear()
+
+  if (_archivo) {
+    try {
+      for (const linea of fs.readFileSync(_archivo, 'utf8').split('\n')) {
+        if (!linea.trim()) continue
+        try {
+          const r = JSON.parse(linea)
+          const k = claveDe(r)
+          if (k) _pend.set(k, r)
+        } catch {
+          // Una línea que no parsea es una que se corrompió al escribirse; el
+          // resto del archivo sigue siendo bueno.
+        }
+      }
+    } catch {
+      // No existe todavía: primer arranque.
+    }
+  }
+
+  if (_timer) clearInterval(_timer)
+  _timer = null
+  if (_archivo && intervaloMs > 0) {
+    _timer = setInterval(() => {
+      flushTodo().catch(() => {})
+    }, intervaloMs)
+    _timer.unref?.()
+  }
+
+  return _pend.size
+}
+
+// El flush por tamaño. `agregar` lo llama fire-and-forget; los tests lo esperan.
+// No hace nada si el acumulador no está abierto o falta con qué firmar/liquidar.
+export async function flushSiSuperaUmbral() {
+  if (!_archivo || !_firmar || !_liquidar) return null
+  if (_flushEnCurso) return _flushEnCurso
+  if (contar({ soloPendientes: true }) < _umbral) return null
+  return flushTodo()
+}
+
+// Arma-firma-liquida-marca TODO lo pendiente, agrupado por red+wallet (un lote es
+// de UNA red y UNA wallet: `construirLote` lo exige). NO reintenta acá lo que
+// falló: queda en el acumulador para el próximo disparo. Devuelve un resumen por
+// grupo. No tira: un flush que revienta no puede llevarse puesto el `close`.
+export async function flushTodo({ firmar = _firmar, liquidar = _liquidar } = {}) {
+  if (_flushEnCurso) return _flushEnCurso
+  _flushEnCurso = (async () => {
+    const resultados = []
+    const grupos = new Set(
+      pendientes({ soloPendientes: true }).map(
+        (r) => `${r.network}|${String(r.payTo).toLowerCase()}`
+      )
+    )
+    for (const g of grupos) {
+      const sep = g.indexOf('|')
+      const network = g.slice(0, sep)
+      const payTo = g.slice(sep + 1)
+      let firmado = null
+      try {
+        const l = armar({ network, payTo, soloPendientes: true })
+        firmado = typeof firmar === 'function' ? await firmarLote(l, firmar) : null
+      } catch (err) {
+        resultados.push({ network, payTo, ok: false, motivo: (err && err.message) || String(err) })
+        continue
+      }
+      if (!firmado) {
+        resultados.push({ network, payTo, ok: false, motivo: 'no se pudo firmar el lote' })
+        continue
+      }
+      if (typeof liquidar !== 'function') {
+        resultados.push({ network, payTo, ok: false, motivo: 'no hay funcion liquidar' })
+        continue
+      }
+      const res = await liquidarLote({ lote: firmado, liquidar })
+      marcarLiquidados(res.liquidados)
+      resultados.push({
+        network,
+        payTo,
+        ok: true,
+        liquidados: res.liquidados.length,
+        fallidos: res.fallidos.length
+      })
+    }
+    persistir()
+    return resultados
+  })()
+  try {
+    return await _flushEnCurso
+  } finally {
+    _flushEnCurso = null
+  }
+}
+
+// El apagado de `bin.mjs`. Persiste PRIMERO —si el flush cuelga contra un
+// facilitator lento, el forced-exit corta igual y no se pierde nada—, después
+// intenta un último flush, y vuelve a persistir lo que quede.
+export async function cerrar({ flush = true } = {}) {
+  if (_timer) clearInterval(_timer)
+  _timer = null
+  persistir()
+  if (flush && _liquidar) {
+    try {
+      await flushTodo()
+    } catch {
+      // ya se avisó adentro; el acumulador queda persistido para la próxima.
+    }
+    persistir()
+  }
+  _archivo = null
+  _firmar = null
+  _liquidar = null
+}
+
+// -----------------------------------------------------------------------------
+
 export function agregar(recibo) {
   const k = claveDe(recibo)
   if (!k) throw new Error('lote: no se puede acumular un recibo sin nonce')
@@ -424,6 +613,8 @@ export function agregar(recibo) {
       _pend.delete(key)
     }
   }
+  persistir()
+  flushSiSuperaUmbral().catch(() => {})
   return recibo
 }
 
@@ -455,15 +646,21 @@ export function armar({ red, network, payTo, soloPendientes = false, ts } = {}) 
 // Marca esos nonces como liquidados (no los borra: quedan para auditar hasta que
 // la poda se los lleve).
 export function marcarLiquidados(nonces, { transaction } = {}) {
+  let toco = false
   for (const n of nonces || []) {
     const r = _pend.get(n)
-    if (r)
+    if (r) {
       r.liquidacion = {
         success: true,
         transaction: transaction || (r.liquidacion && r.liquidacion.transaction) || '',
         at: Date.now()
       }
+      toco = true
+    }
   }
+  // Que el corte de un proceso justo después de liquidar no vuelva a cobrar: lo
+  // liquidado tiene que quedar marcado en disco, no solo en memoria.
+  if (toco) persistir()
 }
 
 // Sólo para los tests: vacía el acumulador entre casos.

@@ -393,8 +393,10 @@ npm run soak          # the real cycle N times, reporting the distribution
 npm run auditoria     # pull the trace, save it, and rule on whether inference happened
 ```
 
-**170 tests, 953 asserts green** (107/581 unit + 63/372 integration), plus a smoke
-check that the build graph still resolves. They cut at the edge, not
+**198 tests, 1140 asserts green** (129/698 unit + 69/442 integration), plus a smoke
+check that the build graph still resolves. One integration test is red and it is
+**not from this phase** — `D30.4: … CLIENTE OFICIAL` (`scripts/facilitator.js`,
+§ 0-quinquies surface), red in a clean checkout of this branch. They cut at the edge, not
 at the happy path: the cap invariant runs 100 rounds against a USD 0.10 limit and
 asserts real spend never exceeds it; the wallet test searches the keystore
 **word by word** for the backup phrase; the phase-8 price tests are verified
@@ -409,22 +411,32 @@ an audit that always says yes audits nothing.
   Hyperdrive files, load- and price-based routing, the ledger with a cap that
   cuts, the free per-peer quota, the payout wallet inside the signed manifest,
   and x402 in the request path.
-- **Partly built (phase 10):** the x402 receipt is now a versioned artefact
+- **Closed (phase 10):** the x402 receipt is a versioned artefact
   (`qvac/lote.mjs`), grouped into a batch for one network and one payout address,
   signed with the **wallet** (JCS + EIP-191, same as the attestation), and
   settled **deferred** — `x402.liquidar()` once per receipt. `npm run
-verificar-lote` validates a batch offline. And the peer transport: when a
-  gateway routes a paid request to a peer, it **forwards the client's EIP-3009
+verificar-lote` validates a batch offline. The peer transport: when a gateway
+  routes a paid request to a peer, it **forwards the client's EIP-3009
   authorization** over Protomux; the peer signs its D24 attestation, builds the
   receipt and accumulates it in **its own** batch, and the routing gateway
-  **stops settling routed requests** (`chat:done` carries the attestation back;
-  `/v1/receipts/:id` shows `settledBy: "peer-batch"`). What is **not** built: a
-  trigger that flushes the batch on its own, persistence of the accumulator
-  across restarts, and a local `settlement: "batch-receipts"` actually deferring
-  instead of settling per request.
-- **Not built:** the agentic layer (phase 11). A multi-writer ledger of our own
-  is **out of scope** — the EIP-3009 signature already is the receipt, so
-  on-chain settlement removes the need instead of adding one.
+  **stops settling routed requests** (`chat:done` carries the attestation back —
+  including a **late `chat:done` after a client cancel**, so the routed trace
+  gets the peer's partial attestation instead of `attestationMissing`;
+  `/v1/receipts/:id` shows `settledBy: "peer-batch"`). The accumulator
+  **persists** to JSONL (atomic write) and reloads on start; the **flush**
+  builds-signs-settles by size, by time, and on `close`. A node whose signed
+  manifest declares `settlement: "batch-receipts"` **defers** settlement (skips
+  the per-request `x402.liquidar`, trusts batch + flush) — the schema decides,
+  not a flag; `/v1/receipts/:id` shows `settledBy: "batch"`. **One item is
+  outside**, with its path written: the real on-chain tx hash on testnet needs a
+  funded wallet (D13 / D30), exactly as phase 9 left it.
+- **Not built:** the agentic layer (phase 11). The paying-client half has
+  groundwork — `qvac/x402-cliente.mjs` receives a 402, picks a network by the
+  D15 preference, signs the EIP-3009 authorization under a **mandatory spending
+  cap**, and retries once. It is phase 11 scaffolding, not phase 10. A
+  multi-writer ledger of our own is **out of scope** — the EIP-3009 signature
+  already is the receipt, so on-chain settlement removes the need instead of
+  adding one.
 - `serve` starts with an **empty** registry. `--demo` fills it with one real node
   and three mocks, all labelled as simulated.
 - The manifest's `pricing` string is decorative. What routes and what gets

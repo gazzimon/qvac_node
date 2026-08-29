@@ -439,9 +439,12 @@ export async function abrir(dir, passphrase, { rpc = null, red = null } = {}) {
 // WDK: el manifiesto se construye y se verifica en caminos que no tienen wallet
 // —los tests, y cualquier par verificando el manifiesto de OTRO— y cargar el
 // stack de una wallet para eso sería pagarlo en todos lados.
-export function economicDe(address) {
+export function economicDe(address, settlement = SETTLEMENT) {
   if (!/^0x[a-fA-F0-9]{40}$/.test(String(address || ''))) {
     throw new Error('wallet: economicDe necesita una direccion EVM valida')
   }
-  return { walletAddress: address, chains: CHAINS, settlement: SETTLEMENT }
+  if (!['prepaid-balance', 'batch-receipts', 'onchain-per-job'].includes(settlement)) {
+    throw new Error('wallet: economicDe con un settlement que no es del schema')
+  }
+  return { walletAddress: address, chains: CHAINS, settlement }
 }

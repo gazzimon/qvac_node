@@ -507,11 +507,28 @@ async function startGateway(opts = {}) {
   // La wallet no depende del swarm: es de esta maquina. `joinSwarm` la vuelve a
   // leer para el manifiesto, que es otra cosa -- ahi va FIRMADA.
   // D30.1 — el keystore NO sale de `budgetDir`: ese puede estar en temp.
-  const cobro = await economicDelNodo(await walletStorageDir())
+  const dirWallet = await walletStorageDir()
+  const cobro = await economicDelNodo(dirWallet)
   gw.setEconomic(cobro.economic)
   // D24 — sin firmante no hay atestacion, y eso es lo correcto: se prefiere no
   // emitirla a emitirla sin firma. El gateway lo dice en el recibo.
   gw.setWalletSigner(cobro.firmar)
+
+  // FASE 10 — el acumulador de recibos del lote se abre ACA, con la misma
+  // precedencia que el ledger y las API keys (antes del gateway) y por el mismo
+  // motivo: un recibo que llega antes de cargar los pendientes de la corrida
+  // anterior arrancaria un lote incompleto. Va contra `dirWallet` —el dir
+  // persistente de D30.1, NO `budgetDir` que bajo bare es temp—: lo que se guarda
+  // ahi son autorizaciones EIP-3009 firmadas, o sea cobros. Se le inyecta con que
+  // firmar (la wallet del nodo) y con que liquidar (`x402.liquidar`); el flush
+  // arma-firma-liquida por tamano, por tiempo, y en el `close` de abajo. El
+  // provider comparte este mismo singleton, asi que la persistencia es una sola.
+  const lote = await import('./qvac/lote.mjs')
+  const x402 = await import('./qvac/x402.mjs')
+  const pendientesLote = lote.abrir(dirWallet, { firmar: cobro.firmar, liquidar: x402.liquidar })
+  if (pendientesLote > 0) {
+    console.log(`  [lote] ${pendientesLote} recibo(s) pendiente(s) de una corrida anterior`)
+  }
 
   // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
   // registro tiene que decirlo desde el arranque. Si la fila local recien
@@ -644,6 +661,16 @@ async function startGateway(opts = {}) {
     // encima deja streams escribiendo contra cores ya cerrados. Si tarda, el
     // timeout de arriba corta igual.
     if (data) await data.close().catch(() => {})
+
+    // FASE 10 — un ultimo flush del lote y persistir lo que quede. `cerrar`
+    // persiste ANTES de intentar el flush: si el facilitator no contesta y el
+    // forced-exit de arriba corta, los pendientes ya estan en disco y el proximo
+    // arranque los reintenta.
+    try {
+      await lote.cerrar()
+    } catch (err) {
+      console.error(`[lote] al cerrar: ${(err && err.message) || err}`)
+    }
 
     // Los dos archivos que sostienen el tope de gasto. `close` de apikeys es lo
     // unico que baja el `lastUsedAt` a disco -- `verifyKey` lo toca en cada

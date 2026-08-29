@@ -61,6 +61,12 @@ const STATUS_INTERVAL_MS = 2000
 // que cayo en el mismo topic, o un nodo de una version incompatible.
 const HANDSHAKE_TIMEOUT_MS = 10000
 
+// FASE 10 / D27 caso 1 — cuanto se mantiene vivo un chat DESPUES de mandarle el
+// `chat:cancel` al par, esperando su `chat:done` tardio con la atestacion
+// parcial de lo que alcanzo a servir. Corto: el cliente ya se fue y del otro
+// lado el par solo tiene que cerrar el stream que ya estaba cortando.
+const CHAT_CANCEL_GRACE_MS = 1500
+
 export class NodeSwarm {
   constructor({
     identity,
@@ -295,6 +301,7 @@ export class NodeSwarm {
       // decide si reintenta (solo si todavia no le mando nada al cliente).
       for (const [requestId, chat] of this._chats) {
         if (chat.peerKey !== key) continue
+        if (chat._graceTimer) clearTimeout(chat._graceTimer)
         this._chats.delete(requestId)
         chat.onError('el par se desconecto a mitad del request', 'peer_gone')
       }
@@ -467,6 +474,9 @@ export class NodeSwarm {
       if (msg.type === 'chat:accepted') chat.onAccepted()
       else if (msg.type === 'chat:chunk') chat.onChunk(msg.delta)
       else if (msg.type === 'chat:done') {
+        // FASE 10 / D27 caso 1 — si `cancelChat` dejo el chat vivo esperando
+        // este `chat:done` tardio, se le corta la ventana de gracia: ya llego.
+        if (chat._graceTimer) clearTimeout(chat._graceTimer)
         this._chats.delete(msg.requestId)
         // FASE 10 — el `chat:done` puede traer la atestacion D24 firmada por el
         // par. Se pasa tal cual: el gateway la verifica y decide.
@@ -475,6 +485,7 @@ export class NodeSwarm {
           attestationMissing: msg.attestationMissing || null
         })
       } else if (msg.type === 'chat:error') {
+        if (chat._graceTimer) clearTimeout(chat._graceTimer)
         this._chats.delete(msg.requestId)
         chat.onError(msg.message || 'error sin motivo', msg.code || null)
       }
@@ -511,10 +522,36 @@ export class NodeSwarm {
   cancelChat(requestId) {
     const chat = this._chats.get(requestId)
     if (!chat) return
-    this._chats.delete(requestId)
     const peer = this.peers.get(chat.peerKey)
     // Si el par ya se fue no hay a quien avisarle, y su proceso ya corto solo.
     if (peer) this._send(peer, { type: 'chat:cancel', requestId })
+
+    // FASE 10 / D27 caso 1 — NO se borra el chat en el acto. El par todavia
+    // puede mandar un `chat:done` tardio con la atestacion PARCIAL de lo que
+    // alcanzo a servir (cobra ese prefijo), y ese artefacto tiene que llegar al
+    // rastro del ruteado. Se marca cancelado y se arma una ventana corta: si el
+    // `chat:done` no llega, se limpia y `onDone` se invoca igual con el motivo,
+    // para que la ausencia quede DICHA y no en verde. Sin par al que avisarle,
+    // no hay `chat:done` que esperar: se cierra ya.
+    if (chat.cancelado) return
+    chat.cancelado = true
+    if (!peer) {
+      this._chats.delete(requestId)
+      chat.onDone({
+        attestation: null,
+        attestationMissing: 'el par ya no estaba conectado al cortar el cliente'
+      })
+      return
+    }
+    chat._graceTimer = setTimeout(() => {
+      if (this._chats.get(requestId) !== chat) return
+      this._chats.delete(requestId)
+      chat.onDone({
+        attestation: null,
+        attestationMissing: 'el par no devolvio un chat:done tras el chat:cancel'
+      })
+    }, CHAT_CANCEL_GRACE_MS)
+    chat._graceTimer.unref?.()
   }
 
   startStatusBroadcast(intervalMs = STATUS_INTERVAL_MS) {

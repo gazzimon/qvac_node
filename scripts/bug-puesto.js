@@ -450,6 +450,53 @@ const BUGS = [
     espera: ['con ASSET y NAME declarados, la red se ofrece']
   },
 
+  // ---- FASE 10 / PERSISTENCIA Y FLUSH DEL ACUMULADOR ----------------------
+  //
+  // `_pend` es memoria del proceso. Lo que se rompe en silencio: el acumulador
+  // no se espeja a disco (un corte entre servir y liquidar regala el cobro), o
+  // no se recarga al arrancar, o el flush no marca lo liquidado (y reanudar
+  // vuelve a cobrar), o el disparador por tamano/close no corre.
+  {
+    n: 'Fase 10: el acumulador ya no se escribe atomico a disco',
+    file: 'qvac/lote.mjs',
+    de: '    fs.renameSync(tmp, _archivo)',
+    a: '    void tmp',
+    suite: 'unit',
+    espera: ['dos lineas JSON en el archivo']
+  },
+  {
+    n: 'Fase 10: los pendientes de una corrida anterior no se recargan',
+    file: 'qvac/lote.mjs',
+    de: '          if (k) _pend.set(k, r)',
+    a: '          void r',
+    suite: 'unit',
+    espera: ['abrir devuelve cuantos recibos rescato']
+  },
+  {
+    n: 'Fase 10: el flush no marca lo liquidado y reanudar vuelve a cobrar',
+    file: 'qvac/lote.mjs',
+    de: '      marcarLiquidados(res.liquidados)\n      resultados.push({',
+    a: '      void res\n      resultados.push({',
+    suite: 'unit',
+    espera: ['un corte y reanudar no vuelve a cobrar', 'lo liquidado, no solo la memoria']
+  },
+  {
+    n: 'Fase 10: el flush por tamano deja de mirar el umbral y corre siempre',
+    file: 'qvac/lote.mjs',
+    de: '  if (contar({ soloPendientes: true }) < _umbral) return null',
+    a: '  if (false) return null',
+    suite: 'unit',
+    espera: ['el flush por tamano NO corre']
+  },
+  {
+    n: 'Fase 10: el close deja de vaciar el lote antes de salir',
+    file: 'qvac/lote.mjs',
+    de: '  if (flush && _liquidar) {',
+    a: '  if (false && flush && _liquidar) {',
+    suite: 'unit',
+    espera: ['el close arma-firma-liquida lo pendiente']
+  },
+
   // ---- FASE 10 / TRANSPORTE POR PROTOMUX -----------------------------------
   //
   // El handoff: un request ruteado lo cobra EL PAR que corrio el modelo, no el
@@ -487,6 +534,98 @@ const BUGS = [
     a: '      if (false) {',
     suite: 'unit',
     espera: ['no atestigua un cobro que no es suyo', 'no acumula nada']
+  },
+
+  // ---- FASE 10 / D27 CASO 1 — LA ATESTACION DEL PAR VUELVE TRAS EL CORTE ---
+  //
+  // El cliente corta, el par YA sirvio un prefijo y lo atestigua. Lo que se
+  // rompe en silencio: `cancelChat` borra el chat en el acto y el `chat:done`
+  // tardio del par se descarta (el rastro queda con attestationMissing aunque el
+  // par si cobro su prefijo), o el par ni siquiera manda ese `chat:done` cuando
+  // lo cancelaron.
+  {
+    n: 'Fase 10 / D27 caso 1: cancelChat vuelve a borrar el chat en el acto',
+    file: 'qvac/swarm.mjs',
+    de: '    chat._graceTimer = setTimeout(() => {\n      if (this._chats.get(requestId) !== chat) return\n',
+    a: '    this._chats.delete(requestId)\n    chat._graceTimer = setTimeout(() => {\n      if (this._chats.get(requestId) !== chat) return\n',
+    suite: 'unit',
+    espera: ['el chat:done tardio SI llego a onDone, no se descarto']
+  },
+  {
+    n: 'Fase 10 / D27 caso 1: el par cancelado no manda su chat:done con la atestacion',
+    file: 'qvac/provider.mjs',
+    de: '      } else if (msg.payment && deltas > 0) {',
+    a: '      } else if (false) {',
+    suite: 'unit',
+    espera: ['aun cancelado, el par manda su chat:done', 'quedo acumulado en el lote del par']
+  },
+
+  // ---- FASE 10 / SETTLEMENT batch-receipts LOCAL DIFIERE DE VERDAD -------
+  //
+  // Un nodo cuyo manifiesto declara `batch-receipts` NO liquida por request: el
+  // schema lo decide, no un flag. Lo que se rompe en silencio: el gateway sigue
+  // liquidando por request aunque el manifiesto diga batch-receipts (doble via
+  // de cobro cuando el flush tambien corra, y una tx on-chain por request que el
+  // modo existe para evitar).
+  {
+    n: 'Fase 10: un nodo batch-receipts vuelve a liquidar por request',
+    file: 'qvac/gateway.mjs',
+    de: "  const diferido = !!(economicPropio && economicPropio.settlement === 'batch-receipts')",
+    a: '  const diferido = false',
+    suite: 'integracion',
+    espera: [
+      'el facilitator NO recibio ninguna liquidacion por request',
+      'que es diferido: settledBy = batch'
+    ]
+  },
+
+  // ---- FASE 11 GROUNDWORK — qvac/x402-cliente.mjs (el rol PAGADOR) --------
+  //
+  // Este modulo NO es de la Fase 10: es el groundwork del pagador con
+  // presupuesto de la Fase 11 (commit 3e8c764). Sus cinco tests viven en la
+  // suite unit; estas anclas los cubren uno a uno. Lo que se rompe en silencio:
+  // firmar un pago que el servidor rechaza, firmar por encima del techo, pagar
+  // en una red que no reconocemos, no reenviar el X-PAYMENT en el reintento, o
+  // arrancar un pagador sin techo.
+  {
+    n: 'Fase 11 groundwork: el pago que firma el cliente deja de verificar del lado servidor',
+    file: 'qvac/x402-cliente.mjs',
+    de: '    network: entrada.network,\n    payload: p.payload',
+    a: "    network: 'eip155:1',\n    payload: p.payload",
+    suite: 'unit',
+    espera: ['verificarPago lo acepta']
+  },
+  {
+    n: 'Fase 11 groundwork: crearPago deja de cortar por encima del techo',
+    file: 'qvac/x402-cliente.mjs',
+    de: '  if (techoUnidades != null && BigInt(entrada.amount) > BigInt(techoUnidades)) {',
+    a: '  if (false) {',
+    suite: 'unit',
+    espera: ['se corta antes de firmar']
+  },
+  {
+    n: 'Fase 11 groundwork: elegirEntrada deja de respetar la preferencia de D15',
+    file: 'qvac/x402-cliente.mjs',
+    de: "export const ORDEN_PREFERENCIA = ['plasma', 'plasma-testnet', 'stable']",
+    a: "export const ORDEN_PREFERENCIA = ['stable', 'plasma-testnet', 'plasma']",
+    suite: 'unit',
+    espera: ['Plasma antes que Stable']
+  },
+  {
+    n: 'Fase 11 groundwork: el reintento del baile 402 va sin el X-PAYMENT firmado',
+    file: 'qvac/x402-cliente.mjs',
+    de: "    headers: { ...headersBase, 'x-payment': pago.cabecera }",
+    a: '    headers: { ...headersBase }',
+    suite: 'unit',
+    espera: ['el reintento lleva el X-PAYMENT firmado']
+  },
+  {
+    n: 'Fase 11 groundwork: un pagador sin techo vuelve a arrancar',
+    file: 'qvac/x402-cliente.mjs',
+    de: "  throw new Error(\n    'x402-cliente: falta el techo de gasto (techoMicros o techoUnidades). ' +\n      'Un pagador sin límite no arranca — es la regla de la Fase 11.'\n  )",
+    a: '  return 1n',
+    suite: 'unit',
+    espera: ['un pagador sin techo no arranca']
   }
 ]
 

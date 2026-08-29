@@ -2298,7 +2298,10 @@ test('el pago se liquida DESPUES de servir, y el recibo llega', async (t) => {
   await levantarFacilitatorFalso()
   ultimoSettle = null
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
+  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
+  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
 
   const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   const desafio = (await pedir('POST', '/v1/chat/completions', { body: cuerpo })).json
@@ -2339,7 +2342,10 @@ test('con stream el recibo va como evento SSE, y dice por que no esta en el head
   const env = (await import('bare-env')).default
 
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
+  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
+  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
 
   const cuerpo = {
     model: 'facturas-ar',
@@ -2391,7 +2397,10 @@ test('si la liquidacion falla, la respuesta que ya salio no se cae', async (t) =
   const env = (await import('bare-env')).default
 
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
+  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
+  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
   facilitatorFalla = true
 
   const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
@@ -2460,7 +2469,11 @@ async function conProveedorQueFirma() {
 
   const p = await proveedorFirmante()
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  gw.setEconomic(wallet.economicDe(p.address))
+  // `onchain-per-job`: estos tests (D12, D24, D25, D27) ejercitan la liquidacion
+  // INMEDIATA por request. El default del proyecto es `batch-receipts`, que
+  // difiere al lote — eso tiene su propio test ('un nodo batch-receipts NO
+  // liquida por request'). El schema decide el modo, no un flag.
+  gw.setEconomic(wallet.economicDe(p.address, 'onchain-per-job'))
   gw.setWalletSigner(p.firmar)
   return p
 }
@@ -2914,7 +2927,10 @@ test('D24: sin firmante NO sale una atestacion, y el recibo dice por que', async
   // nodo cuya passphrase no abrio el keystore: puede anunciar direccion desde el
   // manifiesto viejo y no puede firmar nada.
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
+  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
+  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
   gw.setWalletSigner(null)
 
   const { r } = await pagarYPedir({
@@ -2953,7 +2969,25 @@ test('D24: sin firmante NO sale una atestacion, y el recibo dice por que', async
 
 const PEER_KEY = 'ee'.repeat(32)
 const MODELO_PAR = 'par-9'
-const WALLET_DEL_PAR = '0x' + '5c'.repeat(20)
+// La wallet del par es REAL: se deriva de una cuenta WDK de prueba (index 2, ni
+// el pagador ni el proveedor local). Asi el par puede FIRMAR su atestacion
+// parcial y el gateway la puede VERIFICAR contra la wallet del manifiesto —
+// que es lo que registrarRuteado exige para colgarla (D27 caso 1).
+let _parFirmante = null
+async function parFirmante() {
+  if (_parFirmante) return _parFirmante
+  const wdk = await import('@tetherto/wdk-wallet-evm')
+  const WM = wdk.default || wdk
+  const cuenta = await new WM('test test test test test test test test test test test junk', {
+    provider: 'http://127.0.0.1:1/no-existe'
+  }).getAccount(2)
+  _parFirmante = { address: await cuenta.getAddress(), firmar: (m) => cuenta.sign(m) }
+  return _parFirmante
+}
+
+// Se llena la primera vez que `conParRegistrado` corre; los tests lo comparan
+// contra el `payTo` del 402.
+let WALLET_DEL_PAR = '0x' + '5c'.repeat(20)
 
 function manifiestoDelPar() {
   return {
@@ -2965,6 +2999,27 @@ function manifiestoDelPar() {
       { modelId: MODELO_PAR, displayName: 'Modelo del par', qos: { maxConcurrentRequests: 4 } }
     ]
   }
+}
+
+// La atestacion D24 PARCIAL que el par firma sobre el prefijo que alcanzo a
+// servir antes de que el cliente cortara. Es lo que su `chat:done` tardio lleva
+// de vuelta para que el gateway lo cuelgue del rastro del ruteado.
+async function atestacionParcialDelPar({ requestId, contenido, deltas }) {
+  const at = await import('../qvac/atestacion.mjs')
+  const p = await parFirmante()
+  const sinFirmar = at.construir({
+    requestId,
+    modelId: MODELO_PAR,
+    quantization: at.cuantizacionDe(MODELO_PAR),
+    runtime: 'llamacpp',
+    promptHash: at.hashDe('hola'),
+    outputHash: at.hashDe(contenido),
+    tokensPrefill: 0,
+    tokensDecode: deltas,
+    finishReason: 'client_cancelled',
+    providerPubkey: p.address
+  })
+  return at.firmar(sinFirmar, p.firmar)
 }
 
 // `guion` recibe los callbacks y un objeto con el que puede colgar un chunk
@@ -2996,6 +3051,21 @@ function swarmFalso(guion) {
       // DESPUES de que este lado decidio cortar. Aca eso es sincronico y
       // deterministico en vez de una carrera.
       if (e.tardio) e.cbs.onChunk(e.tardio)
+      // FASE 10 / D27 caso 1 — y despues el par manda su `chat:done` tardio: el
+      // swarm real mantiene el chat vivo esperandolo (con la atestacion parcial
+      // firmada por el par, o el motivo si falta). `e.doneTardio` deja que un
+      // test lo defina; por defecto es una ausencia con motivo.
+      const t = setTimeout(
+        () =>
+          e.cbs.onDone(
+            e.doneTardio || {
+              attestation: null,
+              attestationMissing: 'el par corto sin devolver una atestacion (swarm de prueba)'
+            }
+          ),
+        0
+      )
+      if (t.unref) t.unref()
     }
   }
 }
@@ -3010,6 +3080,7 @@ async function conParRegistrado(guion) {
   // recibo se guarda igual cuando la liquidacion falla -- y ademas `npm test`
   // deja de correr sin red.
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  WALLET_DEL_PAR = (await parFirmante()).address
   store.upsertFromManifest(PEER_KEY, manifiestoDelPar())
   gw.setSwarm(swarmFalso(guion))
 }
@@ -3060,15 +3131,28 @@ test('FASE 9 DoD: matar el nodo a mitad de stream NO cobra', async (t) => {
   await soltarPar()
 })
 
-test('D27 caso 1: los chunks que llegan DESPUES del cancel no entran al hash', async (t) => {
+test('D27 caso 1: el chat:done tardio del par trae la atestacion parcial y se cuelga del rastro', async (t) => {
   const VISTO = 'esto lo recibio el cliente'
   const TARDIO = ' y esto llego despues del cancel'
+
+  // Lo que el par firma sobre lo que ALCANZO a servir: VISTO, un delta. El chunk
+  // tardio no entra —el cliente no lo recibio—, igual que el outputHash de una
+  // parcial servida por este mismo nodo.
+  const attParcial = await atestacionParcialDelPar({
+    requestId: 'chatcmpl-parcial',
+    contenido: VISTO,
+    deltas: 1
+  })
 
   await conParRegistrado((cbs, estado) => {
     cbs.onAccepted()
     cbs.onChunk(VISTO)
     // Cuelga el chunk tardio: sale cuando el gateway mande el chat:cancel.
     estado.tardio = TARDIO
+    // FASE 10 / D27 caso 1 — y su `chat:done` tardio, con la atestacion firmada.
+    // Antes se descartaba porque `cancelChat` borraba el chat en el acto; ahora
+    // lo mantiene vivo una ventana corta justo para recibir esto.
+    estado.doneTardio = { attestation: attParcial }
   })
 
   const cuerpo = {
@@ -3097,17 +3181,25 @@ test('D27 caso 1: los chunks que llegan DESPUES del cancel no entran al hash', a
   t.is(rec.json.settledBy, 'peer-batch', 'el settlement es del par, diferido')
   t.absent(rec.json.success, 'este gateway no muestra una liquidacion que no hizo')
 
-  // El par NO firma DE ESTE LADO: la atestacion la firma el y vuelve en el
-  // chat:done. En un corte del cliente el chat:done no llega (el chat ya se
-  // fue), asi que la atestacion parcial queda de su lado -- y el rastro lo dice.
-  t.is(rec.json.attestation, null, 'sin atestacion de este lado en un corte del cliente')
-  t.ok(rec.json.attestationMissing, 'con el motivo: ' + rec.json.attestationMissing)
+  // Y AHORA la mitad que faltaba: el `chat:done` tardio del par llego, su
+  // atestacion parcial verifico contra la wallet del manifiesto del par, y quedo
+  // colgada del rastro del ruteado en vez de un `attestationMissing`.
+  t.ok(rec.json.attestation, 'la atestacion parcial del par SI llego al rastro')
+  t.is(
+    (rec.json.attestation || {}).finishReason,
+    'client_cancelled',
+    'y dice que corto el cliente (D27)'
+  )
+  t.is(
+    String((rec.json.attestation || {}).providerPubkey || '').toLowerCase(),
+    WALLET_DEL_PAR.toLowerCase(),
+    'firmada por la wallet DEL PAR, no la de este gateway'
+  )
+  t.absent(rec.json.attestationMissing, 'ya no hay motivo de ausencia: la atestacion esta')
 
-  // Lo que si se puede verificar de este lado: que el rastro no cuente el chunk
-  // tardio. Es el mismo invariante que el outputHash de una parcial servida por
-  // este nodo -- lo que se registra es lo que el cliente recibio, no lo que el
-  // proveedor siguio mandando despues de que se fue.
-  const e = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
+  // Y el rastro no cuenta el chunk tardio: lo que se registra es lo que el
+  // cliente recibio, no lo que el proveedor siguio mandando despues de que se fue.
+  const e = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0] || {}
   t.is(e.finishReason, 'client_cancelled', 'el rastro dice quien corto')
   t.is(e.tokens, 1, 'y conto UN chunk, no dos: el tardio se descarto')
 
@@ -3277,6 +3369,74 @@ test('FASE 10: el lote se arma, se firma con la wallet, y se puede liquidar dife
   lote.limpiar()
 })
 
+test('FASE 10: un nodo batch-receipts NO liquida por request, difiere al lote', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const gw = await import('../qvac/gateway.mjs')
+  const wallet = await import('../qvac/wallet.mjs')
+  const x402 = await import('../qvac/x402.mjs')
+  const env = (await import('bare-env')).default
+  lote.limpiar()
+  ultimoSettle = null
+
+  // El nodo con su settlement por DEFECTO — batch-receipts, lo que declara el
+  // manifiesto firmado del proyecto. El schema decide: no hay flag.
+  const p = await proveedorFirmante()
+  env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
+  gw.setEconomic(wallet.economicDe(p.address)) // <- settlement: 'batch-receipts'
+  gw.setWalletSigner(p.firmar)
+
+  const cuerpo = {
+    model: 'facturas-ar',
+    messages: [{ role: 'user', content: 'hola' }],
+    stream: true
+  }
+  const { r } = await pagarYPedir(cuerpo)
+  t.is(r.status, 200, 'se sirve igual: el pago se verifico, solo el settlement se difiere')
+  t.absent(
+    r.headers['x-payment-response'],
+    'y no hay X-PAYMENT-RESPONSE: no se liquido por request'
+  )
+  t.absent(ultimoSettle, 'el facilitator NO recibio ninguna liquidacion por request')
+
+  const evento = r.body
+    .split('\n\n')
+    .map((l) => l.replace(/^data: /, ''))
+    .filter((l) => l.indexOf('settledBy') !== -1)
+    .map((l) => {
+      try {
+        return JSON.parse(l)
+      } catch {
+        return null
+      }
+    })
+    .filter(Boolean)[0]
+  t.ok(evento, 'el evento SSE final describe el settlement')
+  t.is(evento && evento.settledBy, 'batch', 'que es diferido: settledBy = batch')
+  t.is(evento && evento.paymentResponse, null, 'sin recibo de liquidacion todavia')
+  t.ok(
+    evento && evento.x402Note && evento.x402Note.indexOf('batch-receipts') !== -1,
+    'y lo explica: ' + (evento && evento.x402Note)
+  )
+  // La atestacion D24 SI viaja: es independiente del modo de settlement.
+  t.ok(evento && evento.attestation && evento.attestation.signature, 'la atestacion D24 igual sale')
+
+  // El recibo quedo en el lote SIN liquidar: es el flush lo que lo cobra.
+  const pend = lote.pendientes({ soloPendientes: true })
+  t.is(pend.length, 1, 'el pago verificado quedo pendiente en el lote')
+  t.is((pend[0] || {}).liquidacion, null, 'sin liquidacion inmediata: eso es el flush')
+
+  // Y el flush lo liquida — el mismo x402.liquidar, ahora en lote.
+  const res = await lote.flushTodo({ firmar: p.firmar, liquidar: x402.liquidar })
+  t.is((res[0] || {}).liquidados, 1, 'el flush liquida el recibo diferido')
+  t.ok(ultimoSettle, 'y RECIEN ahi el facilitator recibe la liquidacion')
+  t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'no queda nada pendiente')
+
+  gw.setEconomic(null)
+  gw.setWalletSigner(null)
+  delete env[x402.VAR_FACILITATOR]
+  lote.limpiar()
+})
+
 test('FASE 10 / precondicion: x402 arma un accepts[] para plasma-testnet (9746)', async (t) => {
   const x402 = await import('../qvac/x402.mjs')
   const env = (await import('bare-env')).default
@@ -3408,7 +3568,10 @@ test('FASE 9 visible: la atestacion que falta llega al panel CON el motivo', asy
   // Con wallet -- asi que cobra -- y sin firmante: el estado real de un nodo
   // cuya passphrase no abrio el keystore. No se emite una atestacion sin firma.
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
+  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
+  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
+  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
   gw.setWalletSigner(null)
 
   const { r } = await pagarYPedir({

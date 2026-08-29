@@ -2472,7 +2472,11 @@ test('x402-cliente: lo que el cliente firma, el servidor lo acepta (simetria)', 
   // LA prueba: el header que produjo el cliente entra crudo en verificarPago.
   const verif = await x402.verificarPago(pago.cabecera, { payTo, activo, micros, red: 'stable' })
   t.ok(verif.ok, 'verificarPago lo acepta: ' + (verif.motivo || ''))
-  t.is(verif.payer.toLowerCase(), firmante.address.toLowerCase(), 'y el pagador es quien firmo')
+  t.is(
+    String(verif.payer || '').toLowerCase(),
+    firmante.address.toLowerCase(),
+    'y el pagador es quien firmo'
+  )
   t.is(verif.nonce, pago.autorizacion.nonce, 'el nonce de idempotencia viaja intacto')
 })
 
@@ -3148,6 +3152,189 @@ test('FASE 10: el protocolo nodo<->facilitator esta declarado, no adivinado', as
 })
 
 // ---------------------------------------------------------------------------
+// FASE 10 — persistencia y flush del acumulador
+//
+// `_pend` es memoria del proceso. Un corte entre "servido/verificado" y
+// "liquidado" regalaba el trabajo: la autorizacion EIP-3009 estaba firmada y en
+// ningun disco. Estos tests prueban que se espeja a un JSONL con escritura
+// atomica, que se recarga al abrir, y que el flush arma-firma-liquida-marca sin
+// volver a cobrar lo ya liquidado.
+// ---------------------------------------------------------------------------
+
+function dirLoteTmp() {
+  const fs = require('bare-fs')
+  const os = require('bare-os')
+  const path = require('bare-path')
+  const dir = path.join(
+    os.tmpdir(),
+    'qvac-lote-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  )
+  fs.mkdirSync(dir, { recursive: true })
+  return {
+    dir,
+    archivo: path.join(dir, 'lote-pendientes.jsonl'),
+    leer() {
+      try {
+        return fs.readFileSync(path.join(dir, 'lote-pendientes.jsonl'), 'utf8')
+      } catch {
+        return ''
+      }
+    },
+    limpiar() {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+      } catch {}
+    }
+  }
+}
+
+test('FASE 10: el acumulador se persiste a JSONL y se recarga al abrir', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const fs = require('bare-fs')
+  const cuenta = await cuentaDePrueba()
+  const tmp = dirLoteTmp()
+
+  try {
+    lote.abrir(tmp.dir, { intervaloMs: 0 })
+    lote.agregar(await reciboDePrueba(cuenta, 100))
+    lote.agregar(await reciboDePrueba(cuenta, 101))
+    t.is(lote.pendientes().length, 2, 'dos en memoria')
+
+    const lineas = tmp.leer().trim() ? tmp.leer().trim().split('\n') : []
+    t.is(lineas.length, 2, 'y dos lineas JSON en el archivo (una por recibo)')
+    if (lineas.length === 2) {
+      t.ok(JSON.parse(lineas[0]).nonce, 'cada linea parsea a un recibo con nonce')
+    }
+
+    // Una corrida nueva: se pierde la memoria, se recarga del disco.
+    lote.limpiar()
+    t.is(lote.pendientes().length, 0, 'la memoria arranca vacia')
+    const recuperados = lote.abrir(tmp.dir, { intervaloMs: 0 })
+    t.is(recuperados, 2, 'abrir devuelve cuantos recibos rescato')
+    t.is(lote.pendientes().length, 2, 'y estan de vuelta en el acumulador')
+
+    // Una linea corrupta no se lleva puesto el resto del archivo.
+    fs.appendFileSync(tmp.archivo, '{ esto no es json\n')
+    lote.limpiar()
+    const trasCorrupcion = lote.abrir(tmp.dir, { intervaloMs: 0 })
+    t.is(trasCorrupcion, 2, 'la linea rota se saltea, los dos buenos siguen')
+  } finally {
+    lote.abrir(null)
+    lote.limpiar()
+    tmp.limpiar()
+  }
+})
+
+test('FASE 10: flushTodo arma-firma-liquida-marca, agrupando por red+wallet', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const cuenta = await cuentaDePrueba()
+  const tmp = dirLoteTmp()
+
+  const liquidados = []
+  try {
+    lote.abrir(tmp.dir, {
+      intervaloMs: 0,
+      firmar: (m) => cuenta.sign(m),
+      liquidar: async ({ requisito, pago }) => {
+        liquidados.push(pago.autorizacion.nonce)
+        return { success: true, transaction: '0xdeadbeef', network: requisito.network }
+      }
+    })
+    lote.agregar(await reciboDePrueba(cuenta, 200))
+    lote.agregar(await reciboDePrueba(cuenta, 201))
+
+    const res = await lote.flushTodo()
+    t.is(res.length, 1, 'un solo grupo: misma red, misma wallet')
+    t.is((res[0] || {}).ok, true)
+    t.is((res[0] || {}).liquidados, 2, 'los dos recibos del grupo se liquidaron')
+    t.is(liquidados.length, 2, 'liquidar se llamo una vez por recibo, con su autorizacion')
+
+    t.is(
+      lote.pendientes({ soloPendientes: true }).length,
+      0,
+      'y quedaron marcados: un corte y reanudar no vuelve a cobrar'
+    )
+    const bruto = tmp.leer().trim()
+    const enDisco = bruto ? bruto.split('\n').map((l) => JSON.parse(l)) : []
+    t.is(enDisco.length, 2, 'los dos recibos siguen en disco')
+    t.ok(
+      enDisco.length === 2 && enDisco.every((r) => r.liquidacion && r.liquidacion.success),
+      'el disco tambien refleja lo liquidado, no solo la memoria'
+    )
+  } finally {
+    lote.abrir(null)
+    lote.limpiar()
+    tmp.limpiar()
+  }
+})
+
+test('FASE 10: el flush por tamano se dispara solo al cruzar el umbral', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const cuenta = await cuentaDePrueba()
+  const tmp = dirLoteTmp()
+
+  let corridas = 0
+  try {
+    lote.abrir(tmp.dir, {
+      intervaloMs: 0,
+      umbral: 3,
+      firmar: (m) => cuenta.sign(m),
+      liquidar: async ({ requisito }) => {
+        corridas++
+        return { success: true, transaction: '0x01', network: requisito.network }
+      }
+    })
+
+    lote.agregar(await reciboDePrueba(cuenta, 300))
+    lote.agregar(await reciboDePrueba(cuenta, 301))
+    await lote.flushSiSuperaUmbral()
+    t.is(corridas, 0, 'con 2 pendientes y umbral 3, el flush por tamano NO corre')
+
+    lote.agregar(await reciboDePrueba(cuenta, 302))
+    await lote.flushSiSuperaUmbral()
+    t.is(corridas, 3, 'con el tercero se cruza el umbral y se liquidan los tres')
+    t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'no queda nada por liquidar')
+  } finally {
+    lote.abrir(null)
+    lote.limpiar()
+    tmp.limpiar()
+  }
+})
+
+test('FASE 10: cerrar hace un ultimo flush y persiste lo que quede', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const cuenta = await cuentaDePrueba()
+  const tmp = dirLoteTmp()
+
+  let liquido = 0
+  try {
+    lote.abrir(tmp.dir, {
+      intervaloMs: 0,
+      firmar: (m) => cuenta.sign(m),
+      liquidar: async ({ requisito }) => {
+        liquido++
+        return { success: true, transaction: '0x02', network: requisito.network }
+      }
+    })
+    lote.agregar(await reciboDePrueba(cuenta, 400))
+    lote.agregar(await reciboDePrueba(cuenta, 401))
+
+    await lote.cerrar()
+    t.is(liquido, 2, 'el close arma-firma-liquida lo pendiente antes de salir')
+
+    // El archivo quedo con los recibos marcados: reabrir no los ofrece para
+    // liquidar de nuevo.
+    const recuperados = lote.abrir(tmp.dir, { intervaloMs: 0 })
+    t.is(recuperados, 2, 'siguen en el archivo, para auditar')
+    t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'pero ninguno pendiente de cobro')
+  } finally {
+    lote.abrir(null)
+    lote.limpiar()
+    tmp.limpiar()
+  }
+})
+
+// ---------------------------------------------------------------------------
 // FASE 10 — el transporte por Protomux: el par que sirve ruteado, cobra
 //
 // Handoff completo (decidido): cuando un gateway rutea un request pagado a un
@@ -3161,7 +3348,7 @@ test('FASE 10: el protocolo nodo<->facilitator esta declarado, no adivinado', as
 // atestacion del par son reales; la plata no existe.
 // ---------------------------------------------------------------------------
 
-async function parConWallet(tokensPorRespuesta = 5, pedazo = 'texto ') {
+async function parConWallet(tokensPorRespuesta = 5, pedazo = 'texto ', { lento = false } = {}) {
   const { Provider } = await import('../qvac/provider.mjs')
   const wdk = await import('@tetherto/wdk-wallet-evm')
   const WM = wdk.default || wdk
@@ -3174,7 +3361,12 @@ async function parConWallet(tokensPorRespuesta = 5, pedazo = 'texto ') {
     resolveModel: async () => ({ modelSrc: {} }),
     loadModel: async () => 'cargado',
     complete: async function* () {
-      for (let i = 0; i < tokensPorRespuesta; i++) yield pedazo
+      for (let i = 0; i < tokensPorRespuesta; i++) {
+        // `lento`: cede el control entre tokens para que un `chat:cancel` que
+        // llega mientras se genera pueda interleavear (el caso de D27 caso 1).
+        if (lento) await new Promise((r) => setTimeout(r, 3))
+        yield pedazo
+      }
     },
     shutdown: async () => {}
   }
@@ -3402,6 +3594,101 @@ test('FASE 10: un pago reenviado a otra wallet NO lo acumula el par', async (t) 
 
   quota.reset()
   lote.limpiar()
+})
+
+test('FASE 10 / D27 caso 1: el par cancelado manda IGUAL su chat:done con la atestacion parcial', async (t) => {
+  const lote = await import('../qvac/lote.mjs')
+  const quota = await import('../qvac/quota.mjs')
+  quota.reset()
+  lote.limpiar()
+
+  // Engine lento: un `chat:cancel` que llega mientras genera interleavea.
+  const { provider, address } = await parConWallet(30, 'pedazo ', { lento: true })
+  const payment = await pagoReenviadoPara(address, { nonce: 71 })
+
+  const cap = capturar()
+  const corriendo = provider._serve(
+    PEER,
+    {
+      requestId: 'chatcmpl-cancel',
+      model: 'llama1b',
+      messages: [{ role: 'user', content: 'hola' }],
+      payment
+    },
+    cap.send
+  )
+  // Dejar salir unos tokens y despues cancelar, como haria el consumidor.
+  await new Promise((r) => setTimeout(r, 20))
+  provider.onMessage(PEER, { type: 'chat:cancel', requestId: 'chatcmpl-cancel' }, cap.send)
+  await corriendo
+
+  const chunks = cap.vistos.filter((m) => m.type === 'chat:chunk')
+  t.ok(chunks.length > 0 && chunks.length < 30, 'corto a mitad: ' + chunks.length + ' de 30')
+
+  const done = cap.vistos.find((m) => m.type === 'chat:done')
+  t.ok(done, 'aun cancelado, el par manda su chat:done (D27 caso 1)')
+  t.ok(done && done.attestation && done.attestation.signature, 'con la atestacion parcial firmada')
+  t.is(
+    (done && done.attestation && done.attestation.finishReason) || null,
+    'client_cancelled',
+    'que dice client_cancelled, no stop'
+  )
+
+  const pend = lote.pendientes()
+  t.is(pend.length, 1, 'y el prefijo servido quedo acumulado en el lote del par')
+  t.is((pend[0] || {}).payer, payment.authorization.from, 'a nombre del cliente que pago')
+
+  quota.reset()
+  lote.limpiar()
+})
+
+test('FASE 10 / D27 caso 1: cancelChat mantiene el chat vivo para el chat:done tardio del par', async (t) => {
+  const { NodeSwarm } = await import('../qvac/swarm.mjs')
+  const sw = new NodeSwarm({ models: [] })
+
+  // Un par de mentira: lo unico que `chatRequest`/`_send` le piden es
+  // `key`, `manifest` y un `channel.send`.
+  const enviados = []
+  const par = { key: 'ab'.repeat(32), manifest: {}, channel: { send: (m) => enviados.push(m) } }
+  sw.peers.set(par.key, par)
+
+  const eventos = []
+  const rid = sw.chatRequest(
+    par.key,
+    { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+    {
+      onAccepted: () => eventos.push(['accepted']),
+      onChunk: (d) => eventos.push(['chunk', d]),
+      onDone: (x) => eventos.push(['done', x]),
+      onError: (m, c) => eventos.push(['error', m, c])
+    }
+  )
+  t.ok(rid, 'se abrio el chat')
+  t.ok(
+    enviados.find((m) => m.type === 'chat:request'),
+    'y salio el chat:request'
+  )
+
+  sw.cancelChat(rid)
+  t.ok(
+    enviados.find((m) => m.type === 'chat:cancel'),
+    'salio el chat:cancel al par'
+  )
+  t.is(eventos.length, 0, 'pero el chat NO se cerro: se espera el chat:done tardio del par')
+
+  // El par contesta tarde con su atestacion parcial, por el dispatch normal.
+  sw._dispatch(par, {
+    type: 'chat:done',
+    requestId: rid,
+    attestation: { v: 1, requestId: rid, marca: 'parcial' }
+  })
+  const done = eventos.find((e) => e[0] === 'done')
+  t.ok(done, 'el chat:done tardio SI llego a onDone, no se descarto')
+  t.is(
+    (done && done[1] && done[1].attestation && done[1].attestation.marca) || null,
+    'parcial',
+    'con la atestacion parcial del par intacta'
+  )
 })
 
 // ---------------------------------------------------------------------------

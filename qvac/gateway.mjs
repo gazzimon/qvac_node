@@ -444,6 +444,14 @@ const FIRST_CHUNK_TIMEOUT_MS = 120000
 // (si se cayera, el swarm avisa al instante), asi que esto es el par trabado.
 const IDLE_TIMEOUT_MS = 60000
 
+// FASE 10 / D27 caso 1 — el cliente corto y ya se le mando el chat:cancel al
+// par. `swarm.cancelChat` mantiene el chat vivo esperando el chat:done tardio
+// (trae la atestacion parcial firmada por el par). Este es el ULTIMO recurso:
+// si ni el chat:done real ni el sintetico de `cancelChat` llegan —swarm falso
+// en los tests, o sin swarm— se cierra el intento igual, cobrando el prefijo y
+// sin atestacion de este lado.
+const LATE_DONE_FALLBACK_MS = 2500
+
 let swarmRef = null
 
 // El Hyperdrive del nodo. Lo inyecta bin.mjs despues de abrirlo, igual que el
@@ -705,6 +713,10 @@ function streamFromPeer({
     let finished = false
     let timer = null
     let requestId = null
+    // FASE 10 / D27 caso 1 — desde que se pidio el cancel, un `chat:chunk`
+    // tardio no puede volver a estirar el timer al reloj de inactividad: lo
+    // unico que se espera ya es el `chat:done` con la atestacion parcial.
+    let cancelPedido = false
 
     const finish = (r) => {
       if (finished) return
@@ -732,11 +744,33 @@ function streamFromPeer({
     const onAbort = () => {
       if (finished) return
       if (requestId) swarmRef.cancelChat(requestId)
-      finish(
-        started
-          ? { ok: true, cortado: true, code: null, message: null }
-          : { ok: false, code: 'aborted', message: 'el request se corto antes del primer token' }
+      if (!started) {
+        return finish({
+          ok: false,
+          code: 'aborted',
+          message: 'el request se corto antes del primer token'
+        })
+      }
+      // FASE 10 / D27 caso 1 — el cliente se fue pero el par YA sirvio un
+      // prefijo y lo esta atestiguando. NO se cierra el intento en el acto:
+      // `cancelChat` deja el chat vivo una ventana corta y el par manda un
+      // `chat:done` tardio con su atestacion parcial firmada; ese `onDone`
+      // cierra aca, con la firma colgada, y `registrarRuteado` la engancha al
+      // recibo. Este timeout es el ultimo recurso si ese `chat:done` no llega
+      // ni siquiera sintetico: se cobra el prefijo, sin atestacion de este lado.
+      cancelPedido = true
+      clearTimeout(timer)
+      timer = setTimeout(
+        () =>
+          finish({
+            ok: true,
+            cortado: true,
+            attestation: null,
+            attestationMissing: 'el par no devolvio el chat:done tras el corte del cliente'
+          }),
+        LATE_DONE_FALLBACK_MS
       )
+      timer.unref?.()
     }
     if (signal) signal.addEventListener('abort', onAbort, { once: true })
 
@@ -768,7 +802,9 @@ function streamFromPeer({
         },
         onChunk: (delta) => {
           started = true
-          arm(IDLE_TIMEOUT_MS, 'el par dejo de mandar tokens a mitad del stream', 'peer_stalled')
+          if (!cancelPedido) {
+            arm(IDLE_TIMEOUT_MS, 'el par dejo de mandar tokens a mitad del stream', 'peer_stalled')
+          }
           onChunk(delta)
         },
         // FASE 10 — el `chat:done` trae la atestacion D24 firmada por el par (o
@@ -1099,30 +1135,40 @@ async function procesarPago({ pago, id, node, ultimo, messages, contenido, d25, 
 }
 
 async function liquidarYRegistrar(pago, id, extra = null) {
-  const recibo = await x402.liquidar({ pago, requisito: pago.requisito })
+  // FASE 10 — el SCHEMA decide, no un flag. Un nodo cuyo manifiesto firmado
+  // declara `settlement: 'batch-receipts'` NO liquida por request (Fase 9): el
+  // recibo se acumula en el lote y lo liquida el flush (por tamano, por tiempo,
+  // o en el `close`). Es el mismo pago verificado con el settlement diferido —
+  // el insight de D12. `onchain-per-job` (y cualquier otro modo) liquida ya.
+  const diferido = !!(economicPropio && economicPropio.settlement === 'batch-receipts')
 
-  if (recibo.success) {
-    console.log(`[x402] liquidado ${id}: tx ${recibo.transaction} en ${recibo.network}`)
-  } else {
-    // Se dice fuerte: este nodo sirvio y no cobro.
-    console.error(
-      `[x402] NO se pudo cobrar ${id}: ${recibo.errorReason || ''} ${recibo.errorMessage || ''}`
-    )
-  }
-
+  let recibo = null
   let cabecera = null
-  try {
-    cabecera = await x402.cabeceraDeRecibo(recibo)
-  } catch (err) {
-    console.error(`[x402] no se pudo codificar el recibo: ${(err && err.message) || err}`)
+  if (diferido) {
+    console.log(`[x402] ${id}: settlement diferido (batch-receipts) — al lote, no por request`)
+  } else {
+    recibo = await x402.liquidar({ pago, requisito: pago.requisito })
+    if (recibo.success) {
+      console.log(`[x402] liquidado ${id}: tx ${recibo.transaction} en ${recibo.network}`)
+    } else {
+      // Se dice fuerte: este nodo sirvio y no cobro.
+      console.error(
+        `[x402] NO se pudo cobrar ${id}: ${recibo.errorReason || ''} ${recibo.errorMessage || ''}`
+      )
+    }
+    try {
+      cabecera = await x402.cabeceraDeRecibo(recibo)
+    } catch (err) {
+      console.error(`[x402] no se pudo codificar el recibo: ${(err && err.message) || err}`)
+    }
   }
 
-  // D24 — la atestacion se GUARDA junto al recibo de liquidacion, que es donde
-  // D12 ya obligaba a construir algo. Los dos artefactos prueban mitades
-  // distintas del mismo intercambio: el recibo, que alguien pago; la atestacion,
-  // que este nodo entrego esto. En esta fase NADIE la consume todavia -- eso es
-  // la Fase 10 --, y es deliberado: hacia atras no se firma.
-  guardarRecibo(id, { recibo, ...(extra || {}) })
+  // D24 — la atestacion se GUARDA junto al recibo, que es donde D12 ya obligaba
+  // a construir algo. Los dos artefactos prueban mitades distintas del mismo
+  // intercambio: el recibo, que alguien pago; la atestacion, que este nodo
+  // entrego esto. `deferred` distingue "no se liquido por request porque este
+  // nodo es batch-receipts" de "se liquido y fallo".
+  guardarRecibo(id, { recibo, deferred: diferido || undefined, ...(extra || {}) })
 
   // FASE 10 — el recibo entra al lote SI lo servimos NOSOTROS. Cuando el `payTo`
   // del 402 es nuestra wallet, la autorizacion EIP-3009 que el cliente firmo es
@@ -1130,8 +1176,9 @@ async function liquidarYRegistrar(pago, id, extra = null) {
   // apunto a SU wallet (D10): ese recibo es de el, viaja por Protomux firmado
   // por el, y esa es la otra mitad de la Fase 10 -- no se acumula aca.
   //
-  // La liquidacion inmediata de la Fase 9 NO se toca: `recibo.liquidacion`
-  // guarda como salio, y `liquidarLote` es lo que reintenta las que fallaron.
+  // Con `onchain-per-job`, `recibo.liquidacion` guarda como salio la inmediata y
+  // `liquidarLote` reintenta las que fallaron. Con `batch-receipts`, entra sin
+  // liquidar (`liquidacion: null`) y el flush lo cobra por primera vez.
   try {
     const miWallet = economicPropio && economicPropio.walletAddress
     const paraMi =
@@ -1155,10 +1202,12 @@ async function liquidarYRegistrar(pago, id, extra = null) {
           signature: pago.firma,
           requirements: pago.requisito,
           atestacion: (extra && extra.atestacion) || null,
-          liquidacion: {
-            success: !!(recibo && recibo.success),
-            transaction: (recibo && recibo.transaction) || ''
-          }
+          liquidacion: diferido
+            ? null
+            : {
+                success: !!(recibo && recibo.success),
+                transaction: (recibo && recibo.transaction) || ''
+              }
         })
       )
     }
@@ -1166,7 +1215,7 @@ async function liquidarYRegistrar(pago, id, extra = null) {
     console.error(`[lote] no se pudo acumular el recibo de ${id}: ${(err && err.message) || err}`)
   }
 
-  return { recibo, cabecera, ...(extra || {}) }
+  return { recibo, cabecera, deferred: diferido || undefined, ...(extra || {}) }
 }
 
 async function handleChatConReintentos({
@@ -1580,7 +1629,7 @@ async function handleChatConReintentos({
           },
           {
             ...provenanceHeaders(elegido || node, costoEstimado),
-            ...(recibo ? { 'X-PAYMENT-RESPONSE': recibo.cabecera } : {})
+            ...(recibo && recibo.cabecera ? { 'X-PAYMENT-RESPONSE': recibo.cabecera } : {})
           }
         )
       }
@@ -1624,12 +1673,21 @@ async function handleChatConReintentos({
                     'lote y lo liquida en lote (Fase 10). No hay X-PAYMENT-RESPONSE porque ' +
                     'este gateway no cobra lo que sirvio otro. La atestacion firmada por el ' +
                     'par va abajo; el pago se recupera por receiptUrl.'
-                  : 'El recibo viaja como evento SSE final y no en X-PAYMENT-RESPONSE: ' +
-                    'en streaming los headers salen antes del primer token, asi que liquidar ' +
-                    'para poder escribirlo pondria una transaccion on-chain delante del TTFT. ' +
-                    'Ver D12 del roadmap. Tambien se puede recuperar por receiptUrl.',
+                  : recibo.deferred
+                    ? 'Este nodo declara settlement batch-receipts: el pago se acumula en su ' +
+                      'lote y se liquida DIFERIDO (por tamano, por tiempo, o al apagarse), no ' +
+                      'por request. Por eso no hay X-PAYMENT-RESPONSE ni tx todavia. Ver D12 y ' +
+                      'la Fase 10. El pago se recupera por receiptUrl.'
+                    : 'El recibo viaja como evento SSE final y no en X-PAYMENT-RESPONSE: ' +
+                      'en streaming los headers salen antes del primer token, asi que liquidar ' +
+                      'para poder escribirlo pondria una transaccion on-chain delante del TTFT. ' +
+                      'Ver D12 del roadmap. Tambien se puede recuperar por receiptUrl.',
                 paymentResponse: recibo.recibo || null,
-                settledBy: recibo.servedByPeer ? 'peer-batch' : 'gateway',
+                settledBy: recibo.servedByPeer
+                  ? 'peer-batch'
+                  : recibo.deferred
+                    ? 'batch'
+                    : 'gateway',
                 // D24 — la atestacion viaja con el recibo, o el motivo por el
                 // que no hay. Una ausencia con motivo es un dato; una ausencia
                 // muda es un agujero que alguien va a leer como "no hace falta".
@@ -2484,6 +2542,10 @@ async function onRequest(req, res) {
         // lote. Sin esto un cliente que ve `attestation` pero no `transaction`
         // no sabe si la liquidacion fallo o si nunca fue nuestra.
         ...(guardado.servedByPeer ? { settledBy: 'peer-batch', success: undefined } : {}),
+        // FASE 10 — este nodo declara batch-receipts: sirvio, acumulo el pago en
+        // su lote y lo liquida diferido. No hay `transaction` de este lado
+        // todavia, y `success` sin definir lo dice.
+        ...(guardado.deferred ? { settledBy: 'batch', success: undefined } : {}),
         // D24 — que sirvio este nodo, firmado por su wallet. `null` con motivo
         // cuando no la hay: el caso normal es que el que sirvio haya sido un
         // par, y ahi la atestacion la firma el (Fase 10), no nosotros.
