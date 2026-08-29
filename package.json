@@ -71,6 +71,7 @@
     "verificar-x402": "node scripts/verificar-x402.js",
     "verificar-lote": "bare scripts/verificar-lote.mjs",
     "desplegar-activo": "node scripts/desplegar-activo-prueba.js",
+    "mintear-tusd": "node scripts/mintear-tusd.js",
     "facilitator": "node scripts/facilitator.js"
   },
   "dependencies": {
