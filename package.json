@@ -10,7 +10,9 @@
     "bin.mjs",
     "app.js",
     "qvac/",
-    "workers/"
+    "workers/",
+    "vendor/ws-stub/",
+    "scripts/parche-noble-bare.js"
   ],
   "engines": {
     "node": ">=20",

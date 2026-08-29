@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyrusLLM</title>
+<meta name="description" content="A peer-to-peer marketplace for AI inference. Install one binary: your machine runs a local LLM, announces itself signed on a P2P network, and serves requests through an OpenAI-compatible gateway — with no company in the middle.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f4f7;
+    --surface: #ffffff;
+    --surface-2: #eceef3;
+    --line: #d7dbe3;
+    --ink: #12151c;
+    --mute: #5b6172;
+    --network: #2f6fd6;
+    --signal: #a6650a;
+    --signal-ink: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b0d12;
+      --surface: #12151c;
+      --surface-2: #171b24;
+      --line: #262b38;
+      --ink: #e8eaf0;
+      --mute: #8891a6;
+      --network: #5fa8ff;
+      --signal: #ffb545;
+      --signal-ink: #16110a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b0d12;
+    --surface: #12151c;
+    --surface-2: #171b24;
+    --line: #262b38;
+    --ink: #e8eaf0;
+    --mute: #8891a6;
+    --network: #5fa8ff;
+    --signal: #ffb545;
+    --signal-ink: #16110a;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", monospace; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem;
+    font-weight: 500;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--network);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .eyebrow::before {
+    content: "";
+    width: .4rem; height: .4rem; border-radius: 50%;
+    background: var(--network);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--network) 20%, transparent);
+    flex: none;
+  }
+
+  h1, h2, h3 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 600;
+    line-height: 1.12;
+    margin: 0;
+    text-wrap: balance;
+    letter-spacing: -.01em;
+  }
+
+  section {
+    padding: clamp(3.5rem, 9vw, 7.5rem) clamp(1.5rem, 5vw, 4rem);
+    border-top: 1px solid var(--line);
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  .narrow { max-width: 640px; }
+
+  p { color: var(--mute); margin: 0; }
+  a { color: inherit; }
+
+  /* ---------------------------------------------------------------- hero */
+  .hero {
+    position: relative;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: 6rem;
+    border-top: none;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .hero canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    z-index: -1;
+    opacity: .85;
+  }
+  .hero::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 70% 55% at 30% 30%, transparent, var(--bg) 78%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  nav.top {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.5rem clamp(1.5rem, 5vw, 4rem);
+    z-index: 2;
+  }
+  nav.top .word { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: .95rem; }
+  nav.top a.repo {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem; color: var(--mute);
+    text-decoration: none; border: 1px solid var(--line); border-radius: 3px;
+    padding: .35rem .7rem;
+  }
+  nav.top a.repo:hover { color: var(--ink); border-color: var(--network); }
+
+  .hero h1 {
+    font-size: clamp(2.3rem, 6.2vw, 4.4rem);
+    max-width: 18ch;
+  }
+  .hero .lede {
+    margin-top: 1.5rem;
+    font-size: clamp(1.02rem, 1.6vw, 1.2rem);
+    max-width: 52ch;
+    color: var(--mute);
+  }
+  .cta-row { display: flex; flex-wrap: wrap; gap: .85rem; margin-top: 2.25rem; }
+  .btn {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .85rem; font-weight: 500;
+    padding: .8rem 1.35rem;
+    border-radius: 3px;
+    text-decoration: none;
+    display: inline-flex; align-items: center; gap: .5rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn.primary { background: var(--signal); color: var(--signal-ink); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { border-color: var(--line); color: var(--ink); }
+  .btn.ghost:hover { border-color: var(--network); }
+
+  .hero .stats {
+    display: flex; gap: clamp(1.5rem, 4vw, 3rem); flex-wrap: wrap;
+    margin-top: clamp(2.75rem, 7vw, 4.5rem);
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--line);
+  }
+  .stat b {
+    display: block; font-family: "IBM Plex Mono", monospace;
+    font-size: 1.5rem; color: var(--ink); font-weight: 600;
+  }
+  .stat span { font-size: .78rem; color: var(--mute); }
+
+  /* -------------------------------------------------------------- reveal */
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+  /* ------------------------------------------------------------- problem */
+  .problem h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); max-width: 20ch; }
+  .problem .lines { margin-top: 2rem; display: grid; gap: 1.1rem; max-width: 640px; }
+  .problem .lines p { color: var(--ink); font-size: 1.05rem; }
+  .problem .lines p b { color: var(--signal); font-weight: 600; }
+
+  /* ------------------------------------------------------------ solution */
+  .solution { background: var(--surface); }
+  .solution .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: clamp(2rem, 5vw, 4rem);
+    align-items: start;
+  }
+  @media (max-width: 760px) { .solution .grid { grid-template-columns: 1fr; } }
+  .solution h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); }
+  .solution .lede { margin-top: 1.25rem; color: var(--mute); }
+  .solution .lede + .lede { margin-top: 1rem; }
+  .flow {
+    font-family: "IBM Plex Mono", monospace; font-size: .82rem;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px;
+    padding: 1.25rem 1.4rem; color: var(--ink);
+    display: grid; gap: .55rem;
+  }
+  .flow .row { display: flex; gap: .75rem; align-items: baseline; }
+  .flow .row .k { color: var(--network); flex: none; width: 9ch; white-space: nowrap; }
+  .flow .row .v { color: var(--mute); }
+
+  /* endpoints — folded into "what it is" and used again in "why it is real" */
+  .endpoints {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem;
+    display: grid; gap: 0;
+    border: 1px solid var(--line); border-radius: 4px; overflow: hidden;
+    margin-top: 1rem;
+  }
+  .endpoints .ep {
+    display: flex; gap: .9rem; padding: .7rem .95rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+  .endpoints .ep:last-child { border-bottom: none; }
+  .endpoints .ep .m { color: var(--signal); flex: none; width: 4.2ch; }
+  .endpoints .ep .p { color: var(--ink); }
+
+  /* one-liner link out to the payback model */
+  .seealso {
+    margin-top: 1.75rem; font-family: "IBM Plex Mono", monospace; font-size: .85rem;
+    color: var(--mute);
+  }
+  .seealso a { color: var(--network); text-decoration: none; border-bottom: 1px solid transparent; }
+  .seealso a:hover { border-bottom-color: var(--network); }
+
+  /* ---------------------------------------------------------------- roles */
+  .roles .head { max-width: 640px; }
+  .roles h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); }
+  .roles .cards {
+    margin-top: clamp(2.25rem, 5vw, 3.25rem);
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+    background: var(--line); border: 1px solid var(--line);
+  }
+  @media (max-width: 760px) { .roles .cards { grid-template-columns: 1fr; } }
+  .role {
+    background: var(--surface); padding: 1.9rem 1.7rem;
+    display: flex; flex-direction: column; gap: .9rem;
+  }
+  .role .path { color: var(--network); font-size: .82rem; }
+  .role h3 { font-size: 1.15rem; }
+  .role p { font-size: .92rem; }
+
+  /* ---------------------------------------------------------------- proof */
+  .proof { background: var(--surface); }
+  .proof .grid {
+    display: grid; grid-template-columns: 1.1fr 1fr; gap: clamp(2rem, 5vw, 4rem);
+    align-items: start;
+  }
+  @media (max-width: 760px) { .proof .grid { grid-template-columns: 1fr; } }
+  .proof h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); max-width: 18ch; }
+  .proof p.lede { margin-top: 1.1rem; }
+  .facts { margin-top: 1.75rem; display: grid; gap: 1.1rem; }
+  .fact { display: flex; gap: .9rem; align-items: baseline; }
+  .fact .n { font-family: "IBM Plex Mono", monospace; color: var(--network); font-size: .82rem; flex: none; width: 2ch; }
+  .fact p { color: var(--ink); font-size: .95rem; }
+  .fact p span { color: var(--mute); }
+
+  /* -------------------------------------------------------------- payments */
+  .pay { background: var(--surface); }
+  .pay .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: clamp(2rem, 5vw, 4rem);
+    align-items: start;
+  }
+  @media (max-width: 820px) { .pay .grid { grid-template-columns: 1fr; } }
+  .pay h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); max-width: 20ch; }
+  .pay .lede { margin-top: 1.1rem; }
+  .pay .lede + .lede { margin-top: 1rem; }
+  .pay .lede b { color: var(--signal); font-weight: 600; }
+  .code-block {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+    overflow: hidden;
+  }
+  .code-block .bar {
+    font-family: "IBM Plex Mono", monospace; font-size: .7rem;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--mute);
+    padding: .6rem .95rem; border-bottom: 1px solid var(--line);
+  }
+  .code-block pre {
+    margin: 0; padding: 1.1rem 1.25rem 1.2rem;
+    font-family: "IBM Plex Mono", monospace; font-size: .76rem; line-height: 1.75;
+    color: var(--ink); overflow-x: auto;
+  }
+  .code-block .cm { color: var(--mute); }
+  .code-block + p.fine { margin-top: .9rem; }
+
+  /* -------------------------------------------------------------- install */
+  .install { text-align: left; }
+  /* minmax(0, ...): el comando de instalacion es una linea larga sin espacios
+     y su min-content aplastaba la columna del titulo a 298px. Con esto el
+     <pre> scrollea adentro de su propia caja, que es lo que ya sabe hacer. */
+  .install .grid {
+    display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 4rem); align-items: center;
+  }
+  @media (max-width: 760px) { .install .grid { grid-template-columns: 1fr; } }
+  .install h2 { font-size: clamp(1.8rem, 4vw, 2.6rem); max-width: 19ch; }
+  .install .lede { margin-top: 1.1rem; max-width: 40ch; }
+  .term {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+    overflow: hidden;
+  }
+  .term .bar {
+    display: flex; align-items: center; gap: .45rem;
+    padding: .65rem .9rem; border-bottom: 1px solid var(--line);
+  }
+  .term .bar i { width: .55rem; height: .55rem; border-radius: 50%; background: var(--line); display: block; }
+  .term pre {
+    margin: 0; padding: 1.15rem 1.25rem 1.3rem;
+    font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.9;
+    color: var(--ink); overflow-x: auto;
+  }
+  /* El comando entra entero: una barra de scroll horizontal justo donde le
+     pedis a alguien que copie algo esconde la mitad de lo que tiene que copiar. */
+  #cmd { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
+  .term .c1 { color: var(--mute); }
+  .term .c2 { color: var(--network); }
+  .term .copy {
+    margin: 0 1.25rem 1.1rem; font-family: "IBM Plex Mono", monospace; font-size: .76rem;
+    background: none; border: 1px solid var(--line); color: var(--mute);
+    padding: .4rem .8rem; border-radius: 3px; cursor: pointer;
+  }
+  .term .copy:hover { color: var(--ink); border-color: var(--network); }
+
+  .fine { font-size: .75rem; color: var(--mute); line-height: 1.55; }
+  .fine + .fine { margin-top: .5rem; }
+
+  .os-tabs { display: flex; gap: .35rem; margin-bottom: .9rem; flex-wrap: wrap; }
+  .os-tabs button {
+    font-family: "IBM Plex Mono", monospace; font-size: .78rem;
+    background: none; border: 1px solid var(--line); color: var(--mute);
+    padding: .35rem .8rem; border-radius: 3px; cursor: pointer;
+  }
+  .os-tabs button[aria-selected="true"] { border-color: var(--network); color: var(--ink); }
+  .install .alt {
+    margin-top: 1.6rem; padding-top: 1.4rem; border-top: 1px solid var(--line);
+    font-size: .85rem;
+  }
+  .install .alt code {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem;
+    color: var(--ink); overflow-wrap: anywhere;
+  }
+
+  footer {
+    padding: 2.25rem clamp(1.5rem, 5vw, 4rem) 3rem;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+    font-family: "IBM Plex Mono", monospace; font-size: .76rem; color: var(--mute);
+  }
+  footer a { color: var(--mute); text-decoration: none; }
+  footer a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <nav class="top">
+    <span class="word">pyrusllm</span>
+    <a class="repo" href="https://github.com/gazzimon/qvac_node" target="_blank" rel="noopener">↗ view the code</a>
+  </nav>
+  <canvas id="mesh" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <p class="eyebrow">Built for the CRECIMIENTO hackathon · Aleph 2026 · Pears track</p>
+    <h1>A peer-to-peer marketplace for AI inference.</h1>
+    <p class="lede">One binary. Your machine runs a local LLM, announces itself signed on the
+      P2P network, and serves requests through an OpenAI-compatible gateway — with no company
+      in the middle keeping the margin or seeing every prompt.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="#install">Install the node</a>
+      <a class="btn ghost" href="https://fiuidao.web.app/docs.html" target="_blank" rel="noopener">Documentation ↗</a>
+      <a class="btn ghost" href="https://fiuidao.web.app/prompt.txt" target="_blank" rel="noopener">prompt.txt · for AI agents</a>
+      <a class="btn ghost" href="https://github.com/gazzimon/qvac_node" target="_blank" rel="noopener">Read the code</a>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>0</b><span>central servers</span></div>
+      <div class="stat"><b>1</b><span>command to install and run</span></div>
+      <div class="stat"><b>~10s</b><span>OTA update over P2P</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="problem">
+  <div class="wrap">
+    <p class="eyebrow reveal">The problem</p>
+    <h2 class="reveal" style="margin-top:.9rem">Today, "using AI" means sending your prompt to somebody else’s machine.</h2>
+    <div class="lines reveal">
+      <p>Every request travels to a <b>datacenter you don’t control</b>, at a price somebody
+        else sets, in a queue as long as everyone else’s demand that second.</p>
+      <p>If that provider goes down or changes the terms, there is <b>no plan B</b> — one
+        company, in one place.</p>
+      <p>Meanwhile, most machines with a GPU or a decent CPU sit <b>powered on and idle</b>
+        for most of the day.</p>
+    </div>
+  </div>
+</section>
+
+<section class="solution" id="what">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">What it is</p>
+        <h2 class="reveal" style="margin-top:.9rem">The Airbnb of AI compute — or, for anyone who knows the space, a peer-to-peer OpenRouter.</h2>
+        <p class="lede reveal">There is no PyrusLLM server in the middle. Every machine that
+          installs the CLI runs its own model, signs a manifest and announces it on a
+          Hyperswarm topic. Each node is both buyer and seller.</p>
+        <p class="lede reveal">A gateway compatible with the OpenAI API routes each request to
+          the node it belongs to — yours, or another operator’s on the network — and records
+          what was consumed so it can be settled in batches.</p>
+        <p class="seealso reveal">The economics, end to end:
+          <a href="https://fiuidao.web.app/docs/api-economics.html" target="_blank" rel="noopener">→ quotas, caps, receipts &amp; x402</a></p>
+      </div>
+      <div class="reveal">
+        <div class="flow">
+          <div class="row"><span class="k">01 node</span><span class="v">runs a local LLM with QVAC</span></div>
+          <div class="row"><span class="k">02 signing</span><span class="v">announces a signed manifest on Hyperswarm</span></div>
+          <div class="row"><span class="k">03 gateway</span><span class="v">exposes /v1/chat/completions, OpenAI format</span></div>
+          <div class="row"><span class="k">04 client</span><span class="v">your terminal, a bot, Open WebUI — unmodified</span></div>
+        </div>
+        <div class="endpoints">
+          <div class="ep"><span class="m">GET</span><span class="p">/v1/models</span></div>
+          <div class="ep"><span class="m">POST</span><span class="p">/v1/chat/completions</span></div>
+          <div class="ep"><span class="m">GET</span><span class="p">/v1/nodes</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="roles">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow reveal">The app</p>
+      <h2 class="reveal" style="margin-top:.9rem">It opens on a chat. The network is what answers.</h2>
+      <p class="lede reveal" style="margin-top:1.1rem">Your node starts switched off, and the
+        first thing you see is a single button. Launching it puts your machine on the network —
+        and that is what gets you access to everyone else’s. Until then your own model
+        still answers; the network does not.</p>
+    </div>
+    <div class="cards reveal">
+      <div class="role">
+        <span class="path mono">/</span>
+        <h3>Chat</h3>
+        <p>Ask, and every answer names the machine that produced it — who served it,
+          time to first token, tokens per second. Or tick <em>local only</em> and nothing
+          leaves your machine.</p>
+      </div>
+      <div class="role">
+        <span class="path mono">/node</span>
+        <h3>My Node</h3>
+        <p>Your own machine as a provider: what it publishes, what it charges, how loaded
+          it is, which model it serves.</p>
+      </div>
+      <div class="role">
+        <span class="path mono">/network</span>
+        <h3>Network</h3>
+        <p>Everyone else. Price, tags and availability per node, and <em>Connect</em> to
+          use any of them from your own OpenAI client.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="solution" id="trust">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">What we can and can’t promise</p>
+        <h2 class="reveal" style="margin-top:.9rem">The honest version of the trust story.</h2>
+        <p class="lede reveal">An inference market has a blind spot: whatever matches a request
+          to a node sees both ends, and whatever meters consumption controls the money. That
+          layer runs so that <b>no corporation aggregates your data at scale</b> — but we won’t
+          oversell it. While it answers, the node reads your prompt in plaintext.</p>
+        <p class="lede reveal">Closing that last leg takes confidential inference. The compute
+          overhead is now measured at <b>4–8%</b> (arXiv:2509.18886), and its limits are known:
+          memory and the interconnect stay unencrypted, and timing still leaks structure. It is
+          the next step, not a shipped feature.</p>
+        <p class="lede reveal">Model substitution is detectable and on the roadmap (phase 10.5).
+          Quantization is not — nobody has a reliable detector (arXiv:2504.04715) — so it is
+          covered the economic way: a signed declaration, a stake, and arbitration, the role
+          DeServe (arXiv:2501.14784) gives to optimistic verification. Economic, not technical,
+          and we say so.</p>
+      </div>
+      <div class="flow reveal">
+        <div class="row"><span class="k">01 matching</span><span class="v">which node serves each request</span></div>
+        <div class="row"><span class="k">02 metering</span><span class="v">tokens consumed and price applied</span></div>
+        <div class="row"><span class="k">03 settlement</span><span class="v">batched receipts to each provider</span></div>
+        <div class="row"><span class="k">04 reputation</span><span class="v">measured performance, not self-declared</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="proof">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">Why it is real</p>
+        <h2 class="reveal" style="margin-top:.9rem">Genuinely compatible, not a demo wearing an API’s name.</h2>
+        <p class="lede reveal">/v1/models and /v1/chat/completions follow the OpenAI format to
+          the letter — any existing client hits them without a single line changed.
+          What belongs to the marketplace (price, operator, load) lives apart, in
+          /v1/nodes, so the protocol stays clean.</p>
+        <div class="facts reveal">
+          <div class="fact"><span class="n">→</span><p>The installed copy <span>updates itself over P2P in ~10 seconds</span>, with no user action.</p></div>
+          <div class="fact"><span class="n">→</span><p>Files travel over Hyperdrive: <span>every block is verified against the merkle root</span> on arrival.</p></div>
+          <div class="fact"><span class="n">→</span><p>The distribution channel <span>is the P2P network itself</span> — nothing to clone, nothing to build.</p></div>
+        </div>
+      </div>
+      <div class="endpoints reveal" style="margin-top:0">
+        <div class="ep"><span class="m">GET</span><span class="p">/v1/models</span></div>
+        <div class="ep"><span class="m">POST</span><span class="p">/v1/chat/completions</span></div>
+        <div class="ep"><span class="m">GET</span><span class="p">/v1/nodes</span></div>
+        <div class="ep"><span class="m">POST</span><span class="p">/v1/nodes/:id</span></div>
+        <div class="ep"><span class="m">GET</span><span class="p">/v1/files</span></div>
+        <div class="ep"><span class="m">POST</span><span class="p">/v1/files/upload</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="pay" id="payments">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">Payments</p>
+        <h2 class="reveal" style="margin-top:.9rem">Paid in the request path, in a stablecoin.</h2>
+        <p class="lede reveal">A request without a credential comes back <b>402</b>, with an
+          <span class="mono">accepts[]</span> array built from the provider’s signed manifest.
+          The payee is the provider — never the gateway. Payment is verified synchronously,
+          before the first token.</p>
+        <p class="lede reveal">Why a stablecoin and not a token: the rail is <b>USDT0</b>, so a
+          user is never exposed to the volatility of a project token. A native token, if there
+          is one, lives in the incentive layer — future work.</p>
+        <p class="lede reveal">Proof is a signed attestation next to the receipt:
+          <span class="mono">/node</span> recomputes the output hash in the browser and checks
+          it against the node’s manifest key.</p>
+      </div>
+      <div class="reveal">
+        <div class="code-block">
+          <div class="bar">402 → receipt + attestation</div>
+          <pre>{
+  "receipt": {
+    "scheme":  "exact",
+    "network": "usdt0",
+    "payTo":   "0x9a…c1",   <span class="cm">// provider address, from the signed manifest</span>
+    "value":   "1875",      <span class="cm">// 6-decimal USDT0 units — 0.001875</span>
+    "auth":    "EIP-3009 transferWithAuthorization"
+  },
+  "attestation": {
+    "model":      "llama-3.1-8b-q4",
+    "tokensOut":  375,
+    "outputHash": "blake2b-256:9c1d…7af2",  <span class="cm">// over the JCS-canonical body</span>
+    "sig":        "ed25519:6b…09"           <span class="cm">// node manifest key</span>
+  }
+}</pre>
+        </div>
+        <p class="fine">Caveat: today, P2P and local requests cost zero, and nothing has
+          launched on mainnet. The verifiable artifact is the signed EIP-3009 receipt and the
+          attestation — not an on-chain transaction hash.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="install" id="install">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">Get started</p>
+        <h2 class="reveal" style="margin-top:.9rem">One line, and your machine is part of the network.</h2>
+        <p class="lede reveal">No account, no runtime to install first. The download is a single
+          self-contained binary with the inference engine inside &mdash; no Node, no npm, no Pear.
+          It opens in your browser and waits there; no model is downloaded until you send
+          the first prompt.</p>
+        <div class="alt reveal">
+          <p>Already running Node, or want automatic P2P updates? Install over Pear instead:</p>
+          <p style="margin-top:.5rem"><code>npm i -g pear &amp;&amp; pear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny</code></p>
+        </div>
+      </div>
+      <div class="reveal">
+        <div class="os-tabs" role="tablist" aria-label="Your operating system">
+          <button type="button" role="tab" data-os="mac" aria-selected="false">macOS</button>
+          <button type="button" role="tab" data-os="linux" aria-selected="false">Linux</button>
+          <button type="button" role="tab" data-os="win" aria-selected="false">Windows</button>
+        </div>
+        <div class="term">
+          <div class="bar"><i></i><i></i><i></i></div>
+          <pre id="cmd"></pre>
+          <button class="copy" id="copyBtn">copy command</button>
+        </div>
+        <p class="alt" style="margin-top:1.1rem;padding-top:0;border:none">
+          Rather see the file before you run anything?
+          <a href="https://github.com/gazzimon/qvac_node/releases/latest" target="_blank" rel="noopener">Every platform’s binary is on the releases page</a>,
+          each with its <span class="mono">.sha256</span>. Verifying the checksum and clearing
+          the macOS quarantine by hand is
+          <a href="https://github.com/gazzimon/qvac_node#install" target="_blank" rel="noopener">covered in the README</a>.
+        </p>
+        <p class="fine" style="margin-top:1rem">The standalone Linux binary doesn’t load models
+          yet — on Linux, run from source. Windows on ARM has no build.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span>PyrusLLM — CRECIMIENTO hackathon / Aleph 2026, Pears Track.</span>
+  <span><a href="https://fiuidao.web.app/docs.html" target="_blank" rel="noopener">documentation</a> · <a href="https://fiuidao.web.app/prompt.txt" target="_blank" rel="noopener">prompt.txt</a> · <a href="https://github.com/gazzimon/qvac_node" target="_blank" rel="noopener">github.com/gazzimon/qvac_node ↗</a></span>
+</footer>
+
+<script>
+  // The install one-liner, per platform. The tab is preselected from the
+  // visitor's own OS: making somebody pick their operating system before they
+  // can copy a command is a step the machine already knows the answer to.
+  const RAW = 'https://raw.githubusercontent.com/gazzimon/qvac_node/main'
+  const CMDS = {
+    mac: 'curl -fsSL ' + RAW + '/install.sh | sh',
+    linux: 'curl -fsSL ' + RAW + '/install.sh | sh',
+    win: 'irm ' + RAW + '/install.ps1 | iex'
+  }
+
+  function detectOS() {
+    const ua = navigator.userAgent
+    if (/Windows/i.test(ua)) return 'win'
+    if (/Mac|iPhone|iPad/i.test(ua)) return 'mac'
+    return 'linux'
+  }
+
+  let currentOS = detectOS()
+
+  function paintCmd() {
+    const prompt = currentOS === 'win' ? 'PS&gt;' : '$'
+    document.getElementById('cmd').innerHTML =
+      '<span class="c1">' + prompt + '</span> ' + CMDS[currentOS]
+    document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
+      b.setAttribute('aria-selected', String(b.dataset.os === currentOS))
+    })
+  }
+
+  document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
+    b.addEventListener('click', () => { currentOS = b.dataset.os; paintCmd() })
+  })
+  paintCmd()
+
+  document.getElementById('copyBtn').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget
+    try {
+      await navigator.clipboard.writeText(CMDS[currentOS])
+      btn.textContent = 'copied ✓'
+    } catch {
+      btn.textContent = 'copy it manually'
+    }
+    setTimeout(() => { btn.textContent = 'copy command' }, 1600)
+  })
+
+  // Scroll reveal — skipped entirely under prefers-reduced-motion (see CSS).
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!reduceMotion && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target) }
+    }, { threshold: .15 })
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el))
+  } else {
+    document.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'))
+  }
+
+  // Node mesh in the hero: each dot is "a machine", and the lines that appear
+  // between nearby dots are the network announcing itself — the same gesture
+  // Hyperswarm makes, drawn. Static (a single frame) if the visitor asked for
+  // less motion.
+  ;(function mesh() {
+    const canvas = document.getElementById('mesh')
+    const ctx = canvas.getContext('2d')
+    let w, h, dpr, nodes, raf
+
+    function isDark() {
+      const forced = document.documentElement.getAttribute('data-theme')
+      if (forced === 'dark') return true
+      if (forced === 'light') return false
+      return window.matchMedia('(prefers-color-scheme: dark)').matches
+    }
+
+    function palette() {
+      return isDark()
+        ? { node: 'rgba(95,168,255,.9)', line: 'rgba(95,168,255,.16)', tag: 'rgba(255,181,69,.85)' }
+        : { node: 'rgba(47,111,214,.8)', line: 'rgba(47,111,214,.14)', tag: 'rgba(166,101,10,.75)' }
+    }
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2)
+      w = canvas.clientWidth; h = canvas.clientHeight
+      canvas.width = w * dpr; canvas.height = h * dpr
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const count = Math.max(18, Math.min(46, Math.round((w * h) / 26000)))
+      nodes = Array.from({ length: count }, () => ({
+        x: Math.random() * w, y: Math.random() * h,
+        vx: (Math.random() - .5) * .18, vy: (Math.random() - .5) * .18,
+        r: 1.4 + Math.random() * 1.8,
+        priced: Math.random() < .12
+      }))
+    }
+
+    function step() {
+      const pal = palette()
+      ctx.clearRect(0, 0, w, h)
+      for (const n of nodes) {
+        n.x += n.vx; n.y += n.vy
+        if (n.x < 0 || n.x > w) n.vx *= -1
+        if (n.y < 0 || n.y > h) n.vy *= -1
+      }
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j]
+          const d = Math.hypot(a.x - b.x, a.y - b.y)
+          if (d < 150) {
+            ctx.strokeStyle = pal.line
+            ctx.lineWidth = 1
+            ctx.globalAlpha = 1 - d / 150
+            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
+          }
+        }
+      }
+      ctx.globalAlpha = 1
+      for (const n of nodes) {
+        ctx.fillStyle = n.priced ? pal.tag : pal.node
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.fill()
+      }
+      raf = requestAnimationFrame(step)
+    }
+
+    resize()
+    window.addEventListener('resize', resize)
+    if (!reduceMotion) {
+      raf = requestAnimationFrame(step)
+    } else {
+      step(); cancelAnimationFrame(raf)
+    }
+  })()
+</script>
+
+</body>
+</html>

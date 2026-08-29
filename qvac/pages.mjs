@@ -19,6 +19,7 @@ import { FUENTE_EMBEBIDA_WALLET } from './panel-wallet.mjs'
 // is a second thing to forget on the next bump. `bin.mjs` already imports this
 // same file, so the pattern is proven to survive bare-pack.
 import pkg from '../package.json' with { type: 'json' }
+import { LOGO_FUNDACION } from './logo.mjs'
 
 const NAV = `
 <nav class="nav">
@@ -289,6 +290,16 @@ const STYLE = `
 
   /* The gate. It is the first thing seen while the agent is off. */
   .gate { max-width: 30rem; margin: auto; padding: 3rem 0; text-align: center; }
+  /* The foundation mark. It sits ABOVE the headline because this screen is the
+     first thing a new operator sees, and it is the only place in the panel
+     where whose node this is belongs -- repeating it on every screen would be
+     branding noise on a working tool.
+     The width is capped in rem and not in px so it follows the text scale, and
+     height:auto keeps the aspect ratio when the column narrows. Backticks are
+     banned in here: this whole block is a template literal. */
+  .gate .logo { display: block; width: 100%; max-width: 8.5rem; height: auto;
+    margin: 0 auto 1.6rem; opacity: .92; }
+  @media (max-width: 480px) { .gate .logo { max-width: 6.5rem; } }
   .gate h1 { font-size: 1.5rem; margin-bottom: .6rem; }
   .gate p { color: #8b93a7; font-size: .92rem; line-height: 1.6; margin: 0 0 1.5rem; }
   .gate button { font-size: .95rem; padding: .7rem 1.5rem; }
@@ -3343,6 +3354,8 @@ export const CHAT_HTML = page(
   'PyrusLLM \u00b7 Chat',
   `
   <div id="gate" class="gate" style="display:none">
+    <img class="logo" src="${LOGO_FUNDACION}"
+      alt="Fundación Iniciativa Urbana Inteligente">
     <h1>Put your machine on the network</h1>
     <p>Launching your local agent joins this machine to the P2P network: it starts
       serving your model to other nodes, and that is what gets you access to

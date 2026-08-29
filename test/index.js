@@ -4474,3 +4474,34 @@ test('la version del panel sale de package.json, no de una copia', async (t) => 
     t.ok(html.indexOf('v' + version) !== -1, nombre + ' anuncia v' + version)
   }
 })
+
+// El logo viaja EMBEBIDO, no como archivo suelto. El modo de fallo que este
+// test cubre es el que ya se pago una vez con los paneles: un asset servido
+// desde una carpeta estatica no entra en el grafo de bare-pack, asi que el
+// binario standalone se publica sin el y la marca aparece rota recien en la
+// maquina del jurado.
+//
+// Y va SOLO en el gate: es la primera pantalla de un operador nuevo, no un
+// sello para repetir en las cinco.
+test('el logo de la fundacion viaja embebido y solo en el gate', async (t) => {
+  const pages = await import('../qvac/pages.mjs')
+
+  t.ok(
+    pages.CHAT_HTML.indexOf('data:image/png;base64,') !== -1,
+    'el chat lo lleva como data URI, no como <img src="/algo.png">'
+  )
+  t.ok(pages.CHAT_HTML.indexOf('class="logo"') !== -1, 'dentro del gate')
+  t.ok(
+    pages.CHAT_HTML.indexOf('alt="Fundación Iniciativa Urbana Inteligente"') !== -1,
+    'con alt: una imagen sin texto alternativo no dice nada a un lector de pantalla'
+  )
+
+  for (const [nombre, html] of [
+    ['NODE_HTML', pages.NODE_HTML],
+    ['NETWORK_HTML', pages.NETWORK_HTML],
+    ['WALLET_HTML', pages.WALLET_HTML],
+    ['ADMIN_HTML', pages.ADMIN_HTML]
+  ]) {
+    t.is(html.indexOf('data:image/png;base64,'), -1, nombre + ' no repite la marca')
+  }
+})
