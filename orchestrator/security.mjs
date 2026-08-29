@@ -1,12 +1,12 @@
-// El jail: qué archivos puede tocar un worker y qué herramientas puede llamar.
+// The jail: which files a worker may touch, and which tools it may call.
 //
-// Se chequea acá y no en el prompt porque el prompt es una sugerencia y esto es
-// una condición. El contenido de un archivo del repo o la salida de un test son
-// entradas de origen desconocido: pueden traer instrucciones.
+// Enforced here and not in the prompt, because a prompt is a suggestion and
+// this is a condition. The contents of a repo file and the output of a test run
+// are inputs of unknown origin: they can carry instructions.
 
 import path from 'path'
 
-export const HERRAMIENTAS_PROHIBIDAS = new Set([
+export const FORBIDDEN_TOOLS = new Set([
   'delete_directory',
   'move_file',
   'chmod',
@@ -14,7 +14,7 @@ export const HERRAMIENTAS_PROHIBIDAS = new Set([
   'fetch'
 ])
 
-export const HERRAMIENTAS_BASE = [
+export const BASE_TOOLS = [
   'read_file',
   'write_file',
   'list_dir',
@@ -25,96 +25,96 @@ export const HERRAMIENTAS_BASE = [
   'git_commit'
 ]
 
-export class ViolacionDeAlcance extends Error {
-  constructor(motivo, detalle) {
-    super(`${motivo}: ${detalle}`)
-    this.motivo = motivo
+export class ScopeViolation extends Error {
+  constructor(reason, detail) {
+    super(`${reason}: ${detail}`)
+    this.reason = reason
   }
 }
 
-// Normaliza a la forma del ticket: siempre relativa, siempre con '/'.
-export function normalizar(p) {
+// Normalise to the shape a ticket uses: always relative, always forward slashes.
+export function normalise(p) {
   return String(p).replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
 }
 
-// Resuelve la ruta contra el workspace y confirma que no se escapó. Un
-// `../../etc/passwd` sale del workspace después de resolverse, no antes: por eso
-// se compara la ruta ABSOLUTA y no el string que llegó.
-export function resolverEnWorkspace(workspace, filePath) {
-  const raiz = path.resolve(workspace)
-  const abs = path.resolve(raiz, normalizar(filePath))
-  const dentro = abs === raiz || abs.startsWith(raiz + path.sep)
-  if (!dentro) {
-    throw new ViolacionDeAlcance('fuga del workspace', filePath)
+// Resolve the path against the workspace and confirm it did not escape. A
+// `../../etc/passwd` only leaves the workspace once resolved, not before — which
+// is why the comparison is on the ABSOLUTE path and not on the incoming string.
+export function resolveInWorkspace(workspace, filePath) {
+  const root = path.resolve(workspace)
+  const abs = path.resolve(root, normalise(filePath))
+  const inside = abs === root || abs.startsWith(root + path.sep)
+  if (!inside) {
+    throw new ScopeViolation('escaped the workspace', filePath)
   }
   return abs
 }
 
-// La allowlist del ticket es por archivo exacto o por prefijo de directorio.
-// `src/db.js` no habilita `src/db.js.bak`, y `src/` sí habilita todo lo de
-// adentro: la diferencia la marca la barra.
-export function rutaPermitida(filePath, allowedFiles) {
-  const objetivo = normalizar(filePath)
-  return allowedFiles.some((permitido) => {
-    const p = normalizar(permitido)
-    if (objetivo === p) return true
-    const prefijo = p.endsWith('/') ? p : p + '/'
-    return objetivo.startsWith(prefijo)
+// A ticket's allowlist matches either an exact file or a directory prefix.
+// `src/db.js` does not grant `src/db.js.bak`, while `src/` does grant everything
+// beneath it — the trailing slash is what makes the difference.
+export function isPathAllowed(filePath, allowedFiles) {
+  const target = normalise(filePath)
+  return allowedFiles.some((allowed) => {
+    const a = normalise(allowed)
+    if (target === a) return true
+    const prefix = a.endsWith('/') ? a : a + '/'
+    return target.startsWith(prefix)
   })
 }
 
-export function validarEscritura(workspace, filePath, allowedFiles) {
+export function validateWrite(workspace, filePath, allowedFiles) {
   if (!Array.isArray(allowedFiles) || allowedFiles.length === 0) {
-    throw new ViolacionDeAlcance('ticket sin allowedFiles', filePath)
+    throw new ScopeViolation('ticket has no allowedFiles', filePath)
   }
-  const abs = resolverEnWorkspace(workspace, filePath)
-  if (!rutaPermitida(filePath, allowedFiles)) {
-    throw new ViolacionDeAlcance('ruta fuera del ticket', filePath)
+  const abs = resolveInWorkspace(workspace, filePath)
+  if (!isPathAllowed(filePath, allowedFiles)) {
+    throw new ScopeViolation('path outside the ticket', filePath)
   }
   return abs
 }
 
-// La lectura es más ancha que la escritura a propósito: un worker necesita ver
-// el resto del repo para escribir código coherente, pero no puede modificarlo.
-// El límite de lectura sigue siendo el workspace.
-export function validarLectura(workspace, filePath) {
-  return resolverEnWorkspace(workspace, filePath)
+// Reads are deliberately wider than writes: a worker needs to see the rest of
+// the repo to write coherent code, but it may not modify it. The workspace is
+// still the boundary.
+export function validateRead(workspace, filePath) {
+  return resolveInWorkspace(workspace, filePath)
 }
 
-export function validarHerramienta(nombre, allowedTools = HERRAMIENTAS_BASE) {
-  if (HERRAMIENTAS_PROHIBIDAS.has(nombre)) {
-    throw new ViolacionDeAlcance('herramienta prohibida', nombre)
+export function validateTool(name, allowedTools = BASE_TOOLS) {
+  if (FORBIDDEN_TOOLS.has(name)) {
+    throw new ScopeViolation('forbidden tool', name)
   }
-  if (!allowedTools.includes(nombre)) {
-    throw new ViolacionDeAlcance('herramienta fuera de la allowlist', nombre)
+  if (!allowedTools.includes(name)) {
+    throw new ScopeViolation('tool not in the allowlist', name)
   }
   return true
 }
 
-// El registro de violaciones es una métrica, no un log de debug: es el número
-// que dice cuántas veces una entrada de origen desconocido logró que el agente
-// intentara salirse de su alcance.
-export class RegistroDeViolaciones {
+// The violation log is a metric, not a debug trace: it is the number that says
+// how often an input of unknown origin got the agent to try to step outside its
+// scope.
+export class ViolationLog {
   constructor() {
-    this.entradas = []
+    this.entries = []
   }
 
-  registrar(ticketId, err) {
-    this.entradas.push({
+  record(ticketId, err) {
+    this.entries.push({
       ts: new Date().toISOString(),
       ticketId,
-      motivo: err.motivo || 'desconocido',
-      detalle: err.message
+      reason: err.reason || 'unknown',
+      detail: err.message
     })
   }
 
   total() {
-    return this.entradas.length
+    return this.entries.length
   }
 
-  porMotivo() {
-    const conteo = {}
-    for (const e of this.entradas) conteo[e.motivo] = (conteo[e.motivo] || 0) + 1
-    return conteo
+  byReason() {
+    const counts = {}
+    for (const e of this.entries) counts[e.reason] = (counts[e.reason] || 0) + 1
+    return counts
   }
 }

@@ -1,32 +1,31 @@
-// Parser de requirements.md → tickets con DAG.
-// Formato esperado:
+// Parser for requirements.md → tickets with a DAG.
 //
-// # App Title
+// Expected shape:
 //
-// ## Ticket: src/index.js
-// spec del ticket
-// Depende de: ninguno
+//   # App Title
 //
-// ## Ticket: src/db.js
-// spec del ticket
-// Depende de: src/index.js
+//   ## Ticket: db
+//   what this ticket has to build
+//   Depends on: none
+//   Files: src/db.js, tests/db.test.js
 //
+// `Depende de:` and `Archivos:` are accepted as well — the first requirements
+// files were written in Spanish and breaking them buys nothing.
 
 export function parseRequirements(mdContent) {
   if (typeof mdContent !== 'string') {
-    throw new Error('parseRequirements: expects string, got ' + typeof mdContent)
+    throw new Error('parseRequirements: expects a string, got ' + typeof mdContent)
   }
 
   const tickets = []
   const sections = mdContent.split(/\n##\s+Ticket:\s+/)
 
-  // Skip el primer elemento (título principal)
-  sections.slice(1).forEach((section, idx) => {
+  // Skip the first chunk: it is whatever came before the first ticket heading.
+  sections.slice(1).forEach((section) => {
     const lines = section.split('\n')
     const titleLine = lines[0] || ''
     const id = titleLine.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-')
 
-    // Busca "Depende de:" o "Files:"
     let spec = ''
     let deps = []
     let allowedFiles = []
@@ -34,23 +33,25 @@ export function parseRequirements(mdContent) {
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i]
+      const lower = line.toLowerCase()
 
-      if (line.toLowerCase().startsWith('depende de:') || line.toLowerCase().startsWith('depends on:')) {
+      if (lower.startsWith('depends on:') || lower.startsWith('depende de:')) {
         inSpec = false
-        const depList = line.split(':')[1] || ''
-        deps = depList
+        const list = line.slice(line.indexOf(':') + 1)
+        deps = list
           .split(',')
           .map((d) => d.trim())
-          .filter((d) => d && d !== 'ninguno')
+          .filter((d) => d && d !== 'none' && d !== 'ninguno')
       } else if (
-        line.toLowerCase().startsWith('files:') ||
-        line.toLowerCase().startsWith('allowed files:')
+        lower.startsWith('files:') ||
+        lower.startsWith('allowed files:') ||
+        lower.startsWith('archivos:')
       ) {
-        const fileList = line.split(':')[1] || ''
-        allowedFiles = fileList
+        const list = line.slice(line.indexOf(':') + 1)
+        allowedFiles = list
           .split(',')
           .map((f) => f.trim())
-          .filter((f) => f)
+          .filter(Boolean)
       } else if (inSpec && line.trim()) {
         spec += line + '\n'
       }
@@ -73,10 +74,12 @@ export function parseRequirements(mdContent) {
 
 export function buildDAG(tickets) {
   if (!Array.isArray(tickets)) {
-    throw new Error('buildDAG: expects array of tickets')
+    throw new Error('buildDAG: expects an array of tickets')
   }
 
-  // Valida que todas las dependencies existan
+  // A dependency on a ticket that does not exist is a typo in requirements.md.
+  // It fails here rather than being silently ignored, because ignoring it means
+  // running a ticket before the thing it needs.
   const ids = new Set(tickets.map((t) => t.id))
   for (const ticket of tickets) {
     for (const dep of ticket.deps) {
@@ -86,7 +89,6 @@ export function buildDAG(tickets) {
     }
   }
 
-  // Topological sort
   const visited = new Set()
   const ready = []
   const waiting = {}
@@ -97,26 +99,19 @@ export function buildDAG(tickets) {
     const ticket = tickets.find((t) => t.id === ticketId)
     if (!ticket) return
 
-    for (const dep of ticket.deps) {
-      visit(dep)
-    }
+    for (const dep of ticket.deps) visit(dep)
 
     visited.add(ticketId)
     ready.push(ticket)
   }
 
-  // Visita en orden del array (determinístico)
-  for (const ticket of tickets) {
-    visit(ticket.id)
-  }
+  // Visited in array order, so the result is deterministic.
+  for (const ticket of tickets) visit(ticket.id)
 
-  // Separa en ready (no tiene deps sin resolver) vs waiting
   const readySet = new Set(ready.map((t) => t.id))
   for (const ticket of tickets) {
     const hasUnresolvedDeps = ticket.deps.some((dep) => !readySet.has(dep))
-    if (hasUnresolvedDeps) {
-      waiting[ticket.id] = ticket
-    }
+    if (hasUnresolvedDeps) waiting[ticket.id] = ticket
   }
 
   return { ready, waiting }
@@ -128,19 +123,15 @@ export function assignTickets(dag, numWorkers) {
   const assignments = {}
   const ticketsPerWorker = []
 
-  for (let i = 0; i < numWorkers; i++) {
-    ticketsPerWorker[i] = []
-  }
+  for (let i = 0; i < numWorkers; i++) ticketsPerWorker[i] = []
 
-  // Asigna round-robin
+  // Round-robin. Fairness is not the point: the tickets in one batch have
+  // disjoint file sets, so who runs which one changes nothing.
   dag.ready.forEach((ticket, idx) => {
     const workerIdx = idx % numWorkers
     ticketsPerWorker[workerIdx].push(ticket)
     assignments[ticket.id] = workerIdx
   })
 
-  return {
-    assignments, // { ticketId: workerIdx }
-    ticketsPerWorker // Array de arrays
-  }
+  return { assignments, ticketsPerWorker }
 }

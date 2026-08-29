@@ -1,124 +1,124 @@
-// El estado que sobrevive al proceso: un JSONL append-only, igual que el
-// acumulador de lotes de la Fase 10.
+// The state that outlives the process: an append-only JSONL, same shape as the
+// phase-10 batch accumulator.
 //
-// Append-only y no un JSON reescrito: un cron que se corta a mitad de una
-// escritura deja el archivo trunco, y con un JSON entero eso significa perder
-// todo el historial. Con líneas, una línea rota se descarta y el resto vive.
+// Append-only rather than a rewritten JSON: a cron killed mid-write leaves a
+// truncated file, and with a whole-JSON document that means losing the entire
+// history. With lines, one broken line is discarded and the rest survives.
 
 import fs from 'fs'
 import path from 'path'
 
-export const EVENTOS = {
-  CORRIDA_INICIO: 'corrida:inicio',
-  CORRIDA_FIN: 'corrida:fin',
-  TICKET_ASIGNADO: 'ticket:asignado',
-  TICKET_HECHO: 'ticket:hecho',
-  TICKET_FALLIDO: 'ticket:fallido',
-  CI_VERDE: 'ci:verde',
-  CI_ROJO: 'ci:rojo',
-  VIOLACION: 'violacion'
+export const EVENTS = {
+  RUN_START: 'run:start',
+  RUN_END: 'run:end',
+  TICKET_ASSIGNED: 'ticket:assigned',
+  TICKET_DONE: 'ticket:done',
+  TICKET_FAILED: 'ticket:failed',
+  CI_PASS: 'ci:pass',
+  CI_FAIL: 'ci:fail',
+  VIOLATION: 'violation'
 }
 
-export class Estado {
-  constructor(rutaLog) {
-    this.ruta = rutaLog
-    this.eventos = []
-    this.cargar()
+export class State {
+  constructor(logPath) {
+    this.path = logPath
+    this.events = []
+    this.load()
   }
 
-  cargar() {
-    if (!fs.existsSync(this.ruta)) return 0
+  load() {
+    if (!fs.existsSync(this.path)) return 0
 
-    const contenido = fs.readFileSync(this.ruta, 'utf8')
-    let descartadas = 0
+    const contents = fs.readFileSync(this.path, 'utf8')
+    let discarded = 0
 
-    for (const linea of contenido.split('\n')) {
-      if (!linea.trim()) continue
+    for (const line of contents.split('\n')) {
+      if (!line.trim()) continue
       try {
-        this.eventos.push(JSON.parse(linea))
+        this.events.push(JSON.parse(line))
       } catch {
-        descartadas++ // línea trunca de una corrida que se cortó escribiendo
+        discarded++ // truncated line from a run that died mid-write
       }
     }
 
-    return descartadas
+    return discarded
   }
 
-  agregar(tipo, datos = {}) {
-    const evento = { ts: new Date().toISOString(), tipo, ...datos }
-    this.eventos.push(evento)
+  append(type, data = {}) {
+    const event = { ts: new Date().toISOString(), type, ...data }
+    this.events.push(event)
 
-    const dir = path.dirname(this.ruta)
+    const dir = path.dirname(this.path)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    fs.appendFileSync(this.ruta, JSON.stringify(evento) + '\n')
+    fs.appendFileSync(this.path, JSON.stringify(event) + '\n')
 
-    return evento
+    return event
   }
 
-  // Un ticket está hecho si su último evento lo dice. Se lee el historial
-  // completo en vez de mantener un contador porque el contador se pierde con el
-  // proceso y el historial no.
-  estadoDeTickets() {
-    const estado = {}
-    for (const e of this.eventos) {
+  // A ticket is done if its last event says so. The whole history is replayed
+  // rather than kept in a counter, because a counter dies with the process and
+  // the history does not.
+  ticketStates() {
+    const state = {}
+    for (const e of this.events) {
       if (!e.ticketId) continue
-      if (e.tipo === EVENTOS.TICKET_ASIGNADO) estado[e.ticketId] = 'asignado'
-      if (e.tipo === EVENTOS.CI_ROJO) estado[e.ticketId] = 'ci-rojo'
-      if (e.tipo === EVENTOS.TICKET_FALLIDO) estado[e.ticketId] = 'fallido'
-      if (e.tipo === EVENTOS.TICKET_HECHO) estado[e.ticketId] = 'hecho'
+      if (e.type === EVENTS.TICKET_ASSIGNED) state[e.ticketId] = 'assigned'
+      if (e.type === EVENTS.CI_FAIL) state[e.ticketId] = 'ci-failed'
+      if (e.type === EVENTS.TICKET_FAILED) state[e.ticketId] = 'failed'
+      if (e.type === EVENTS.TICKET_DONE) state[e.ticketId] = 'done'
     }
-    return estado
+    return state
   }
 
-  hechos() {
-    const estado = this.estadoDeTickets()
-    return Object.keys(estado).filter((id) => estado[id] === 'hecho')
+  done() {
+    const state = this.ticketStates()
+    return Object.keys(state).filter((id) => state[id] === 'done')
   }
 
-  // Lo que quedó a mitad: asignado y sin cerrar. Es lo que el cron del día
-  // siguiente tiene que retomar en vez de rehacer desde cero.
-  pendientes() {
-    const estado = this.estadoDeTickets()
-    return Object.keys(estado).filter((id) => estado[id] !== 'hecho')
+  // What was left half-finished: assigned and never closed. This is what the
+  // next day's cron picks up instead of redoing everything from scratch.
+  pending() {
+    const state = this.ticketStates()
+    return Object.keys(state).filter((id) => state[id] !== 'done')
   }
 
-  intentosDe(ticketId) {
-    return this.eventos.filter((e) => e.ticketId === ticketId && e.tipo === EVENTOS.TICKET_ASIGNADO)
+  attemptsFor(ticketId) {
+    return this.events.filter((e) => e.ticketId === ticketId && e.type === EVENTS.TICKET_ASSIGNED)
       .length
   }
 
-  ultimaCorrida() {
-    for (let i = this.eventos.length - 1; i >= 0; i--) {
-      if (this.eventos[i].tipo === EVENTOS.CORRIDA_INICIO) return this.eventos[i]
+  lastRun() {
+    for (let i = this.events.length - 1; i >= 0; i--) {
+      if (this.events[i].type === EVENTS.RUN_START) return this.events[i]
     }
     return null
   }
 
-  // La señal de convergencia: cuántos tickets cierra cada corrida. Dos corridas
-  // seguidas cerrando cero es el sistema girando en falso, y es el momento de
-  // avisarle a una persona en vez de seguir gastando.
-  resumenPorCorrida() {
-    const corridas = []
-    let actual = null
+  // The convergence signal: how many tickets each run closes. Two runs in a row
+  // closing zero is the system spinning in place, and the moment to tell a
+  // human instead of spending more.
+  runSummaries() {
+    const runs = []
+    let current = null
 
-    for (const e of this.eventos) {
-      if (e.tipo === EVENTOS.CORRIDA_INICIO) {
-        actual = { inicio: e.ts, hechos: 0, fallidos: 0, violaciones: 0 }
-        corridas.push(actual)
+    for (const e of this.events) {
+      if (e.type === EVENTS.RUN_START) {
+        current = { start: e.ts, done: 0, failed: 0, violations: 0 }
+        runs.push(current)
       }
-      if (!actual) continue
-      if (e.tipo === EVENTOS.TICKET_HECHO) actual.hechos++
-      if (e.tipo === EVENTOS.TICKET_FALLIDO) actual.fallidos++
-      if (e.tipo === EVENTOS.VIOLACION) actual.violaciones++
-      if (e.tipo === EVENTOS.CORRIDA_FIN) actual.fin = e.ts
+      if (!current) continue
+      if (e.type === EVENTS.TICKET_DONE) current.done++
+      if (e.type === EVENTS.TICKET_FAILED) current.failed++
+      if (e.type === EVENTS.VIOLATION) current.violations++
+      if (e.type === EVENTS.RUN_END) current.end = e.ts
     }
 
-    return corridas
+    return runs
   }
 
-  estancado(ventana = 2) {
-    const corridas = this.resumenPorCorrida()
-    if (corridas.length < ventana) return false
-    return corridas.slice(-ventana).every((c) => c.hechos === 0)
+  isStalled(window = 2) {
+    const runs = this.runSummaries()
+    if (runs.length < window) return false
+    return runs.slice(-window).every((r) => r.done === 0)
   }
 }

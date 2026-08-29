@@ -1,19 +1,19 @@
-// El orquestador: dueño de requirements.md, de la cola de tickets y del gate
-// de CI. Los workers no ven el documento entero — cada uno recibe un ticket con
-// la lista exacta de archivos que puede tocar.
+// The orchestrator: owner of requirements.md, of the ticket queue, and of the
+// CI gate. Workers never see the whole document — each one gets a ticket with
+// the exact list of files it may touch.
 //
 // -----------------------------------------------------------------------------
-// UN DRIVE POR WORKER, NO UNO COMPARTIDO
+// ONE DRIVE PER WORKER, NOT A SHARED ONE
 //
-// Hypercore es de UN SOLO ESCRITOR: un Hyperdrive abierto por clave es de solo
-// lectura y `put()` sobre él no falla, se CUELGA. Medido. Así que no existe "un
-// workspace donde todos escriben": cada worker crea SU drive, es su escritor, y
-// anuncia la clave. El orquestador los monta en modo lectura y los junta.
+// Hypercore is SINGLE-WRITER. A Hyperdrive opened by key is read-only, and
+// `put()` on it does not fail — it HANGS. Measured. So there is no "one
+// workspace everybody writes to": each worker creates ITS drive, is its writer,
+// and announces the key. The orchestrator mounts them read-only and joins them.
 //
-// La unión no tiene conflictos por construcción: `detectarSolapamiento` corta
-// antes de asignar si dos tickets declaran el mismo archivo, así que dos drives
-// nunca traen la misma ruta. Eso es lo que reemplaza al merge de branches — no
-// se resuelven conflictos, se hacen imposibles.
+// The union has no conflicts by construction: `detectOverlap` aborts before
+// assigning anything if two tickets declare the same file, so two drives never
+// carry the same path. That is what replaces the branch merge — conflicts are
+// not resolved, they are made impossible.
 // -----------------------------------------------------------------------------
 
 import fs from 'fs'
@@ -22,50 +22,55 @@ import { spawn } from 'child_process'
 import Corestore from 'corestore'
 import { parseRequirements, buildDAG, assignTickets } from './split.mjs'
 import { runCI } from './ci.mjs'
-import { Estado, EVENTOS } from './state.mjs'
+import { State, EVENTS } from './state.mjs'
 
-const RAIZ = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..')
+const ROOT = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
+  '..'
+)
 
-// Dos tickets que declaran el mismo archivo es un conflicto de merge esperando
-// a pasar. Se corta acá, antes de asignar nada: es más barato arreglar el
-// requirements.md que resolver el conflicto después.
-export function detectarSolapamiento(tickets) {
-  const dueno = new Map()
-  const choques = []
+// Two tickets declaring the same file is a merge conflict waiting to happen.
+// It is cut here, before anything is assigned: fixing requirements.md is
+// cheaper than resolving the conflict afterwards.
+export function detectOverlap(tickets) {
+  const owner = new Map()
+  const clashes = []
 
   for (const t of tickets) {
     for (const f of t.allowedFiles) {
-      if (dueno.has(f)) {
-        choques.push({ file: f, tickets: [dueno.get(f), t.id] })
+      if (owner.has(f)) {
+        clashes.push({ file: f, tickets: [owner.get(f), t.id] })
       } else {
-        dueno.set(f, t.id)
+        owner.set(f, t.id)
       }
     }
   }
 
-  return choques
+  return clashes
 }
 
 export class Orchestrator {
   constructor(opts = {}) {
     this.gateway = opts.gateway || 'http://localhost:8787'
     this.apiKey = opts.apiKey || null
+    this.model = opts.model || null
     this.workspace = path.resolve(opts.workspace || './build')
     this.numWorkers = parseInt(opts.workers) || 2
     this.maxSteps = parseInt(opts.maxSteps) || 10
     this.maxTokens = parseInt(opts.maxTokens) || 8000
+    this.toolTimeout = opts.toolTimeout || null
     this.storageDir = path.resolve(opts.storage || path.join('.qvac', 'orchestrator'))
     this.requirementFile = opts.requirement || './requirements.md'
     this.dryRun = opts.dryRun === true
 
     this.store = null
     this.tickets = []
-    this.estado = null
-    this.drivesDeWorkers = {} // ticketId -> clave hex del drive de ese worker
+    this.state = null
+    this.workerDrives = {} // ticketId -> hex key of that worker's drive
   }
 
   log(msg) {
-    console.log(`[orq] ${msg}`)
+    console.log(`[orch] ${msg}`)
   }
 
   async init() {
@@ -73,7 +78,7 @@ export class Orchestrator {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     }
 
-    this.estado = new Estado(path.join(this.storageDir, 'corridas.jsonl'))
+    this.state = new State(path.join(this.storageDir, 'runs.jsonl'))
 
     this.store = new Corestore(this.storageDir)
     await this.store.ready()
@@ -81,35 +86,35 @@ export class Orchestrator {
     this.log(`workspace: ${this.workspace}`)
 
     if (!fs.existsSync(this.requirementFile)) {
-      throw new Error(`no existe el requirements: ${this.requirementFile}`)
+      throw new Error(`requirements file not found: ${this.requirementFile}`)
     }
 
     this.tickets = parseRequirements(fs.readFileSync(this.requirementFile, 'utf8'))
-    if (this.tickets.length === 0) throw new Error('el requirements no declara ningún ticket')
+    if (this.tickets.length === 0) throw new Error('requirements declares no tickets')
 
-    const choques = detectarSolapamiento(this.tickets)
-    if (choques.length > 0) {
-      const detalle = choques.map((c) => `${c.file} (${c.tickets.join(' y ')})`).join('; ')
-      throw new Error(`dos tickets declaran el mismo archivo: ${detalle}`)
+    const clashes = detectOverlap(this.tickets)
+    if (clashes.length > 0) {
+      const detail = clashes.map((c) => `${c.file} (${c.tickets.join(' and ')})`).join('; ')
+      throw new Error(`two tickets declare the same file: ${detail}`)
     }
 
-    this.log(`${this.tickets.length} tickets, sin archivos solapados`)
+    this.log(`${this.tickets.length} tickets, no overlapping files`)
   }
 
-  // Lo que ya cerró en una corrida anterior no se vuelve a hacer. Es lo que
-  // hace que el cron del día 4 no rehaga lo del día 3.
-  pendientes() {
-    const hechos = new Set(this.estado.hechos())
-    return this.tickets.filter((t) => !hechos.has(t.id))
+  // Whatever closed in an earlier run is not done again. This is what stops the
+  // day-4 cron from redoing day 3.
+  pending() {
+    const done = new Set(this.state.done())
+    return this.tickets.filter((t) => !done.has(t.id))
   }
 
-  storageDeWorker(ticketId) {
+  workerStorage(ticketId) {
     return path.join(this.storageDir, 'workers', ticketId)
   }
 
-  lanzarWorker(ticket) {
+  spawnWorker(ticket) {
     const args = [
-      path.join(RAIZ, 'worker', 'run.mjs'),
+      path.join(ROOT, 'worker', 'run.mjs'),
       '--gateway', this.gateway,
       '--ticket', ticket.id,
       '--spec', ticket.spec,
@@ -117,19 +122,21 @@ export class Orchestrator {
       '--workspace', this.workspace,
       '--max-steps', String(this.maxSteps),
       '--max-tokens', String(this.maxTokens),
-      '--storage', this.storageDeWorker(ticket.id)
+      '--storage', this.workerStorage(ticket.id)
     ]
     if (this.apiKey) args.push('--api-key', this.apiKey)
+    if (this.model) args.push('--model', this.model)
+    if (this.toolTimeout) args.push('--tool-timeout', String(this.toolTimeout))
 
     return new Promise((resolve) => {
       const proc = spawn(process.execPath, args, { stdio: 'inherit' })
       proc.on('exit', (code) => {
-        // El worker deja su clave en disco al arrancar. Es lo que le permite al
-        // orquestador montar su drive después — y lo que, cuando el worker corra
-        // en otra máquina, viajará por el swarm en vez de por el filesystem.
-        const p = path.join(this.storageDeWorker(ticket.id), 'drive-key')
+        // The worker drops its key on disk at startup. That is what lets the
+        // orchestrator mount its drive afterwards — and what will travel over
+        // the swarm once workers run on other machines.
+        const p = path.join(this.workerStorage(ticket.id), 'drive-key')
         if (fs.existsSync(p)) {
-          this.drivesDeWorkers[ticket.id] = fs.readFileSync(p, 'utf8').trim()
+          this.workerDrives[ticket.id] = fs.readFileSync(p, 'utf8').trim()
         }
         resolve({ ticketId: ticket.id, ok: code === 0, code })
       })
@@ -137,108 +144,108 @@ export class Orchestrator {
     })
   }
 
-  // Los tickets de una tanda corren en paralelo porque sus archivos son
-  // disjuntos — eso ya lo garantizó `detectarSolapamiento`. Las tandas van en
-  // serie porque una depende de la anterior.
-  async correrTanda(tickets) {
-    const grupos = []
+  // Tickets in one batch run in parallel because their files are disjoint —
+  // `detectOverlap` already guaranteed that. Batches run in series because one
+  // may depend on the previous.
+  async runBatch(tickets) {
+    const groups = []
     for (let i = 0; i < tickets.length; i += this.numWorkers) {
-      grupos.push(tickets.slice(i, i + this.numWorkers))
+      groups.push(tickets.slice(i, i + this.numWorkers))
     }
 
-    for (const grupo of grupos) {
-      for (const t of grupo) {
-        this.estado.agregar(EVENTOS.TICKET_ASIGNADO, {
+    for (const group of groups) {
+      for (const t of group) {
+        this.state.append(EVENTS.TICKET_ASSIGNED, {
           ticketId: t.id,
-          intento: this.estado.intentosDe(t.id) + 1
+          attempt: this.state.attemptsFor(t.id) + 1
         })
       }
 
-      this.log(`tanda: ${grupo.map((t) => t.id).join(', ')}`)
-      const resultados = await Promise.all(grupo.map((t) => this.lanzarWorker(t)))
+      this.log(`batch: ${group.map((t) => t.id).join(', ')}`)
+      const results = await Promise.all(group.map((t) => this.spawnWorker(t)))
 
-      for (const r of resultados) {
+      for (const r of results) {
         if (!r.ok) {
-          this.estado.agregar(EVENTOS.TICKET_FALLIDO, { ticketId: r.ticketId, code: r.code })
-          this.log(`${r.ticketId}: el worker falló`)
+          this.state.append(EVENTS.TICKET_FAILED, { ticketId: r.ticketId, code: r.code })
+          this.log(`${r.ticketId}: worker failed`)
           continue
         }
-        await this.verificar(grupo.find((t) => t.id === r.ticketId))
+        await this.verify(group.find((t) => t.id === r.ticketId))
       }
     }
   }
 
-  // El gate: el ticket no cierra porque el worker diga que terminó, cierra
-  // porque CI pasó. Es la única señal que no la produce el modelo.
-  async verificar(ticket) {
+  // The gate: a ticket does not close because the worker says it finished, it
+  // closes because CI went green.
+  async verify(ticket) {
     const r = await runCI(this.workspace, ticket)
 
     if (r.passed) {
-      this.estado.agregar(EVENTOS.CI_VERDE, { ticketId: ticket.id, ms: r.duration })
-      this.estado.agregar(EVENTOS.TICKET_HECHO, { ticketId: ticket.id })
-      this.log(`${ticket.id}: CI verde`)
+      this.state.append(EVENTS.CI_PASS, { ticketId: ticket.id, ms: r.duration })
+      this.state.append(EVENTS.TICKET_DONE, { ticketId: ticket.id })
+      this.log(`${ticket.id}: CI green`)
     } else {
-      this.estado.agregar(EVENTOS.CI_ROJO, {
+      this.state.append(EVENTS.CI_FAIL, {
         ticketId: ticket.id,
         status: r.status,
         stderr: (r.stderr || '').slice(0, 500)
       })
-      this.log(`${ticket.id}: CI rojo (${r.status})`)
+      this.log(`${ticket.id}: CI red (${r.status})`)
     }
 
     return r
   }
 
-  // El `finally` no es prolijidad: si una corrida se va por una excepción sin
-  // cerrar el corestore, la corrida siguiente sobre el mismo --storage no abre.
-  // Con el cron, eso es el día 2 muerto por un error del día 1.
+  // The `finally` is not tidiness: if a run exits through an exception without
+  // closing the corestore, the next run over the same --storage cannot open it.
+  // With the cron, that is day 2 dead because of a day-1 error.
   async start() {
     try {
-      return await this.correr()
+      return await this.run()
     } finally {
       await this.close()
     }
   }
 
-  async correr() {
+  async run() {
     await this.init()
-    this.estado.agregar(EVENTOS.CORRIDA_INICIO, { tickets: this.tickets.length })
+    this.state.append(EVENTS.RUN_START, { tickets: this.tickets.length })
 
-    const pendientes = this.pendientes()
-    this.log(`${pendientes.length} pendientes de ${this.tickets.length}`)
+    const pending = this.pending()
+    this.log(`${pending.length} pending out of ${this.tickets.length}`)
 
-    if (pendientes.length === 0) {
-      this.log('no queda nada por hacer')
-      this.estado.agregar(EVENTOS.CORRIDA_FIN, { hechos: 0 })
-      return this.resumen()
+    if (pending.length === 0) {
+      this.log('nothing left to do')
+      this.state.append(EVENTS.RUN_END, { done: 0 })
+      return this.summary()
     }
 
-    const dag = buildDAG(pendientes)
+    const dag = buildDAG(pending)
     const { ticketsPerWorker } = assignTickets(dag, this.numWorkers)
     for (let i = 0; i < this.numWorkers; i++) {
       this.log(`worker-${i}: ${ticketsPerWorker[i].map((t) => t.id).join(', ') || '—'}`)
     }
 
     if (this.dryRun) {
-      this.log('dry-run: no se lanza ningún worker')
-      this.estado.agregar(EVENTOS.CORRIDA_FIN, { dryRun: true })
-      return this.resumen()
+      this.log('dry run: no worker is launched')
+      this.state.append(EVENTS.RUN_END, { dryRun: true })
+      return this.summary()
     }
 
-    await this.correrTanda(dag.ready)
+    await this.runBatch(dag.ready)
 
-    this.estado.agregar(EVENTOS.CORRIDA_FIN, { hechos: this.estado.hechos().length })
+    this.state.append(EVENTS.RUN_END, { done: this.state.done().length })
 
-    if (this.estado.estancado()) {
-      this.log('AVISO: dos corridas seguidas sin cerrar un solo ticket — mirar antes de seguir')
+    if (this.state.isStalled()) {
+      this.log('WARNING: two runs in a row closed no ticket — look before spending more')
     }
 
-    return this.resumen()
+    return this.summary()
   }
 
-  // El corestore toma un lock de RocksDB sobre su directorio. Sin cerrarlo, la
-  // corrida siguiente sobre el mismo --storage no abre: "File descriptor could
-  // not be locked". Con el cron eso significa que el día 2 no arranca.
+  // The corestore holds a RocksDB lock on its directory. Without closing it,
+  // the next run over the same --storage dies with "File descriptor could not
+  // be locked". With the cron, that means day 2 never starts.
   async close() {
     if (this.store) {
       await this.store.close()
@@ -246,29 +253,31 @@ export class Orchestrator {
     }
   }
 
-  resumen() {
-    const hechos = this.estado.hechos()
+  summary() {
+    const done = this.state.done()
     const r = {
-      drives: { ...this.drivesDeWorkers },
+      drives: { ...this.workerDrives },
       total: this.tickets.length,
-      hechos: hechos.length,
-      pendientes: this.tickets.length - hechos.length,
-      estancado: this.estado.estancado()
+      done: done.length,
+      pending: this.tickets.length - done.length,
+      stalled: this.state.isStalled()
     }
-    this.log(`resumen: ${r.hechos}/${r.total} cerrados`)
+    this.log(`summary: ${r.done}/${r.total} closed`)
     return r
   }
 }
 
-function parsearArgv(argv) {
+function parseArgv(argv) {
   const alias = {
     '--gateway': 'gateway',
     '--api-key': 'apiKey',
+    '--model': 'model',
     '--requirement': 'requirement',
     '--workspace': 'workspace',
     '--workers': 'workers',
     '--max-steps': 'maxSteps',
     '--max-tokens': 'maxTokens',
+    '--tool-timeout': 'toolTimeout',
     '--storage': 'storage'
   }
   const opts = {}
@@ -277,15 +286,15 @@ function parsearArgv(argv) {
       opts.dryRun = true
       continue
     }
-    const clave = alias[argv[i]]
-    if (clave) opts[clave] = argv[++i]
+    const key = alias[argv[i]]
+    if (key) opts[key] = argv[++i]
   }
   return opts
 }
 
 async function main() {
-  const orq = new Orchestrator(parsearArgv(process.argv.slice(2)))
-  await orq.start()
+  const orch = new Orchestrator(parseArgv(process.argv.slice(2)))
+  await orch.start()
 }
 
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {

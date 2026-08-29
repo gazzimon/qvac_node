@@ -75,7 +75,7 @@
     "facilitator": "node scripts/facilitator.js",
     "orchestrator": "node orchestrator/index.mjs",
     "worker": "node worker/run.mjs",
-    "test:orq": "node test/orchestrator-test.mjs && node test/worker-escribe.mjs && node test/orquestador-e2e.mjs"
+    "test:orchestrator": "node test/orchestrator-test.mjs && node test/worker-writes.mjs && node test/orchestrator-e2e.mjs"
   },
   "dependencies": {
     "@qvac/bare-sdk": "^0.17.1",

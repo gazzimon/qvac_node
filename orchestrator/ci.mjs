@@ -1,5 +1,7 @@
-// Gate de CI: ejecutar tests y validar que pasen.
-// Retorna { passed, stdout, stderr, ticketId, duration }
+// The CI gate: run the tests and decide whether a ticket closes.
+//
+// This is the only signal in the loop that the model does not produce. A ticket
+// is done because `npm test` went green, not because the worker said so.
 
 import { exec } from 'child_process'
 import { promisify } from 'util'
@@ -8,7 +10,7 @@ const execAsync = promisify(exec)
 
 export async function runCI(workspace, ticket, { timeout = 30000 } = {}) {
   if (!ticket || !ticket.id) {
-    throw new Error('runCI: ticket must have id')
+    throw new Error('runCI: ticket must have an id')
   }
 
   const start = Date.now()
@@ -17,28 +19,28 @@ export async function runCI(workspace, ticket, { timeout = 30000 } = {}) {
     const { stdout, stderr } = await execAsync('npm test', {
       cwd: workspace,
       timeout,
-      maxBuffer: 1024 * 1024 * 10 // 10MB
+      maxBuffer: 1024 * 1024 * 10
     })
-
-    const duration = Date.now() - start
 
     return {
       passed: true,
       stdout,
       stderr,
       ticketId: ticket.id,
-      duration,
+      duration: Date.now() - start,
       status: 'ok'
     }
   } catch (err) {
     const duration = Date.now() - start
 
-    // exit code != 0 means tests failed
+    // A timeout and a failing suite are not the same thing, and the caller has
+    // to be able to tell them apart: one says the tests are broken, the other
+    // says they never finished.
     if (err.killed) {
       return {
         passed: false,
         stdout: err.stdout || '',
-        stderr: `Timeout after ${timeout}ms`,
+        stderr: `Timed out after ${timeout}ms`,
         ticketId: ticket.id,
         duration,
         status: 'timeout'
@@ -57,28 +59,21 @@ export async function runCI(workspace, ticket, { timeout = 30000 } = {}) {
   }
 }
 
-export async function detectChanges(drive, ticket, lastCheckpoint = null) {
-  // Enumera archivos en Hyperdrive para el ticket
-  // Retorna lista de archivos modificados desde lastCheckpoint
-
-  if (!drive || typeof drive.readdir !== 'function') {
+// Which of a ticket's declared files actually made it into the drive.
+export async function detectChanges(drive, ticket) {
+  if (!drive || typeof drive.entry !== 'function') {
     throw new Error('detectChanges: drive must be a Hyperdrive instance')
   }
 
   const changed = []
 
-  try {
-    for (const allowedPath of ticket.allowedFiles) {
-      try {
-        // Intenta stat; si existe, lo registra como changed
-        await drive.stat(allowedPath)
-        changed.push(allowedPath)
-      } catch {
-        // File doesn't exist, skip
-      }
+  for (const allowedPath of ticket.allowedFiles) {
+    const key = '/' + String(allowedPath).replace(/^\/+/, '')
+    try {
+      if (await drive.entry(key)) changed.push(allowedPath)
+    } catch {
+      // Not present yet; nothing to report for this path.
     }
-  } catch (err) {
-    console.error(`detectChanges error: ${err.message}`)
   }
 
   return changed

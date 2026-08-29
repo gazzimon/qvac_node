@@ -1,22 +1,22 @@
-# Demo App — Pequeña aplicación P2P
+# Demo App — a small peer-to-peer application
 
-## Ticket: src/index.js
-Implementar el entry point de la aplicación.
-Crear un objeto que exporte `start()` y `stop()`.
+## Ticket: entry
+Implement the application entry point.
+Export an object with `start()` and `stop()`.
 
-Depende de: ninguno
+Depends on: none
 Files: src/index.js,tests/index.test.js
 
-## Ticket: src/utils.js
-Utilidades básicas: helper functions para parsing y formatting.
-Exportar `format()` y `parse()`.
+## Ticket: utils
+Basic helpers for parsing and formatting.
+Export `format()` and `parse()`.
 
-Depende de: ninguno
+Depends on: none
 Files: src/utils.js,tests/utils.test.js
 
-## Ticket: tests/package.json
-Crear package.json con dependencias mínimas para tests.
-Incluir jest o tap como test runner.
+## Ticket: manifest
+The package manifest for the generated project.
+Declare a `test` script.
 
-Depende de: ninguno
+Depends on: none
 Files: package.json
