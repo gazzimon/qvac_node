@@ -27,37 +27,81 @@ import { validarEscritura, ViolacionDeAlcance } from '../orchestrator/security.m
 // de asignar), asi que dos drives nunca traen la misma ruta.
 // -----------------------------------------------------------------------------
 
-const BLOQUE = /```file\s+path=([^\n`]+)\n([\s\S]*?)```/g
+// La linea de apertura de un bloque, en las formas que los modelos REALMENTE
+// escriben. Medido:
+//
+//   llama1b:  ```file path=src/suma.js        <- la que pide el prompt
+//   qwen4b:   ```file: `src/suma.js`          <- dos puntos y backticks
+//
+// El prompt pide una sola y el parser acepta varias a proposito: un formato que
+// los modelos no siguen es un formato que no funciona, y aflojar aca no afloja
+// ningun control -- la ruta pasa igual por el jail, que es donde se decide.
+const APERTURA = /^```\s*file\b[:=\s]*(?:path\s*=\s*)?['"`]?([^'"`\s]+)['"`]?\s*$/i
+
+// Un cierre es una linea que es SOLO la cerca. Se tolera un signo pegado
+// (`” ```; ”` aparecio en la salida de qwen4b) porque es ruido de generacion,
+// no contenido.
+const CIERRE = /^```[;,.\s]*$/
 
 // El modelo devuelve archivos completos, no diffs: un diff mal aplicado es un
 // archivo roto que igual pasa el parser, y un archivo completo o entra o no.
+//
+// Se parsea por lineas y no con una regex sola porque la salida real viene
+// sucia -- qwen4b metio una cerca de mas justo despues de abrir el bloque -- y
+// una regex que abarque eso deja de ser legible.
 export function parsearBloques(texto) {
+  const lineas = String(texto).split('\n')
   const bloques = []
-  let m
-  BLOQUE.lastIndex = 0
-  while ((m = BLOQUE.exec(texto)) !== null) {
-    bloques.push({ path: m[1].trim(), content: m[2] })
+
+  for (let i = 0; i < lineas.length; i++) {
+    const m = APERTURA.exec(lineas[i])
+    if (!m) continue
+
+    const path = m[1].trim()
+    const contenido = []
+    i++
+
+    // Una cerca pegada a la apertura, sin nada en el medio, es ruido: un
+    // archivo de cero bytes no es lo que nadie quiso escribir. Se saltea.
+    if (i < lineas.length && CIERRE.test(lineas[i])) i++
+
+    while (i < lineas.length && !CIERRE.test(lineas[i])) {
+      contenido.push(lineas[i])
+      i++
+    }
+
+    // Un bloque que igual quedo vacio no se acepta: escribir un archivo vacio
+    // es peor que no escribirlo, porque el CI lo toma como hecho.
+    if (contenido.length === 0) continue
+
+    bloques.push({ path, content: contenido.join('\n') + '\n' })
   }
+
   return bloques
 }
 
-// El prompt tiene DOS cosas que un modelo chico necesita a la vez, y sacar
-// cualquiera de las dos lo rompe. Las dos estan medidas contra llama1b:
+// TRES cosas medidas, cada una contra una corrida real. Sacar cualquiera rompe
+// el prompt de una forma distinta:
 //
-//   1. UN EJEMPLO CON CODIGO DE VERDAD. La primera version mostraba
-//      `export function ejemplo() {}` y el modelo devolvio un bloque bien
-//      formado. La segunda lo reemplazo por `// el contenido completo de X` y
-//      el modelo devolvio CERO bloques: un comentario de relleno no es un
-//      molde, y a un 1B lo que lo guia es el molde.
+//   1. EL EJEMPLO LLEVA CODIGO DE VERDAD. Una version mostraba
+//      `// el contenido completo de X` en vez de codigo, y llama1b devolvio
+//      CERO bloques: un comentario de relleno no es un molde, y a un modelo
+//      chico lo guia el molde.
 //
-//   2. UNA SOLA RUTA. La primera version tambien mostraba `path=src/ejemplo.js`
-//      mientras pedia escribir en `src/suma.js`, y el modelo copio la del
-//      ejemplo -- razonable, era la que estaba en la posicion de "asi se
-//      escribe una ruta". El jail lo rechazo: 0 escritos.
+//   2. UNA SOLA RUTA EN TODO EL PROMPT. Otra version mostraba
+//      `path=src/ejemplo.js` mientras pedia escribir en `src/suma.js`, y
+//      llama1b copio la del ejemplo -- razonable, era la que estaba en la
+//      posicion de "asi se escribe una ruta". El jail la rechazo: 0 escritos.
 //
-// Asi que el ejemplo va con codigo real Y con la ruta del ticket: hay molde que
-// imitar, y la unica ruta que aparece es la permitida. La seccion de ejemplo se
-// marca como ejemplo para que no se confunda con lo que hay que entregar.
+//   3. EL EJEMPLO NO PUEDE SER LA RESPUESTA. El ejemplo era
+//      `function (a, b) { return a + b }` y la tarea de prueba era "sumá dos
+//      números": qwen4b copio el ejemplo verbatim y el resultado se veia
+//      CORRECTO. Un ejemplo que resuelve la tarea hace que copiar y entender no
+//      se distingan, y lo que se estaba midiendo era justamente eso.
+//
+// Por eso el ejemplo es la funcion identidad: tiene estructura completa
+// (export, funcion, parametro, return) para servir de molde, y no resuelve
+// ninguna tarea plausible. Si el modelo lo copia, se VE que lo copio.
 export function promptDeSistema(ticket) {
   const [primero] = ticket.allowedFiles
   const lista = ticket.allowedFiles.map((f) => '- ' + f).join('\n')
@@ -65,18 +109,22 @@ export function promptDeSistema(ticket) {
   return [
     'Sos un constructor de código. Completá la tarea que te da el usuario.',
     '',
-    'Formato de respuesta — así se ve una respuesta correcta:',
+    'Formato de respuesta — la forma, no el contenido:',
     '',
     '```file path=' + primero,
-    'export function ejemplo (a, b) {',
-    '  return a + b',
+    'export function nombreDeLaFuncion (x) {',
+    '  return x',
     '}',
     '```',
+    '',
+    'Ese código es solo un molde del formato. NO lo copies: escribí el que',
+    'resuelve la tarea del usuario.',
     '',
     'Tenés que devolver exactamente estos archivos, con estas rutas:',
     lista,
     '',
     'Reglas:',
+    '- Copiá la primera línea del molde tal cual, cambiando solo lo que sigue.',
     '- Usá esas rutas tal cual. Cualquier otra ruta se rechaza y se pierde el trabajo.',
     '- Cada bloque es el archivo ENTERO, no un diff ni un fragmento.',
     '- Nada de prosa fuera de los bloques.',

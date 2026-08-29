@@ -277,6 +277,19 @@ test('el ejemplo trae código, no un comentario de relleno', () => {
   )
 })
 
+// Medido: el ejemplo era `(a, b) => a + b` y la tarea de prueba era "sumá dos
+// números". qwen4b copió el ejemplo y el resultado se veía correcto — copiar y
+// entender dejaron de distinguirse, que es lo único que se estaba midiendo.
+test('el ejemplo no resuelve ninguna tarea plausible', () => {
+  const p = promptDeSistema({ id: 'x', spec: 'y', allowedFiles: ['src/suma.js'] })
+  const [ejemplo] = parsearBloques(p)
+  assert.ok(
+    !/[a-z]\s*[+\-*/]\s*[a-z]/i.test(ejemplo.content),
+    'el ejemplo hace una operación: un modelo que lo copie va a parecer que resolvió'
+  )
+  assert.match(p, /NO lo copies/, 'hay que decirle explícitamente que no lo copie')
+})
+
 console.log('\nworker: parseo de bloques')
 
 test('parsea varios bloques de archivo', () => {
@@ -291,6 +304,56 @@ test('parsea varios bloques de archivo', () => {
 
 test('una respuesta sin bloques da lista vacía, no error', () => {
   assert.equal(parsearBloques('acá tenés el código, che').length, 0)
+})
+
+// La salida LITERAL de qwen4b en la K16, 2026-08-29. El prompt pedía
+// `path=src/suma.js` y el modelo escribió `file:` con la ruta entre backticks,
+// más una cerca de más justo después de abrir. El parser estricto devolvía 0
+// bloques; el modelo había entendido y escrito el código igual.
+const QWEN4B_REAL = [
+  '<think>',
+  '',
+  '</think>',
+  '',
+  '',
+  '```file: `src/suma.js`',
+  '```;',
+  'export function suma (a, b) {',
+  '  return a + b',
+  '}',
+  '```'
+].join('\n')
+
+test('acepta la sintaxis que qwen4b realmente escribe', () => {
+  const b = parsearBloques(QWEN4B_REAL)
+  assert.equal(b.length, 1, 'tiene que salir 1 bloque de la salida real')
+  assert.equal(b[0].path, 'src/suma.js')
+  assert.match(b[0].content, /export function suma/)
+  assert.ok(!b[0].content.includes('```'), 'la cerca de ruido no entra al archivo')
+})
+
+test('acepta las variantes de la línea de apertura', () => {
+  for (const apertura of [
+    '```file path=src/x.js',
+    '```file: `src/x.js`',
+    '```file src/x.js',
+    '```file:src/x.js',
+    '```file "src/x.js"'
+  ]) {
+    const b = parsearBloques(apertura + '\nconst a = 1\n```')
+    assert.equal(b.length, 1, `no parseó: ${apertura}`)
+    assert.equal(b[0].path, 'src/x.js', `ruta mal extraída de: ${apertura}`)
+  }
+})
+
+test('una cerca sin ruta no es un bloque de archivo', () => {
+  assert.equal(parsearBloques('```js\nconst a = 1\n```').length, 0)
+  assert.equal(parsearBloques('```\nconst a = 1\n```').length, 0)
+})
+
+// Escribir un archivo vacío es peor que no escribirlo: el CI lo toma como hecho.
+test('un bloque vacío no produce un archivo', () => {
+  assert.equal(parsearBloques('```file path=src/x.js\n```').length, 0)
 })
 
 console.log('\nhyperdrive: un solo escritor')
