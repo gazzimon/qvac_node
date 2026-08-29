@@ -291,7 +291,12 @@ export class Worker {
 
     if (bloques.length === 0) {
       this.log('sin bloques de archivo: no hay nada que escribir')
-      this.log(`la respuesta cruda quedó en ${this.rutaRespuesta()}`)
+      // El preview inline evita una vuelta de "andá a mirar el archivo" en cada
+      // corrida fallida. El archivo sigue estando para la respuesta completa.
+      this.log(`--- lo que contestó (${Buffer.byteLength(texto)} bytes) ---`)
+      const recorte = texto.length > 1200 ? texto.slice(0, 1200) + '\n…(recortado)' : texto
+      console.log(recorte || '(vacío)')
+      this.log(`--- fin. completo en ${this.rutaRespuesta()} ---`)
       return { ok: false, motivo: 'respuesta sin bloques ```file' }
     }
 
