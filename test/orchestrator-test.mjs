@@ -17,7 +17,7 @@ import {
 } from '../orchestrator/security.mjs'
 import { Estado, EVENTOS } from '../orchestrator/state.mjs'
 import { detectarSolapamiento } from '../orchestrator/index.mjs'
-import { parsearBloques } from '../worker/run.mjs'
+import { parsearBloques, promptDeSistema } from '../worker/run.mjs'
 
 let pasados = 0
 let fallados = 0
@@ -203,6 +203,26 @@ await testAsync('sí se reintenta un transitorio, y termina bien', async () => {
   })
   assert.equal(r, 'ok')
   assert.equal(intentos, 2)
+})
+
+console.log('\nworker: prompt de sistema')
+
+// Medido contra llama1b: el prompt mostraba `path=src/ejemplo.js` como muestra
+// del formato y pedía escribir en `src/suma.js`. El modelo copió la ruta del
+// ejemplo y el jail rechazó todo — 0 escritos, 1 rechazado. Con dos rutas en el
+// prompt, un modelo chico elige la que está en la posición del ejemplo.
+test('el prompt no menciona ninguna ruta que no sea la del ticket', () => {
+  const p = promptDeSistema({ id: 'x', spec: 'y', allowedFiles: ['src/suma.js'] })
+  const rutas = [...p.matchAll(/path=([^\n`]+)/g)].map((m) => m[1].trim())
+  assert.ok(rutas.length > 0, 'el prompt tiene que mostrar el formato')
+  assert.deepEqual([...new Set(rutas)], ['src/suma.js'])
+})
+
+test('con varios archivos, los muestra a todos y solo a ellos', () => {
+  const files = ['src/a.js', 'tests/a.test.js']
+  const p = promptDeSistema({ id: 'x', spec: 'y', allowedFiles: files })
+  const rutas = [...p.matchAll(/path=([^\n`]+)/g)].map((m) => m[1].trim())
+  assert.deepEqual([...new Set(rutas)].sort(), [...files].sort())
 })
 
 console.log('\nworker: parseo de bloques')
