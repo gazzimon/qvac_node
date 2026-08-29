@@ -41,27 +41,40 @@ export function parsearBloques(texto) {
   return bloques
 }
 
-// El ejemplo del formato usa LOS ARCHIVOS DEL TICKET, no una ruta inventada.
+// El prompt tiene DOS cosas que un modelo chico necesita a la vez, y sacar
+// cualquiera de las dos lo rompe. Las dos estan medidas contra llama1b:
 //
-// La primera version mostraba `path=src/ejemplo.js` como muestra y pedia
-// escribir en `src/suma.js`. Un modelo de 1B copio la ruta del ejemplo literal
-// y el jail rechazo todo: 0 escritos, 1 rechazado. El modelo hizo algo
-// razonable -- habia dos rutas en el prompt y eligio la que estaba en la
-// posicion de "asi se escribe una ruta".
+//   1. UN EJEMPLO CON CODIGO DE VERDAD. La primera version mostraba
+//      `export function ejemplo() {}` y el modelo devolvio un bloque bien
+//      formado. La segunda lo reemplazo por `// el contenido completo de X` y
+//      el modelo devolvio CERO bloques: un comentario de relleno no es un
+//      molde, y a un 1B lo que lo guia es el molde.
 //
-// Con el esqueleto armado sobre los archivos reales no hay dos candidatas: la
-// unica ruta que aparece en el prompt es la que el ticket permite.
+//   2. UNA SOLA RUTA. La primera version tambien mostraba `path=src/ejemplo.js`
+//      mientras pedia escribir en `src/suma.js`, y el modelo copio la del
+//      ejemplo -- razonable, era la que estaba en la posicion de "asi se
+//      escribe una ruta". El jail lo rechazo: 0 escritos.
+//
+// Asi que el ejemplo va con codigo real Y con la ruta del ticket: hay molde que
+// imitar, y la unica ruta que aparece es la permitida. La seccion de ejemplo se
+// marca como ejemplo para que no se confunda con lo que hay que entregar.
 export function promptDeSistema(ticket) {
-  const esqueleto = ticket.allowedFiles
-    .map((f) => '```file path=' + f + '\n// el contenido completo de ' + f + '\n```')
-    .join('\n')
+  const [primero] = ticket.allowedFiles
+  const lista = ticket.allowedFiles.map((f) => '- ' + f).join('\n')
 
   return [
     'Sos un constructor de código. Completá la tarea que te da el usuario.',
     '',
-    'Tenés que devolver EXACTAMENTE estos archivos, con estas rutas exactas:',
+    'Formato de respuesta — así se ve una respuesta correcta:',
     '',
-    esqueleto,
+    '```file path=' + primero,
+    'export function ejemplo (a, b) {',
+    '  return a + b',
+    '}',
+    '```',
+    '',
+    'Tenés que devolver exactamente estos archivos, con estas rutas:',
+    lista,
     '',
     'Reglas:',
     '- Usá esas rutas tal cual. Cualquier otra ruta se rechaza y se pierde el trabajo.',
@@ -205,11 +218,17 @@ export class Worker {
     )
     this.harness.spend({ tokens })
 
+    // La respuesta cruda se guarda SIEMPRE, junto con el prompt que la produjo.
+    // Sin esto, un "0 bloques" no se puede diagnosticar: no hay forma de saber
+    // si el modelo contestó prosa, si usó otro formato, o si no contestó nada.
+    this.guardarRespuesta(texto)
+
     const bloques = parsearBloques(texto)
     this.log(`el modelo devolvió ${bloques.length} bloque(s), ${tokens} tokens`)
 
     if (bloques.length === 0) {
       this.log('sin bloques de archivo: no hay nada que escribir')
+      this.log(`la respuesta cruda quedó en ${this.rutaRespuesta()}`)
       return { ok: false, motivo: 'respuesta sin bloques ```file' }
     }
 
@@ -262,6 +281,38 @@ export class Worker {
       await this.store.close()
       this.store = null
     }
+  }
+
+  rutaRespuesta() {
+    return path.join(this.storageDir, `${this.ticket.id}.respuesta.md`)
+  }
+
+  guardarRespuesta(texto) {
+    const contenido = [
+      '# ' + this.ticket.id + ' — ' + new Date().toISOString(),
+      '',
+      'modelo: `' + this.model + '`  ·  gateway: `' + this.gateway + '`',
+      '',
+      '## system prompt',
+      '',
+      '````',
+      promptDeSistema(this.ticket),
+      '````',
+      '',
+      '## user',
+      '',
+      '````',
+      this.ticket.spec,
+      '````',
+      '',
+      '## respuesta cruda (' + Buffer.byteLength(texto) + ' bytes)',
+      '',
+      '````',
+      texto,
+      '````',
+      ''
+    ].join('\n')
+    fs.writeFileSync(this.rutaRespuesta(), contenido, 'utf8')
   }
 
   guardarLog() {

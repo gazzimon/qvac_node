@@ -218,11 +218,25 @@ test('el prompt no menciona ninguna ruta que no sea la del ticket', () => {
   assert.deepEqual([...new Set(rutas)], ['src/suma.js'])
 })
 
-test('con varios archivos, los muestra a todos y solo a ellos', () => {
+test('con varios archivos, los lista a todos', () => {
   const files = ['src/a.js', 'tests/a.test.js']
   const p = promptDeSistema({ id: 'x', spec: 'y', allowedFiles: files })
+  for (const f of files) assert.ok(p.includes(f), `falta ${f} en el prompt`)
   const rutas = [...p.matchAll(/path=([^\n`]+)/g)].map((m) => m[1].trim())
-  assert.deepEqual([...new Set(rutas)].sort(), [...files].sort())
+  assert.ok(files.includes(rutas[0]), 'el ejemplo usa una ruta del ticket')
+})
+
+// Medido: sin código de verdad en el ejemplo, llama1b devolvió 0 bloques. Un
+// comentario de relleno no es un molde, y a un modelo chico lo guía el molde.
+test('el ejemplo trae código, no un comentario de relleno', () => {
+  const p = promptDeSistema({ id: 'x', spec: 'y', allowedFiles: ['src/suma.js'] })
+  const bloques = parsearBloques(p)
+  assert.equal(bloques.length, 1, 'el prompt tiene que mostrar un bloque de ejemplo')
+  assert.match(bloques[0].content, /export function/, 'el ejemplo tiene que traer código')
+  assert.ok(
+    !/^\s*\/\/[^\n]*\n?\s*$/.test(bloques[0].content),
+    'un ejemplo que es solo un comentario no sirve de molde'
+  )
 })
 
 console.log('\nworker: parseo de bloques')
