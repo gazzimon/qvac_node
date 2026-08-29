@@ -39,6 +39,7 @@ import * as lote from './lote.mjs'
 import * as costs from './costs.mjs'
 import * as quota from './quota.mjs'
 import { pickCandidate, estaSaturado } from './routing.mjs'
+import { DEFAULT_MODEL } from './models.mjs'
 // Ver la nota de upstream.mjs: bajo Bare esto no es un global.
 import AbortController from 'bare-abort-controller'
 
@@ -83,13 +84,26 @@ let realModelId = null
 let realModelLoading = null
 let gpuLayers // undefined = deja decidir al SDK
 
+// Que modelo carga el motor de esta maquina. Era el literal 'llama1b' aca
+// adentro mientras `bin.mjs` anunciaba `DEFAULT_MODEL` por su lado: dos fuentes
+// para el mismo dato, que coincidian solo porque los dos valores eran iguales.
+// El comentario de `swarmModels()` ya pedia una sola fuente -- "si divergieran,
+// el nodo anunciaria un modelo que despues rechaza" --, y divergian.
+//
+// Ahora entra por `createGateway({ model })`, que es tambien lo que se anuncia.
+let modeloLocal = DEFAULT_MODEL
+
+export function modeloLocalActual() {
+  return modeloLocal
+}
+
 function ensureRealModel() {
   if (realModelId) return Promise.resolve(realModelId)
   if (!realModelLoading) {
     realModelLoading = (async () => {
       const t0 = Date.now()
       engineMod = engineMod || (await import('./engine.mjs'))
-      const { modelSrc } = await engineMod.resolveModel('llama1b')
+      const { modelSrc } = await engineMod.resolveModel(modeloLocal)
       realModelId = await engineMod.loadModel({ modelSrc, gpuLayers })
 
       // La carga perezosa es la explicacion de casi todo TTFT anomalo: el
@@ -98,7 +112,7 @@ function ensureRealModel() {
       // ninguna causa visible al lado.
       store.pushLog({
         kind: 'model_load',
-        modelId: 'llama1b',
+        modelId: modeloLocal,
         target: 'local',
         ok: true,
         gpuLayers: gpuLayers ?? null,
@@ -3046,8 +3060,11 @@ async function onRequest(req, res) {
   }
 }
 
-export function createGateway({ port = 8787, gpuLayers: gpu, demo = false } = {}) {
+export function createGateway({ port = 8787, gpuLayers: gpu, demo = false, model } = {}) {
   gpuLayers = Number.isFinite(gpu) ? gpu : undefined
+  // El modelo que carga el motor. Lo elige quien levanta el gateway, y es el
+  // MISMO que `bin.mjs` anuncia en el manifiesto: una sola fuente.
+  if (model) modeloLocal = model
 
   // Sin --demo el gateway arranca VACIO: cero nodos, cero mocks. Es el estado
   // real de Fase 3 antes de que un peer se anuncie por el swarm, y hace que el

@@ -68,6 +68,11 @@ const serveCmd = command(
   ),
   flag('--operator <nombre>', 'nombre del operador que se anuncia en el manifiesto'),
   flag(
+    '--model <alias>',
+    `modelo que sirve este nodo: ${Object.keys(MODELS).join(' | ')} (default ${DEFAULT_MODEL}).` +
+      ' Es el que se anuncia en el manifiesto Y el que carga el motor: una sola fuente.'
+  ),
+  flag(
     '--gpu-layers <n>',
     'capas a mandar a la GPU del nodo real. 0 = todo CPU (8x mas rapido en la iGPU de la demo, ver NOTES.md)'
   ),
@@ -488,8 +493,12 @@ async function startGateway(opts = {}) {
   const cargadas = apikeys.open(budgetDir)
   if (cargadas > 0) console.log(`  [apikeys] ${cargadas} key(s) del registro guardado`)
 
+  // `modeloElegido()` valida el alias y tira si no existe: mejor no arrancar
+  // que anunciar un modelo que el motor despues no puede cargar.
+  const modelo = modeloElegido()
+
   const { createGateway, shutdownGateway } = await import('./qvac/gateway.mjs')
-  const server = createGateway({ port, gpuLayers, demo })
+  const server = createGateway({ port, gpuLayers, demo, model: modelo })
 
   const gw = await import('./qvac/gateway.mjs')
   const store = await import('./qvac/store.mjs')
@@ -741,12 +750,27 @@ async function openBrowser(url) {
 // maxConcurrentRequests 3: medido, no elegido. Tres completions concurrentes
 // sobre el mismo modelo cargado corren en paralelo real y sin mezclarse entre
 // si (probado con prompts distinguibles, ver NOTES.md).
-function swarmModels() {
+// El alias que este nodo sirve. Sale de `--model` y cae al default. Se valida
+// contra el catalogo: un alias mal escrito tiene que fallar al arrancar, no en
+// el primer chat -- para entonces el manifiesto ya se firmo y se anuncio.
+function modeloElegido() {
+  // Optional chaining porque `peers` tambien llama a `swarmModels()` y ahi
+  // `serveCmd` no se invoco: sin el `?.` seria un TypeError en vez de caer al
+  // default, que es lo correcto para un comando que no elige modelo.
+  const pick = (serveCmd.flags && serveCmd.flags.model) || DEFAULT_MODEL
+  if (!MODELS[pick]) {
+    throw new Error(
+      `--model "${pick}" no esta en el catalogo. Opciones: ${Object.keys(MODELS).join(', ')}`
+    )
+  }
+  return pick
+}
+
+function swarmModels(pick = modeloElegido()) {
   return [
     {
-      modelId: DEFAULT_MODEL,
-      displayName:
-        (MODEL_INFO[DEFAULT_MODEL] && MODEL_INFO[DEFAULT_MODEL].displayName) || DEFAULT_MODEL,
+      modelId: pick,
+      displayName: (MODEL_INFO[pick] && MODEL_INFO[pick].displayName) || pick,
       maxConcurrentRequests: 3,
       pricing: [{ unit: 'per_1m_completion_tokens', amount: '1000000', currency: 'QVAC' }]
     }
