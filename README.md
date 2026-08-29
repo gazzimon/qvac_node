@@ -15,7 +15,35 @@ over Pear · 211 tests / 1338 asserts green.
 
 ---
 
+Links: **[fiuidao.web.app](https://fiuidao.web.app)** ·
+[documentation](https://fiuidao.web.app/docs.html) ·
+[API & economics](https://fiuidao.web.app/docs/api-economics.html) ·
+[prompt.txt (for AI agents)](https://fiuidao.web.app/prompt.txt) ·
+[github.com/gazzimon/qvac_node](https://github.com/gazzimon/qvac_node) ·
+[npmjs.com/package/pyrusllm](https://www.npmjs.com/package/pyrusllm)
+
 ## Install
+
+### From npm (needs Node >= 20)
+
+```bash
+npm i -g pyrusllm
+pyrusllm
+```
+
+The `pyrusllm` command resolves the Bare runtime that npm pulled in per platform
+and runs the node from it — no separate Bare or Pear install. A `postinstall`
+step patches `@noble/hashes` so the payment stack loads under Bare. Windows ARM
+has no build; use the Pear install below. This channel has no OTA: `npm update -g
+pyrusllm` to upgrade.
+
+You can also run it straight from GitHub without publishing anything:
+
+```bash
+npm i -g github:gazzimon/qvac_node
+```
+
+### From a release binary
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.sh | sh   # macOS, Linux

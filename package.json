@@ -1,7 +1,23 @@
 {
   "name": "pyrusllm",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "LLM inference node distributed over Pear. Installs over P2P and updates itself over OTA.",
+  "homepage": "https://fiuidao.web.app",
+  "bugs": {
+    "url": "https://github.com/gazzimon/qvac_node/issues"
+  },
+  "keywords": [
+    "llm",
+    "inference",
+    "p2p",
+    "openai-compatible",
+    "gateway",
+    "x402",
+    "pear",
+    "bare",
+    "local-ai",
+    "openrouter"
+  ],
   "bin": {
     "pyrusllm": "cli.js"
   },
@@ -123,7 +139,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gazzimon/qvac_node.git"
+    "url": "git+https://github.com/gazzimon/qvac_node.git"
   },
   "author": "gazzimon",
   "license": "Apache-2.0",
