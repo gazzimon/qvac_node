@@ -8,7 +8,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { parseRequirements, buildDAG, assignTickets } from '../orchestrator/split.mjs'
-import { Harness, LimitReached, isTransient } from '../orchestrator/harness.mjs'
+import { Harness, LimitReached, isTransient, esTimeout } from '../orchestrator/harness.mjs'
 import {
   validarEscritura,
   validarHerramienta,
@@ -191,6 +191,44 @@ await testAsync('no se reintenta un error determinista', async () => {
     })
   )
   assert.equal(intentos, 1, 'un 400 no se reintenta')
+})
+
+// Medido: la primera request contra qwen4b baja 2.3 GB y carga el modelo, todo
+// dentro del mismo request. Un techo de 30s ahí no mide "se colgó", mide
+// "estaba bajando". Y reintentarlo tres veces es pedirle al nodo el triple.
+test('el default de timeout es de inferencia, no de filesystem', () => {
+  const h = new Harness({})
+  assert.ok(h.toolTimeoutMs >= 300000, `toolTimeout=${h.toolTimeoutMs}, muy corto para una carga en frío`)
+  assert.ok(h.taskTimeoutMs > h.toolTimeoutMs)
+})
+
+test('un timeout se distingue de otros transitorios', () => {
+  assert.ok(esTimeout(new Error('tool x timed out after 600000ms')))
+  assert.ok(!esTimeout(Object.assign(new Error('boom'), { status: 503 })))
+})
+
+await testAsync('un timeout se reintenta UNA vez, no tres', async () => {
+  const h = new Harness({ maxRetries: 3, maxRetriesTimeout: 1 })
+  let intentos = 0
+  await assert.rejects(() =>
+    h.withRetry('x', () => {
+      intentos++
+      throw new Error('tool chat timed out after 600000ms')
+    })
+  )
+  assert.equal(intentos, 2, 'un intento más el reintento: dos, no cuatro')
+})
+
+await testAsync('un 503 sí agota los tres intentos', async () => {
+  const h = new Harness({ maxRetries: 3, maxRetriesTimeout: 1 })
+  let intentos = 0
+  await assert.rejects(() =>
+    h.withRetry('x', () => {
+      intentos++
+      throw Object.assign(new Error('boom'), { status: 503 })
+    })
+  )
+  assert.equal(intentos, 3)
 })
 
 await testAsync('sí se reintenta un transitorio, y termina bien', async () => {

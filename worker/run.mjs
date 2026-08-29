@@ -102,9 +102,16 @@ export class Worker {
     this.storageDir = opts.storage || path.join(process.cwd(), '.qvac', 'worker', opts.ticket || 'x')
     this.workspace = path.resolve(opts.workspace || path.join(process.cwd(), 'worktree'))
 
+    // Los timeouts se pasan en SEGUNDOS: es la unidad en la que uno piensa
+    // "cuanto le doy a este modelo", y evita el cero-de-mas que convierte 10
+    // minutos en 100.
+    const seg = (v, def) => (v == null ? def : Math.round(Number(v) * 1000))
+
     this.harness = new Harness({
       maxSteps: parseInt(opts.maxSteps) || 10,
-      maxTokens: parseInt(opts.maxTokens) || 8000
+      maxTokens: parseInt(opts.maxTokens) || 8000,
+      toolTimeoutMs: seg(opts.toolTimeout, 600000),
+      taskTimeoutMs: seg(opts.taskTimeout, 1800000)
     })
 
     this.store = null
@@ -213,9 +220,17 @@ export class Worker {
   async correr() {
     await this.resolverModelo()
 
+    // Se dice cuánto se va a esperar ANTES de esperar. La primera request
+    // contra un modelo nuevo paga la descarga de los pesos, y sin esta línea un
+    // worker bajando 2.3 GB se ve igual que uno colgado.
+    const seg = Math.round(this.harness.toolTimeoutMs / 1000)
+    this.log(`pidiéndole a ${this.model} (hasta ${seg}s; la 1ª vez baja los pesos)`)
+
+    const t0 = Date.now()
     const { texto, tokens } = await this.harness.withRetry('chat', () =>
       this.harness.runTool('chat/completions', () => this.pedirAlGateway())
     )
+    this.log(`respondió en ${((Date.now() - t0) / 1000).toFixed(1)}s`)
     this.harness.spend({ tokens })
 
     // La respuesta cruda se guarda SIEMPRE, junto con el prompt que la produjo.
@@ -339,6 +354,8 @@ function parsearArgv(argv) {
     '--allowed-files': 'allowedFiles',
     '--max-steps': 'maxSteps',
     '--max-tokens': 'maxTokens',
+    '--tool-timeout': 'toolTimeout', // segundos
+    '--task-timeout': 'taskTimeout', // segundos
     '--storage': 'storage',
     '--workspace': 'workspace'
   }

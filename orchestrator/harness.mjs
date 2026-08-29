@@ -14,12 +14,26 @@ export class LimitReached extends Error {
 }
 
 export class Harness {
+  // Los defaults de timeout son para UNA INFERENCIA, no para una herramienta de
+  // filesystem. Arrancaron en 30s, que es un numero razonable para leer un
+  // archivo y absurdo para lo que esto hace: la primera request contra un
+  // modelo nuevo paga la DESCARGA de los pesos (qwen4b son 2.3 GB) mas la carga
+  // en RAM mas la generacion, todo en el mismo request, porque el gateway carga
+  // el modelo de forma perezosa.
+  //
+  // 10 minutos por herramienta y 30 por tarea. Un timeout con estos numeros ya
+  // no significa "es lento", significa "algo se colgo".
   constructor({
     maxSteps = 10,
     maxTokens = 8000,
-    toolTimeoutMs = 30000,
-    taskTimeoutMs = 300000,
-    maxRetries = 3
+    toolTimeoutMs = 600000,
+    taskTimeoutMs = 1800000,
+    maxRetries = 3,
+    // Un timeout NO se reintenta tres veces. Con un techo de 10 minutos, tres
+    // intentos son media hora pidiendole al nodo el mismo trabajo. Uno solo
+    // tiene sentido -- el caso real es que el primero pago la descarga de los
+    // pesos y el segundo los encuentra cacheados --; el cuarto no existe.
+    maxRetriesTimeout = 1
   } = {}) {
     if (toolTimeoutMs >= taskTimeoutMs) {
       throw new Error('harness: el timeout por herramienta tiene que ser menor que el de la tarea')
@@ -29,6 +43,7 @@ export class Harness {
     this.toolTimeoutMs = toolTimeoutMs
     this.taskTimeoutMs = taskTimeoutMs
     this.maxRetries = maxRetries
+    this.maxRetriesTimeout = maxRetriesTimeout
 
     this.steps = 0
     this.tokensUsed = 0
@@ -98,22 +113,48 @@ export class Harness {
   // Backoff exponencial con jitter, SOLO para transitorios. Un 400 o un test
   // que falla no se reintenta: reintentar un error determinista es gastar dos
   // veces para fallar igual.
+  //
+  // Un timeout es transitorio pero tiene SU PROPIO techo de intentos, mas bajo:
+  // un 503 es barato de reintentar, un timeout de 10 minutos no.
   async withRetry(label, fn) {
     let lastErr
+    let intentos = 0
 
-    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+    while (true) {
       this.checkBudget()
+      intentos++
       try {
-        return await fn(attempt)
+        return await fn(intentos)
       } catch (err) {
         lastErr = err
+
         if (!isTransient(err)) {
-          this.record({ type: 'retry', label, attempt, retried: false, error: err.message })
+          this.record({ type: 'retry', label, attempt: intentos, retried: false, error: err.message })
           throw err
         }
-        if (attempt === this.maxRetries) break
-        const delay = backoffMs(attempt)
-        this.record({ type: 'retry', label, attempt, retried: true, delay, error: err.message })
+
+        const techo = esTimeout(err) ? this.maxRetriesTimeout + 1 : this.maxRetries
+        if (intentos >= techo) {
+          this.record({
+            type: 'retry',
+            label,
+            attempt: intentos,
+            retried: false,
+            agotado: true,
+            error: err.message
+          })
+          break
+        }
+
+        const delay = backoffMs(intentos)
+        this.record({
+          type: 'retry',
+          label,
+          attempt: intentos,
+          retried: true,
+          delay,
+          error: err.message
+        })
         await sleep(delay)
       }
     }
@@ -131,6 +172,12 @@ export class Harness {
       events: this.events.length
     }
   }
+}
+
+// Un timeout NUESTRO: el que arma `runTool` al vencer `toolTimeoutMs`. Se
+// distingue de un 503 porque cuesta muchísimo más reintentarlo.
+export function esTimeout(err) {
+  return !!err && /timed out after \d+ms/.test(err.message || '')
 }
 
 export function isTransient(err) {
