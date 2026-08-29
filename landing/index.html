@@ -298,7 +298,7 @@
      <pre> scrollea adentro de su propia caja, que es lo que ya sabe hacer. */
   .install .grid {
     display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-    gap: clamp(2rem, 5vw, 4rem); align-items: center;
+    gap: clamp(2rem, 5vw, 4rem); align-items: start;
   }
   @media (max-width: 760px) { .install .grid { grid-template-columns: 1fr; } }
   .install h2 { font-size: clamp(1.8rem, 4vw, 2.6rem); max-width: 19ch; }
@@ -317,11 +317,9 @@
     font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.9;
     color: var(--ink); overflow-x: auto;
   }
-  /* El comando entra entero: una barra de scroll horizontal justo donde le
-     pedis a alguien que copie algo esconde la mitad de lo que tiene que copiar. */
-  #cmd { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
-  .term .c1 { color: var(--mute); }
-  .term .c2 { color: var(--network); }
+  /* El comando largo (pear://, el clone) envuelve adentro de la caja: el
+     boton "copy" lleva la version en una linea, asi que no hace falta scroll. */
+  .term pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
   .term .copy {
     margin: 0 1.25rem 1.1rem; font-family: "IBM Plex Mono", monospace; font-size: .76rem;
     background: none; border: 1px solid var(--line); color: var(--mute);
@@ -332,21 +330,20 @@
   .fine { font-size: .75rem; color: var(--mute); line-height: 1.55; }
   .fine + .fine { margin-top: .5rem; }
 
-  .os-tabs { display: flex; gap: .35rem; margin-bottom: .9rem; flex-wrap: wrap; }
-  .os-tabs button {
-    font-family: "IBM Plex Mono", monospace; font-size: .78rem;
-    background: none; border: 1px solid var(--line); color: var(--mute);
-    padding: .35rem .8rem; border-radius: 3px; cursor: pointer;
+  /* install: las tres formas, una debajo de la otra */
+  .methods { display: grid; gap: 1.5rem; }
+  .method .mh {
+    font-family: "IBM Plex Mono", monospace; font-size: .9rem; font-weight: 600;
+    color: var(--ink); margin-bottom: .55rem;
+    display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap;
   }
-  .os-tabs button[aria-selected="true"] { border-color: var(--network); color: var(--ink); }
-  .install .alt {
-    margin-top: 1.6rem; padding-top: 1.4rem; border-top: 1px solid var(--line);
-    font-size: .85rem;
+  .method .mn { color: var(--network); }
+  .method .mtag {
+    font-weight: 400; font-size: .72rem; color: var(--mute);
+    border: 1px solid var(--line); border-radius: 3px; padding: .1rem .45rem;
   }
-  .install .alt code {
-    font-family: "IBM Plex Mono", monospace; font-size: .8rem;
-    color: var(--ink); overflow-wrap: anywhere;
-  }
+  .method .term pre { font-size: .8rem; line-height: 1.75; }
+  .method .fine { margin-top: .6rem; }
 
   footer {
     padding: 2.25rem clamp(1.5rem, 5vw, 4rem) 3rem;
@@ -573,36 +570,51 @@
     <div class="grid">
       <div>
         <p class="eyebrow reveal">Get started</p>
-        <h2 class="reveal" style="margin-top:.9rem">One line, and your machine is part of the network.</h2>
-        <p class="lede reveal">No account, no runtime to install first. The download is a single
-          self-contained binary with the inference engine inside &mdash; no Node, no npm, no Pear.
-          It opens in your browser and waits there; no model is downloaded until you send
-          the first prompt.</p>
-        <div class="alt reveal">
-          <p>Already running Node, or want automatic P2P updates? Install over Pear instead:</p>
-          <p style="margin-top:.5rem"><code>npm i -g pear &amp;&amp; pear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny</code></p>
-        </div>
+        <h2 class="reveal" style="margin-top:.9rem">Three ways to install. One command each.</h2>
+        <p class="lede reveal">Pick the one that fits your setup &mdash; all three give you the same
+          <span class="mono">pyrusllm</span> node. It opens in your browser and waits there;
+          no model is downloaded until you send the first prompt.</p>
+        <p class="seealso reveal">Rather run a plain binary with nothing to install first?
+          <a href="https://github.com/gazzimon/qvac_node/releases/latest" target="_blank" rel="noopener">&rarr; every build is on the releases page</a>,
+          each with its <span class="mono">.sha256</span>.</p>
       </div>
-      <div class="reveal">
-        <div class="os-tabs" role="tablist" aria-label="Your operating system">
-          <button type="button" role="tab" data-os="mac" aria-selected="false">macOS</button>
-          <button type="button" role="tab" data-os="linux" aria-selected="false">Linux</button>
-          <button type="button" role="tab" data-os="win" aria-selected="false">Windows</button>
+      <div class="reveal methods">
+
+        <div class="method">
+          <div class="mh"><span class="mn">01</span> npm <span class="mtag">needs Node &ge; 20</span></div>
+          <div class="term">
+            <pre>npm i -g pyrusllm
+pyrusllm</pre>
+            <button class="copy" data-cmd="npm i -g pyrusllm">copy</button>
+          </div>
+          <p class="fine">Pulls the Bare runtime for your platform automatically. Upgrade with
+            <span class="mono">npm update -g pyrusllm</span>. No OTA on this channel.</p>
         </div>
-        <div class="term">
-          <div class="bar"><i></i><i></i><i></i></div>
-          <pre id="cmd"></pre>
-          <button class="copy" id="copyBtn">copy command</button>
+
+        <div class="method">
+          <div class="mh"><span class="mn">02</span> Pear <span class="mtag">OTA updates over P2P</span></div>
+          <div class="term">
+            <pre class="wrap">npm i -g pear
+pear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny</pre>
+            <button class="copy" data-cmd="npm i -g pear && pear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny">copy</button>
+          </div>
+          <p class="fine">The installed copy updates itself over the P2P network in ~10 s, with
+            no user action.</p>
         </div>
-        <p class="alt" style="margin-top:1.1rem;padding-top:0;border:none">
-          Rather see the file before you run anything?
-          <a href="https://github.com/gazzimon/qvac_node/releases/latest" target="_blank" rel="noopener">Every platform’s binary is on the releases page</a>,
-          each with its <span class="mono">.sha256</span>. Verifying the checksum and clearing
-          the macOS quarantine by hand is
-          <a href="https://github.com/gazzimon/qvac_node#install" target="_blank" rel="noopener">covered in the README</a>.
-        </p>
-        <p class="fine" style="margin-top:1rem">The standalone Linux binary doesn’t load models
-          yet — on Linux, run from source. Windows on ARM has no build.</p>
+
+        <div class="method">
+          <div class="mh"><span class="mn">03</span> git clone <span class="mtag">run from source</span></div>
+          <div class="term">
+            <pre class="wrap">git clone https://github.com/gazzimon/qvac_node.git
+cd qvac_node
+npm install
+npx bare bin.mjs</pre>
+            <button class="copy" data-cmd="git clone https://github.com/gazzimon/qvac_node.git && cd qvac_node && npm install && npx bare bin.mjs">copy</button>
+          </div>
+          <p class="fine">Runs straight from the repo &mdash; also the way to hack on it. Needs
+            <span class="mono">npm &ge; 10</span>.</p>
+        </div>
+
       </div>
     </div>
   </div>
@@ -614,48 +626,19 @@
 </footer>
 
 <script>
-  // The install one-liner, per platform. The tab is preselected from the
-  // visitor's own OS: making somebody pick their operating system before they
-  // can copy a command is a step the machine already knows the answer to.
-  const RAW = 'https://raw.githubusercontent.com/gazzimon/qvac_node/main'
-  const CMDS = {
-    mac: 'curl -fsSL ' + RAW + '/install.sh | sh',
-    linux: 'curl -fsSL ' + RAW + '/install.sh | sh',
-    win: 'irm ' + RAW + '/install.ps1 | iex'
-  }
-
-  function detectOS() {
-    const ua = navigator.userAgent
-    if (/Windows/i.test(ua)) return 'win'
-    if (/Mac|iPhone|iPad/i.test(ua)) return 'mac'
-    return 'linux'
-  }
-
-  let currentOS = detectOS()
-
-  function paintCmd() {
-    const prompt = currentOS === 'win' ? 'PS&gt;' : '$'
-    document.getElementById('cmd').innerHTML =
-      '<span class="c1">' + prompt + '</span> ' + CMDS[currentOS]
-    document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
-      b.setAttribute('aria-selected', String(b.dataset.os === currentOS))
+  // Each install block carries its one-line form in data-cmd; the visible <pre>
+  // is split across lines for reading, the copy button hands over the joined
+  // command.
+  document.querySelectorAll('.copy').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.cmd)
+        btn.textContent = 'copied ✓'
+      } catch {
+        btn.textContent = 'copy it manually'
+      }
+      setTimeout(() => { btn.textContent = 'copy' }, 1600)
     })
-  }
-
-  document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
-    b.addEventListener('click', () => { currentOS = b.dataset.os; paintCmd() })
-  })
-  paintCmd()
-
-  document.getElementById('copyBtn').addEventListener('click', async (ev) => {
-    const btn = ev.currentTarget
-    try {
-      await navigator.clipboard.writeText(CMDS[currentOS])
-      btn.textContent = 'copied ✓'
-    } catch {
-      btn.textContent = 'copy it manually'
-    }
-    setTimeout(() => { btn.textContent = 'copy command' }, 1600)
   })
 
   // Scroll reveal — skipped entirely under prefers-reduced-motion (see CSS).
