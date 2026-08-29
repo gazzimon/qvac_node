@@ -2421,6 +2421,26 @@ async function onRequest(req, res) {
       })()
       return
     }
+
+    // ---- orchestrator: task assignment y status ---
+    if (req.method === 'POST' && pathname === '/v1/orchestrator/tasks') {
+      const body = await parseBody(req)
+      // { tickets: [{id, spec, allowedFiles}], driveKey }
+      if (!body.driveKey || !Array.isArray(body.tickets)) {
+        return sendError(res, 400, 'missing driveKey or tickets')
+      }
+      // Almacena en store (temporal, mientras el nodo corre)
+      const tasks = Object.fromEntries(body.tickets.map(t => [t.id, { ...t, status: 'pending' }]))
+      store.set('orchestrator:tasks', JSON.stringify({ driveKey: body.driveKey, tasks }))
+      return sendJson(res, 200, { status: 'accepted', count: body.tickets.length })
+    }
+
+    if (req.method === 'GET' && pathname === '/v1/orchestrator/status') {
+      const tasksJson = store.get('orchestrator:tasks')
+      const data = tasksJson ? JSON.parse(tasksJson) : { tasks: {} }
+      return sendJson(res, 200, data)
+    }
+
     // Formato OpenAI estricto: es lo que lee un cliente de terceros.
     if (req.method === 'GET' && pathname === '/v1/models') {
       const created = Math.floor(Date.now() / 1000)
