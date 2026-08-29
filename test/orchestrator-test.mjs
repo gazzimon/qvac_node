@@ -287,7 +287,18 @@ test('el ejemplo no resuelve ninguna tarea plausible', () => {
     !/[a-z]\s*[+\-*/]\s*[a-z]/i.test(ejemplo.content),
     'el ejemplo hace una operación: un modelo que lo copie va a parecer que resolvió'
   )
-  assert.match(p, /NO lo copies/, 'hay que decirle explícitamente que no lo copie')
+})
+
+// Medido: dos líneas explicando el molde ("NO lo copies" / "copiá la primera
+// línea tal cual" — que además se contradicen) hicieron que qwen4b devolviera
+// castellano roto con caracteres chinos, hablando de alguien que no puede
+// seguir instrucciones. El mismo modelo, sin esas líneas, había escrito el
+// código correcto. El prompt dice QUÉ entregar; nunca habla del prompt.
+test('el prompt no discute el prompt', () => {
+  const p = promptDeSistema({ id: 'x', spec: 'y', allowedFiles: ['src/suma.js'] })
+  for (const meta of [/no lo copies/i, /molde/i, /este ejemplo/i, /tal cual, cambiando/i]) {
+    assert.ok(!meta.test(p), `el prompt tiene una meta-instrucción: ${meta}`)
+  }
 })
 
 console.log('\nworker: parseo de bloques')

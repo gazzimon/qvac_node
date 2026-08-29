@@ -102,6 +102,18 @@ export function parsearBloques(texto) {
 // Por eso el ejemplo es la funcion identidad: tiene estructura completa
 // (export, funcion, parametro, return) para servir de molde, y no resuelve
 // ninguna tarea plausible. Si el modelo lo copia, se VE que lo copio.
+//
+//   4. NADA DE META-INSTRUCCIONES. Una version agrego dos lineas explicando el
+//      molde -- "NO lo copies" y "copia la primera linea tal cual" -- que ademas
+//      se contradicen leidas juntas. qwen4b, que con el prompt sin esas lineas
+//      habia devuelto codigo correcto, devolvio galimatias: castellano roto con
+//      caracteres chinos incrustados, HABLANDO de alguien que no puede seguir
+//      instrucciones. Se enredo en el meta y se puso a conversar sobre el.
+//
+//      La regla que queda: el prompt describe QUE entregar, nunca discute el
+//      prompt mismo. Si el ejemplo puede confundirse con la respuesta, se
+//      arregla cambiando el ejemplo -- no agregando una linea que pida no
+//      copiarlo.
 export function promptDeSistema(ticket) {
   const [primero] = ticket.allowedFiles
   const lista = ticket.allowedFiles.map((f) => '- ' + f).join('\n')
@@ -109,7 +121,7 @@ export function promptDeSistema(ticket) {
   return [
     'Sos un constructor de código. Completá la tarea que te da el usuario.',
     '',
-    'Formato de respuesta — la forma, no el contenido:',
+    'Formato de respuesta — así se ve una respuesta correcta:',
     '',
     '```file path=' + primero,
     'export function nombreDeLaFuncion (x) {',
@@ -117,14 +129,10 @@ export function promptDeSistema(ticket) {
     '}',
     '```',
     '',
-    'Ese código es solo un molde del formato. NO lo copies: escribí el que',
-    'resuelve la tarea del usuario.',
-    '',
     'Tenés que devolver exactamente estos archivos, con estas rutas:',
     lista,
     '',
     'Reglas:',
-    '- Copiá la primera línea del molde tal cual, cambiando solo lo que sigue.',
     '- Usá esas rutas tal cual. Cualquier otra ruta se rechaza y se pierde el trabajo.',
     '- Cada bloque es el archivo ENTERO, no un diff ni un fragmento.',
     '- Nada de prosa fuera de los bloques.',
