@@ -997,491 +997,491 @@ cp .env.example .env</pre>
     {
       id: 'T12',
       fase: 'Phase 5',
-      titulo: 'La credencial es obligatoria, y revocar revoca',
-      why: 'La promesa es que no hay puerta trasera: hasta el panel del navegador pide su key y la manda como cualquier cliente. La única ruta sin gate es el bootstrap.',
-      pre: 'T03 corriendo. Key de T06 a mano.',
+      titulo: 'The credential is mandatory, and revoking really revokes',
+      why: 'The promise is that there is no backdoor: even the browser panel requests its key and sends it like any other client. The only route without a gate is the bootstrap.',
+      pre: 'T03 running. T06 key on hand.',
       cmds: [
-        { os: 'Máquina A · sin credencial (todas tienen que dar 401)', code: 'foreach ($r in "/v1/chat/completions","/v1/routing-log","/v1/upstream","/v1/budget","/v1/quota","/v1/wallet","/v1/audit","/v1/keys") {\n  $c = curl.exe -s -o NUL -w "%{http_code}" "http://localhost:8787$r"\n  "$r -> $c"\n}\ncurl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8787/v1/keys/panel   # esta es la excepcion: 200' },
-        { os: 'Máquina A · emitir, usar y revocar', code: 'curl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d "{\\"label\\":\\"bot telegram\\"}" http://localhost:8787/v1/keys\n# usar la key nueva contra /v1/chat/completions -> 200\n# revocarla por id y repetir el mismo request -> 401\ncurl.exe -s -X DELETE -H "Authorization: Bearer $k" http://localhost:8787/v1/keys/<id>' }
+        { os: 'Machine A · no credential (all of them have to return 401)', code: 'foreach ($r in "/v1/chat/completions","/v1/routing-log","/v1/upstream","/v1/budget","/v1/quota","/v1/wallet","/v1/audit","/v1/keys") {\n  $c = curl.exe -s -o NUL -w "%{http_code}" "http://localhost:8787$r"\n  "$r -> $c"\n}\ncurl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8787/v1/keys/panel   # esta es la excepcion: 200' },
+        { os: 'Machine A · issue, use, and revoke', code: 'curl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d "{\\"label\\":\\"bot telegram\\"}" http://localhost:8787/v1/keys\n# usar la key nueva contra /v1/chat/completions -> 200\n# revocarla por id y repetir el mismo request -> 401\ncurl.exe -s -X DELETE -H "Authorization: Bearer $k" http://localhost:8787/v1/keys/<id>' }
       ],
       esperado: [
-        'Las ocho rutas de la lista devuelven 401 sin Authorization.',
-        '/v1/keys/panel devuelve 200 sin credencial — es la única, y es el arranque del panel.',
-        'Una key revocada deja de servir en el acto; las demás siguen andando.',
-        'Reiniciar el nodo NO revoca las keys: persisten en <storage>/apikeys.json (eso cambió, y el ledger depende de eso).'
+        'The eight routes in the list return 401 with no Authorization.',
+        '/v1/keys/panel returns 200 with no credential — it\'s the only one, and it\'s the panel\'s bootstrap.',
+        'A revoked key stops working immediately; the others keep working.',
+        'Restarting the node does NOT revoke the keys: they persist in <storage>/apikeys.json (that changed, and the ledger depends on it).'
       ],
-      medir: 'La tabla ruta -> código, pegada entera.',
-      nota: 'Nunca pegar el valor de una key en el reporte. El id y el label alcanzan.'
+      medir: 'The full route -> code table, pasted in.',
+      nota: 'Never paste a key value into the report. The id and the label are enough.'
     },
     {
       id: 'T13',
       fase: 'Phase 5',
-      titulo: 'Sin agente lanzado no se llega a la red, y el pin es pin',
-      why: 'Son dos negativas que tienen que ser explícitas: 503 con motivo cuando el agente está apagado, y 404 cuando la máquina fijada no está. Un reemplazo silencioso sería peor que el error.',
-      pre: 'Arrancar A SIN --swarm (pyrusllm --no-open), o sea con el agente apagado, y sin haber tocado "Launch local agent".',
+      titulo: 'Without a launched agent you can\'t reach the network, and a pin is a pin',
+      why: 'These are two negatives that have to be explicit: 503 with a reason when the agent is off, and 404 when the pinned machine isn\'t there. A silent replacement would be worse than the error.',
+      pre: 'Start A WITHOUT --swarm (pyrusllm --no-open), i.e. with the agent off, and without having clicked "Launch local agent".',
       cmds: [
-        { os: 'Máquina A · agente apagado', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/agent      # offline\n# pedir con un node remoto -> 503 agent_offline\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"node\\":\\"<id de un par>\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions\n# pedir LOCAL -> tiene que andar igual\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId local>\\",\\"local\\":true,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions' },
-        { os: 'Máquina A · lanzar en caliente y fijar un nodo que no existe', code: 'curl.exe -s -X POST -H "Authorization: Bearer $k" http://localhost:8787/v1/agent/launch\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/agent    # launching -> live\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"node\\":\\"nodo-que-no-existe\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions' }
+        { os: 'Machine A · agent off', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/agent      # offline\n# pedir con un node remoto -> 503 agent_offline\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"node\\":\\"<id de un par>\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions\n# pedir LOCAL -> tiene que andar igual\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId local>\\",\\"local\\":true,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions' },
+        { os: 'Machine A · hot-launch and pin a node that doesn\'t exist', code: 'curl.exe -s -X POST -H "Authorization: Bearer $k" http://localhost:8787/v1/agent/launch\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/agent    # launching -> live\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"node\\":\\"nodo-que-no-existe\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions' }
       ],
       esperado: [
-        'Con el agente apagado: /v1/agent dice offline y el selector del chat no ofrece Auto ni nodos remotos.',
-        'Un request cuyo único candidato era un par devuelve 503 con motivo agent_offline.',
-        'El modelo local anda igual — es la única excepción, para que el primer arranque no sea una pared.',
-        'POST /v1/agent/launch une al swarm EN CALIENTE, sin reiniciar el proceso, y /v1/agent pasa a live.',
-        'Con un node inexistente: 404 con el motivo. Nunca otro nodo en su lugar.'
+        'With the agent off: /v1/agent says offline and the chat selector doesn\'t offer Auto or remote nodes.',
+        'A request whose only candidate was a peer returns 503 with reason agent_offline.',
+        'The local model still works — it\'s the only exception, so the first launch isn\'t a wall.',
+        'POST /v1/agent/launch joins the swarm HOT, without restarting the process, and /v1/agent switches to live.',
+        'With a nonexistent node: 404 with the reason. Never another node in its place.'
       ],
-      medir: 'Los códigos HTTP y los cuerpos de error de los tres casos.',
-      nota: 'Si el gateway se levantó sin capacidad de lanzar agente, /v1/agent/launch contesta 503 diciendo que hay que reiniciarlo con serve --swarm. Eso también es correcto: anotar cuál de los dos caminos se probó.'
+      medir: 'The HTTP codes and error bodies for the three cases.',
+      nota: 'If the gateway came up without the ability to launch an agent, /v1/agent/launch answers 503 saying it needs to be restarted with serve --swarm. That\'s also correct: note which of the two paths was tested.'
     },
     {
       id: 'T14',
       fase: 'Phase 5',
-      titulo: 'Soak: diez vueltas seguidas, no la mejor',
-      why: 'Los tres modos de falla que arruinan una demo (proceso que no termina, registry que timeoutea, install que se cuelga en 0 B/s) no se ven en una corrida sola.',
-      pre: 'Repo clonado con npm install (Preparación). Nada más corriendo en 8787.',
+      titulo: 'Soak: ten runs in a row, not just the best one',
+      why: 'The three failure modes that ruin a demo (a process that never finishes, a registry that times out, an install that hangs at 0 B/s) don\'t show up in a single run.',
+      pre: 'Repo cloned with npm install (Preparation). Nothing else running on 8787.',
       cmds: [
-        { os: 'Máquina A · repo', code: 'node scripts/soak.js --runs 10\nnode scripts/soak.js --runs 3 --gpu-layers 0\nnode scripts/soak.js --install --runs 3        # incluye pear install desde el link' }
+        { os: 'Machine A · repo', code: 'node scripts/soak.js --runs 10\nnode scripts/soak.js --runs 3 --gpu-layers 0\nnode scripts/soak.js --install --runs 3        # incluye pear install desde el link' }
       ],
       esperado: [
-        'Las 10 vueltas terminan. Un FAIL es exit code distinto de 0, salida sin respuesta, o un proceso que hubo que matar por timeout.',
-        'Ningún proceso queda vivo al final (verificar con Get-Process / pgrep).',
-        'El reporte de distribución muestra la dispersión, no solo el mejor caso.'
+        'All 10 runs finish. A FAIL is a nonzero exit code, output with no response, or a process that had to be killed on timeout.',
+        'No process is left alive at the end (verify with Get-Process / pgrep).',
+        'The distribution report shows the spread, not just the best case.'
       ],
-      medir: 'Vueltas OK / total, y el peor tiempo de la distribución.',
-      nota: 'El modo --install depende de la red P2P: si baja a 0 B/s, es el fallo ya documentado y hay que anotarlo con la red que se usó (wifi del lugar vs hotspot).'
+      medir: 'OK runs / total, and the worst time in the distribution.',
+      nota: 'The --install mode depends on the P2P network: if it drops to 0 B/s, that\'s the already-documented failure, and it needs to be noted along with which network was used (local wifi vs. hotspot).'
     },
     {
       id: 'T15',
       fase: 'Phase 5',
-      titulo: 'La auditoría dictamina que hubo inferencia real',
-      why: 'Un panel con tokens moviéndose no prueba nada: cualquiera graba una animación. Lo que prueba es un archivo con TTFT, tokens y tok/s atribuidos a una clave pública.',
-      pre: 'Haber corrido T04, T06 y T11 contra este gateway, para que el rastro tenga con qué dictaminar.',
+      titulo: 'The audit rules on whether real inference happened',
+      why: 'A panel with tokens moving proves nothing: anyone can record an animation. What proves it is a file with TTFT, tokens, and tok/s attributed to a public key.',
+      pre: 'Having run T04, T06, and T11 against this gateway, so the trace has something to rule on.',
       cmds: [
-        { os: 'Máquina A · repo', code: 'node scripts/auditoria.js\nnode scripts/auditoria.js --url http://localhost:8787 --limit 1000 --out logs/qa-parte1.jsonl\necho $LASTEXITCODE        # PowerShell   /   echo $?  en bash' },
-        { os: 'Máquina A · el rastro crudo', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/audit | more' }
+        { os: 'Machine A · repo', code: 'node scripts/auditoria.js\nnode scripts/auditoria.js --url http://localhost:8787 --limit 1000 --out logs/qa-parte1.jsonl\necho $LASTEXITCODE        # PowerShell   /   echo $?  en bash' },
+        { os: 'Machine A · the raw trace', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/audit | more' }
       ],
       esperado: [
-        'El script sale con código 0 y dictamina que hubo inferencia real.',
-        'El JSONL guardado tiene requests con destino local o peer, con TTFT, tokens y tok/s.',
-        'Los nodos mock de --demo aparecen aparte y EXCLUIDOS del veredicto.',
-        '/v1/audit trae la clave pública del nodo al lado del rastro — la auditoría puede atribuirlo.',
-        'Correr la auditoría sobre un gateway que solo sirvió mocks tiene que salir con código 1.'
+        'The script exits with code 0 and rules that real inference happened.',
+        'The saved JSONL has requests bound for local or peer, with TTFT, tokens, and tok/s.',
+        'The --demo mock nodes appear separately and are EXCLUDED from the verdict.',
+        '/v1/audit carries the node\'s public key next to the trace — the audit can attribute it.',
+        'Running the audit against a gateway that only served mocks has to exit with code 1.'
       ],
-      medir: 'Exit code, cantidad de requests auditados y el SHA-256 del JSONL generado.',
-      nota: 'El último punto es la prueba de que la auditoría audita: si siempre dice que sí, no está mirando nada.'
+      medir: 'Exit code, number of audited requests, and the SHA-256 of the generated JSONL.',
+      nota: 'The last point is the proof that the audit actually audits: if it always says yes, it isn\'t looking at anything.'
     },
     {
       id: 'T16',
       fase: 'Phase 6',
-      titulo: 'La suite entera en verde, tres corridas seguidas',
-      why: 'Una corrida verde puede ser suerte de timing. Tres seguidas es lo que se entrega. La referencia declarada al cerrar la Fase 8 es 110 tests y 493 asserts.',
-      pre: 'Repo con npm install. Sin gateway propio corriendo: la suite de integración levanta el suyo.',
+      titulo: 'The whole suite green, three runs in a row',
+      why: 'A single green run can be timing luck. Three in a row is what gets shipped. The reference declared when Phase 8 closed is 110 tests and 493 asserts.',
+      pre: 'Repo with npm install. No gateway of your own running: the integration suite starts its own.',
       cmds: [
-        { os: 'Máquina A · repo', code: 'npm test\nnpm test\nnpm test                 # las tres seguidas, sin tocar nada en el medio\nnpm run lint             # prettier --check y lunte' },
-        { os: 'Por separado, si algo falla', code: 'npm run test:unit\nnpm run test:integracion' }
+        { os: 'Machine A · repo', code: 'npm test\nnpm test\nnpm test                 # las tres seguidas, sin tocar nada en el medio\nnpm run lint             # prettier --check y lunte' },
+        { os: 'Separately, if something fails', code: 'npm run test:unit\nnpm run test:integracion' }
       ],
       esperado: [
-        'Las tres corridas terminan en verde, con la misma cantidad de tests y asserts.',
-        'El total es 110 tests / 493 asserts, o más si se agregaron. Menos es un test que dejó de correr.',
-        'La suite de integración cierra el puerto al terminar: los dos últimos tests son justamente eso.',
-        'npm run lint pasa sin diferencias de formato.'
+        'All three runs finish green, with the same number of tests and asserts.',
+        'The total is 110 tests / 493 asserts, or more if some were added. Fewer means a test stopped running.',
+        'The integration suite closes the port when it finishes: the last two tests are exactly that.',
+        'npm run lint passes with no formatting diffs.'
       ],
-      medir: 'tests / asserts / fallas de cada una de las tres corridas.',
-      nota: 'Si una corrida falla y las otras dos pasan, eso es un test inestable y va como FALLA con el nombre del test, no como "pasó igual".'
+      medir: 'tests / asserts / failures for each of the three runs.',
+      nota: 'If one run fails and the other two pass, that\'s a flaky test and it counts as a FAIL with the test\'s name, not as "passed anyway".'
     },
     {
       id: 'T17',
       fase: 'Phase 6',
-      titulo: 'Lo simulado sigue diciendo que es simulado',
-      why: 'Es un compromiso explícito del proyecto: nada de mocks silenciosos. Es fácil que la marca se pierda en un refactor, y ahí es donde deja de ser honesto.',
-      pre: 'Un gateway con serve --demo y otro sin --demo, para comparar.',
+      titulo: 'What\'s simulated still says it\'s simulated',
+      why: 'It\'s an explicit commitment of the project: no silent mocks. It\'s easy for the marking to get lost in a refactor, and that\'s where it stops being honest.',
+      pre: 'One gateway with serve --demo and another without --demo, to compare.',
       cmds: [
-        { os: 'Máquina A · con mocks', code: 'pyrusllm serve --demo --operator "Nodo A"\n# en otra terminal:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes' },
-        { os: 'Máquina A · el manifiesto sin wallet', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/swarm/manifest' }
+        { os: 'Machine A · with mocks', code: 'pyrusllm serve --demo --operator "Nodo A"\n# en otra terminal:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes' },
+        { os: 'Machine A · the manifest without a wallet', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/swarm/manifest' }
       ],
       esperado: [
-        'Con --demo, los tres nodos simulados vienen marcados como simulado y con kind mock; el log del arranque lo avisa.',
-        'Sin --demo, el registro arranca VACÍO: cero nodos, cero mocks.',
-        'En un nodo sin wallet, el bloque economic del manifiesto viene marcado con _mock — y eso hoy significa "no declara dirección de cobro", no "no está implementado".',
-        'El bloque directory NO está marcado como mock: ahí va la clave real del Hyperbee.',
-        '/v1/models no revela quién es el proveedor de cada modelo.'
+        'With --demo, the three simulated nodes come marked as simulated and with kind mock; the startup log announces it.',
+        'Without --demo, the registry starts EMPTY: zero nodes, zero mocks.',
+        'On a node with no wallet, the manifest\'s economic block comes marked with _mock — and today that means "doesn\'t declare a payout address", not "not implemented".',
+        'The directory block is NOT marked as mock: the real Hyperbee key goes there.',
+        '/v1/models doesn\'t reveal who the provider of each model is.'
       ],
-      medir: 'El JSON de /v1/nodes con los campos de marca, y el bloque economic del manifiesto.',
-      nota: 'Contra la suite: "buildManifest rechaza entradas invalidas y marca los mocks" y "/v1/models sigue abierto pero ya no dice quien es el proveedor".'
+      medir: 'The /v1/nodes JSON with the marking fields, and the manifest\'s economic block.',
+      nota: 'Against the suite: "buildManifest rechaza entradas invalidas y marca los mocks" and "/v1/models sigue abierto pero ya no dice quien es el proveedor".'
     },
     {
       id: 'T18',
       fase: 'Phase 6',
-      titulo: 'El README no promete nada que el sistema no haga',
-      why: 'La sección "Qué es simulado" existe para que nadie descubra un límite solo. Si quedó desactualizada después de cerrar una fase, el documento pasa de ser honesto a ser una trampa.',
-      pre: 'README.md a mano y el nodo corriendo, para contrastar cada afirmación.',
+      titulo: 'The README doesn\'t promise anything the system doesn\'t do',
+      why: 'The "What\'s simulated" section exists so nobody discovers a limitation alone. If it went stale after a phase closed, the document goes from honest to a trap.',
+      pre: 'README.md on hand and the node running, to check each claim against reality.',
       cmds: [
-        { os: 'Máquina A · repo', code: 'Select-String -Path README.md -Pattern "simulado|mock|no est(a|á) implementado|todav(i|í)a" | Select-Object -First 30' },
-        { os: 'Los cuatro que hay que verificar uno por uno', code: '# 1. "el precio que rutea es el del ledger, y el string pricing del manifiesto\n#     es decorativo"  -> comparar /v1/nodes (pricing) con el log de ruteo (micros)\n# 2. "la cuota gratuita NO persiste: se repone al reiniciar"  -> T25\n# 3. "las api keys persisten"  -> T12\n# 4. "recibos y liquidacion siguen sin implementar (Fases 9 y 10)"\n#     -> no tiene que haber ninguna ruta que diga haber pagado algo' }
+        { os: 'Machine A · repo', code: 'Select-String -Path README.md -Pattern "simulado|mock|no est(a|á) implementado|todav(i|í)a" | Select-Object -First 30' },
+        { os: 'The four that have to be checked one by one', code: '# 1. "el precio que rutea es el del ledger, y el string pricing del manifiesto\n#     es decorativo"  -> comparar /v1/nodes (pricing) con el log de ruteo (micros)\n# 2. "la cuota gratuita NO persiste: se repone al reiniciar"  -> T25\n# 3. "las api keys persisten"  -> T12\n# 4. "recibos y liquidacion siguen sin implementar (Fases 9 y 10)"\n#     -> no tiene que haber ninguna ruta que diga haber pagado algo' }
       ],
       esperado: [
-        'Cada afirmación de "Qué es simulado" se corresponde con lo que hace el nodo hoy.',
-        'Ninguna línea dice que algo es mock cuando ya está implementado (el caso de economic, que cambió en la Fase 7).',
-        'Ninguna línea dice que algo está implementado cuando no lo está: recibos y liquidación siguen siendo Fases 9 y 10.',
-        'La línea de privacidad sigue acotada: "ninguna corporación centralizada agrega tus datos a escala", NO "nadie más ve tu prompt".'
+        'Every claim in "What\'s simulated" matches what the node actually does today.',
+        'No line says something is mock when it\'s already implemented (the economic case, which changed in Phase 7).',
+        'No line says something is implemented when it isn\'t: receipts and settlement are still Phases 9 and 10.',
+        'The privacy line stays scoped: "ninguna corporación centralizada agrega tus datos a escala", NOT "nadie más ve tu prompt".'
       ],
-      medir: 'Las afirmaciones que no se pudieron verificar, listadas.',
-      nota: 'Este test es lectura contra comportamiento. Si algo no se puede verificar con un comando, se anota como no verificable en vez de darlo por bueno.'
+      medir: 'The claims that couldn\'t be verified, listed out.',
+      nota: 'This test is documentation against behavior. If something can\'t be verified with a command, note it as unverifiable instead of assuming it\'s fine.'
     },
     {
       id: 'T19',
       fase: 'Phase 6',
-      titulo: 'Las cuatro vistas, los redirects y el canal de distribución',
-      why: 'Es lo que ve un jurado o un usuario nuevo. Una página que rompe en consola arruina la demo aunque el backend esté impecable.',
-      pre: 'Gateway corriendo con --swarm y, si se puede, un par visible.',
+      titulo: 'The four views, the redirects, and the distribution channel',
+      why: 'This is what a judge or a new user sees. A page that breaks in the console ruins the demo even if the backend is flawless.',
+      pre: 'Gateway running with --swarm and, if possible, a visible peer.',
       cmds: [
-        { os: 'Máquina A · abrir y mirar la consola del navegador', code: 'http://localhost:8787/            # chat\nhttp://localhost:8787/node        # My Node: keys, cuota, presupuesto, wallet, opt-in\nhttp://localhost:8787/network     # la grilla del marketplace\nhttp://localhost:8787/admin       # log de ruteo y controles de caos\nhttp://localhost:8787/proveedor   # tiene que redirigir a /node\nhttp://localhost:8787/cliente     # tiene que redirigir a /' },
-        { os: 'Máquina A · el canal de distribución', code: 'start landing/index.html            # los links de descarga y sus .sha256\nstart installer/PyrusLLM.bat        # el .bat que instala y abre' }
+        { os: 'Machine A · open and watch the browser console', code: 'http://localhost:8787/            # chat\nhttp://localhost:8787/node        # My Node: keys, cuota, presupuesto, wallet, opt-in\nhttp://localhost:8787/network     # la grilla del marketplace\nhttp://localhost:8787/admin       # log de ruteo y controles de caos\nhttp://localhost:8787/proveedor   # tiene que redirigir a /node\nhttp://localhost:8787/cliente     # tiene que redirigir a /' },
+        { os: 'Machine A · the distribution channel', code: 'start landing/index.html            # los links de descarga y sus .sha256\nstart installer/PyrusLLM.bat        # el .bat que instala y abre' }
       ],
       esperado: [
-        'Las cuatro vistas renderizan sin un solo error en la consola del navegador.',
-        '/proveedor y /cliente redirigen con 302 a /node y / respectivamente.',
-        'Cada respuesta del chat dice qué máquina la produjo, y ahora también cuánto costó (ver T32).',
-        '"Use this node" en una tarjeta de /network abre el chat con esa máquina fijada.',
-        'Los links de descarga del landing apuntan al release y cada uno tiene su .sha256 al lado.'
+        'All four views render with not a single error in the browser console.',
+        '/proveedor and /cliente redirect with 302 to /node and / respectively.',
+        'Every chat response says which machine produced it, and now also how much it cost (see T32).',
+        '"Use this node" on a /network card opens the chat with that machine pinned.',
+        'The landing page\'s download links point to the release and each one has its .sha256 next to it.'
       ],
-      medir: 'Errores de consola por vista (tiene que ser cero) y capturas de las cuatro.',
-      nota: 'Las capturas sirven para la submission: sacarlas con datos reales, no con el modo --demo, o aclarar cuál es cuál.'
+      medir: 'Console errors per view (has to be zero) and screenshots of all four.',
+      nota: 'The screenshots are for the submission: take them with real data, not --demo mode, or clarify which is which.'
     },
     {
       id: 'T20',
       fase: 'Phase 6.5',
-      titulo: 'El ledger trabaja en dos tiempos: reserva y liquidación',
-      why: 'Antes del request no se sabe lo que va a costar. La reserva aparta la cota superior y la escribe a disco ANTES de que el request salga; un tope aplicado al facturar no es un tope, es un descuento.',
-      pre: 'Un upstream con precio configurado y opt-in prendido (ver T33). Sin upstream todo vale cero y este test no mide nada.',
+      titulo: 'The ledger works in two beats: reserve and settle',
+      why: 'Before the request there\'s no way to know what it will cost. The reservation sets aside the upper bound and writes it to disk BEFORE the request goes out; a cap applied at billing time isn\'t a cap, it\'s a discount.',
+      pre: 'An upstream with a configured price and opt-in on (see T33). With no upstream everything is worth zero and this test measures nothing.',
       cmds: [
-        { os: 'Máquina A · mirar el saldo antes, durante y después', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# disparar un request largo al externo y, MIENTRAS corre, en otra terminal:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# y cuando termina:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget' },
-        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "la reserva aparta la cota superior y la liquidacion devuelve el resto"\n#   "dos requests en vuelo no gastan los mismos dolares"\n#   "settle nunca cobra mas de lo reservado"\n#   "costo cero no toca el ledger"' }
+        { os: 'Machine A · watch the balance before, during, and after', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# disparar un request largo al externo y, MIENTRAS corre, en otra terminal:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# y cuando termina:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget' },
+        { os: 'Machine A · against the suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "la reserva aparta la cota superior y la liquidacion devuelve el resto"\n#   "dos requests en vuelo no gastan los mismos dolares"\n#   "settle nunca cobra mas de lo reservado"\n#   "costo cero no toca el ledger"' }
       ],
       esperado: [
-        'Durante el request, reserved_micros es mayor que cero: hay plata apartada.',
-        'Al terminar, reserved_micros vuelve a cero y spent_micros sube con el costo REAL, que es menor o igual a lo reservado.',
-        'La respuesta trae los dos formatos: los micros enteros y el string en USD.',
-        'Un request local (costo cero) no mueve ninguno de los dos números.',
-        'Los cuatro tests nombrados pasan.'
+        'While the request runs, reserved_micros is greater than zero: money is set aside.',
+        'When it finishes, reserved_micros goes back to zero and spent_micros goes up by the REAL cost, which is less than or equal to what was reserved.',
+        'The response carries both formats: the integer micros and the USD string.',
+        'A local request (zero cost) doesn\'t move either number.',
+        'The four named tests pass.'
       ],
-      medir: 'Los tres estados de /v1/budget pegados: antes, durante y después.',
-      nota: 'Si el proceso se corta en el medio, la reserva huérfana se cobra entera al estimado: cobra de más y corta antes, que es el lado correcto para equivocarse.'
+      medir: 'The three states of /v1/budget, pasted in: before, during, and after.',
+      nota: 'If the process gets cut mid-flight, the orphaned reservation is billed in full against the estimate: it overcharges and cuts early, which is the correct side to be wrong on.'
     },
     {
       id: 'T21',
       fase: 'Phase 6.5',
-      titulo: 'El tope corta de verdad, y reiniciar no lo repone',
-      why: 'Es la invariante del ledger: tope de USD 0,10, cien vueltas, y el gasto real nunca lo supera. Y si reiniciar el nodo repusiera el tope, el tope sería una sugerencia.',
-      pre: 'Repo con npm install. El tope no se puede bajar desde afuera: se verifica con la suite, que es donde vive la invariante.',
+      titulo: 'The cap really cuts, and restarting doesn\'t reset it',
+      why: 'This is the ledger\'s invariant: a USD 0.10 cap, a hundred rounds, and the real spend never exceeds it. And if restarting the node reset the cap, the cap would be a suggestion.',
+      pre: 'Repo with npm install. The cap can\'t be lowered from outside: it\'s verified against the suite, which is where the invariant lives.',
       cmds: [
-        { os: 'Máquina A · repo', code: 'npm run test:unit\n# leer estas lineas:\n#   "EL TOPE CORTA: el gasto real nunca supera el declarado"\n#   "agotado el tope, reiniciar el nodo NO lo repone"\n#   "la api key sobrevive al reinicio: sin eso la cuenta del ledger no existe"\n#   "el mes rota: el gasto vuelve a cero, el tope sobrevive, el cerrado queda"' },
-        { os: 'Máquina A · el ledger en disco', code: '# el gasto tiene que estar escrito, no solo en memoria\nGet-ChildItem "<storage>" | Select-Object Name, Length, LastWriteTime\n# reiniciar el nodo y volver a pedir /v1/budget con la MISMA key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget' }
+        { os: 'Machine A · repo', code: 'npm run test:unit\n# leer estas lineas:\n#   "EL TOPE CORTA: el gasto real nunca supera el declarado"\n#   "agotado el tope, reiniciar el nodo NO lo repone"\n#   "la api key sobrevive al reinicio: sin eso la cuenta del ledger no existe"\n#   "el mes rota: el gasto vuelve a cero, el tope sobrevive, el cerrado queda"' },
+        { os: 'Machine A · the ledger on disk', code: '# el gasto tiene que estar escrito, no solo en memoria\nGet-ChildItem "<storage>" | Select-Object Name, Length, LastWriteTime\n# reiniciar el nodo y volver a pedir /v1/budget con la MISMA key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget' }
       ],
       esperado: [
-        'Los cuatro tests nombrados pasan.',
-        'Después de reiniciar el nodo, /v1/budget con la misma key devuelve el mismo spent_micros: el gasto sobrevivió.',
-        'La cuenta a la que se le imputa el gasto es la API key, y la key sobrevive al reinicio.',
-        'El tope por default es USD 20 y aparece como cap_micros = 20000000.'
+        'The four named tests pass.',
+        'After restarting the node, /v1/budget with the same key returns the same spent_micros: the spend survived.',
+        'The account the spend is charged to is the API key, and the key survives the restart.',
+        'The default cap is USD 20 and shows up as cap_micros = 20000000.'
       ],
-      medir: 'spent_micros antes y después del reinicio — tienen que coincidir.',
-      nota: 'Con el gateway sin upstream configurado el gasto siempre es cero, así que este test sin T33 hecho solo verifica la mitad de la suite. Anotarlo.'
+      medir: 'spent_micros before and after the restart — they have to match.',
+      nota: 'With the gateway running without a configured upstream the spend is always zero, so this test without T33 done only verifies half the suite. Note it.'
     },
     {
       id: 'T22',
       fase: 'Phase 6.5',
-      titulo: 'El gasto se imputa a la cuenta, no al nodo',
-      why: 'Tener una key por cliente sirve para poder revocar de a uno; el reparto del mes sirve para saber a quién cobrarle. Si todo el consumo cae en una bolsa común, ninguna de las dos cosas funciona.',
-      pre: 'Dos API keys emitidas con labels distintos (T12) y algo de consumo con cada una.',
+      titulo: 'Spend is charged to the account, not the node',
+      why: 'Having a key per client makes it possible to revoke them one at a time; the monthly split is for knowing who to bill. If all consumption falls into one common pot, neither of those works.',
+      pre: 'Two API keys issued with different labels (T12) and some consumption with each.',
       cmds: [
-        { os: 'Máquina A', code: '# emitir dos keys y consumir con cada una\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $bodyA http://localhost:8787/v1/keys\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $bodyB http://localhost:8787/v1/keys\n# donde:  $bodyA = \'{"label":"cliente uno"}\'   y   $bodyB = \'{"label":"cliente dos"}\'\n\n# despues de consumir con las dos:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget/report\ncurl.exe -s -H "Authorization: Bearer $k" "http://localhost:8787/v1/budget/report?period=2026-08"' }
+        { os: 'Machine A', code: '# emitir dos keys y consumir con cada una\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $bodyA http://localhost:8787/v1/keys\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $bodyB http://localhost:8787/v1/keys\n# donde:  $bodyA = \'{"label":"cliente uno"}\'   y   $bodyB = \'{"label":"cliente dos"}\'\n\n# despues de consumir con las dos:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget/report\ncurl.exe -s -H "Authorization: Bearer $k" "http://localhost:8787/v1/budget/report?period=2026-08"' }
       ],
       esperado: [
-        '/v1/budget consultado con la key A devuelve el saldo de A, no la suma del nodo.',
-        '/v1/budget/report lista una fila por cuenta, con su gasto en micros y en USD.',
-        'La suma de las filas coincide con total_micros.',
-        'El parámetro period devuelve un mes cerrado sin recalcular nada: el reparto se acumula durante el mes.'
+        '/v1/budget queried with key A returns A\'s balance, not the node\'s sum.',
+        '/v1/budget/report lists one row per account, with its spend in micros and in USD.',
+        'The sum of the rows matches total_micros.',
+        'The period parameter returns a closed month with nothing recalculated: the split accumulates during the month.'
       ],
-      medir: 'El reporte completo, con las dos cuentas y el total.',
-      nota: 'Contra la suite: "el reparto acumula durante el mes, no se calcula al cierre".'
+      medir: 'The full report, with both accounts and the total.',
+      nota: 'Against the suite: "el reparto acumula durante el mes, no se calcula al cierre".'
     },
     {
       id: 'T23',
       fase: 'Phase 6.5',
-      titulo: 'Micro-dólares enteros, y el redondeo va hacia arriba',
-      why: 'Un tope acumulado en punto flotante deriva justo en el borde, que es el único lugar donde el número importa. Por eso el ledger cuenta enteros: 1 USD = 1.000.000 de micros.',
-      pre: 'Repo con npm install.',
+      titulo: 'Whole micro-dollars, and rounding goes up',
+      why: 'A cap accumulated in floating point drifts right at the edge, which is the one place the number matters. That\'s why the ledger counts in integers: 1 USD = 1,000,000 micros.',
+      pre: 'Repo with npm install.',
       cmds: [
-        { os: 'Máquina A · repo', code: 'npm run test:unit\n# leer estas lineas:\n#   "estimar acota por arriba y real cobra lo generado"\n#   "los montos son enteros y redondean hacia arriba"\n#   "lo que no esta en la tabla de precios sale cero"' },
-        { os: 'Máquina A · el número por HTTP', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# spent_micros, reserved_micros, cap_micros y remaining_micros tienen que ser\n# ENTEROS. Si aparece un decimal en cualquiera de los cuatro, es FALLA.' }
+        { os: 'Machine A · repo', code: 'npm run test:unit\n# leer estas lineas:\n#   "estimar acota por arriba y real cobra lo generado"\n#   "los montos son enteros y redondean hacia arriba"\n#   "lo que no esta en la tabla de precios sale cero"' },
+        { os: 'Machine A · the number over HTTP', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget\n# spent_micros, reserved_micros, cap_micros y remaining_micros tienen que ser\n# ENTEROS. Si aparece un decimal en cualquiera de los cuatro, es FALLA.' }
       ],
       esperado: [
-        'Los tres tests nombrados pasan.',
-        'Los cuatro campos _micros de /v1/budget son enteros, sin parte decimal.',
-        'Un modelo que no está en la tabla de precios estima cero — y eso es lo que hace que un upstream sin precio se registre offline (T33).',
-        'El redondeo es hacia arriba: nunca se estima de menos.'
+        'The three named tests pass.',
+        'The four _micros fields in /v1/budget are integers, with no decimal part.',
+        'A model not in the price table estimates zero — and that\'s what makes an upstream with no price register offline (T33).',
+        'Rounding goes up: it never underestimates.'
       ],
-      medir: 'Los cuatro campos _micros, pegados tal cual vienen.',
-      nota: 'Redondear hacia arriba es la decisión deliberada: cobra de más y corta antes.'
+      medir: 'The four _micros fields, pasted exactly as they come.',
+      nota: 'Rounding up is the deliberate decision: it overcharges and cuts early.'
     },
     {
       id: 'T24',
       fase: 'Phase 6.6',
-      titulo: 'La cuota gratuita: cuánta GPU regala este nodo y a quién',
-      why: 'Es el contador que mira hacia afuera, y no se mide en dólares sino en tokens de salida. Se chequea ANTES del request y se registra DESPUÉS, con los tokens que se generaron de verdad.',
-      pre: 'Un par consumiendo de este nodo (T05 y T06 con la máquina B pidiéndole a A).',
+      titulo: 'The free quota: how much GPU this node gives away, and to whom',
+      why: 'It\'s the counter that looks outward, and it\'s measured not in dollars but in output tokens. It\'s checked BEFORE the request and recorded AFTER, with the tokens actually generated.',
+      pre: 'A peer consuming from this node (T05 and T06 with machine B asking A).',
       cmds: [
-        { os: 'Máquina A · el estado de la cuota', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota' },
-        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "la cuota corta al agotarse y dice cuando se repone"\n#   "la cuota se descuenta con los tokens servidos de verdad"\n#   "agotada la cuota se rechaza ANTES de gastar la GPU"\n#   "la cuota es por par: agotar la de uno no toca la del otro"\n#   "un request que falla cargando el modelo no gasta cuota"' }
+        { os: 'Machine A · the quota\'s state', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota' },
+        { os: 'Machine A · against the suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "la cuota corta al agotarse y dice cuando se repone"\n#   "la cuota se descuenta con los tokens servidos de verdad"\n#   "agotada la cuota se rechaza ANTES de gastar la GPU"\n#   "la cuota es por par: agotar la de uno no toca la del otro"\n#   "un request que falla cargando el modelo no gasta cuota"' }
       ],
       esperado: [
-        '/v1/quota devuelve quota_tokens (100000 por default), window_hours (24) y lo regalado en la ventana.',
-        'La clave de cada par se muestra RECORTADA: es el identificador de red de otra persona.',
-        'El consumo del par B aparece en la fila de B y sube con los tokens que realmente se generaron.',
-        'Agotada la cuota, el rechazo dice cuándo se repone — no solo que no.',
-        'El chequeo de cuota va ANTES del de capacidad: "te quedaste sin cuota" es distinto de "estoy lleno".',
-        'Un request cancelado a los tres tokens gasta tres; uno que falló cargando el modelo no gasta nada.'
+        '/v1/quota returns quota_tokens (100000 by default), window_hours (24), and what was given away in the window.',
+        'Each peer\'s key is shown TRUNCATED: it\'s someone else\'s network identifier.',
+        'Peer B\'s consumption shows up in B\'s row and goes up by the tokens that were actually generated.',
+        'Once the quota is exhausted, the rejection says when it resets — not just that it\'s out.',
+        'The quota check happens BEFORE the capacity check: "you\'re out of quota" is different from "I\'m full".',
+        'A request cancelled at three tokens spends three; one that failed loading the model spends nothing.'
       ],
-      medir: 'El JSON de /v1/quota antes y después de que B consuma, y los tokens contados.',
-      nota: 'El request que cruza el límite se sirve ENTERO: cortar una generación por la mitad se ve como un bug y regala igual la GPU ya gastada. El que no entra es el siguiente.'
+      medir: 'The /v1/quota JSON before and after B consumes, and the tokens counted.',
+      nota: 'A request that crosses the limit is served IN FULL: cutting a generation in half looks like a bug and still gives away the GPU already spent. The one that doesn\'t fit is the next one.'
     },
     {
       id: 'T25',
       fase: 'Phase 6.6',
-      titulo: 'La ventana es deslizante, y la cuota no persiste',
-      why: 'Un corte a medianoche hace un pico a las 00:01 y castiga al que empezó 23:50, por eso son baldes por hora. Y que reiniciar reponga la cuota está declarado: si se descubre en producción, es una sorpresa.',
-      pre: 'T24 con consumo registrado de al menos un par.',
+      titulo: 'The window is sliding, and the quota doesn\'t persist',
+      why: 'A cutoff at midnight spikes at 00:01 and punishes whoever started at 23:50, which is why it\'s hourly buckets. And restarting resetting the quota is a declared behavior: if it\'s discovered in production, that\'s a surprise.',
+      pre: 'T24 with recorded consumption from at least one peer.',
       cmds: [
-        { os: 'Máquina A', code: '# anotar given_tokens\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota\n# reiniciar el nodo y volver a preguntar\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota' },
-        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer: "la ventana es deslizante: se repone sola con las horas"\n#       "la cuota es configurable y el registro ignora basura"' }
+        { os: 'Machine A', code: '# anotar given_tokens\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota\n# reiniciar el nodo y volver a preguntar\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/quota' },
+        { os: 'Machine A · against the suite', code: 'npm run test:unit\n# leer: "la ventana es deslizante: se repone sola con las horas"\n#       "la cuota es configurable y el registro ignora basura"' }
       ],
       esperado: [
-        'Después de reiniciar, la cuota vuelve a cero: NO persiste, y eso es lo declarado en el README.',
-        'El ledger, en cambio, SÍ sobrevive al reinicio (T21). Los dos contadores se comportan distinto a propósito.',
-        'Los dos tests nombrados pasan.',
-        'No hay registro compartido entre nodos: la cuota de A no la conoce B.'
+        'After restarting, the quota goes back to zero: it does NOT persist, and that\'s what the README declares.',
+        'The ledger, on the other hand, DOES survive the restart (T21). The two counters behave differently on purpose.',
+        'The two named tests pass.',
+        'There\'s no shared registry between nodes: A\'s quota is unknown to B.'
       ],
-      medir: 'given_tokens antes y después del reinicio.',
-      nota: 'Si en algún momento esto empieza a persistir, el README miente al revés. Vale como FALLA igual.'
+      medir: 'given_tokens before and after the restart.',
+      nota: 'If this ever starts persisting, the README is lying the other way. Still counts as a FAIL.'
     },
     {
       id: 'T26',
       fase: 'Phase 7',
-      titulo: 'Crear la wallet de cobro y ver la dirección',
-      why: 'La Fase 7 hace que el manifiesto diga la verdad sobre a quién pagarle. WDK no acepta la seed de red que el nodo ya tenía: exige mnemonic BIP-39, y no trae dónde guardarlo.',
-      pre: 'PYRUS_WALLET_PASSPHRASE en el .env, larga y única. Máquina sin wallet previa.',
+      titulo: 'Create the payout wallet and see the address',
+      why: 'Phase 7 makes the manifest tell the truth about who to pay. WDK doesn\'t accept the network seed the node already had: it requires a BIP-39 mnemonic, and provides nowhere to store it.',
+      pre: 'PYRUS_WALLET_PASSPHRASE in .env, long and unique. Machine with no prior wallet.',
       cmds: [
-        { os: 'Máquina A', code: 'pyrusllm wallet                 # todavia no hay: tiene que decirlo y explicar como crearla\npyrusllm wallet --crear         # muestra las 24 palabras UNA sola vez\npyrusllm wallet                 # ahora muestra la direccion de cobro' },
-        { os: 'Máquina A · sin la passphrase', code: '# sacar PYRUS_WALLET_PASSPHRASE del entorno y del .env, y arrancar el nodo\npyrusllm serve --swarm --operator "Nodo A"\n# el arranque tiene que avisar fuerte, no fallar en silencio' }
+        { os: 'Machine A', code: 'pyrusllm wallet                 # todavia no hay: tiene que decirlo y explicar como crearla\npyrusllm wallet --crear         # muestra las 24 palabras UNA sola vez\npyrusllm wallet                 # ahora muestra la direccion de cobro' },
+        { os: 'Machine A · without the passphrase', code: '# sacar PYRUS_WALLET_PASSPHRASE del entorno y del .env, y arrancar el nodo\npyrusllm serve --swarm --operator "Nodo A"\n# el arranque tiene que avisar fuerte, no fallar en silencio' }
       ],
       esperado: [
-        'Sin wallet, el comando lo dice claro y explica cómo crear una — no es un error.',
-        'wallet --crear sin PYRUS_WALLET_PASSPHRASE se niega y dice que es con eso que se cifra la seed.',
-        'Las 24 palabras se muestran UNA vez, con el aviso de que sin ellas y sin el keystore la wallet se pierde.',
-        'pyrusllm wallet muestra la dirección, las redes (plasma, stable) y el modo de liquidación (batch-receipts).',
-        'Con wallet pero SIN passphrase, el nodo arranca igual y avisa que se anuncia SIN dirección de cobro: el economic vuelve al mock marcado.'
+        'With no wallet, the command says so clearly and explains how to create one — it\'s not an error.',
+        'wallet --crear with no PYRUS_WALLET_PASSPHRASE refuses and says that\'s what the seed gets encrypted with.',
+        'The 24 words are shown ONCE, with a warning that without them and without the keystore the wallet is lost.',
+        'pyrusllm wallet shows the address, the chains (plasma, stable), and the settlement mode (batch-receipts).',
+        'With a wallet but WITHOUT a passphrase, the node still starts and warns that it\'s announcing WITHOUT a payout address: the economic block goes back to the marked mock.'
       ],
-      medir: 'La dirección de cobro (esa sí se puede pegar: viaja en el manifiesto público). Las 24 palabras, NUNCA.',
-      nota: 'Límite honesto declarado: si el .env vive al lado del keystore, el cifrado protege de un backup, de un repo y de un pear stage — no de alguien que ya tiene acceso a esa máquina.'
+      medir: 'The payout address (that one can be pasted: it travels in the public manifest). The 24 words, NEVER.',
+      nota: 'Declared honest limit: if .env lives next to the keystore, the encryption protects against a backup, a repo, and a pear stage — not against someone who already has access to that machine.'
     },
     {
       id: 'T27',
       fase: 'Phase 7',
-      titulo: 'D13 — la seed no está en claro en ningún lado',
-      why: 'Es la mitad de D13 que sí existía: WDK exporta errores e interfaces, no custodia. El cifrado es Argon2id más secretbox de sodium, y lo que hay que probar es que no quedó nada legible.',
-      pre: 'T26 hecho: wallet creada y las 24 palabras anotadas en papel.',
+      titulo: 'D13 — the seed isn\'t in the clear anywhere',
+      why: 'This is the half of D13 that already existed: WDK exports errors and interfaces, not custody. The encryption is Argon2id plus sodium\'s secretbox, and what has to be proven is that nothing readable was left behind.',
+      pre: 'T26 done: wallet created and the 24 words written down on paper.',
       cmds: [
-        { os: 'Máquina A · buscar la frase adentro del keystore', code: '# palabra por palabra: si CUALQUIERA aparece, es FALLA\nforeach ($p in "palabra1","palabra2","palabra3") {\n  $hit = Select-String -Path "<storage>\\wallet.json" -Pattern $p -SimpleMatch -Quiet\n  "$p -> $(if ($hit) { \'APARECE (FALLA)\' } else { \'no aparece\' })"\n}\n# la direccion tampoco tiene que estar guardada en el keystore\nSelect-String -Path "<storage>\\wallet.json" -Pattern "0x" -SimpleMatch -Quiet' },
-        { os: 'Máquina A · passphrase equivocada', code: '$env:PYRUS_WALLET_PASSPHRASE = "una que no es"\npyrusllm wallet          # NO tiene que abrir\nnpm run test:unit        # leer: "la seed de la wallet no queda en claro, y la passphrase equivocada no abre"' }
+        { os: 'Machine A · search for the phrase inside the keystore', code: '# palabra por palabra: si CUALQUIERA aparece, es FALLA\nforeach ($p in "palabra1","palabra2","palabra3") {\n  $hit = Select-String -Path "<storage>\\wallet.json" -Pattern $p -SimpleMatch -Quiet\n  "$p -> $(if ($hit) { \'APARECE (FALLA)\' } else { \'no aparece\' })"\n}\n# la direccion tampoco tiene que estar guardada en el keystore\nSelect-String -Path "<storage>\\wallet.json" -Pattern "0x" -SimpleMatch -Quiet' },
+        { os: 'Machine A · wrong passphrase', code: '$env:PYRUS_WALLET_PASSPHRASE = "una que no es"\npyrusllm wallet          # NO tiene que abrir\nnpm run test:unit        # leer: "la seed de la wallet no queda en claro, y la passphrase equivocada no abre"' }
       ],
       esperado: [
-        'Ninguna de las 24 palabras aparece dentro de wallet.json.',
-        'La dirección tampoco está guardada en el keystore: se deriva al abrirlo.',
-        'Con la passphrase equivocada, la wallet no abre y el error lo dice sin filtrar nada.',
-        'El keystore tiene permisos de solo-dueño.',
-        'El test unitario nombrado pasa.'
+        'None of the 24 words appear inside wallet.json.',
+        'The address isn\'t stored in the keystore either: it\'s derived when it\'s opened.',
+        'With the wrong passphrase, the wallet doesn\'t open and the error says so without leaking anything.',
+        'The keystore has owner-only permissions.',
+        'The named unit test passes.'
       ],
-      medir: 'Solo el resultado de cada búsqueda (aparece / no aparece). Nunca el contenido del archivo.',
-      nota: 'Este es el test donde más importa la regla 7 del prompt: no pegar la frase ni el archivo en el reporte.'
+      medir: 'Only the result of each search (appears / doesn\'t appear). Never the file\'s content.',
+      nota: 'This is the test where prompt rule 7 matters most: don\'t paste the phrase or the file into the report.'
     },
     {
       id: 'T28',
       fase: 'Phase 7',
-      titulo: 'El manifiesto firmado lleva la dirección, y la firma la ata',
-      why: 'La propiedad que importa no es que la dirección viaje: es que no se pueda reenviar el manifiesto de otro con la wallet propia adentro. Cambiarle la wallet a un manifiesto firmado tiene que invalidarlo.',
-      pre: 'T26 en las dos máquinas, cada una con SU propia wallet. Las dos con --swarm.',
+      titulo: 'The signed manifest carries the address, and the signature ties it down',
+      why: 'The property that matters isn\'t that the address travels: it\'s that someone else\'s manifest can\'t be re-sent with your own wallet inside it. Changing the wallet on a signed manifest has to invalidate it.',
+      pre: 'T26 on both machines, each with ITS OWN wallet. Both with --swarm.',
       cmds: [
-        { os: 'Máquina A', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/wallet\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/swarm/manifest\n# comparar: la direccion de /v1/wallet tiene que ser la del bloque economic' },
-        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "dos nodos con wallet anuncian direcciones distintas, y la firma las ata"\n#   "un manifiesto manipulado no verifica"\n#   "un economic invalido no se firma: firmarlo es mandar a pagar a cualquier lado"\n#   "el economic con wallet valida contra el schema congelado, sin tocarlo"' }
+        { os: 'Machine A', code: 'curl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/wallet\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/swarm/manifest\n# comparar: la direccion de /v1/wallet tiene que ser la del bloque economic' },
+        { os: 'Machine A · against the suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "dos nodos con wallet anuncian direcciones distintas, y la firma las ata"\n#   "un manifiesto manipulado no verifica"\n#   "un economic invalido no se firma: firmarlo es mandar a pagar a cualquier lado"\n#   "el economic con wallet valida contra el schema congelado, sin tocarlo"' }
       ],
       esperado: [
-        '/v1/wallet dice configurada: true, con dirección, chains y settlement.',
-        'El bloque economic del manifiesto trae esa misma dirección y YA NO tiene la marca _mock.',
-        'La máquina B anuncia una dirección DISTINTA — cada nodo cobra a la suya.',
-        'El manifiesto valida contra manifest-v0.json sin haber tocado el schema, y eso ahora lo comprueba un test (B19).',
-        'Los cuatro tests nombrados pasan.'
+        '/v1/wallet says configurada: true, with address, chains, and settlement.',
+        'The manifest\'s economic block carries that same address and NO LONGER has the _mock mark.',
+        'Machine B announces a DIFFERENT address — each node charges to its own.',
+        'The manifest validates against manifest-v0.json without the schema having been touched, and a test now checks that (B19).',
+        'The four named tests pass.'
       ],
-      medir: 'Las dos direcciones (A y B) y el bloque economic completo de una de las dos.',
-      nota: 'Esta fase NO cobra nada. El manifiesto dice a quién pagarle; pagarle es la Fase 9, con los recibos y la liquidación todavía sin implementar.'
+      medir: 'The two addresses (A and B) and the full economic block from one of the two.',
+      nota: 'This phase charges nothing. The manifest says who to pay; paying is Phase 9, with receipts and settlement still unimplemented.'
     },
     {
       id: 'T29',
       fase: 'Phase 7',
-      titulo: 'Las 24 palabras restauran la misma dirección en otra máquina',
-      why: 'Un respaldo que no restaura no es un respaldo. Y es la única salida si se pierde el keystore, porque no hay custodia de terceros en el medio.',
-      pre: 'T26 hecho en A, con las 24 palabras anotadas. Una máquina (o un storage) SIN wallet donde restaurar.',
+      titulo: 'The 24 words restore the same address on another machine',
+      why: 'A backup that doesn\'t restore isn\'t a backup. And it\'s the only way out if the keystore is lost, because there\'s no third-party custody in the middle.',
+      pre: 'T26 done on A, with the 24 words written down. A machine (or a storage dir) with NO wallet to restore into.',
       cmds: [
-        { os: 'Máquina B (o un storage limpio)', code: '# con PYRUS_WALLET_PASSPHRASE definida (puede ser otra distinta a la de A)\npyrusllm wallet --restaurar "palabra1 palabra2 ... palabra24"\npyrusllm wallet          # tiene que dar la MISMA direccion que A' },
-        { os: 'Máquina B · contra la suite', code: 'npm run test:unit\n# leer: "la frase de respaldo restaura la misma direccion en otra maquina"' }
+        { os: 'Machine B (or a clean storage dir)', code: '# con PYRUS_WALLET_PASSPHRASE definida (puede ser otra distinta a la de A)\npyrusllm wallet --restaurar "palabra1 palabra2 ... palabra24"\npyrusllm wallet          # tiene que dar la MISMA direccion que A' },
+        { os: 'Machine B · against the suite', code: 'npm run test:unit\n# leer: "la frase de respaldo restaura la misma direccion en otra maquina"' }
       ],
       esperado: [
-        'La dirección restaurada es idéntica, carácter por carácter, a la de la máquina original.',
-        'La passphrase de cifrado puede ser distinta: cifra el keystore local, no deriva la wallet.',
-        'Una frase inválida (23 palabras, una mal escrita) se rechaza con un motivo, no genera una wallet distinta en silencio.',
-        'El test unitario nombrado pasa.'
+        'The restored address is identical, character for character, to the original machine\'s.',
+        'The encryption passphrase can be different: it encrypts the local keystore, it doesn\'t derive the wallet.',
+        'An invalid phrase (23 words, one misspelled) is rejected with a reason, not silently generating a different wallet.',
+        'The named unit test passes.'
       ],
-      medir: 'Las dos direcciones, la original y la restaurada, una al lado de la otra.',
-      nota: 'Después de este test, borrar la wallet restaurada si esa máquina no la va a usar: dos nodos anunciando la misma dirección de cobro es un escenario que no se quiere en la red.'
+      medir: 'The two addresses, the original and the restored one, side by side.',
+      nota: 'After this test, delete the restored wallet if that machine isn\'t going to use it: two nodes announcing the same payout address is a scenario nobody wants on the network.'
     },
     {
       id: 'T30',
       fase: 'Phase 8',
-      titulo: 'Con carga pareja gana el más barato, y el log dice los dos precios',
-      why: 'Es el punto central del DoD de la Fase 8. Y el motivo tiene que afirmar un hecho, no repetir lo que el sort debería haber hecho: hubo un bug donde el log decía "más barato" y nombraba al más caro.',
-      pre: 'Dos upstreams configurados con precios DISTINTOS para el mismo modelo (campo as), opt-in prendido, y presupuesto disponible.',
+      titulo: 'With load even, the cheapest one wins, and the log states both prices',
+      why: 'This is the central point of Phase 8\'s DoD. And the reason has to state a fact, not repeat what the sort should have done: there was a bug where the log said "cheaper" and named the more expensive one.',
+      pre: 'Two upstreams configured with DIFFERENT prices for the same model (the as field), opt-in on, and budget available.',
       cmds: [
-        { os: 'Máquina A · dos proveedores para el mismo modelo', code: '# en <storage>/upstreams.json, dos filas con el MISMO "as" y precios distintos.\n# Ej: NVIDIA y OpenRouter, los dos con "as": "nemotron-3.5-lightning".\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\n# tienen que aparecer como UNA sola fila del catalogo' },
-        { os: 'Máquina A · pedir y leer el motivo', code: 'curl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' }
+        { os: 'Machine A · two providers for the same model', code: '# en <storage>/upstreams.json, dos filas con el MISMO "as" y precios distintos.\n# Ej: NVIDIA y OpenRouter, los dos con "as": "nemotron-3.5-lightning".\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\n# tienen que aparecer como UNA sola fila del catalogo' },
+        { os: 'Machine A · request and read the reason', code: 'curl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' }
       ],
       esperado: [
-        'Contesta el proveedor más barato de los dos.',
-        'La entrada del routing-log dice "carga pareja (N%), mas barato:" y muestra LOS DOS precios estimados.',
-        'El precio que se compara es el del ledger en micro-dólares, el mismo con el que se abre la reserva — no el string pricing del manifiesto.',
-        'Tres puertas al mismo modelo entran como UNA sola fila del catálogo, gracias al campo as.'
+        'The cheaper of the two providers answers.',
+        'The routing-log entry says "carga pareja (N%), mas barato:" and shows BOTH estimated prices.',
+        'The price being compared is the ledger\'s, in micro-dollars, the same one the reservation is opened with — not the manifest\'s decorative pricing string.',
+        'Three doors to the same model come in as ONE catalog row, thanks to the as field.'
       ],
-      medir: 'La entrada del routing-log entera, con los dos números, y qué proveedor contestó.',
-      nota: 'Contra la suite: "FASE 8: con carga pareja gana el mas barato, y el log dice los dos precios" y el de integración "entre dos proveedores que cobran, rutea al mas barato y lo dice".'
+      medir: 'The full routing-log entry, with both numbers, and which provider answered.',
+      nota: 'Against the suite: "FASE 8: con carga pareja gana el mas barato, y el log dice los dos precios" and the integration one "entre dos proveedores que cobran, rutea al mas barato y lo dice".'
     },
     {
       id: 'T31',
       fase: 'Phase 8',
-      titulo: 'El precio nunca le gana a "puede atender ahora"',
-      why: 'Es dónde entra el precio, que era lo único discutible: paso 4, después de la carga y antes del histórico. La opción barata que está llena no es barata, y una respuesta que no llega no es más económica: es ninguna.',
-      pre: 'T30 armado. Hace falta poder saturar al candidato barato — con /admin, o con dos requests concurrentes contra un nodo de capacidad 1.',
+      titulo: 'Price never beats "can serve it right now"',
+      why: 'This is where price comes in, which was the only debatable part: step 4, after load and before history. The cheap option that\'s full isn\'t cheap, and a response that never arrives isn\'t more economical: it\'s none at all.',
+      pre: 'T30 set up. Needs the ability to saturate the cheap candidate — via /admin, or with two concurrent requests against a capacity-1 node.',
       cmds: [
-        { os: 'Máquina A · saturar al barato y pedir', code: '# ocupar al barato (dos requests largos en paralelo contra un nodo de capacidad 1)\n# y mientras tanto, pedir de nuevo:\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' },
-        { os: 'Máquina A · contra la suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "FASE 8: el precio NO le gana a puede atender ahora"\n#   "FASE 8: gratis le gana a pago por PRECIO, no por el tipo de nodo"\n#   "FASE 8: el precio se compara ANTES que la latencia y los errores"\n#   "FASE 8: sin precioDe el ruteo se comporta igual que antes"' }
+        { os: 'Machine A · saturate the cheap one and request', code: '# ocupar al barato (dos requests largos en paralelo contra un nodo de capacidad 1)\n# y mientras tanto, pedir de nuevo:\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' },
+        { os: 'Machine A · against the suite', code: 'npm run test:unit\n# leer estas lineas:\n#   "FASE 8: el precio NO le gana a puede atender ahora"\n#   "FASE 8: gratis le gana a pago por PRECIO, no por el tipo de nodo"\n#   "FASE 8: el precio se compara ANTES que la latencia y los errores"\n#   "FASE 8: sin precioDe el ruteo se comporta igual que antes"' }
       ],
       esperado: [
-        'Con el barato saturado, contesta el caro que tiene lugar — y el log dice que fue por carga, no por precio.',
-        'Un candidato local o un par (que valen cero) le gana a un upstream que cobra POR PRECIO, no por su tipo de nodo.',
-        'Con precio pareja, deciden el histórico y la latencia como antes.',
-        'Los cuatro tests nombrados pasan.'
+        'With the cheap one saturated, the expensive one that has room answers — and the log says it was due to load, not price.',
+        'A local candidate or a peer (worth zero) beats an upstream that charges, BY PRICE, not by its node type.',
+        'With price tied, history and latency decide as before.',
+        'The four named tests pass.'
       ],
-      medir: 'El motivo de ruteo de cada caso: saturado, precio, histórico.',
-      nota: 'Esto reemplazó un accidente por un criterio: que "la de casa le gane a la que cobra" ya pasaba, pero lo producía el desempate por tipo de nodo, que el propio archivo declara que ya no es criterio.'
+      medir: 'The routing reason for each case: saturated, price, history.',
+      nota: 'This replaced an accident with a criterion: "the in-house one beating the one that charges" already happened, but it was produced by the node-type tiebreaker, which the file itself now declares is no longer a criterion.'
     },
     {
       id: 'T32',
       fase: 'Phase 8',
-      titulo: 'El chat dice cuánto cuesta cada respuesta',
-      why: 'Es el segundo punto del DoD. Y dice el TECHO, no lo que salió: en streaming los headers viajan antes del primer token, así que el costo real todavía no existe cuando hay que declararlo.',
-      pre: 'T30 armado, para que haya un camino que cueste dinero de verdad.',
+      titulo: 'The chat says how much each response costs',
+      why: 'This is the DoD\'s second point. And it states the CEILING, not what actually came out: in streaming, the headers travel before the first token, so the real cost doesn\'t exist yet when it has to be declared.',
+      pre: 'T30 set up, so there\'s a path that genuinely costs money.',
       cmds: [
-        { os: 'Máquina A · el header', code: 'curl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions | Select-String "X-Pyrus"' },
-        { os: 'Máquina A · el chat en el navegador', code: '# http://localhost:8787/  -> mandar dos prompts:\n#   1. uno LOCAL (this machine only)     -> tiene que decir "no charge"\n#   2. uno al externo (con opt-in)       -> tiene que decir "up to USD 0.000xxx"\n# y uno CORTO al externo, de pocos tokens, para el caso de abajo' }
+        { os: 'Machine A · the header', code: 'curl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $body http://localhost:8787/v1/chat/completions | Select-String "X-Pyrus"' },
+        { os: 'Machine A · the chat in the browser', code: '# http://localhost:8787/  -> mandar dos prompts:\n#   1. uno LOCAL (this machine only)     -> tiene que decir "no charge"\n#   2. uno al externo (con opt-in)       -> tiene que decir "up to USD 0.000xxx"\n# y uno CORTO al externo, de pocos tokens, para el caso de abajo' }
       ],
       esperado: [
-        'La respuesta trae X-Pyrus-Cost-Estimate-Micros con un entero.',
-        'El chat muestra "up to USD …" cuando cuesta y "no charge" cuando no — dos textos distintos a propósito.',
-        'Un turno chico, de menos de 50 micros, NO se muestra como USD 0.0000: esa era la distinción que la línea existe para hacer, y se rompía con cuatro decimales.',
-        'El número del chat coincide con el header, y con el costMicros que queda en el rastro de ruteo.',
-        'Lo local dice "no charge", no "USD 0.0000".'
+        'The response carries X-Pyrus-Cost-Estimate-Micros with an integer.',
+        'The chat shows "up to USD …" when it costs something and "no charge" when it doesn\'t — two different texts on purpose.',
+        'A small turn, under 50 micros, does NOT show as USD 0.0000: that was the distinction the line exists to make, and it broke with four decimals.',
+        'The chat\'s number matches the header, and the costMicros left in the routing trace.',
+        'A local one says "no charge", not "USD 0.0000".'
       ],
-      medir: 'El header y el texto del chat, para un turno caro y uno de pocos micros.',
-      nota: 'Lo que sigue siendo decorativo es el string pricing del manifiesto ("0.002 QVAC / 1K tok"): no participa de ninguna decisión, y eso está escrito en el README.'
+      medir: 'The header and the chat text, for an expensive turn and one worth just a few micros.',
+      nota: 'What\'s still decorative is the manifest\'s pricing string ("0.002 QVAC / 1K tok"): it doesn\'t take part in any decision, and that\'s written in the README.'
     },
     {
       id: 'T33',
       fase: 'Phase 8.5',
-      titulo: 'El asistente externo entra como una fila más del registro',
-      why: 'La tesis de la fase: sin una sola línea especial en el despacho. Si el externo necesitara un camino aparte, todo lo que se probó del ruteo no aplicaría a él.',
-      pre: 'upstreams.json en el storage con al menos un proveedor, y su credencial en el .env.',
+      titulo: 'The external assistant comes in as just another registry row',
+      why: 'The phase\'s thesis: not a single special line in the dispatch. If the external one needed a separate path, everything that was tested about routing wouldn\'t apply to it.',
+      pre: 'upstreams.json in storage with at least one provider, and its credential in .env.',
       cmds: [
-        { os: 'Máquina A · arrancar y leer el estado', code: 'pyrusllm serve --swarm --operator "Nodo A"\n# el arranque dice que .env cargo, nombrando variables y nunca valores\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/upstream\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes' },
-        { os: 'Máquina A · un upstream mal configurado', code: '# sacarle el precio a una fila, o la credencial, y reiniciar:\n# tiene que registrarse OFFLINE, y el arranque tiene que decir CUAL de las dos falta' }
+        { os: 'Machine A · start it and read the state', code: 'pyrusllm serve --swarm --operator "Nodo A"\n# el arranque dice que .env cargo, nombrando variables y nunca valores\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/upstream\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes' },
+        { os: 'Machine A · a misconfigured upstream', code: '# sacarle el precio a una fila, o la credencial, y reiniciar:\n# tiene que registrarse OFFLINE, y el arranque tiene que decir CUAL de las dos falta' }
       ],
       esperado: [
-        'El upstream aparece en /v1/nodes con kind upstream, y en /v1/models como un modelo más.',
-        'El arranque nombra las variables del .env que cargó, y nunca sus valores.',
-        'Un upstream remoto sin credencial O sin precio se registra OFFLINE, y el arranque dice cuál de las dos falta.',
-        'Un upstream con "local": true no pide credencial, no pide precio, no le aplica el opt-in, y declara X-Pyrus-Scope: local.',
-        'Un upstream no infla la capacidad anunciada del nodo.'
+        'The upstream shows up in /v1/nodes with kind upstream, and in /v1/models as just another model.',
+        'The startup log names the .env variables it loaded, and never their values.',
+        'A remote upstream with no credential OR no price registers OFFLINE, and startup says which of the two is missing.',
+        'An upstream with "local": true doesn\'t require a credential, doesn\'t require a price, doesn\'t have opt-in applied to it, and declares X-Pyrus-Scope: local.',
+        'An upstream doesn\'t inflate the node\'s announced capacity.'
       ],
-      medir: 'El JSON de /v1/upstream (sin secretos) y las filas de /v1/nodes.',
-      nota: 'Sin precio, costs.estimar devuelve cero, la reserva no aparta nada y el tope deja de cortar justo en el único camino que cuesta dólares. Por eso el precio faltante es motivo de offline.'
+      medir: 'The /v1/upstream JSON (with no secrets) and the /v1/nodes rows.',
+      nota: 'With no price, costs.estimar returns zero, the reservation sets nothing aside, and the cap stops cutting in the one path that costs real dollars. That\'s why a missing price is grounds for offline.'
     },
     {
       id: 'T34',
       fase: 'Phase 8.5',
-      titulo: 'Las tres condiciones para que el prompt salga de la máquina',
-      why: 'Es el punto donde se acota la promesa de privacidad. Hacen falta tres cosas a la vez: opt-in prendido, que no haya capacidad de este lado, y presupuesto. Y local: true lo excluye siempre.',
-      pre: 'T33 verde. Poder saturar o apagar los candidatos locales para dejar sin capacidad a la red.',
+      titulo: 'The three conditions for a prompt to leave the machine',
+      why: 'This is where the privacy promise gets scoped. Three things have to hold at once: opt-in on, no capacity on this side, and budget. And local: true always excludes it.',
+      pre: 'T33 green. Ability to saturate or turn off local candidates so the network is left with no capacity.',
       cmds: [
-        { os: 'Máquina A · el opt-in, por HTTP', code: '$on  = \'{"enabled":true}\'\n$off = \'{"enabled":false}\'\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $off http://localhost:8787/v1/upstream/opt-in\n# pedir con la red sin capacidad -> NUNCA el externo\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $on  http://localhost:8787/v1/upstream/opt-in\n# ahora si: pedir de nuevo' },
-        { os: 'Máquina A · el candado local', code: '# con opt-in PRENDIDO, un pedido con "local": true no puede salir jamas\n$loc = \'{"model":"<modelId>","local":true,"messages":[{"role":"user","content":"hola"}]}\'\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $loc http://localhost:8787/v1/chat/completions' }
+        { os: 'Machine A · the opt-in, over HTTP', code: '$on  = \'{"enabled":true}\'\n$off = \'{"enabled":false}\'\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $off http://localhost:8787/v1/upstream/opt-in\n# pedir con la red sin capacidad -> NUNCA el externo\ncurl.exe -s -X POST -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $on  http://localhost:8787/v1/upstream/opt-in\n# ahora si: pedir de nuevo' },
+        { os: 'Machine A · the local lock', code: '# con opt-in PRENDIDO, un pedido con "local": true no puede salir jamas\n$loc = \'{"model":"<modelId>","local":true,"messages":[{"role":"user","content":"hola"}]}\'\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" -d $loc http://localhost:8787/v1/chat/completions' }
       ],
       esperado: [
-        'Con opt-in apagado: 503 con el motivo, o un candidato local. Nunca el externo — y el error dice cómo prenderlo.',
-        'Con opt-in prendido y sin capacidad de este lado: contesta el externo, y los headers lo declaran (X-Pyrus-Kind: upstream, X-Pyrus-Scope: external).',
-        'Mientras haya capacidad local o en la red, el prompt NO sale: el externo es último por posición, no por veto.',
-        'Con local: true, nunca sale de la máquina, con opt-in o sin él.',
-        'Con el presupuesto agotado: se degrada a un candidato local con aviso, y el rastro lo registra como DEGRADACIÓN, no como una elección normal.',
-        'El interruptor de /node hace lo mismo que el POST, y la tarjeta cambia de estado.'
+        'With opt-in off: 503 with the reason, or a local candidate. Never the external one — and the error says how to turn it on.',
+        'With opt-in on and no capacity on this side: the external one answers, and the headers declare it (X-Pyrus-Kind: upstream, X-Pyrus-Scope: external).',
+        'As long as there\'s local or network capacity, the prompt does NOT go out: the external one is last by position, not by veto.',
+        'With local: true, it never leaves the machine, opt-in or not.',
+        'With the budget exhausted: it degrades to a local candidate with a warning, and the trace logs it as DEGRADATION, not as a normal choice.',
+        'The /node toggle does the same thing as the POST, and the card changes state.'
       ],
-      medir: 'Los cuatro casos con su código HTTP, sus headers de procedencia y su entrada en el routing-log.',
-      nota: 'Que un candidato declare capacidad no prueba que funcione: un llama-server apagado anuncia 0/2, o sea "tengo lugar". Quedar último se mide por lo que pasó, no por lo que se anunció.'
+      medir: 'The four cases with their HTTP code, their provenance headers, and their routing-log entry.',
+      nota: 'A candidate declaring capacity doesn\'t prove it works: a dead llama-server still announces 0/2, i.e. "I have room". Coming in last is measured by what happened, not by what was announced.'
     },
     {
       id: 'T35',
       fase: 'Phase 8.5',
-      titulo: 'B3 — un proveedor que se cuelga no deja el request colgado',
-      why: 'Lo que sigue corriendo del otro lado son dólares de la cuenta del operador. Y un proveedor que se cuelga sin cerrar el socket dejaba la reserva comprometida para siempre.',
-      pre: 'T33 verde. Se verifica contra la suite, que tiene un proveedor falso que se cuelga a propósito.',
+      titulo: 'B3 — a provider that hangs doesn\'t leave the request hanging',
+      why: 'What keeps running on the other side is dollars from the operator\'s account. And a provider that hangs without closing the socket used to leave the reservation stuck forever.',
+      pre: 'T33 green. Verified against the suite, which has a fake provider that hangs on purpose.',
       cmds: [
-        { os: 'Máquina A · repo', code: 'npm run test:integracion\n# leer estas lineas:\n#   "un proveedor que se cuelga no deja el request colgado"\n#   "un error adentro de un stream 200 no se reporta como respuesta exitosa"\n#   "un error adentro del stream deja seguir con el candidato siguiente"\n#   "un proveedor que no manda usage se liquida por la reserva, no por los deltas"\n#   "un 429 del proveedor se trata como saturacion, no como error del request"' },
-        { os: 'Máquina A · a mano, cerrando la pestaña', code: '# disparar un request largo al externo desde el chat y cerrar la pestaña.\n# Despues:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget   # reserved_micros tiene que volver a 0\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes    # el slot del nodo, liberado' }
+        { os: 'Machine A · repo', code: 'npm run test:integracion\n# leer estas lineas:\n#   "un proveedor que se cuelga no deja el request colgado"\n#   "un error adentro de un stream 200 no se reporta como respuesta exitosa"\n#   "un error adentro del stream deja seguir con el candidato siguiente"\n#   "un proveedor que no manda usage se liquida por la reserva, no por los deltas"\n#   "un 429 del proveedor se trata como saturacion, no como error del request"' },
+        { os: 'Machine A · by hand, closing the tab', code: '# disparar un request largo al externo desde el chat y cerrar la pestaña.\n# Despues:\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/budget   # reserved_micros tiene que volver a 0\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes    # el slot del nodo, liberado' }
       ],
       esperado: [
-        'Al cerrar el cliente, el request al proveedor se cancela: no queda generando para nadie.',
-        'Los dos relojes propios funcionan: 60 s al primer byte y 30 s de silencio entre tokens.',
-        'La reserva se libera, el slot del nodo se libera, y un request que murió SIN un solo token liquida cero.',
-        'Un corte propio (por timeout) no se reintenta.',
-        'Un 200 con un error adentro del stream no cuenta como éxito, y deja seguir con el candidato siguiente.',
-        'Los cinco tests nombrados pasan.'
+        'When the client closes, the request to the provider gets cancelled: it doesn\'t keep generating for nobody.',
+        'The two own clocks work: 60 s to the first byte and 30 s of silence between tokens.',
+        'The reservation is released, the node\'s slot is released, and a request that died WITHOUT a single token settles at zero.',
+        'A cutoff of its own (by timeout) is not retried.',
+        'A 200 with an error inside the stream doesn\'t count as success, and lets the next candidate keep going.',
+        'The five named tests pass.'
       ],
-      medir: 'reserved_micros después del corte (tiene que ser 0) y el estado del slot.',
-      nota: 'Cobrar la cota superior a un request que no generó nada sería cobrar un request que no ocurrió. Esa regla salió justamente de este bug.'
+      medir: 'reserved_micros after the cutoff (has to be 0) and the slot\'s state.',
+      nota: 'Charging the upper bound for a request that generated nothing would be charging for a request that never happened. That rule came directly out of this bug.'
     },
     {
       id: 'T36',
       fase: 'Phase 8.5',
-      titulo: 'Los secretos no viajan, ni a otro proveedor ni a la respuesta',
-      why: 'Son tres agujeros distintos que se cerraron juntos: una credencial que podía viajar al proveedor equivocado, una ruta de lectura sin gate, y un tope de salida que un archivo de config podía pisar.',
-      pre: 'T33 verde, con al menos dos proveedores distintos configurados.',
+      titulo: 'Secrets don\'t travel, not to another provider and not into the response',
+      why: 'These are three separate holes that got closed together: a credential that could travel to the wrong provider, a read route with no gate, and an output cap that a config file could override.',
+      pre: 'T33 green, with at least two different providers configured.',
       cmds: [
-        { os: 'Máquina A · la ruta y su respuesta', code: 'curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8787/v1/upstream            # 401 sin key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/upstream          # con key: sin secretos\n# buscar en la respuesta el valor de la credencial: NO tiene que estar\n# (solo el NOMBRE de la variable de entorno)' },
-        { os: 'Máquina A · contra la suite', code: 'npm run test:integracion\n# leer estas lineas:\n#   "la config no puede mandarle la credencial de un proveedor a otro"\n#   "el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el tope"\n#   "las rutas que solo leen plata o proveedor tambien piden la key"\nnpm run test:unit\n# leer: "los headers de la config no pueden pisar la credencial"' }
+        { os: 'Machine A · the route and its response', code: 'curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8787/v1/upstream            # 401 sin key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/upstream          # con key: sin secretos\n# buscar en la respuesta el valor de la credencial: NO tiene que estar\n# (solo el NOMBRE de la variable de entorno)' },
+        { os: 'Machine A · against the suite', code: 'npm run test:integracion\n# leer estas lineas:\n#   "la config no puede mandarle la credencial de un proveedor a otro"\n#   "el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el tope"\n#   "las rutas que solo leen plata o proveedor tambien piden la key"\nnpm run test:unit\n# leer: "los headers de la config no pueden pisar la credencial"' }
       ],
       esperado: [
-        'GET /v1/upstream sin credencial da 401; con credencial, la respuesta trae el nombre de la variable de entorno y nunca su valor.',
-        'La credencial de un proveedor no puede viajar a otro por más que la config lo pida.',
-        'extraBody no puede pisar max_tokens ni stream: el único número que acota la reserva no es sobre-escribible desde un archivo.',
-        'El pedido al proveedor siempre pide usage; si el proveedor no lo manda, se liquida por la reserva.',
-        'Los cuatro tests nombrados pasan.'
+        'GET /v1/upstream with no credential returns 401; with a credential, the response carries the environment variable\'s name and never its value.',
+        'One provider\'s credential can\'t travel to another one no matter what the config asks for.',
+        'extraBody can\'t override max_tokens or stream: the one number that bounds the reservation isn\'t overridable from a file.',
+        'The request to the provider always asks for usage; if the provider doesn\'t send it, it\'s settled against the reservation.',
+        'The four named tests pass.'
       ],
-      medir: 'El código HTTP de las dos llamadas y la respuesta con credencial, revisada campo por campo.',
-      nota: 'Queda abierto y declarado: el reintento sobre un POST de streaming no es idempotente (B5). La mitigación es el nonce de D20, agendado para la Fase 11.'
+      medir: 'The HTTP code of both calls and the response with a credential, checked field by field.',
+      nota: 'Left open and declared: retrying a streaming POST isn\'t idempotent (B5). The mitigation is D20\'s nonce, scheduled for Phase 11.'
     }
   ];
 

@@ -567,131 +567,131 @@
     </section>
 
     <section class="block" id="aplicacion">
-      <h2>12 &middot; Cambios concretos a la aplicaci&oacute;n</h2>
+      <h2>12 &middot; Concrete changes to the application</h2>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>Secci&oacute;n</th><th>Dice hoy</th><th>Deber&iacute;a decir</th></tr></thead>
+          <thead><tr><th>Section</th><th>Says today</th><th>Should say</th></tr></thead>
           <tbody>
             <tr>
               <td><strong>2. Target audience</strong></td>
               <td><em>&laquo;investors with the capacity to acquire hardware&raquo;</em></td>
-              <td>Due&ntilde;os de hardware ya instalado y ocioso, cuyo costo marginal es la electricidad. Comprar fierro para esto no repaga.</td>
+              <td>Owners of hardware that's already installed and idle, whose marginal cost is electricity. Buying hardware for this doesn't pay off.</td>
             </tr>
             <tr>
               <td><strong>3. Value proposition</strong></td>
-              <td>Un solo carril: <em>&laquo;a single chat bar&raquo;</em></td>
-              <td>Dos carriles. Interactivo premium, y batch con SLA de horas donde el descuento lo fija la subasta.</td>
+              <td>A single lane: <em>&laquo;a single chat bar&raquo;</em></td>
+              <td>Two lanes. Premium interactive, and batch with an hours-long SLA where the discount is set by the auction.</td>
             </tr>
             <tr>
-              <td><strong>4. Challenges &mdash; calidad</strong></td>
+              <td><strong>4. Challenges &mdash; quality</strong></td>
               <td><em>&laquo;we need an entry benchmark and a reputation score&raquo;</em></td>
-              <td>Sondas indistinguibles <strong>porque el enclave desacopla la identidad</strong>, con alcance acotado: detectan sustituci&oacute;n de modelo, no cuantizaci&oacute;n. Esa se cubre con stake y arbitraje.</td>
+              <td>Indistinguishable probes <strong>because the enclave decouples identity</strong>, with bounded scope: they detect model substitution, not quantization. That gets covered with stake and arbitration.</td>
             </tr>
             <tr>
-              <td><strong>4. Challenges &mdash; privacidad</strong></td>
+              <td><strong>4. Challenges &mdash; privacy</strong></td>
               <td><em>&laquo;we protect who sent it but not what it says&raquo;</em></td>
-              <td>Igual, pero agregando que hay camino medido: <strong>4&ndash;8&nbsp;%</strong> de overhead en H100 CC. Con los tres l&iacute;mites: HBM sin cifrar, NVLink sin cifrar, y tiempos entre tokens que filtran longitud.</td>
+              <td>Same, but adding that there's now a measured path: <strong>4&ndash;8&nbsp;%</strong> overhead on H100 CC. With the three limits: HBM unencrypted, NVLink unencrypted, and inter-token timing that leaks length.</td>
             </tr>
             <tr>
-              <td><strong>Vela &mdash; el argumento</strong></td>
-              <td>El centro que ve las dos puntas</td>
-              <td>Eso, <strong>m&aacute;s un fraude medido de tres cifras</strong>: 1.469&nbsp;% de inflaci&oacute;n de tokens sin detecci&oacute;n, y el paper que lo mide nombra la atestaci&oacute;n en enclave como la salida.</td>
+              <td><strong>Vela &mdash; the argument</strong></td>
+              <td>The center that sees both ends</td>
+              <td>That, <strong>plus a measured three-digit fraud</strong>: 1,469&nbsp;% undetected token inflation, and the paper that measures it names enclave attestation as the way out.</td>
             </tr>
             <tr>
-              <td><strong>Vela &mdash; pregunta abierta</strong></td>
+              <td><strong>Vela &mdash; open question</strong></td>
               <td><em>&laquo;a round trip per request may not be viable&raquo;</em></td>
-              <td>Clearing por ventana, no matching por pedido. ~3&nbsp;ms para ~100 pujas. Deja de ser pregunta y pasa a ser plan.</td>
+              <td>Window clearing, not per-request matching. ~3&nbsp;ms for ~100 bids. It stops being a question and becomes a plan.</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:14px">Las dos de Vela son las importantes: una convierte el riesgo t&eacute;cnico declarado en hoja de ruta, y la otra reemplaza una postura de dise&ntilde;o por un fraude cuantificado que solo el c&oacute;mputo confidencial cierra.</p>
+      <p style="margin-top:14px">The two Vela rows are the important ones: one turns the declared technical risk into a roadmap, and the other replaces a design stance with a quantified fraud that only confidential computing closes.</p>
     </section>
 
     <section class="block" id="fichas">
-      <h2>13 &middot; Fichas</h2>
+      <h2>13 &middot; Fact sheets</h2>
       <div class="cards">
         <div class="card">
           <h3>PolyLink</h3>
-          <p class="src"><code>2510.02395</code> &middot; cs.CR &middot; 1-oct-2025<br>PolyU Hong Kong + China Mobile HK</p>
+          <p class="src"><code>2510.02395</code> &middot; cs.CR &middot; 1-Oct-2025<br>PolyU Hong Kong + China Mobile HK</p>
           <dl>
-            <dt>Aporta</dt><dd>TIQE: calidad trustless. Cross-encoder + LLM-judge. Recompensa a tres roles.</dd>
-            <dt>Datos</dt><dd>TP 66&nbsp;% / FP 2&nbsp;%; TP 98&nbsp;% / FP 12&nbsp;%. 20 equipos, 4 ciudades.</dd>
-            <dt>Falla</dt><dd class="warn">Recompensa al validador decreciente en calidad. Colusi&oacute;n a la baja impune.</dd>
-            <dt>C&oacute;digo</dt><dd>IMCL-PolyLink/PolyLink</dd>
+            <dt>Contributes</dt><dd>TIQE: trustless quality. Cross-encoder + LLM-judge. Rewards three roles.</dd>
+            <dt>Data</dt><dd>TP 66&nbsp;% / FP 2&nbsp;%; TP 98&nbsp;% / FP 12&nbsp;%. 20 teams, 4 cities.</dd>
+            <dt>Flaw</dt><dd class="warn">Validator reward decreasing in quality. Downward collusion goes unpunished.</dd>
+            <dt>Code</dt><dd>IMCL-PolyLink/PolyLink</dd>
           </dl>
         </div>
         <div class="card">
           <h3>DeServe</h3>
-          <p class="src"><code>2501.14784</code> &middot; cs.DC &middot; 4-ene-2025<br>UC Berkeley (Dawn Song)</p>
+          <p class="src"><code>2501.14784</code> &middot; cs.DC &middot; 4-Jan-2025<br>UC Berkeley (Dawn Song)</p>
           <dl>
-            <dt>Aporta</dt><dd>Serving batch en alta latencia. KV offload + microbatch. Tres criterios de descarte.</dd>
-            <dt>Datos</dt><dd>445&nbsp;tok/s planos de 0 a 256&nbsp;ms. vLLM con tensor parallelism <em>fall&oacute;</em>. Brecha 40x.</dd>
-            <dt>Falla</dt><dd class="warn">Matching centralizado, admitido. Enlazabilidad como feature.</dd>
-            <dt>C&oacute;digo</dt><dd>CoLearn-Dev/deserve</dd>
+            <dt>Contributes</dt><dd>High-latency batch serving. KV offload + microbatch. Three disqualification criteria.</dd>
+            <dt>Data</dt><dd>445&nbsp;tok/s flat from 0 to 256&nbsp;ms. vLLM with tensor parallelism <em>failed</em>. 40x gap.</dd>
+            <dt>Flaw</dt><dd class="warn">Centralized matching, admitted. Linkability as a feature.</dd>
+            <dt>Code</dt><dd>CoLearn-Dev/deserve</dd>
           </dl>
         </div>
         <div class="card">
           <h3>AERIA</h3>
           <p class="src"><code>2503.04521</code> &middot; IEEE TMC<br>Exeter + HUST + CUP</p>
           <dl>
-            <dt>Aporta</dt><dd>Subasta de precio uniforme, veracidad y envy-freeness probadas. Multi-exit.</dd>
-            <dt>Datos</dt><dd>3&nbsp;ms de runtime, plano. +60&nbsp;% de ingreso. 18&ndash;48&nbsp;% de salidas tempranas.</dd>
-            <dt>Falla</dt><dd class="warn">Costo de una sola pasada: no transfiere a autorregresivo. Simulaci&oacute;n sobre CPU.</dd>
-            <dt>C&oacute;digo</dt><dd>songyuanli/AERIA</dd>
+            <dt>Contributes</dt><dd>Uniform-price auction, proven truthfulness and envy-freeness. Multi-exit.</dd>
+            <dt>Data</dt><dd>3&nbsp;ms runtime, flat. +60&nbsp;% revenue. 18&ndash;48&nbsp;% early exits.</dd>
+            <dt>Flaw</dt><dd class="warn">Single-pass cost: doesn't transfer to autoregressive. CPU simulation.</dd>
+            <dt>Code</dt><dd>songyuanli/AERIA</dd>
           </dl>
         </div>
         <div class="card">
           <h3>DCBM</h3>
-          <p class="src"><code>2601.09961</code> &middot; cs.GT &middot; 15-ene-2026<br>FLock.io + Oxford</p>
+          <p class="src"><code>2601.09961</code> &middot; cs.GT &middot; 15-Jan-2026<br>FLock.io + Oxford</p>
           <dl>
-            <dt>Aporta</dt><dd>Buyback como PID. Solvencia asint&oacute;tica: gast&aacute; una fracci&oacute;n, nunca un monto.</dd>
-            <dt>Datos</dt><dd>&sigma; 0,89&rarr;0,30; churn 19,5&rarr;8,1&nbsp;%. MPC gana en todo pero cuesta &gt;40M de gas.</dd>
-            <dt>Falla</dt><dd class="warn">Experimentos en tiempo futuro; se contradice sobre cu&aacute;ntos baselines corri&oacute;; sin c&oacute;digo; conflicto de inter&eacute;s no declarado.</dd>
-            <dt>C&oacute;digo</dt><dd>no publicado</dd>
+            <dt>Contributes</dt><dd>Buyback as a PID. Asymptotic solvency: spends a fraction, never a fixed amount.</dd>
+            <dt>Data</dt><dd>&sigma; 0.89&rarr;0.30; churn 19.5&rarr;8.1&nbsp;%. MPC wins on everything but costs &gt;40M gas.</dd>
+            <dt>Flaw</dt><dd class="warn">Experiments dated in the future; contradicts itself on how many baselines it ran; no code; undeclared conflict of interest.</dd>
+            <dt>Code</dt><dd>not published</dd>
           </dl>
         </div>
         <div class="card">
           <h3>Token Inflation</h3>
-          <p class="src"><code>2605.30040</code> &middot; 28-may-2026 &middot; <span class="yes">verificado</span><br>Hoque, Zhang, Sun, Suya</p>
+          <p class="src"><code>2605.30040</code> &middot; 28-May-2026 &middot; <span class="yes">verified</span><br>Hoque, Zhang, Sun, Suya</p>
           <dl>
-            <dt>Aporta</dt><dd>El billing por token es inauditable por dise&ntilde;o cuando el proveedor reporta su propio consumo.</dd>
-            <dt>Datos</dt><dd><strong>1.469&nbsp;%</strong> de inflaci&oacute;n sin detecci&oacute;n. USD&nbsp;100 &rarr; USD&nbsp;1.569.</dd>
-            <dt>Nombra la salida</dt><dd>Atestaci&oacute;n en TEE o prueba criptogr&aacute;fica &mdash; o sea, V2.</dd>
+            <dt>Contributes</dt><dd>Per-token billing is unauditable by design when the provider reports its own consumption.</dd>
+            <dt>Data</dt><dd><strong>1,469&nbsp;%</strong> undetected inflation. USD&nbsp;100 &rarr; USD&nbsp;1,569.</dd>
+            <dt>Names the way out</dt><dd>TEE attestation or a cryptographic proof &mdash; i.e., V2.</dd>
           </dl>
         </div>
         <div class="card">
           <h3>UCCI</h3>
-          <p class="src"><code>2605.18796</code> &middot; 11-may-2026 &middot; <span class="yes">verificado</span><br>Varun Kotte</p>
+          <p class="src"><code>2605.18796</code> &middot; 11-May-2026 &middot; <span class="yes">verified</span><br>Varun Kotte</p>
           <dl>
-            <dt>Aporta</dt><dd>Cascada calibrada: regresi&oacute;n isot&oacute;nica sobre incertidumbre a nivel token.</dd>
-            <dt>Datos</dt><dd><strong>31&nbsp;%</strong> de ahorro (IC 95&nbsp;%: 27&ndash;35), 75.000 queries en H100. ECE 0,12&rarr;0,03.</dd>
-            <dt>L&iacute;mite</dt><dd>Evaluado sobre NER, no sobre serving general.</dd>
+            <dt>Contributes</dt><dd>Calibrated cascade: isotonic regression over token-level uncertainty.</dd>
+            <dt>Data</dt><dd><strong>31&nbsp;%</strong> savings (95&nbsp;% CI: 27&ndash;35), 75,000 queries on H100. ECE 0.12&rarr;0.03.</dd>
+            <dt>Limit</dt><dd>Evaluated on NER, not general serving.</dd>
           </dl>
         </div>
         <div class="card">
           <h3>Confidential LLM Inference</h3>
-          <p class="src"><code>2509.18886</code> &middot; IEEE IISWC 2025 &middot; <span class="yes">verificado</span></p>
+          <p class="src"><code>2509.18886</code> &middot; IEEE IISWC 2025 &middot; <span class="yes">verified</span></p>
           <dl>
-            <dt>Aporta</dt><dd>Llama2 7B/13B/70B en Intel TDX, SGX+AMX y H100 CC.</dd>
-            <dt>Datos</dt><dd>CPU TEE &lt;10&nbsp;% throughput, &lt;20&nbsp;% latencia. <strong>H100 CC: 4&ndash;8&nbsp;%</strong>, y baja con batches grandes.</dd>
-            <dt>El l&iacute;mite</dt><dd class="warn"><strong>HBM sin cifrar. NVLink sin cifrar.</strong> Multi-GPU confidencial es m&aacute;s d&eacute;bil.</dd>
+            <dt>Contributes</dt><dd>Llama2 7B/13B/70B on Intel TDX, SGX+AMX, and H100 CC.</dd>
+            <dt>Data</dt><dd>CPU TEE &lt;10&nbsp;% throughput, &lt;20&nbsp;% latency. <strong>H100 CC: 4&ndash;8&nbsp;%</strong>, and it drops with larger batches.</dd>
+            <dt>The limit</dt><dd class="warn"><strong>HBM unencrypted. NVLink unencrypted.</strong> Confidential multi-GPU is weaker.</dd>
           </dl>
         </div>
         <div class="card">
           <h3>Hopper CC</h3>
-          <p class="src"><code>2409.03992</code> &middot; nov-2024 &middot; <span class="yes">verificado</span></p>
+          <p class="src"><code>2409.03992</code> &middot; Nov-2024 &middot; <span class="yes">verified</span></p>
           <dl>
-            <dt>Aporta</dt><dd>Benchmark emp&iacute;rico de TEE en Hopper para inferencia LLM.</dd>
-            <dt>Datos</dt><dd><strong>&lt;7&nbsp;%</strong> en queries t&iacute;picas; casi cero con modelos grandes y secuencias largas.</dd>
-            <dt>El cuello</dt><dd>La transferencia por PCIe, no el c&oacute;mputo en GPU.</dd>
+            <dt>Contributes</dt><dd>Empirical benchmark of TEE on Hopper for LLM inference.</dd>
+            <dt>Data</dt><dd><strong>&lt;7&nbsp;%</strong> on typical queries; near zero with large models and long sequences.</dd>
+            <dt>The bottleneck</dt><dd>PCIe transfer, not GPU compute.</dd>
           </dl>
         </div>
       </div>
     </section>
 
     <footer class="end">
-      Fuentes: los cuatro PDF en <code>Fundaci&oacute;n Iniciativa Urbana Inteligente/pyrusllm/</code>, m&aacute;s una ronda de b&uacute;squeda asistida cuyos resultados de Nivel&nbsp;B fueron abiertos y confirmados uno por uno contra arXiv. Las cuentas derivadas &mdash; repago de la 4090, margen contra el punto de equilibrio, direcci&oacute;n del incentivo al validador, momento exacto en que la inflaci&oacute;n de tokens se vuelve explotable &mdash; son propias y se pueden rehacer con los n&uacute;meros citados. El plan de acci&oacute;n acoplado a las fases est&aacute; en <a href="ROADMAP_REVISION-EVIDENCIA.md">ROADMAP_REVISION-EVIDENCIA.md</a>.
+      Sources: the four PDFs in <code>Fundaci&oacute;n Iniciativa Urbana Inteligente/pyrusllm/</code>, plus a round of assisted search whose Tier&nbsp;B results were opened and confirmed one by one against arXiv. The derived figures &mdash; the 4090's payback period, the margin against break-even, the direction of the validator's incentive, the exact moment token inflation becomes exploitable &mdash; are original and can be reproduced from the cited numbers. The action plan tied to the phases is in <a href="ROADMAP_REVISION-EVIDENCIA.md">ROADMAP_REVISION-EVIDENCIA.md</a>.
     </footer>
 
   </main>
