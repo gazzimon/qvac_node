@@ -1236,3 +1236,57 @@ completa y **no está construida**.
   verificar si `Qwen2.5-Coder-7B/14B` están disponibles. El catálogo del repo
   (`qvac/models.mjs`) no los tiene; el único code-specialized es
   `katcoder35b` (19.9 GB, entra pero justo, sin calificar todavía).
+
+---
+
+## Tres olas sobre un archivo con gptoss20b: la landing de FIUI (30/8/2026)
+
+Primera corrida donde el sistema construye algo real en varias etapas sobre el
+MISMO archivo: `estructura` (HTML semántico, sin estilos) → `estilos`
+(bloque `<style>` minimalista) → `responsive` (`@media` + viewport), cada una
+con `Depends on:` la anterior y las tres declarando `landing.html`. Gate
+seedeado por el autor, 18 asserts, ninguno estético: documento completo,
+textos que deben sobrevivir, cero recursos externos, `<style>`, `@media`.
+
+**Resultado: 3/3 cerrados, 3354 tokens, 93 líneas de HTML válido.** Cada ola
+dejó su huella en el archivo final y ninguna borró lo anterior. Copia en
+`docs/fiui-landing-3olas.html`.
+
+### El primer intento fue 0/3, y por dos bugs que un modelo chico no expone
+
+`[infer] gptoss20b · 240s · loading or thinking, nothing emitted yet`
+
+1. **El heartbeat solo latía con tokens.** `onProgress` se dispara por delta
+   SSE; un 20B pasa minutos cargando pesos y razonando antes del primer token.
+   Un intento perfectamente sano mandaba CERO `task:progress` y el watchdog de
+   120s lo abandonaba como "worker went silent". El worker ahora late también
+   por timer: silencio del modelo no es silencio del worker — la misma
+   distinción que `qvac/progress.mjs` ya hace localmente.
+
+2. **Un intento abandonado no liberaba el slot.** El coordinador se rendía sin
+   avisarle al worker: los dos slots quedaban con fantasmas y el tercer ticket
+   recibía `at-capacity` de un nodo que, para el coordinador, estaba ocioso.
+   Se agregó `task:cancel`, la contraparte que `chat:cancel` ya tenía.
+
+### El 20B no era lento: eran los fantasmas
+
+Con el gateway limpio y un solo request, gptoss20b contesta un prompt trivial
+en **23,9 s** (incluye cargar el modelo) y genera el HTML de un ticket real en
+**21,6 s**. Los 965 s de "nothing emitted" que se vieron eran TRES inferencias
+de 20B compitiendo por los 16 cores — secuela de corridas matadas sin cancel.
+O sea: el síntoma que parecía "el modelo no sirve en esta máquina" era en
+realidad el bug #2. Vale anotarlo porque la conclusión equivocada estaba a un
+paso.
+
+### Comparación
+
+| | qwen8b | gptoss20b |
+| --- | ---: | ---: |
+| calc.js, 2 olas | 1374 tok | — |
+| landing, 3 olas | — | 3354 tok |
+| prompt trivial (modelo cargado) | — | 23,9 s |
+| ticket HTML real | — | 21,6 s |
+
+Qwen2.5-Coder-7B/14B **no están** en `qvac/models.mjs`. No se pudo verificar
+si existen en el registry: el registry no contesta mientras el gateway corre
+(tiene el lock), y pararlo para consultarlo quedó pendiente.
