@@ -4396,16 +4396,16 @@ test('the code embedded in the panel is the same one, and it RUNS', async (t) =>
       'vistaDeLiquidacion, htmlDeRecibo, htmlDeConteo, htmlDeDesafio }'
   )()
 
-  t.is(api.hashDeTexto('hola'), px.hashDeTexto('hola'), 'la copia embebida hashea igual')
+  t.is(api.hashDeTexto('hola'), px.hashDeTexto('hola'), 'the embedded copy hashes the same')
   const entrada = { tokensFuente: 'gateway', tokensPrefill: 1, tokensDecode: 2 }
   t.is(
     api.htmlDeConteo(api.vistaDeConteo(entrada)),
     px.htmlDeConteo(px.vistaDeConteo(entrada)),
-    'y dibuja igual'
+    'and it draws the same'
   )
 
-  // Y todo lo que el panel necesita esta declarado: una funcion que quedo
-  // afuera de FUNCIONES_EMBEBIDAS explota aca y no en el navegador de alguien.
+  // And everything the panel needs is declared: a function left out of
+  // FUNCIONES_EMBEBIDAS blows up here, not in someone's browser.
   const html = api.htmlDeRecibo(
     {
       success: true,
@@ -4416,56 +4416,57 @@ test('the code embedded in the panel is the same one, and it RUNS', async (t) =>
     },
     {}
   )
-  t.ok(html.indexOf('no tiene wallet') !== -1, 'el motivo sobrevive el viaje al navegador')
-  t.ok(html.indexOf('facilitator de PRUEBAS') !== -1, 'y el sello del tx tambien')
+  t.ok(html.indexOf('no tiene wallet') !== -1, 'the reason survives the trip to the browser')
+  t.ok(html.indexOf('facilitator de PRUEBAS') !== -1, 'and so does the tx\'s stamp')
 })
 
-test('D30.3: los revert strings del activo los sabe clasificar @x402/evm', async (t) => {
+test('D30.3: @x402/evm knows how to classify the test asset\'s revert strings', async (t) => {
   const fs = require('bare-fs')
   const path = require('bare-path')
   const raiz = path.join(__dirname, '..')
 
-  // POR QUE ESTE TEST EXISTE
+  // WHY THIS TEST EXISTS
   //
-  // `@x402/evm` no expone un codigo de error: clasifica un fallo de liquidacion
-  // REGEX-MATCHEANDO el revert string del contrato (`parseEip3009TransferError`),
-  // y sus regex estan escritos contra el FiatTokenV2 de Circle. Un contrato
-  // nuestro con los mensajes en castellano compila, despliega, revierte cuando
-  // tiene que revertir -- y hace que los cinco motivos distintos lleguen al
-  // gateway como un unico `transaction_failed`.
+  // `@x402/evm` does not expose an error code: it classifies a settlement
+  // failure by REGEX-MATCHING the contract's revert string
+  // (`parseEip3009TransferError`), and its regexes are written against
+  // Circle's FiatTokenV2. A contract of ours with the messages in Spanish
+  // compiles, deploys, reverts when it has to revert -- and makes the five
+  // distinct reasons all reach the gateway as a single `transaction_failed`.
   //
-  // Eso hoy casi no molesta, porque D9 cobra un tope fijo. En la Fase 10 el lote
-  // liquida solo y esos cinco piden tres acciones incompatibles:
-  // `nonce_already_used` es un reintento idempotente y se da por cobrado;
-  // `insufficient_balance` es del otro lado y no se reintenta;
-  // `invalid_signature` no es contabilidad, es reputacion.
+  // That barely bites today, because D9 charges a fixed cap. In Phase 10
+  // the batch settles on its own and those five call for three incompatible
+  // actions: `nonce_already_used` is an idempotent retry and gets counted
+  // as paid; `insufficient_balance` is the other side's problem and does
+  // not get retried; `invalid_signature` isn't accounting, it's reputation.
   //
-  // COMO SE MIRA, Y POR QUE ASI
+  // HOW IT'S CHECKED, AND WHY THIS WAY
   //
-  // Los regex se LEEN DEL PAQUETE INSTALADO en vez de copiarse aca. Copiarlos
-  // haria que el test siga pasando el dia que `@x402/evm` los cambie, que es
-  // justo el dia en que hay que enterarse. `parseEip3009TransferError` no esta
-  // exportado, asi que se extrae del dist -- y si eso deja de encontrarse, el
-  // test corta en vez de dar por bueno lo que no pudo mirar.
+  // The regexes are READ FROM THE INSTALLED PACKAGE instead of being copied
+  // here. Copying them would make the test keep passing the day `@x402/evm`
+  // changes them, which is exactly the day it needs to be noticed.
+  // `parseEip3009TransferError` isn't exported, so it gets extracted from
+  // the dist build -- and if that stops being findable, the test cuts off
+  // instead of passing something it couldn't check.
   const dist = path.join(raiz, 'node_modules/@x402/evm/dist/cjs/exact/facilitator/index.js')
   const src = fs.readFileSync(dist, 'utf8')
 
   const desde = src.indexOf('function parseEip3009TransferError')
-  t.ok(desde !== -1, 'se encontro el clasificador en @x402/evm')
+  t.ok(desde !== -1, 'the classifier was found in @x402/evm')
   const cuerpo = src.slice(desde, src.indexOf('\n}', desde))
 
-  // Cada rama del clasificador: los regex de un `if`, y el codigo que devuelve.
+  // Each branch of the classifier: an `if`'s regexes, and the code it returns.
   const ramas = []
   for (const m of cuerpo.matchAll(/if \(([^\n]*?)\) \{\s*\n\s*return (\w+);/g)) {
     const regexes = [...m[1].matchAll(/\/((?:[^/\\]|\\.)+)\/([gimsuy]*)\.test/g)].map(
       (r) => new RegExp(r[1], r[2])
     )
-    // El nombre de la constante -> su valor, que es el string que termina en el
-    // recibo y en el panel.
+    // The constant's name -> its value, which is the string that ends up in
+    // the receipt and in the panel.
     const valor = new RegExp('var ' + m[2] + ' = "([^"]+)"').exec(src)
     ramas.push({ regexes, codigo: valor ? valor[1] : m[2] })
   }
-  t.ok(ramas.length >= 5, 'y sus ' + ramas.length + ' ramas')
+  t.ok(ramas.length >= 5, 'and its ' + ramas.length + ' branches')
 
   const clasificar = (mensaje) => {
     for (const r of ramas) {
@@ -4474,14 +4475,14 @@ test('D30.3: los revert strings del activo los sabe clasificar @x402/evm', async
     return 'transaction_failed'
   }
 
-  // Los cinco motivos que el contrato puede devolver y que la Fase 10 necesita
-  // distinguidos. La izquierda sale del `.sol` de al lado; la derecha, del
-  // paquete. Si alguien traduce los mensajes, esto se cae.
+  // The five reasons the contract can return and that Phase 10 needs told
+  // apart. The left side comes from the `.sol` right next to it; the right
+  // side, from the package. If someone translates the messages, this falls apart.
   //
-  // Los codigos de la derecha son los que terminan en `errorReason` del recibo,
-  // y de ahi en el panel. Se comparan EXACTOS y no por substring: si un upgrade
-  // del paquete los renombra, esto tiene que romper -- es lo que la Fase 10 va a
-  // estar leyendo para decidir.
+  // The codes on the right are what ends up in the receipt's `errorReason`,
+  // and from there in the panel. They're compared EXACTLY and not by
+  // substring: if a package upgrade renames them, this has to break -- it's
+  // what Phase 10 will be reading to decide.
   const esperado = [
     ['tUSD: authorization is expired', 'invalid_exact_evm_payload_authorization_valid_before'],
     ['tUSD: authorization is not yet valid', 'invalid_exact_evm_payload_authorization_valid_after'],
@@ -4492,20 +4493,20 @@ test('D30.3: los revert strings del activo los sabe clasificar @x402/evm', async
 
   const fuente = fs.readFileSync(path.join(raiz, 'scripts', 'activo-prueba.sol'), 'utf8')
   for (const [mensaje, categoria] of esperado) {
-    // El mensaje tiene que existir TAL CUAL en el contrato: sin esto el test
-    // afirmaria sobre strings que ya nadie devuelve.
-    t.ok(fuente.indexOf('"' + mensaje + '"') !== -1, 'el contrato dice: ' + mensaje)
+    // The message has to exist VERBATIM in the contract: without this the
+    // test would be asserting about strings nobody returns anymore.
+    t.ok(fuente.indexOf('"' + mensaje + '"') !== -1, 'the contract says: ' + mensaje)
     const dio = clasificar(mensaje)
     t.is(dio, categoria, mensaje + '  ->  ' + dio)
-    t.absent(dio === 'transaction_failed', 'y NO cae en el generico')
+    t.absent(dio === 'transaction_failed', 'and it does NOT fall into the generic one')
   }
 
-  // Y el control negativo, que es lo que hace que lo de arriba signifique algo:
-  // un mensaje en castellano tiene que caer en el generico. Si esto pasara a
-  // clasificar bien, el test entero estaria midiendo otra cosa.
+  // And the negative control, which is what makes the above mean anything:
+  // a message in Spanish has to fall into the generic one. If this started
+  // classifying correctly, the whole test would be measuring something else.
   t.is(
     clasificar('tUSD: ese nonce ya se uso'),
     'transaction_failed',
-    'un mensaje en castellano SI colapsa al generico: por eso estan en ingles'
+    'a message in Spanish DOES collapse to the generic one: that\'s why they are in English'
   )
 })

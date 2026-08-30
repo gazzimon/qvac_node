@@ -1733,20 +1733,20 @@ test('between two providers that charge, it routes to the cheaper one and says s
 })
 
 // ---------------------------------------------------------------------------
-// El recorrido de candidatos cruza las clases
+// The candidate walk crosses classes
 //
-// Antes habia dos caminos: uno con reintento (solo pares) y otro sin ninguno
-// (motor local, upstream, mocks). El reintento se frenaba en la frontera: si
-// fallaban todos los pares, el modelo de esta maquina no se probaba nunca
-// aunque estuviera en la misma lista de candidatos.
+// There used to be two paths: one with retry (peers only) and one with none
+// (local engine, upstream, mocks). The retry stopped at the boundary: if
+// every peer failed, this machine's own model never got tried even if it
+// was in the same candidate list.
 // ---------------------------------------------------------------------------
 
-test('un par inalcanzable ya no tapa al candidato local', async (t) => {
+test('an unreachable peer no longer blocks the local candidate', async (t) => {
   const store = await import('../qvac/store.mjs')
 
-  // Un par que anuncia el MISMO modelo que un mock del registro. El gateway de
-  // esta suite corre sin swarm (`serve --demo`, sin --swarm), asi que el par
-  // no se puede intentar: es el caso "lanzaste el chat pero no el agente".
+  // A peer announcing the SAME model as a registry mock. This suite's
+  // gateway runs without a swarm (`serve --demo`, no --swarm), so the peer
+  // can't be attempted: it's the "you launched the chat but not the agent" case.
   store.upsertFromManifest('ff'.repeat(32), {
     metadata: { operator: 'Par fantasma', tags: ['facturas'] },
     models: [
@@ -1755,30 +1755,30 @@ test('un par inalcanzable ya no tapa al candidato local', async (t) => {
   })
 
   const candidatos = store.findAllByModelId('facturas-ar')
-  t.ok(candidatos.length >= 2, 'hay un par y un mock sirviendo el mismo modelo')
-  t.is(candidatos[0].kind, 'peer', 'y el par va primero, que es lo que antes cortaba el camino')
+  t.ok(candidatos.length >= 2, 'there is a peer and a mock serving the same model')
+  t.is(candidatos[0].kind, 'peer', 'and the peer goes first, which is what used to block the path')
 
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  t.is(r.status, 200, 'antes esto era un 503 agent_offline sin mirar al resto de la lista')
+  t.is(r.status, 200, 'this used to be a 503 agent_offline without looking at the rest of the list')
   t.not(
     decodeURIComponent(r.headers['x-pyrus-operator']),
     'Par fantasma',
-    'y contesto el otro, no el que no se podia intentar'
+    'and the other one answered, not the one that couldn\'t be tried'
   )
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const e = log.json.log[0]
-  t.ok(e.intentos && e.intentos.length > 1, 'el rastro guarda los dos intentos')
-  t.is(e.intentos[0].code, 'agent_offline', 'y por que fallo el primero')
+  t.ok(e.intentos && e.intentos.length > 1, 'the trail stores both attempts')
+  t.is(e.intentos[0].code, 'agent_offline', 'and why the first one failed')
 
   store.removeByPeer('ff'.repeat(32), { hard: true })
 })
 
-test('sin ningun par alcanzable Y sin candidato local, el 503 sigue diciendo que hacer', async (t) => {
+test('with no peer reachable AND no local candidate, the 503 still says what to do', async (t) => {
   const store = await import('../qvac/store.mjs')
 
   store.upsertFromManifest('ee'.repeat(32), {
@@ -1795,20 +1795,20 @@ test('sin ningun par alcanzable Y sin candidato local, el 503 sigue diciendo que
   t.is(r.json.error.code, 'agent_offline')
   t.ok(
     r.json.error.message.indexOf('launch your local agent') !== -1,
-    'un 503 que solo niega deja al que lo lee sin siguiente paso'
+    'a 503 that only refuses leaves whoever reads it with no next step'
   )
 
   store.removeByPeer('ee'.repeat(32), { hard: true })
 })
 
-test('un upstream caido se saltea y contesta el siguiente candidato', async (t) => {
+test('a downed upstream gets skipped and the next candidate answers', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const gw = await import('../qvac/gateway.mjs')
 
-  // Dos puertas al mismo modelo: la primera apunta a un puerto donde no hay
-  // nadie escuchando -- el caso real de "no levantaste el llama-server" -- y la
-  // segunda al proveedor de prueba, que si contesta.
+  // Two doors to the same model: the first points at a port where nobody is
+  // listening -- the real "you didn't bring up llama-server" case -- and the
+  // second at the test provider, which does answer.
   const ups = upstream.cargarDesde({
     upstreams: [
       {
@@ -1829,24 +1829,25 @@ test('un upstream caido se saltea y contesta el siguiente candidato', async (t) 
   })
   gw.setUpstreams(ups)
 
-  // El caido tiene que ir PRIMERO o el test no ejercita nada: si contesta el
-  // vivo de entrada, los tres asserts de abajo pasan igual sin que el reintento
-  // haya ocurrido nunca.
+  // The downed one has to go FIRST or the test doesn't exercise anything: if
+  // the live one answers right away, the three asserts below still pass
+  // without the retry ever having happened.
   //
-  // Antes esto se intentaba con "el caido con MAS capacidad libre" (8 contra 1)
-  // y NO ordenaba nada: `cargaDe` es un COCIENTE -- activeRequests sobre
-  // maxConcurrent (store.mjs:150) --, asi que 0/8 y 0/1 son los dos CERO. Con la
-  // carga empatada, empatan tambien errorRate y lastMs -- las dos filas son
-  // nuevas y no tienen historia -- y el orden lo terminaba decidiendo el
-  // `jitter: random()` de routing.mjs:102. O sea una moneda: el test fallaba
-  // ~1 de cada 2 corridas, y el modo de falla era un TypeError sobre
-  // `e.intentos` en vez de un assert, que es peor porque no dice que se rompio.
+  // This used to be attempted with "the downed one with MORE free capacity"
+  // (8 against 1) and it did NOT order anything: `cargaDe` is a RATIO --
+  // activeRequests over maxConcurrent (store.mjs:150) --, so 0/8 and 0/1 are
+  // both ZERO. With load tied, errorRate and lastMs tie too -- both rows are
+  // new and have no history -- and the order ended up decided by routing.mjs:
+  // 102's `jitter: random()`. A coin flip, in other words: the test failed
+  // ~1 in every 2 runs, and the failure mode was a TypeError over
+  // `e.intentos` instead of a failed assert, which is worse because it
+  // doesn't say what broke.
   //
-  // Lo que SI ordena es dejar al vivo sin lugar: 1/1 lo manda al fondo por la
-  // regla 1 del sort (los saturados van ultimos), que se evalua antes que
-  // cualquier azar. Sigue siendo elegible -- el loop prueba a los saturados
-  // igual -, que es exactamente lo que se quiere: el caido primero, el vivo
-  // despues.
+  // What DOES order it is leaving the live one with no room: 1/1 sends it
+  // to the back by the sort's rule 1 (saturated ones go last), which gets
+  // evaluated before any randomness. It's still eligible -- the loop tries
+  // saturated ones too -, which is exactly what's wanted: the downed one
+  // first, the live one after.
   store.registerUpstream({
     id: ups[0].id,
     modelId: 'con-respaldo',
@@ -1863,8 +1864,8 @@ test('un upstream caido se saltea y contesta el siguiente candidato', async (t) 
     local: true,
     maxConcurrentRequests: 1
   })
-  // El id de la FILA lleva prefijo: `registerUpstream` lo agrega y es con ese
-  // con el que el gateway cuenta los slots.
+  // The ROW's id carries a prefix: `registerUpstream` adds it, and that's
+  // the id the gateway counts slots under.
   store.beginRequest('upstream:' + ups[1].id)
 
   const r = await pedir('POST', '/v1/chat/completions', {
@@ -1872,13 +1873,13 @@ test('un upstream caido se saltea y contesta el siguiente candidato', async (t) 
     body: { model: 'con-respaldo', messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  t.is(r.status, 200, 'el fallo del primero no es el fallo del request')
-  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Motor vivo', 'contesto el segundo')
+  t.is(r.status, 200, 'the first one\'s failure is not the request\'s failure')
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Motor vivo', 'the second one answered')
   t.is(r.json.choices[0].message.content, 'hola desde afuera')
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const e = log.json.log[0]
-  t.is(e.intentos.length, 2, 'y los dos intentos quedan en el rastro')
+  t.is(e.intentos.length, 2, 'and both attempts stay on the trail')
   t.is(e.intentos[0].ok, false)
   t.is(e.intentos[1].ok, true)
 
@@ -1886,12 +1887,12 @@ test('un upstream caido se saltea y contesta el siguiente candidato', async (t) 
   gw.setUpstreams([])
 })
 
-test('D4 mira lo que vio EL CLIENTE, no lo que genero el proveedor', async (t) => {
+test('D4 looks at what the CLIENT saw, not at what the provider generated', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const gw = await import('../qvac/gateway.mjs')
 
-  // El primer proveedor manda tokens y corta el socket sin cerrar el stream.
+  // The first provider sends tokens and cuts the socket without closing the stream.
   cortaModelo = 'x'
 
   const ups = upstream.cargarDesde({
