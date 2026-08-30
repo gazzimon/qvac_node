@@ -62,7 +62,11 @@ Hyperdrive opened by someone else's key is read-only, and `put()` on it does not
 fail — it *hangs*. So each worker creates its own drive and announces the key.
 The union has no conflicts by construction, because `detectOverlap` already
 guarantees two tickets never declare the same file. Conflicts are not resolved
-here; they are made impossible.
+here; they are made impossible. (The cross-machine coordinator relaxes this to
+the narrower invariant that actually matters — see "A project that grows"
+below — but the single-machine path keeps the strict rule, because it runs
+fixed-size batches with no wave structure to order two tickets that share a
+file.)
 
 **The CI gate must not be written by the model.** In the demo, `verify.mjs` is
 seeded into the workspace before any worker runs and belongs to no ticket. If
@@ -206,6 +210,48 @@ outside this repo) has no room for them yet:
   version bump coordinated with its source package to carry that field
   honestly; until then, being on the topic is still not enough on its own —
   each side only acts on a key it was explicitly told about.
+
+## A project that grows, not just accumulates
+
+A ticket can declare a file that a ticket it **depends on** already created —
+receive that file's current content, and return the whole file updated. That
+is what lets a `requirements.md` describe a system built over a week instead
+of a bag of files that only ever get created once.
+
+**There are still no diffs.** The repo measured that whole files beat diffs
+(`parseBlocks` in [`worker/run.mjs`](../worker/run.mjs): *"a badly applied diff
+is a broken file that still parses, whereas a whole file either lands or does
+not"*). Nothing about that changed. What changed is the overlap rule, which
+was stricter than the property it was protecting:
+
+- **Before:** no two tickets may ever declare the same file.
+- **Now (coordinator only):** no two tickets that could run *at the same time*
+  may declare the same file. If one depends on the other, waves already
+  guarantee they never share a wave, so the later one can safely rewrite the
+  file the earlier one produced. `detectConcurrentOverlap` in
+  [`split.mjs`](split.mjs) checks reachability through `Depends on:` edges;
+  a shared file with no dependency between the two tickets is still an abort,
+  with an error that says to add the dependency or split the files.
+
+Three derived pieces make it work, none of which needs a model:
+
+- **`editPaths`** — a ticket's declared files that a dependency also owns
+  (`inheritedFiles`). Sent in `task:assign` as an additive optional field, so
+  a worker on an older build still runs correctly: it just treats them as
+  ordinary reference context.
+- **The worker's prompt distinguishes the two.** Reference context says "for
+  reference only"; edit files say "these ALREADY EXIST and you are updating
+  them — return each one COMPLETE". They get a larger budget and are rendered
+  first, because truncating a file the model must reproduce is worse than
+  truncating one it only had to read.
+- **The mirror never clears an inherited path.** Clearing a ticket's own paths
+  is right (it stops a stale file from a superseded attempt lingering);
+  clearing a dependency's would turn "the edit did not happen" into "the
+  original is gone" the moment a model failed to reproduce it.
+
+Covered end to end by `test/coordinator-edit-test.mjs`: `db` creates
+`src/db.js`, `api` (wave 2, `Depends on: db`) receives its content and returns
+it with a function added, and the workspace ends with both.
 
 ## Checking what a run actually produced
 
