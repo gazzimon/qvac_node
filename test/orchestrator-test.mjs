@@ -566,14 +566,30 @@ test('a truncated line is discarded and the rest survives', () => {
   assert.deepEqual(s.done(), ['a'])
 })
 
-test('two runs closing nothing are flagged as stalled', () => {
+// `pendingAtStart` is what separates "tried and got nowhere" from "there was
+// nothing to do". A run that reports neither is of unknown provenance and no
+// longer counts toward a stall — see isStalled() in state.mjs for why
+// counting those was worse than useless (a finished project raised the alarm
+// forever and could never clear it).
+test('two runs that HAD work and closed nothing are flagged as stalled', () => {
   const file = path.join(os.tmpdir(), `orch-stall-${Date.now()}.jsonl`)
   const s = new State(file)
   s.append(EVENTS.RUN_START, {})
-  s.append(EVENTS.RUN_END, {})
+  s.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 2 })
   s.append(EVENTS.RUN_START, {})
-  s.append(EVENTS.RUN_END, {})
+  s.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 2 })
   assert.ok(s.isStalled())
+  fs.unlinkSync(file)
+})
+
+test('a finished project closing nothing is not stalled', () => {
+  const file = path.join(os.tmpdir(), `orch-nostall-${Date.now()}.jsonl`)
+  const s = new State(file)
+  s.append(EVENTS.RUN_START, {})
+  s.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 0 })
+  s.append(EVENTS.RUN_START, {})
+  s.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 0 })
+  assert.ok(!s.isStalled())
   fs.unlinkSync(file)
 })
 

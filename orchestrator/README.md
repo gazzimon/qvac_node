@@ -211,6 +211,61 @@ outside this repo) has no room for them yet:
   honestly; until then, being on the topic is still not enough on its own —
   each side only acts on a key it was explicitly told about.
 
+## Running unattended
+
+Three things stop a nightly run from doing damage while nobody is watching,
+plus a wrapper that decides whether to wake a human.
+
+**Retry ceiling** (`--max-attempts`, default 4). A ticket that fails CI — or
+returns nothing usable — that many times is logged `ticket:blocked` and stops
+being reassigned. It is neither pending nor done, and it names itself in the
+summary. `failuresFor()` deliberately does not count `unplaced`: a ticket
+nobody was free to pick up has not failed, and must not spend its attempts on
+connectivity.
+
+**Global budget** (`--budget`, in tokens, 0 = off). Cumulative spend across
+every logged result, checked before the run and again before each wave, so
+overshoot is bounded by one wave rather than one run.
+
+**Discovery gate** (`--wait-workers`, `--wait-timeout`). `workers()` reads
+`swarm.peers`, which is a *snapshot* — and a coordinator that just joined the
+topic has not discovered anyone yet. `NOTES.md` measures 4–7s warm, a 38s tail
+on loopback, and **109s cold**; the fiui demo needed four coordinator
+invocations before one of them happened to look after a worker had appeared.
+So the coordinator now waits (returning the instant enough workers are there,
+logging progress every 15s so a two-minute wait does not look like a hang) and
+if nobody arrives it assigns nothing and leaves every ticket untouched — no
+`ticket:assigned`, no `ticket:failed`. A night with the fleet down is an
+infrastructure fact, not a project that is stuck, and the log must not
+conflate them.
+
+**Exit codes**, so a cron can branch without parsing anything: `0` progress or
+nothing to do · `2` a ticket is blocked · `3` the budget stopped the run ·
+`4` no worker was reachable.
+
+**The wrapper** — [`scripts/nightly-build.mjs`](../scripts/nightly-build.mjs).
+Runs the coordinator, tees to a dated log, reads the run log, and emits a
+verdict (`ok` / `blocked` / `over-budget` / `no-workers` / `stalled` /
+`crashed`) with an optional `--notify` hook. Its header carries the crontab
+and systemd-timer forms.
+
+```
+node scripts/nightly-build.mjs --storage .qvac/app/coordinator \
+  --notify ./scripts/notify.sh \
+  -- --worker <hex,...> --requirement ./requirements.md --workspace ./build \
+     --storage .qvac/app/coordinator --budget 2000000
+```
+
+**Two false alarms this found, both live rather than by reasoning.** Stall
+detection originally meant "closed zero tickets", which fires every night
+forever once a project *succeeds*; `run:end` now carries `pendingAtStart` and
+a stall requires the run to have had work. Then counting runs of unknown
+provenance (written before that field existed) as "tried" produced an alarm
+that could never clear, because the newer runs that would age them out are
+themselves excluded for having nothing to do — so unknowns are excluded too.
+An alarm that cannot turn off trains its reader to ignore it, which is exactly
+what it must not do on the night it is real.
+
 ## A project that grows, not just accumulates
 
 A ticket can declare a file that a ticket it **depends on** already created —
