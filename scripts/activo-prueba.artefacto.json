@@ -3,7 +3,7 @@
   "contrato": "PyrusTestUSD",
   "fuente": "scripts/activo-prueba.sol",
   "claveFuente": "activo-prueba.sol",
-  "fuenteSha256": "253431e3cbe13a7564a4b3921827fd137bdf5509fffe2979fa92cab2d6c096e9",
+  "fuenteSha256": "ea6e2e2bed1763f156d2c4499ff8ea22de881f4e8cc52e1e2e5f3c608e2194a0",
   "solc": "0.8.28+commit.7893614a.Emscripten.clang",
   "settings": {
     "optimizer": {

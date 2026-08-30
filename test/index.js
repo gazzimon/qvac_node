@@ -145,8 +145,8 @@ test('JCS orders keys and does not depend on the assembly order', async (t) => {
 
   // JSON.stringify silently turns NaN into null: a NaN price would sign as
   // null and verify perfectly.
-  t.exception(() => canonicalize({ precio: NaN }), /no finito/, 'NaN cuts, does not pass as null')
-  t.exception(() => canonicalize({ x: Infinity }), /no finito/)
+  t.exception(() => canonicalize({ precio: NaN }), /non-finite/, 'NaN cuts, does not pass as null')
+  t.exception(() => canonicalize({ x: Infinity }), /non-finite/)
 })
 
 test('a signed manifest verifies against its own key', async (t) => {
@@ -222,7 +222,7 @@ test('the signature alone does not prove identity: it has to be tied to the conn
   // parameter exists.
   const res = verifyManifest(suyo, { expectedPublicKey: victima.publicKey })
   t.absent(res.ok, 'cannot pass itself off as another node')
-  t.ok(/pero la conexion es de/.test(res.reason), 'the reason says the keys do not match')
+  t.ok(/but the connection is/.test(res.reason), 'the reason says the keys do not match')
 
   // And signing with someone else's key doesn't work either: it doesn't have
   // the victim's private key.
@@ -238,7 +238,7 @@ test('buildManifest rejects invalid inputs and marks mocks', async (t) => {
   const id = createIdentity()
 
   t.exception(() => buildManifest({ publicKey: 'abc', models: MODELS }), /32 bytes/)
-  t.exception(() => buildManifest({ publicKey: id.publicKey, models: [] }), /al menos un modelo/)
+  t.exception(() => buildManifest({ publicKey: id.publicKey, models: [] }), /at least one model/)
   t.exception(
     () => buildManifest({ publicKey: id.publicKey, models: [{ displayName: 'sin id' }] }),
     /modelId/
@@ -337,10 +337,10 @@ test('the wallet seed does not end up in the clear, and the wrong passphrase doe
   // the key for.
   await t.exception(
     () => wallet.abrir(tmp.dir, 'la-passphrase-equivocada'),
-    /no abre el keystore/,
+    /does not open the keystore/,
     'the wrong passphrase fails, it does not return a different address'
   )
-  await t.exception(() => wallet.abrir(tmp.dir, null), /falta la passphrase/)
+  await t.exception(() => wallet.abrir(tmp.dir, null), /passphrase is missing/)
 
   const abierta = await wallet.abrir(tmp.dir, 'la-passphrase-buena')
   t.is(abierta.address, creada.address, 'with the correct passphrase it returns THE SAME address')
@@ -374,7 +374,7 @@ test('the backup phrase restores the same address on another machine', async (t)
   )
   await t.exception(
     () => wallet.crear(otro.dir, 'x'),
-    /ya hay una wallet/,
+    /there is already a wallet/,
     'and an existing wallet is not overwritten'
   )
 
@@ -437,16 +437,16 @@ test('an invalid economic block does not get signed: signing it would send payme
   // exactly the value the mock had. Signing it would send the money into a pit.
   t.exception(
     () => buildManifest({ ...base, economic: { ...ok, walletAddress: '0x' + '0'.repeat(40) } }),
-    /direccion cero/
+    /zero address/
   )
   t.exception(
     () => buildManifest({ ...base, economic: { ...ok, walletAddress: 'no-es-una-direccion' } }),
-    /EVM ni Tron/
+    /EVM nor a Tron/
   )
-  t.exception(() => buildManifest({ ...base, economic: { ...ok, chains: [] } }), /al menos una red/)
+  t.exception(() => buildManifest({ ...base, economic: { ...ok, chains: [] } }), /at least one network/)
   t.exception(
     () => buildManifest({ ...base, economic: { ...ok, chains: ['Plasma Mainnet'] } }),
-    /identificador invalido/,
+    /invalid identifier/,
     'the schema\'s kebab-case is checked before signing, not after'
   )
   t.exception(
@@ -597,7 +597,7 @@ test('buildManifest signs the real directory when given one', async (t) => {
         models: MODELS,
         directory: { ...directory, writerPublicKey: 'nope' }
       }),
-    /hex de 32 bytes/
+    /32-byte hex/
   )
   t.exception(
     () =>
@@ -606,7 +606,7 @@ test('buildManifest signs the real directory when given one', async (t) => {
         models: MODELS,
         directory: { ...directory, sequence: -1 }
       }),
-    /entero/
+    /integer/
   )
 })
 
@@ -647,8 +647,8 @@ test('qvac:// links round-trip without losing anything', async (t) => {
   // Without a path the root is assumed: useful for listing the whole drive.
   t.is(parseLink('qvac://' + clave).path, '/')
 
-  t.exception(() => parseLink('http://ejemplo.com/x.pdf'), /empieza con qvac/)
-  t.exception(() => parseLink('qvac://cortito/x.pdf'), /hex de 32 bytes/)
+  t.exception(() => parseLink('http://ejemplo.com/x.pdf'), /starts with/)
+  t.exception(() => parseLink('qvac://cortito/x.pdf'), /32-byte hex/)
 
   // On Windows path.join inserts backslashes. Without normalizing, the file
   // gets uploaded with backslashes in the name and nobody can find it on the
@@ -2978,7 +2978,7 @@ test('PHASE 10: a receipt missing the essentials does not get built, and says wh
   )
   t.exception(
     () => lote.construirRecibo({ ...base, signature: 'no-0x' }),
-    /firma/,
+    /signature/,
     'without an EIP-3009 signature'
   )
 
@@ -3617,7 +3617,7 @@ test('PHASE 10: a payment forwarded to another wallet does NOT get accumulated b
   const done = cap.vistos.find((m) => m.type === 'chat:done')
   t.is(done && done.attestation, undefined, 'does not attest a charge that is not its own')
   t.ok(
-    String(done && done.attestationMissing).indexOf('wallet de este nodo') !== -1,
+    String(done && done.attestationMissing).indexOf("this node's wallet") !== -1,
     done && done.attestationMissing
   )
   t.is(lote.pendientes().length, 0, 'and it does not accumulate anything')
@@ -3818,7 +3818,7 @@ test('D30.2: the network gets chosen, and the default says to your face it is ma
   // A network that does not exist cuts off with the name inside the
   // message. Falling back to the default would mean operating against
   // mainnet while believing something else was requested.
-  t.exception(() => wallet.redDe({ [wallet.VAR_RED]: 'ethereum' }), /no es una red conocida/)
+  t.exception(() => wallet.redDe({ [wallet.VAR_RED]: 'ethereum' }), /is not a known network/)
 })
 
 test('D30.2: the chosen rpc reaches all the way to the account, without touching the network', async (t) => {
