@@ -396,7 +396,7 @@ test('a model nobody serves gives 404 and says which ones DO exist', async (t) =
   t.is(r.status, 404)
   t.is(r.json.error.code, 'model_not_found')
   t.ok(
-    r.json.error.message.indexOf('disponibles') !== -1,
+    r.json.error.message.indexOf('available') !== -1,
     'the error is actionable: ' + r.json.error.message.slice(0, 70)
   )
 })
@@ -2982,7 +2982,7 @@ test('D24: without a signer NO attestation comes out, and the receipt says why',
   t.is(rec.json.attestation, null, 'and no unsigned attestation comes out')
   t.ok(rec.json.attestationMissing, 'the absence comes with a reason: ' + rec.json.attestationMissing)
   t.ok(
-    String(rec.json.attestationMissing).indexOf('firm') !== -1,
+    String(rec.json.attestationMissing).indexOf('signer') !== -1,
     'which says which of the possible reasons it was'
   )
 
