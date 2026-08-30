@@ -126,10 +126,35 @@ export class NodeSwarm {
     // El lado que CONSUME: requestId -> handlers del request en vuelo.
     this._chats = new Map()
     this._chatSeq = 0
+
+    // `qvac/task/v0` (software factory). Listeners get every `task:*` message
+    // from a verified peer and branch on `msg.type` themselves: the coordinator
+    // side handles accept/progress/result, the `--accept-tasks` side handles
+    // assign, and a node doing both registers both. A Set, not one slot,
+    // because those two subsystems are independent.
+    this._taskListeners = new Set()
   }
 
   setProvider(provider) {
     this.provider = provider
+  }
+
+  // fn(peer, msg, reply) where peer is { key, manifest }, msg is the raw
+  // `task:*` object, reply(out) sends `out` back over this same channel.
+  // Returns an unsubscribe function.
+  addTaskListener(fn) {
+    this._taskListeners.add(fn)
+    return () => this._taskListeners.delete(fn)
+  }
+
+  // Send a `task:*` message to a verified peer by hex key. Returns false if
+  // that peer is not connected (or never sent a manifest) — the caller decides
+  // whether to place the ticket elsewhere.
+  sendTask(peerKey, msg) {
+    const peer = this.peers.get(peerKey)
+    if (!peer || !peer.manifest) return false
+    this._send(peer, msg)
+    return true
   }
 
   // Cambia metadata del nodo (tags a nivel nodo, o el array `models` entero
@@ -452,6 +477,26 @@ export class NodeSwarm {
       }
       if (this.store) this.store.updateStatus(peer.key, peer.status)
       this.onPeerChange(this.peers)
+      return
+    }
+
+    // --- software factory (qvac/task/v0) ---
+    // A peer that has not proved who it is cannot assign work to this node or
+    // receive results from it — same rule as chat:request.
+    if (msg.type.startsWith('task:')) {
+      if (!peer.manifest) return
+      const wrapped = { key: peer.key, manifest: peer.manifest }
+      const reply = (out) => this._send(peer, out)
+      for (const fn of this._taskListeners) {
+        try {
+          fn(wrapped, msg, reply)
+        } catch (err) {
+          console.error(
+            `[swarm] task listener threw on ${msg.type} from ${peer.key.slice(0, 8)}…: ` +
+              `${(err && err.message) || err}`
+          )
+        }
+      }
       return
     }
 

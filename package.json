@@ -75,7 +75,9 @@
     "facilitator": "node scripts/facilitator.js",
     "orchestrator": "node orchestrator/index.mjs",
     "worker": "node worker/run.mjs",
-    "test:orchestrator": "node test/orchestrator-test.mjs && node test/progress-test.mjs && node test/demo-gate-test.mjs && node test/worker-writes.mjs && node test/orchestrator-e2e.mjs",
+    "coordinator": "node orchestrator/coordinator.mjs",
+    "serve-tasks": "node worker/serve-tasks.mjs",
+    "test:orchestrator": "node test/orchestrator-test.mjs && node test/progress-test.mjs && node test/demo-gate-test.mjs && node test/worker-writes.mjs && node test/orchestrator-e2e.mjs && node test/task-protocol-test.mjs && node test/mirror-test.mjs && node test/state-resume-test.mjs && node test/context-drive-test.mjs && node test/coordinator-e2e.mjs && node test/coordinator-idempotency-test.mjs",
     "demo:orchestrator": "node scripts/demo-orchestrator.mjs"
   },
   "dependencies": {

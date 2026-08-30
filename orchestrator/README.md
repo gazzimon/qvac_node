@@ -108,15 +108,82 @@ failed run — the reasoning is recorded above `systemPrompt` in
 code, must use the ticket's own path, must not itself solve the task, and the
 prompt must never discuss the prompt.
 
+## Crossing machines
+
+Built, and covered end to end by `test/coordinator-e2e.mjs`,
+`test/coordinator-idempotency-test.mjs`, `test/context-drive-test.mjs`, and
+against a *real* Hyperswarm/DHT connection by
+[`scripts/smoke-real-swarm.mjs`](../scripts/smoke-real-swarm.mjs) (excluded
+from the fast suite on purpose — DHT timing has real variance, see
+`NOTES.md`).
+
+```
+node orchestrator/coordinator.mjs \
+  --worker <workerHexKey[,workerHexKey...]> \
+  --requirement ./requirements.md --workspace ./build --storage ./.qvac/coordinator
+
+node worker/serve-tasks.mjs \
+  --gateway http://127.0.0.1:8787 --allow <coordinatorHexKey>
+```
+
+The two processes are two independent `NodeSwarm`s (their own identity, their
+own corestore) that find each other on the marketplace topic — the same
+discovery `pyrusllm peers` measures. `worker/serve-tasks.mjs` is deliberately
+**plain Node**, not wired into `bin.mjs`/Bare: its inference calls go over HTTP
+to the local gateway, same as `worker/run.mjs`, so they still pass through
+`store.beginRequest`/`endRequest` — the only place node capacity is counted —
+and the process never enters the OTA binary. See the header of
+[`worker/serve-tasks.mjs`](../worker/serve-tasks.mjs) for why that split is
+load-bearing and not just tidiness.
+
+What actually happens on a ticket:
+
+- **`orchestrator/task-protocol.mjs`** — the `qvac/task/v0` messages
+  (`task:assign` / `task:accept` / `task:reject` / `task:progress` /
+  `task:result`), built and validated with no transport at all.
+- **`orchestrator/context-drive.mjs`** — the coordinator's workspace as a
+  Hyperdrive, read sparsely by the worker **over the connection the two nodes
+  already hold** — no DHT announce per ticket, no `swarm.join`. The
+  cross-machine audit (see the repo's own review of this design) measured that
+  leg at 2–17s with a 38s tail if done the other way; skipping it is the
+  single biggest latency win in this design.
+- **`orchestrator/mirror.mjs`** — applying a `task:result` to the coordinator's
+  workspace: fetch by declared path only, verify every hash before writing
+  anything, and clear a ticket's declared paths before laying an attempt down
+  (so a file attempt A1 wrote that attempt A2 simply doesn't reproduce can't
+  linger and pass CI).
+- **`worker/task-accept.mjs`** — the far side: allowlist check, mount the
+  context drive, call the LOCAL gateway (never the engine in-process — that
+  would bypass the slot counter), run the same jail as the local worker, reply
+  with files **inline** in `task:result` up to 1 MiB total
+  (`mirror.mjs`'s `INLINE_CEILING`) or, over that, on this node's own Files
+  drive.
+- **Idempotency.** `attemptId` is minted per assignment, not per ticket: a
+  worker that goes silent and is reassigned can still deliver, and its late
+  result — carrying the now-dead `attemptId` — is discarded with a log line
+  rather than double-accepted (`Coordinator._onTaskMessage`, tested in
+  `test/coordinator-idempotency-test.mjs`). And `result:received` is appended
+  to the run log **before** the mirror, so a coordinator that dies between
+  accepting a result and closing the ticket resumes from the log on restart —
+  the inference is not paid for twice.
+
+Two decisions that differ from the earliest sketch of this protocol, both
+because the frozen manifest schema (`manifest-v0.json`,
+`additionalProperties: false`, generated from a zod schema in a package
+outside this repo) has no room for them yet:
+
+- **No `task:ack`.** With results inline under the ceiling there is nothing
+  left to seed after `task:result`, so nothing to acknowledge. A worker
+  releases its task slot when it sends the result, not when the coordinator
+  confirms receipt.
+- **Authorization is `--allow` / `--worker` (node config on each side), not a
+  signed `security.acceptsTasks` field.** The manifest schema would need a
+  version bump coordinated with its source package to carry that field
+  honestly; until then, being on the topic is still not enough on its own —
+  each side only acts on a key it was explicitly told about.
+
 ## What is not built
 
-- **Cross-machine.** Everything above ran on one machine. A worker writes to its
-  local workspace *and* to its drive; the orchestrator runs CI on *its* local
-  workspace. On one machine those are the same directory, which is why it works.
-  Nothing yet mirrors a remote worker's drive into the coordinator's workspace,
-  so "ten nodes building an app" would today be ten nodes writing to ten disks
-  that nobody joins. The transport exists (`qvac/files.mjs`); the mirror and the
-  swarm join do not.
 - **The cron.** `state.mjs` supports resuming across runs and `isStalled()`
   reports two runs in a row closing nothing, but no scheduler is wired up.
 - **A retry ceiling per ticket.** A ticket that never passes CI is reassigned

@@ -12,6 +12,13 @@ export const EVENTS = {
   RUN_START: 'run:start',
   RUN_END: 'run:end',
   TICKET_ASSIGNED: 'ticket:assigned',
+  // Logged the moment a `task:result` arrives and is validated, BEFORE the
+  // mirror and CI. It carries the whole result payload (inline file bytes
+  // included) so a coordinator that dies between receiving the result and
+  // closing the ticket resumes from the log on restart instead of reassigning
+  // and paying the inference again. Drive-backed overflow files are re-fetched
+  // on resume — the worker is the 24/7 node and is still seeding.
+  RESULT_RECEIVED: 'result:received',
   TICKET_DONE: 'ticket:done',
   TICKET_FAILED: 'ticket:failed',
   CI_PASS: 'ci:pass',
@@ -63,11 +70,37 @@ export class State {
     for (const e of this.events) {
       if (!e.ticketId) continue
       if (e.type === EVENTS.TICKET_ASSIGNED) state[e.ticketId] = 'assigned'
+      // Received but not yet mirrored + CI'd. A later ci:* or ticket:done
+      // event, processed after this one, moves it on; if the log ends here the
+      // coordinator died mid-close and `unfetchedResults()` picks it up.
+      if (e.type === EVENTS.RESULT_RECEIVED) state[e.ticketId] = 'result-pending'
       if (e.type === EVENTS.CI_FAIL) state[e.ticketId] = 'ci-failed'
       if (e.type === EVENTS.TICKET_FAILED) state[e.ticketId] = 'failed'
       if (e.type === EVENTS.TICKET_DONE) state[e.ticketId] = 'done'
     }
     return state
+  }
+
+  // The last result payload logged for a ticket, or null. Used both to resume a
+  // half-closed ticket and to reject a stale attempt's late delivery: the
+  // caller compares `attemptId`.
+  resultFor(ticketId) {
+    for (let i = this.events.length - 1; i >= 0; i--) {
+      const e = this.events[i]
+      if (e.ticketId === ticketId && e.type === EVENTS.RESULT_RECEIVED) return e
+    }
+    return null
+  }
+
+  // Tickets whose last state is a received-but-unclosed result: the coordinator
+  // logged `result:received` and then did not reach `ci:*`/`ticket:done`. On
+  // startup these are re-applied from the log instead of being reassigned.
+  unfetchedResults() {
+    const state = this.ticketStates()
+    return Object.keys(state)
+      .filter((id) => state[id] === 'result-pending')
+      .map((id) => this.resultFor(id))
+      .filter(Boolean)
   }
 
   done() {
