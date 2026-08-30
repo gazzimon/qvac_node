@@ -1104,3 +1104,71 @@ O sea: la tarjeta del panel anuncia "1M QVAC por 1M de tokens de salida", y el
 cuántos tokens se pidan. Está escrito en el código —"un 402 que pide cero no es
 un cobro"— y no es un bug oculto, pero **hoy lo que se anuncia y lo que se firma
 son dos números distintos**, y el panel no lo dice.
+
+---
+
+## El coordinador cross-machine, probado contra un worker real (30/8/2026)
+
+Primera corrida de `orchestrator/coordinator.mjs` contra un worker real en otra
+máquina, sin mocks: coordinador en Windows, `serve --swarm --model qwen4b` +
+`worker/serve-tasks.mjs` en la K16. Dos tickets (`sum`, `mul`), ninguno
+compartiendo archivos, `.qvac/demo-cross/` como fixture.
+
+### Lo que mordió en el camino
+
+**`pyrusllm` global no es el checkout.** En la K16, el comando `pyrusllm` del
+PATH (`/home/pyrusllm/.local/bin/pyrusllm`) es una instalación aparte,
+desconectada de `~/src/qvac_node`. Tipear `pyrusllm serve --model qwen4b`
+a mano dio `UNKNOWN_FLAG: model` aunque el checkout ya tenía el flag (commit
+`247fe4f`, el mismo día). La vía que sí sirve, y es la que ya usa el
+`pyrusllm.service` de systemd (ver sección anterior), es ignorar el `pyrusllm`
+global y correr directo desde el fuente:
+
+```bash
+cd ~/src/qvac_node
+node_modules/bare-runtime-linux-x64/bin/bare bin.mjs --no-updates serve --swarm --model qwen4b --ctx 8192 --log-inference
+```
+
+**`File descriptor could not be locked` = otro proceso vivo, no un bug.**
+Un Ctrl+C al `worker/serve-tasks.mjs` sin `--allow` no mató el proceso — quedó
+corriendo con el mismo `--storage`. Arrancar uno nuevo apuntando al mismo
+directorio pisa el lock de Corestore y tira ese mensaje. Se resuelve con
+`ps aux | grep serve-tasks` + `kill <pid>`, nunca borrando el storage.
+
+**Primer peer en frío tarda ~109 s, no los 4–7 s de la tabla de D7 más
+arriba.** Esa tabla mide reconexiones con directorio caliente; acá el gateway
+recién arrancado (identidad nueva en la sesión, pero mismo storage) tardó
+109383 ms en encontrar su primer par. Coherente con la fila "nodo virgen" de
+esa tabla — la diferencia es si el store ya tiene pares conocidos, no si la
+red anda bien.
+
+**Un ticket puede dar CI rojo por el fixture, no por el modelo.** `sum` salió
+`ci-failed` en la primera pasada porque `verify.mjs` de la demo valida los DOS
+archivos (`sum.js` y `mul.js`) en un solo test, y CI corrió apenas se cerró
+`sum`, antes de que `mul` existiera. El código generado
+(`export function sum(a, b) { return a + b }`) era correcto. Una segunda
+corrida del coordinador —que retoma tickets `ci-failed`— cerró `sum` sin
+volver a pedirle nada a `mul`: **2/2 closed**. Una tercera corrida confirmó
+`0 pending out of 2`, sin reprocesar nada.
+
+### Acceso SSH del coordinador a la K16
+
+Para que la sesión de Claude Code que actúa de coordinador pueda ejecutar
+comandos y leer configuración en la K16 sin que un humano retipee cada línea
+por SSH, se generó un keypair **dedicado** (no el que usa el operador a mano):
+
+```
+~/.ssh/k16_coordinator_ed25519(.pub)
+```
+
+Agregado a `~/.ssh/authorized_keys` del usuario `pyrusllm` en la K16 con
+opciones restrictivas — sin port-forwarding, sin X11, sin pty interactivo, así
+que esta clave únicamente puede correr comandos puntuales (`ssh host "cmd"`),
+nunca abrir una shell:
+
+```
+no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA... claude-code-coordinator@DESKTOP-7GTOUA7
+```
+
+Cada uso pasa por el mismo gate de autorización que cualquier otro comando de
+Bash — no es acceso sin supervisión, es evitar el copy-paste manual.

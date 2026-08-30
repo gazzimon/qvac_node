@@ -44,6 +44,43 @@ export const MODEL_INFO = {
     displayName: 'Gemma 4 E4B Instruct',
     params: '4B',
     sizeGB: 5405168384 / 1024 ** 3
+  },
+
+  // Added 2026-08-30 for machines well past K16's class (>=32GB RAM/VRAM
+  // headroom). Verified against the real registry the same way as the rest
+  // of this file (`node_modules/.bin/bare qvac/probe-registry.mjs`) — not
+  // guessed names. None of these have run the orchestrator worker
+  // qualification demo yet (see PROMPT_FLEET-WORKER-ONBOARDING.md step 4):
+  // treat them as catalog entries, not as proven workers, until one has.
+  gptoss20b: {
+    name: 'gpt-oss-20b-Q4_K_M',
+    displayName: 'GPT-OSS 20B',
+    params: '20B',
+    sizeGB: 11624759488 / 1024 ** 3
+  },
+  katcoder35b: {
+    name: 'Kwaipilot_KAT-Coder-V2.5-Dev-Q4_K_M',
+    displayName: 'KAT-Coder V2.5 Dev 35B',
+    params: '35B',
+    sizeGB: 21391448480 / 1024 ** 3
+  },
+  katcoder35b_q8: {
+    name: 'Kwaipilot_KAT-Coder-V2.5-Dev-Q8_0',
+    displayName: 'KAT-Coder V2.5 Dev 35B (Q8)',
+    params: '35B',
+    sizeGB: 36914690464 / 1024 ** 3
+  },
+  qwen35bmoe: {
+    name: 'Qwen3.6-35B-A3B-UD-Q4_K_M',
+    displayName: 'Qwen3.6 35B-A3B (MoE)',
+    params: '35B-A3B',
+    sizeGB: 22134528992 / 1024 ** 3
+  },
+  gemma31b: {
+    name: 'google_gemma-4-31B-it-Q4_K_M',
+    displayName: 'Gemma 4 31B Instruct',
+    params: '31B',
+    sizeGB: 19598488192 / 1024 ** 3
   }
 }
 
