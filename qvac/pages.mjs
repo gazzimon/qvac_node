@@ -1415,7 +1415,8 @@ ${CONNECT_JS}
       document.getElementById('toggle').textContent =
         n.status === 'online' ? 'Go offline' : 'Go back online'
 
-      // Lo unico que el usuario edita: solo se pisa si NO lo esta tocando.
+      // The one thing the user edits: only overwritten if they're NOT
+      // currently touching it.
       const pricing = document.getElementById('pricing')
       if (document.activeElement !== pricing) pricing.value = n.pricing
 
@@ -1432,9 +1433,9 @@ ${CONNECT_JS}
     }
 
     // -------------------------------------------------------------------
-    // Selector de modelo: solo ofrece lo que entra en la RAM de ESTA
-    // maquina (ver /v1/swarm/manifest -> models[].fits). Cambiar de modelo
-    // pasa por un modal de confirmacion porque dispara una carga real.
+    // Model selector: only offers what fits in THIS machine's RAM (see
+    // /v1/swarm/manifest -> models[].fits). Changing model goes through a
+    // confirmation modal because it triggers a real load.
     // -------------------------------------------------------------------
     let modelSelectBuiltWith = null
     let modelLoadPoll = null
@@ -1460,9 +1461,9 @@ ${CONNECT_JS}
 
       const info = catalogById[nextAlias]
       const proceed = confirm(
-        'Cambiar el modelo de este nodo a "' + (info ? info.displayName : nextAlias) + '".\\n\\n' +
-        'Puede tardar varios segundos -o fallar por falta de memoria- mientras el ' +
-        'nodo sigue respondiendo con el modelo actual. Si falla, se mantiene el modelo de ahora.'
+        'Change this node\\'s model to "' + (info ? info.displayName : nextAlias) + '".\\n\\n' +
+        'It can take several seconds -or fail for lack of memory- while the ' +
+        'node keeps responding with the current model. If it fails, the current model stays.'
       )
       if (!proceed) { e.target.value = n.modelId; return }
 
@@ -1473,7 +1474,7 @@ ${CONNECT_JS}
       })
       if (!r.ok) {
         const data = await r.json().catch(() => ({}))
-        alert((data.error && data.error.message) || 'no se pudo cambiar el modelo')
+        alert((data.error && data.error.message) || 'could not change the model')
         e.target.value = n.modelId
         return
       }
@@ -1508,17 +1509,18 @@ ${CONNECT_JS}
       const r = await authFetch('/v1/nodes')
       const { nodes: todos, swarm } = await r.json()
 
-      // Esta pagina es SOLO sobre tu maquina. Antes listaba la red entera y
-      // arrancaba en todos[0], que suele ser un par remoto: el panel decia
-      // "Tu nodo" y mostraba el de otra persona, con un campo de precio y un
-      // boton de guardar al lado que no podian hacer nada sobre el manifiesto
-      // firmado de un tercero. Los nodos ajenos se miran en /network.
+      // This page is ONLY about your machine. It used to list the whole
+      // network and start on todos[0], which is usually a remote peer: the
+      // panel said "Your node" and showed someone else's, with a price
+      // field and a save button next to it that could do nothing to a third
+      // party's signed manifest. Other nodes are viewed at /network.
       const nodes = todos.filter(n => n.kind === 'real')
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
       if (!current || !nodesById[current]) current = nodes[0]?.id
 
-      // Un desplegable con una sola opcion es ruido: casi siempre hay un unico
-      // nodo local, y solo se muestra el selector si de verdad hay que elegir.
+      // A dropdown with a single option is noise: there's almost always just
+      // one local node, and the selector only shows up if there's actually
+      // something to choose.
       document.getElementById('node-picker').style.display = nodes.length > 1 ? '' : 'none'
       document.getElementById('no-node').style.display = nodes.length ? 'none' : ''
       if (!nodes.length) {
@@ -1540,8 +1542,8 @@ ${CONNECT_JS}
         }
       }
 
-      // El <select> se repinta solo si cambio la lista de nodos. Repintarlo en
-      // cada poll cerraba el desplegable si lo tenias abierto.
+      // The <select> only repaints if the node list changed. Repainting it
+      // on every poll used to close the dropdown if you had it open.
       const key = nodes.map(n => n.id + '|' + n.displayName + '|' + n.operator).join(',')
       if (key !== optionsKey) {
         optionsKey = key
@@ -1565,9 +1567,9 @@ ${CONNECT_JS}
         if (mc && Number.isFinite(+mc.value) && +mc.value > 0) patch.maxConcurrentRequests = +mc.value
       }
 
-      // Sin el blur, el input sigue teniendo el foco y el refresh de abajo no
-      // lo actualiza: quedaria mostrando lo tipeado aunque el server lo haya
-      // recortado, y no se veria que quedo guardado de verdad.
+      // Without the blur, the input keeps focus and the refresh below
+      // doesn't update it: it would keep showing what was typed even if the
+      // server trimmed it, and there'd be no way to see it actually saved.
       document.activeElement && document.activeElement.blur && document.activeElement.blur()
 
       await authFetch('/v1/nodes/' + encodeURIComponent(current), {
@@ -1608,8 +1610,9 @@ ${CONNECT_JS}
 
 
     // ------------------------------------------------------------------
-    // Credenciales. Varias a proposito: una por cliente, para poder cortar a
-    // un bot sin tocar a los demas y para que el rastro sepa cual pidio que.
+    // Credentials. Several on purpose: one per client, so a bot can be cut
+    // off without touching the rest, and so the trail knows which one
+    // requested what.
     // ------------------------------------------------------------------
     let keys = []
 
@@ -1698,8 +1701,8 @@ ${CONNECT_JS}
     })
 
     document.getElementById('revoke-all').addEventListener('click', async function (e) {
-      // El numero va en la pregunta: decir "se revoca la key actual" cuando hay
-      // cinco emitidas es mentirle a quien esta por apretar.
+      // The number goes in the question: saying "revoke the current key"
+      // when there are five issued is lying to whoever's about to click.
       const n = keys.length
       if (!confirm('Revoke all ' + n + (n === 1 ? ' key' : ' keys') +
         '? Every client using them stops working immediately.')) return
@@ -1709,8 +1712,9 @@ ${CONNECT_JS}
         const r = await authFetch('/v1/keys/revoke-all', { method: 'POST' })
         const d = await r.json()
         keys = d.keys || []
-        // El panel se re-credencia solo: su key vieja acaba de morir con el
-        // resto, y sin esto la pagina quedaria sin poder hablarle al gateway.
+        // The panel re-credentials itself: its old key just died with the
+        // rest, and without this the page would be left unable to talk to
+        // the gateway.
         window.__panelKey = null
         pintarKeys()
       } catch (err) {
@@ -1720,9 +1724,9 @@ ${CONNECT_JS}
     })
 
     // ------------------------------------------------------------------
-    // Trafico. Las dos direcciones salen del MISMO rastro, separadas por
-    // kind: 'served' es lo que este nodo produjo para un par (lo escribe
-    // provider.mjs) y 'route' es lo que este nodo le pidio a alguien.
+    // Traffic. Both directions come from the SAME trail, split by kind:
+    // 'served' is what this node produced for a peer (written by
+    // provider.mjs) and 'route' is what this node asked someone else for.
     // ------------------------------------------------------------------
     let flow = 'in'
 
@@ -1735,13 +1739,14 @@ ${CONNECT_JS}
       if (e.tokensPerSec) bits.push(e.tokensPerSec + ' tok/s')
       bits.push(e.ms + 'ms')
       const fallo = e.ok === false ? ' <b style="color:#f87171">FAILED</b>' : ''
-      // FASE 9 / D25 \u2014 el split va en su propia columna y con su procedencia
-      // pegada. Sumar prefill y decode en el "tok" de al lado los volveria a
-      // mezclar, que es justo lo que D25 separo; y sin la procedencia, un
-      // conteo de chunks de SSE se lee igual que un usage del proveedor.
+      // PHASE 9 / D25 \u2014 the split goes in its own column with its
+      // provenance attached. Adding prefill and decode into the "tok"
+      // column next to it would mix them back together, which is exactly
+      // what D25 split apart; and without the provenance, an SSE chunk
+      // count reads the same as a provider's usage.
       //
-      // D27 al lado: sin finishReason, en el rastro un corte del cliente y
-      // una respuesta completa se ven identicos.
+      // D27 alongside: without finishReason, in the trail a client cutoff
+      // and a complete response look identical.
       const conteo = htmlDeConteo(vistaDeConteo(e))
       const fin = e.finishReason
         ? '<div class="x-nota" style="margin:.2rem 0 0">' +
@@ -1756,8 +1761,9 @@ ${CONNECT_JS}
     function pintarFlujo(log) {
       const entradas = flow === 'in'
         ? log.filter(e => e.kind === 'served')
-        // Lo ruteado al propio equipo no es una transaccion con nadie: sin este
-        // filtro, "lo que le pedimos a otros" se llenaba de nuestro propio nodo.
+        // What gets routed to your own machine isn't a transaction with
+        // anyone: without this filter, "what we asked others for" would
+        // fill up with our own node.
         : log.filter(e => e.kind === 'route' && e.target && e.target !== 'local')
 
       const box = document.getElementById('flow-body')
@@ -1776,10 +1782,10 @@ ${CONNECT_JS}
         (flow === 'in' ? 'Asked by' : 'Answered by') +
         '</th><th>Model</th><th></th><th>prefill / decode (D25)</th></tr></thead><tbody>' +
         entradas.map(filaFlujo).join('') + '</tbody></table>' +
-        '<p class="x-nota">D25 registra las dos dimensiones por separado porque no escalan ' +
-        'igual: el prefill procesa el prompt en paralelo y lo limita el computo, el decode ' +
-        'genera token a token y lo limita el ancho de banda de memoria. El precio sigue siendo ' +
-        'plano (D22): esto se registra para poder decidir con datos, no para tarifar hoy.</p>'
+        '<p class="x-nota">D25 records the two dimensions separately because they don\\'t scale ' +
+        'the same way: prefill processes the prompt in parallel and is bound by compute, decode ' +
+        'generates token by token and is bound by memory bandwidth. Pricing is still ' +
+        'flat (D22): this gets recorded so a decision can be made with data, not to charge for it today.</p>'
     }
 
     document.querySelectorAll('#flow-tabs button').forEach(b => {
@@ -1797,45 +1803,46 @@ ${CONNECT_JS}
         const r = await authFetch('/v1/routing-log')
         const { log } = await r.json()
         pintarFlujo(log || [])
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
     // -------------------------------------------------------------------
-    // FASE 9 — el recibo y la atestacion de un request cobrado.
+    // PHASE 9 — a charged request's receipt and attestation.
     //
-    // Va con fetch PELADO y no con authFetch, y no es un olvido: la ruta
-    // GET /v1/receipts/:id es la unica del sistema que NO pide credencial, a
-    // proposito. Quien pago por 402 no tiene ninguna -- ese es todo el punto
-    // del 402 --, asi que exigirle una para ver su propio recibo lo dejaria sin
-    // poder auditar justamente lo que pago. Mandarle la key del panel aca
-    // ademas escondería esa propiedad detras de un header que no hace falta.
+    // Uses a PLAIN fetch and not authFetch, and it isn't an oversight: the
+    // GET /v1/receipts/:id route is the only one in the system that does
+    // NOT require a credential, on purpose. Whoever paid via 402 has none --
+    // that's the whole point of the 402 --, so requiring one to see their
+    // own receipt would leave them unable to audit exactly what they paid
+    // for. Sending the panel's key here would also hide that property
+    // behind a header that isn't needed.
     //
-    // No hay ruta que LISTE recibos y no se inventa una: la Fase 9 esta cerrada
-    // y agregarle superficie la reabre. Se busca por id, que es el que vuelve
-    // con la respuesta.
+    // There's no route that LISTS receipts and none gets invented: Phase 9
+    // is closed and adding surface area to it reopens it. It's looked up by
+    // id, which is what comes back with the response.
     // -------------------------------------------------------------------
     async function verRecibo() {
       const box = document.getElementById('recibo-box')
       const id = document.getElementById('recibo-id').value.trim()
       if (!id) {
-        box.innerHTML = '<p class="hint">Falta el id de la completion.</p>'
+        box.innerHTML = '<p class="hint">Missing the completion id.</p>'
         return
       }
-      // Vacio es AUSENTE, no cadena vacia: el hash de "" es un hash valido, y
-      // compararlo contra el declarado diria "NO coincide" cuando lo cierto es
-      // que no hay con que comparar. Son dos estados distintos y la vista los
-      // distingue.
+      // Empty means ABSENT, not an empty string: the hash of "" is a valid
+      // hash, and comparing it against the declared one would say "does NOT
+      // match" when the truth is there's nothing to compare against. Two
+      // different states, and the view tells them apart.
       const texto = document.getElementById('recibo-texto').value
       const ctx = texto.length ? { textoRecibido: texto } : {}
 
-      box.innerHTML = '<p class="hint">Buscando…</p>'
+      box.innerHTML = '<p class="hint">Looking it up…</p>'
       try {
         const r = await fetch('/v1/receipts/' + encodeURIComponent(id))
         if (r.status === 404) {
           box.innerHTML =
-            '<div class="x402"><div class="x-aviso tibio">No hay recibo para ese id. ' +
-            'Los recibos viven en memoria del proceso y se guardan los ultimos 200: ' +
-            'no es un ledger, el ledger de verdad es la cadena. Un reinicio los borra.' +
+            '<div class="x402"><div class="x-aviso tibio">No receipt for that id. ' +
+            'Receipts live in the process\\'s memory and the last 200 are kept: ' +
+            'this is not a ledger, the real ledger is the chain. A restart clears them.' +
             '</div></div>'
           return
         }
@@ -1859,12 +1866,13 @@ ${CONNECT_JS}
     })
 
     // -------------------------------------------------------------------
-    // Los dos medidores (Fase 6.5 y 6.6). Se piden juntos porque son la misma
-    // pregunta vista de los dos lados, pero vienen de endpoints distintos a
-    // proposito: /v1/quota lo lleva el proveedor y /v1/budget el gateway.
+    // The two gauges (Phase 6.5 and 6.6). Requested together because they're
+    // the same question seen from both sides, but they come from different
+    // endpoints on purpose: /v1/quota is kept by the provider and /v1/budget
+    // by the gateway.
     //
-    // Cada uno falla por su cuenta. Si el nodo no esta sirviendo todavia no
-    // hay cuota que mostrar, y eso no tiene por que borrar el gasto.
+    // Each one fails on its own. If the node isn't serving yet there's no
+    // quota to show, and that has no reason to blank out the spend.
     // -------------------------------------------------------------------
     function miles(n) {
       return Number(n || 0).toLocaleString('en-US')
@@ -1892,7 +1900,7 @@ ${CONNECT_JS}
             <span>\${miles(p.used)} used · \${miles(p.remaining)} left</span>
           </div>
         \`).join('')
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
     async function refrescarGasto() {
@@ -1901,18 +1909,20 @@ ${CONNECT_JS}
         if (!r.ok) return
         const b = await r.json()
 
-        // B13 — hay DOS topes y el que corta puede ser cualquiera de los dos.
-        // Se muestra el MENOR de los dos remanentes, porque ese es el que
-        // manda: con el de la cuenta en USD 20 y el del nodo en USD 2, decir
-        // "te quedan 20" es prometer diecinueve que no existen.
+        // B13 — there are TWO caps and whichever cuts things off could be
+        // either one. The LESSER of the two remainders gets shown, because
+        // that's the one that rules: with the account's at USD 20 and the
+        // node's at USD 2, saying "you have 20 left" promises nineteen that
+        // don't exist.
         const nodo = b.node || {}
         const nodoManda =
           nodo.remaining_micros !== undefined && nodo.remaining_micros < b.remaining_micros
         const restante = nodoManda ? nodo.remaining : b.remaining
         document.getElementById('b-remaining').textContent = restante + ' left'
 
-        // El porcentaje se calcula sobre el tope, no sobre lo que queda: con
-        // el tope en cero no hay division por cero ni una barra al 100%.
+        // The percentage is calculated against the cap, not against what's
+        // left: with the cap at zero there's no division by zero and no bar
+        // stuck at 100%.
         const capMicros = nodoManda ? nodo.cap_micros : b.cap_micros
         const spentMicros = nodoManda ? nodo.spent_micros : b.spent_micros
         const usado = capMicros > 0 ? (spentMicros / capMicros) * 100 : 0
@@ -1927,24 +1937,24 @@ ${CONNECT_JS}
             : nodo.cap
               ? ' · machine total: ' + nodo.spent + ' of ' + nodo.cap
               : '')
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
     // -------------------------------------------------------------------
-    // El asistente externo y su interruptor (Fase 8.5).
+    // The external assistant and its switch (Phase 8.5).
     //
-    // El endpoint para prenderlo existia desde el principio y solo se podia
-    // usar con curl. El caso que lo motivo es "se saturo la red en medio de una
-    // demo", y en ese momento nadie abre una terminal.
+    // The endpoint to turn it on had existed from the start and could only
+    // be used with curl. The case that motivated it is "the network got
+    // saturated mid-demo," and at that moment nobody opens a terminal.
     //
-    // El boton dice lo que va a PASAR, no el estado en el que esta: "Turn on"
-    // cuando esta apagado. Un boton que dice "On" y ademas esta prendido no se
-    // sabe si es un estado o una accion, y este en particular decide si el
-    // prompt de alguien sale de la maquina.
+    // The button says what's about to HAPPEN, not the state it's in: "Turn
+    // on" when it's off. A button that says "On" while also being on gives
+    // no way to tell whether it's a state or an action, and this one in
+    // particular decides whether someone's prompt leaves the machine.
     // -------------------------------------------------------------------
-    // FASE 7 — la direccion de cobro. Que NO haya wallet es un estado normal y
-    // se dice como tal: un nodo que solo consume no necesita una. Lo que no
-    // puede pasar es que se lea como si algo estuviera roto.
+    // PHASE 7 — the payout address. There being NO wallet is a normal state
+    // and it's stated as such: a node that only consumes doesn't need one.
+    // What can't happen is for it to read like something's broken.
     async function refrescarWallet() {
       const estado = document.getElementById('wallet-estado')
       if (!estado) return
@@ -1976,7 +1986,7 @@ ${CONNECT_JS}
           '<p class="hint">Nothing is charged yet: the manifest says who to pay, paying is ' +
           'still to come. <b>Plasma is not a testnet</b> &mdash; whatever lands here is real.</p>'
       } catch (e) {
-        /* sin gateway el resto de la pagina ya lo dice */
+        /* no gateway: the rest of the page already says so */
       }
     }
 
@@ -1990,9 +2000,9 @@ ${CONNECT_JS}
         const sw = document.getElementById('up-switch')
         const estado = document.getElementById('up-estado')
 
-        // Sin ningun upstream configurado, el interruptor no tiene nada que
-        // prender: se explica como se configura y no se ofrece un boton que no
-        // haria nada.
+        // With no upstream configured, the switch has nothing to turn on:
+        // it explains how to configure one instead of offering a button
+        // that would do nothing.
         if (!u.upstreams.length) {
           sw.style.display = 'none'
           estado.innerHTML = '<p class="hint">No external assistant is configured. ' +
@@ -2002,9 +2012,10 @@ ${CONNECT_JS}
         }
 
         estado.innerHTML = u.upstreams.map(function (m) {
-          // La credencial es lo unico que puede faltar y verse igual que todo
-          // lo demas: el modelo aparece en la lista, con nombre y precio, y no
-          // contesta nunca. Se dice cual variable de entorno falta, no "error".
+          // The credential is the one thing that can be missing and still
+          // look like everything else: the model shows up in the list,
+          // with a name and a price, and it just never answers. It states
+          // which environment variable is missing, not "error."
           var cred = m.credencial
             ? '<span class="ok">ready</span>'
             : '<span class="off">no credential &mdash; set ' + esc(m.apiKeyEnv) + '</span>'
@@ -2021,7 +2032,7 @@ ${CONNECT_JS}
         boton.textContent = u.optIn ? 'Turn off' : 'Turn on'
         boton.className = u.optIn ? 'danger' : ''
         boton.dataset.next = u.optIn ? 'false' : 'true'
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
     document.getElementById('up-toggle').addEventListener('click', async function (ev) {
@@ -2034,7 +2045,7 @@ ${CONNECT_JS}
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: encender })
         })
-      } catch (e) { /* el refresco de abajo muestra el estado que quedo */ }
+      } catch (e) { /* the refresh below shows whatever state it ended up in */ }
       boton.disabled = false
       refrescarUpstream()
     })
@@ -2050,9 +2061,9 @@ ${CONNECT_JS}
     refrescarFlujo()
     setInterval(refrescarFlujo, 3000)
 
-    // Mas lento que el resto: estos dos numeros se mueven de a un request, no
-    // de a un token. Pollear cada 2,5 s seria pedirle al gateway que recorra
-    // el ledger para decir lo mismo cuatro veces seguidas.
+    // Slower than the rest: these two numbers move one request at a time,
+    // not one token at a time. Polling every 2.5s would mean asking the
+    // gateway to walk the ledger to say the same thing four times in a row.
     refrescarEconomia()
     setInterval(refrescarEconomia, 8000)
 
@@ -2065,17 +2076,17 @@ ${CONNECT_JS}
 export const ADMIN_HTML = page(
   'PyrusLLM · Admin',
   `
-  <h1>Panel de administración</h1>
-  <p class="sub">Todos los nodos de la red y el log de ruteo del gateway.</p>
+  <h1>Admin panel</h1>
+  <p class="sub">Every node on the network and the gateway's routing log.</p>
 
   <table>
     <thead>
-      <tr><th>Nodo</th><th>Operador</th><th>Tipo</th><th>Estado</th><th>Carga</th><th>Precio</th><th></th></tr>
+      <tr><th>Node</th><th>Operator</th><th>Type</th><th>Status</th><th>Load</th><th>Price</th><th></th></tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
 
-  <h3 style="margin-top:2rem">Log de ruteo</h3>
+  <h3 style="margin-top:2rem">Routing log</h3>
   <div id="log" class="log"></div>
 
   <script>
@@ -2090,17 +2101,17 @@ ${FUENTE_EMBEBIDA}
           <td>\${esc(n.displayName)}</td>
           <td class="muted">\${esc(n.operator)}</td>
           <td><span class="badge \${esc(n.kind)}">\${esc(n.kind)}</span></td>
-          <td><span class="badge \${esc(n.status)}">\${n.status === 'online' ? 'en línea' : 'fuera de línea'}</span></td>
+          <td><span class="badge \${esc(n.status)}">\${n.status === 'online' ? 'online' : 'offline'}</span></td>
           <td>\${n.loadPct === null ? '—' : esc(n.loadPct + '% (' + n.activeRequests + '/' + n.maxConcurrentRequests + ')')}</td>
           <td>\${esc(n.pricing)}</td>
-          <td><button class="\${n.status === 'online' ? 'danger' : 'ghost'}" data-id="\${esc(n.id)}" data-action="\${n.status === 'online' ? 'kick' : 'restore'}">\${n.status === 'online' ? 'Tirar' : 'Reactivar'}</button></td>
+          <td><button class="\${n.status === 'online' ? 'danger' : 'ghost'}" data-id="\${esc(n.id)}" data-action="\${n.status === 'online' ? 'kick' : 'restore'}">\${n.status === 'online' ? 'Kick' : 'Restore'}</button></td>
         </tr>
       \`).join('')
       document.querySelectorAll('button[data-id]').forEach(btn => {
         btn.addEventListener('click', async () => {
           const id = encodeURIComponent(btn.dataset.id)
           const action = btn.dataset.action
-          btn.disabled = true // el poll repinta la tabla: evita doble click
+          btn.disabled = true // the poll repaints the table: prevents double-clicks
           if (action === 'kick') {
             await authFetch('/v1/nodes/' + id + '/kick', { method: 'POST' })
           } else {
@@ -2115,9 +2126,10 @@ ${FUENTE_EMBEBIDA}
       })
     }
 
-    // El rastro dejo de ser solo de ruteo: ahora trae model_load y los dos
-    // eventos D7 del swarm, que no tienen modelId ni nodo destino. Pintarlos
-    // con la plantilla vieja mostraba "undefined → undefined (undefinedms)".
+    // The trail stopped being routing-only: it now carries model_load and
+    // the swarm's two D7 events, which have neither a modelId nor a
+    // destination node. Painting them with the old template showed
+    // "undefined → undefined (undefinedms)".
     const linea = (e) => {
       const hora = esc(new Date(e.ts).toLocaleTimeString())
       const detalle = \`<span class="muted">\${esc(e.reason || '')}</span>\`
@@ -2126,9 +2138,9 @@ ${FUENTE_EMBEBIDA}
         return \`<div>\${hora} — <b>\${esc(e.kind)}</b> \${detalle}</div>\`
       }
 
-      // Los tres numeros de la demo. Se muestran solo si existen: un request
-      // que fallo antes del primer token no tiene tok/s, y un "0 tok/s" ahi
-      // seria una medicion inventada.
+      // The demo's three numbers. Only shown if they exist: a request that
+      // failed before the first token has no tok/s, and a "0 tok/s" there
+      // would be a made-up measurement.
       const metricas = []
       if (e.tokens) metricas.push(esc(e.tokens) + ' tok')
       if (e.ttftMs !== null && e.ttftMs !== undefined) metricas.push('ttft ' + esc(e.ttftMs) + 'ms')
@@ -2136,12 +2148,12 @@ ${FUENTE_EMBEBIDA}
       metricas.push(esc(e.ms) + 'ms')
 
       const destino = e.target ? \` <b>[\${esc(e.target)}]</b>\` : ''
-      const fallo = e.ok === false ? \` <b>FALLO\${e.code ? ' ' + esc(e.code) : ''}</b>\` : ''
+      const fallo = e.ok === false ? \` <b>FAILED\${e.code ? ' ' + esc(e.code) : ''}</b>\` : ''
 
-      // FASE 9 / D25 y D27. El split va con su procedencia y no sumado a
-      // "metricas": metido ahi seria un numero mas al lado de los tok/s, y la
-      // diferencia entre un token medido y un chunk de SSE contado se pierde
-      // exactamente en ese renglon.
+      // PHASE 9 / D25 and D27. The split goes with its provenance and isn't
+      // added into "metricas": stuffed in there it would be one more number
+      // next to the tok/s, and the difference between a measured token and
+      // a counted SSE chunk gets lost exactly on that line.
       const conteo = ' ' + htmlDeConteo(vistaDeConteo(e))
       const fin = e.finishReason
         ? \` <span class="muted">\${esc(e.finishReason)} — \${esc(textoDeFinishReason(e.finishReason))}</span>\`
@@ -2156,7 +2168,7 @@ ${FUENTE_EMBEBIDA}
       const { log } = await r.json()
       document.getElementById('log').innerHTML = log.length
         ? log.map(linea).join('')
-        : '<div class="muted">todavía no hay requests ruteados</div>'
+        : '<div class="muted">no requests routed yet</div>'
     }
 
     refreshNodes().catch(() => {})
@@ -2723,7 +2735,7 @@ const CHAT_JS = String.raw`
         var j = await r.json()
         nodes = j.nodes || []
         paintOptions()
-      } catch (e) { /* el poll siguiente reintenta */ }
+      } catch (e) { /* the next poll retries */ }
     }
 
     // ======================================================================

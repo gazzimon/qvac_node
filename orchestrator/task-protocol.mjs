@@ -160,6 +160,12 @@ export function buildAssign({
   allowedFiles,
   contextDrive = null,
   contextPaths = [],
+  // Paths this ticket owns that ALREADY EXIST, created by a ticket it depends
+  // on. Additive and optional, per this protocol's versioning rule: a worker
+  // that does not know the field still runs correctly — it just treats those
+  // files as ordinary reference context instead of as material to return
+  // updated. Always a subset of `allowedFiles`.
+  editPaths = [],
   limits = {},
   deadline = 0
 }) {
@@ -180,6 +186,7 @@ export function buildAssign({
     allowedFiles: allowedFiles.slice(),
     ...(contextDrive ? { contextDrive } : {}),
     ...(contextPaths.length ? { contextPaths: contextPaths.slice() } : {}),
+    ...(editPaths.length ? { editPaths: editPaths.slice() } : {}),
     limits: {
       maxSteps: limits.maxSteps ?? null,
       maxTokens: limits.maxTokens ?? null,

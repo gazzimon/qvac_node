@@ -31,8 +31,13 @@
 
 import fs from 'fs'
 import path from 'path'
-import { parseRequirements, buildDAG, dependencyWaves } from './split.mjs'
-import { detectOverlap } from './index.mjs'
+import {
+  parseRequirements,
+  buildDAG,
+  dependencyWaves,
+  detectConcurrentOverlap,
+  inheritedFiles
+} from './split.mjs'
 import { runCI } from './ci.mjs'
 import { applyResult } from './mirror.mjs'
 import { openContext, publishContext, updateContext } from './context-drive.mjs'
@@ -134,10 +139,18 @@ export class Coordinator {
     this.tickets = parseRequirements(fs.readFileSync(this.requirementFile, 'utf8'))
     if (this.tickets.length === 0) throw new Error('requirements declares no tickets')
 
-    const clashes = detectOverlap(this.tickets)
+    // Looser than the single-machine `detectOverlap` on purpose: two tickets
+    // may share a file as long as one DEPENDS on the other, because waves
+    // then guarantee they never run at once. Only a shared file between
+    // tickets that could be in the same wave is a real clash. See
+    // detectConcurrentOverlap in split.mjs for the full reasoning.
+    const clashes = detectConcurrentOverlap(this.tickets)
     if (clashes.length > 0) {
       const detail = clashes.map((c) => `${c.file} (${c.tickets.join(' and ')})`).join('; ')
-      throw new Error(`two tickets declare the same file: ${detail}`)
+      throw new Error(
+        `two tickets that can run at the same time declare the same file: ${detail}` +
+          ` — add a "Depends on:" between them, or give them separate files`
+      )
     }
 
     // Validates `Depends on:` against the WHOLE ticket graph, once, here —
@@ -148,14 +161,19 @@ export class Coordinator {
     // trusts this validation already ran and does not repeat it.
     buildDAG(this.tickets)
 
-    // Default contextPaths: what a ticket declared its OWN dependencies
-    // produce. A worker can open anything in the context drive, but nothing
-    // tells it there is something worth reading unless a path is named — and
-    // "the files my declared dependency was allowed to write" is the one hint
-    // the coordinator can derive for free, no model or heuristics involved. An
-    // explicit `contextHints` entry replaces it outright, it does not merge.
+    // Two derived per-ticket fields, both free of any model or heuristic:
+    //
+    //   editPaths    — files this ticket owns that a dependency already
+    //                  created. The worker is shown their current content and
+    //                  told to return them updated; the mirror is told not to
+    //                  clear them. This is what lets a project GROW instead of
+    //                  only accumulating new files.
+    //   contextPaths — everything a dependency produces, as reference. An
+    //                  explicit `contextHints` entry replaces this outright.
     const byId = new Map(this.tickets.map((t) => [t.id, t]))
     for (const ticket of this.tickets) {
+      ticket.editPaths = inheritedFiles(this.tickets, ticket)
+
       if (this.contextHints[ticket.id]) {
         ticket.contextPaths = this.contextHints[ticket.id]
         continue
@@ -168,7 +186,11 @@ export class Coordinator {
     // route by attemptId, drop anything for a dead attempt.
     this._detach = this.swarm.addTaskListener((peer, msg) => this._onTaskMessage(peer, msg))
 
-    this.log(`${this.tickets.length} tickets, no overlapping files`)
+    const editing = this.tickets.filter((t) => t.editPaths.length > 0).length
+    this.log(
+      `${this.tickets.length} tickets, no concurrent file clashes` +
+        (editing ? `, ${editing} of them editing a dependency's file` : '')
+    )
   }
 
   _onTaskMessage(peer, msg) {
@@ -255,6 +277,7 @@ export class Coordinator {
       allowedFiles: ticket.allowedFiles,
       contextDrive: this.context?.key || null,
       contextPaths: ticket.contextPaths || [],
+      editPaths: ticket.editPaths || [],
       limits: this.limits,
       deadline
     })
@@ -352,7 +375,14 @@ export class Coordinator {
       fetchFromDrive = (p) => resultDrive.readFile(p)
     }
 
-    const applied = await applyResult(this.workspace, ticket, result, { fetchFromDrive })
+    // `keepPaths`: a file this ticket inherited from a dependency is never
+    // cleared before applying. If this ticket's model does not reproduce it,
+    // the right outcome is "the edit did not happen", not "the dependency's
+    // file is gone".
+    const applied = await applyResult(this.workspace, ticket, result, {
+      fetchFromDrive,
+      keepPaths: ticket.editPaths || []
+    })
     await resultDrive?.close().catch(() => {})
 
     // The coordinator's OWN re-check on arrival — the same allowedFiles jail,

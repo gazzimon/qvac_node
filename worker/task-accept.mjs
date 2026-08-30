@@ -135,11 +135,29 @@ async function runAssignment({ msg, reply, store, gateway, apiKey, model, log })
   // Pull the context files the coordinator flagged. Sparse, by path, over the
   // connection that already exists — no swarm handed to openContext.
   let contextFiles = []
+  let editFiles = []
   let ctx = null
   if (msg.contextDrive) {
     try {
       ctx = await openContext(store, msg.contextDrive, { timeoutMs: 30000 })
+
+      // Files this ticket OWNS that already exist (a dependency made them).
+      // Read first and kept apart from reference context: the model has to
+      // return these updated, and the prompt says so in different words.
+      // A declared edit path missing from the drive is not fatal either —
+      // the dependency may simply not have produced it — it just means the
+      // model creates the file instead of updating one.
+      const editSet = new Set(msg.editPaths || [])
+      for (const p of editSet) {
+        try {
+          editFiles.push({ path: p, content: (await ctx.readFile(p)).toString('utf8') })
+        } catch {
+          // Not in the drive: treated as a create, not an edit.
+        }
+      }
+
       for (const p of msg.contextPaths || []) {
+        if (editSet.has(p)) continue // already loaded, as an edit
         try {
           contextFiles.push({ path: p, content: (await ctx.readFile(p)).toString('utf8') })
         } catch {
@@ -173,6 +191,7 @@ async function runAssignment({ msg, reply, store, gateway, apiKey, model, log })
     callModel,
     harness,
     contextFiles,
+    editFiles,
     onProgress
   })
 
