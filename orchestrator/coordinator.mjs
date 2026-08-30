@@ -47,7 +47,8 @@ import {
   validateInbound,
   mintAttemptId,
   ticketIdOf,
-  buildAssign
+  buildAssign,
+  buildCancel
 } from './task-protocol.mjs'
 
 const DEFAULTS = {
@@ -367,6 +368,10 @@ export class Coordinator {
         clearTimeout(watchdog)
         watchdog = setTimeout(() => {
           this.log(`${ticket.id}: no progress for ${Math.round(this.cfg.progressGraceMs / 1000)}s — abandoning ${attemptId}`)
+          // Tell the worker, so it stops holding a slot for work nobody is
+          // waiting on. Without this the next ticket of the same run gets
+          // refused `at-capacity` by a node the coordinator believes is idle.
+          this.swarm.sendTask(worker.key, buildCancel({ attemptId, reason: 'no-progress' }))
           done(reject, new Error('worker went silent'))
         }, this.cfg.progressGraceMs)
         if (watchdog.unref) watchdog.unref()

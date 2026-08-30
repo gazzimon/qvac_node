@@ -34,7 +34,18 @@ export const TYPES = {
   ACCEPT: 'task:accept',
   REJECT: 'task:reject',
   PROGRESS: 'task:progress',
-  RESULT: 'task:result'
+  RESULT: 'task:result',
+  // coordinator -> worker: this attempt has been given up on. Sent when the
+  // progress watchdog fires, so the worker can stop and — the reason this
+  // exists — FREE THE SLOT. Measured on the K16: two attempts the coordinator
+  // had abandoned were still counted as active by the worker, so the third
+  // ticket of the run was refused `at-capacity` by a node that was, as far as
+  // the coordinator knew, doing nothing. `chat:cancel` already does the
+  // equivalent for inference; tasks had no counterpart.
+  //
+  // Advisory, like everything else here: a worker on an older build ignores
+  // the unknown type and simply keeps its slot until the work finishes.
+  CANCEL: 'task:cancel'
 }
 
 // `task:ack` from the earlier draft is gone: with results delivered INLINE in
@@ -227,6 +238,12 @@ export function buildReject({ attemptId, reason }) {
 // thinking hard from a node that fell over. Carries the same numbers
 // `--log-inference` prints locally (bytes, chunks, TTFT) — never a token count
 // the engine did not give us.
+// coordinator -> worker
+export function buildCancel({ attemptId, reason = 'abandoned' }) {
+  if (!attemptId) throw new Error('buildCancel: attemptId is required')
+  return { type: TYPES.CANCEL, protocol: TASK_PROTOCOL, attemptId, reason: String(reason) }
+}
+
 export function buildProgress({ attemptId, bytes = 0, chunks = 0, ttftMs = null, note = '' }) {
   if (!attemptId) throw new Error('buildProgress: attemptId is required')
   return {
@@ -332,6 +349,7 @@ export function validateInbound(msg) {
       return { ok: true }
 
     case TYPES.PROGRESS:
+    case TYPES.CANCEL:
       return { ok: true }
 
     case TYPES.RESULT:

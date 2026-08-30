@@ -38,7 +38,8 @@ import {
   buildAccept,
   buildReject,
   buildProgress,
-  buildResult
+  buildResult,
+  buildCancel
 } from '../orchestrator/task-protocol.mjs'
 
 // attach({ swarm, store, gateway, allowlist, ... }) wires the listener and
@@ -65,6 +66,22 @@ export function attachTaskAccept({
   )
 
   const detach = swarm.addTaskListener((peer, msg, reply) => {
+    // The coordinator gave up on this attempt. Free the slot: it is still
+    // counted as active here, and a node that looks busy to everyone while
+    // nobody is waiting on the work refuses the next ticket for nothing —
+    // measured on the K16, see TYPES.CANCEL. `cancelled` is checked after the
+    // generation returns so the result of an abandoned attempt is not sent
+    // (the coordinator would discard it as stale anyway).
+    if (msg.type === TYPES.CANCEL) {
+      const entry = active.get(msg.attemptId)
+      if (!entry) return
+      if (!allowed.has(peer.key.toLowerCase())) return
+      entry.cancelled = true
+      active.delete(msg.attemptId)
+      log(`${entry.ticketId}: cancelled by the coordinator (${msg.reason || 'no reason'})`)
+      return
+    }
+
     if (msg.type !== TYPES.ASSIGN) return // accept/progress/result are the coordinator's
 
     const v = validateInbound(msg)
@@ -87,11 +104,12 @@ export function attachTaskAccept({
       return reply(buildReject({ attemptId: msg.attemptId, reason: 'at-capacity' }))
     }
 
-    active.set(msg.attemptId, { ticketId: msg.ticketId, startedAt: Date.now() })
+    const entry = { ticketId: msg.ticketId, startedAt: Date.now(), cancelled: false }
+    active.set(msg.attemptId, entry)
     reply(buildAccept({ attemptId: msg.attemptId, etaMs: 120000 }))
     log(`accepted ${msg.ticketId} (${msg.attemptId}) from ${peer.key.slice(0, 8)}…`)
 
-    runAssignment({ msg, reply, store, gateway, apiKey, model, log })
+    runAssignment({ msg, reply, store, gateway, apiKey, model, log, entry })
       .catch((err) => {
         log(`${msg.ticketId} crashed: ${(err && err.message) || err}`)
         reply(
@@ -110,7 +128,7 @@ export function attachTaskAccept({
   }
 }
 
-async function runAssignment({ msg, reply, store, gateway, apiKey, model, log }) {
+async function runAssignment({ msg, reply, store, gateway, apiKey, model, log, entry = {} }) {
   // `deadline` made real: if the coordinator's ceiling has already passed by
   // the time this runs (the assignment sat somewhere in transit), refuse
   // before spending anything, instead of starting a harness with essentially
@@ -173,15 +191,43 @@ async function runAssignment({ msg, reply, store, gateway, apiKey, model, log })
 
   let lastBeat = 0
   const prog = { bytes: 0, chunks: 0 }
+  const beat = (note) => {
+    lastBeat = Date.now()
+    reply(
+      buildProgress({
+        attemptId: msg.attemptId,
+        bytes: prog.bytes,
+        chunks: prog.chunks,
+        ...(note ? { note } : {})
+      })
+    )
+  }
+
   const onProgress = (text) => {
     prog.chunks++
     prog.bytes += Buffer.byteLength(String(text), 'utf8')
-    const now = Date.now()
-    if (now - lastBeat > 5000) {
-      lastBeat = now
-      reply(buildProgress({ attemptId: msg.attemptId, bytes: prog.bytes, chunks: prog.chunks }))
-    }
+    if (Date.now() - lastBeat > 5000) beat()
   }
+
+  // A HEARTBEAT THAT DOES NOT DEPEND ON TOKENS ARRIVING.
+  //
+  // Measured on the K16 with gptoss20b (20B): the gateway logged
+  // `loading or thinking, nothing emitted yet` at 120s, 240s and 255s — a
+  // large model spends minutes loading weights into RAM and reasoning before
+  // it emits a single token. `onProgress` only fires on an SSE delta, so a
+  // perfectly healthy attempt sent ZERO heartbeats and the coordinator's
+  // progressGraceMs watchdog abandoned it as "worker went silent". Two of
+  // three tickets died that way, and the third was refused `at-capacity`
+  // because the abandoned attempts were still holding their slots.
+  //
+  // So the worker beats on a timer as well: silence from the model is not
+  // silence from the worker. Same distinction qvac/progress.mjs already draws
+  // locally — "nothing emitted yet" is a state worth reporting, not an
+  // absence of news. Unref'd: it must never hold the process open on its own.
+  const heartbeat = setInterval(() => {
+    if (Date.now() - lastBeat >= 15000) beat('loading or thinking, nothing emitted yet')
+  }, 5000)
+  if (heartbeat.unref) heartbeat.unref()
 
   const callModel = makeGatewayCall({ gateway, apiKey, model, onProgress })
 
@@ -195,8 +241,16 @@ async function runAssignment({ msg, reply, store, gateway, apiKey, model, log })
     onProgress
   })
 
+  clearInterval(heartbeat)
   await ctx?.close().catch(() => {})
   fs.rmSync(workspace, { recursive: true, force: true })
+
+  // Abandoned while we were generating: the coordinator has already moved on
+  // and would discard this as a stale attempt. Say nothing.
+  if (entry.cancelled) {
+    log(`${msg.ticketId}: finished after being cancelled — result dropped`)
+    return
+  }
 
   if (!r.ok) {
     return reply(

@@ -27,7 +27,12 @@ async function check(name, fn) {
   }
 }
 
-function scaffold(name, requirements) {
+// `gatePasses: false` seeds a gate that stays red. Needed since the
+// coordinator re-runs CI before retrying a ticket that already delivered: with
+// a trivially-green gate, a ticket at the failure ceiling closes on the
+// re-check instead of being blocked — correct behaviour, but it means the
+// ceiling can only be exercised against a gate that genuinely still fails.
+function scaffold(name, requirements, { gatePasses = true } = {}) {
   const TMP = fs.mkdtempSync(path.join(os.tmpdir(), `pyrus-safety-${name}-`))
   const WS = path.join(TMP, 'workspace')
   const REQ = path.join(TMP, 'requirements.md')
@@ -39,7 +44,13 @@ function scaffold(name, requirements) {
     path.join(WS, 'package.json'),
     JSON.stringify({ name: 'demo', type: 'module', scripts: { test: 'node verify.mjs' } }, null, 2)
   )
-  fs.writeFileSync(path.join(WS, 'verify.mjs'), `console.log('ok')\n`)
+  fs.writeFileSync(
+    path.join(WS, 'verify.mjs'),
+    gatePasses ? `console.log('ok')
+` : `console.error('still red')
+process.exit(1)
+`
+  )
   return { TMP, WS, REQ, STORAGE }
 }
 
@@ -82,7 +93,7 @@ await check('a blocked ticket is neither pending nor done', () => {
 // Retry ceiling — a ticket at the ceiling is blocked and never reassigned
 // ---------------------------------------------------------------------------
 await check('a ticket at the failure ceiling is blocked, and the worker is never contacted', async () => {
-  const { WS, REQ, STORAGE } = scaffold('ceiling', ONE_TICKET)
+  const { WS, REQ, STORAGE } = scaffold('ceiling', ONE_TICKET, { gatePasses: false })
 
   // A prior history: 4 CI failures already logged for `db`.
   const seed = new State(path.join(STORAGE, 'runs.jsonl'))
