@@ -21,9 +21,17 @@ export const EVENTS = {
   RESULT_RECEIVED: 'result:received',
   TICKET_DONE: 'ticket:done',
   TICKET_FAILED: 'ticket:failed',
+  // A ticket that has failed (CI red, or the model produced nothing usable)
+  // as many times as the retry ceiling allows. It stops being reassigned and
+  // is reported for a human to look at — without this, an unattended nightly
+  // run reassigns a stuck ticket every night forever.
+  TICKET_BLOCKED: 'ticket:blocked',
   CI_PASS: 'ci:pass',
   CI_FAIL: 'ci:fail',
-  VIOLATION: 'violation'
+  VIOLATION: 'violation',
+  // Logged when cumulative token spend across the whole project reaches the
+  // configured budget. The coordinator stops assigning and reports.
+  BUDGET_EXCEEDED: 'budget:exceeded'
 }
 
 export class State {
@@ -76,6 +84,7 @@ export class State {
       if (e.type === EVENTS.RESULT_RECEIVED) state[e.ticketId] = 'result-pending'
       if (e.type === EVENTS.CI_FAIL) state[e.ticketId] = 'ci-failed'
       if (e.type === EVENTS.TICKET_FAILED) state[e.ticketId] = 'failed'
+      if (e.type === EVENTS.TICKET_BLOCKED) state[e.ticketId] = 'blocked'
       if (e.type === EVENTS.TICKET_DONE) state[e.ticketId] = 'done'
     }
     return state
@@ -108,16 +117,50 @@ export class State {
     return Object.keys(state).filter((id) => state[id] === 'done')
   }
 
-  // What was left half-finished: assigned and never closed. This is what the
-  // next day's cron picks up instead of redoing everything from scratch.
+  // Escalated: tried the ceiling number of times and never went green. Not
+  // pending (the nightly run must not keep spending on it) and not done.
+  blocked() {
+    const state = this.ticketStates()
+    return Object.keys(state).filter((id) => state[id] === 'blocked')
+  }
+
+  // What was left half-finished: assigned and never closed, and NOT blocked.
+  // This is what the next day's cron picks up instead of redoing everything.
   pending() {
     const state = this.ticketStates()
-    return Object.keys(state).filter((id) => state[id] !== 'done')
+    return Object.keys(state).filter((id) => state[id] !== 'done' && state[id] !== 'blocked')
   }
 
   attemptsFor(ticketId) {
     return this.events.filter((e) => e.ticketId === ticketId && e.type === EVENTS.TICKET_ASSIGNED)
       .length
+  }
+
+  // Productive failures only: CI went red, or the model produced nothing
+  // usable (`ticket:failed` with a reason other than `unplaced`, which just
+  // means no worker was free — not the ticket's fault). This is what the
+  // retry ceiling counts against, so a ticket nobody could pick up does not
+  // burn its budget on connectivity problems.
+  failuresFor(ticketId) {
+    return this.events.filter(
+      (e) =>
+        e.ticketId === ticketId &&
+        (e.type === EVENTS.CI_FAIL ||
+          (e.type === EVENTS.TICKET_FAILED && e.reason && e.reason !== 'unplaced'))
+    ).length
+  }
+
+  // Cumulative token spend across every result ever logged for this project —
+  // what the global budget is measured against. Uses the number the worker
+  // reported (`usage.tokens`), provider-counted or gateway-estimated.
+  tokensSpent() {
+    let n = 0
+    for (const e of this.events) {
+      if (e.type === EVENTS.RESULT_RECEIVED && e.usage && Number.isFinite(e.usage.tokens)) {
+        n += e.usage.tokens
+      }
+    }
+    return n
   }
 
   lastRun() {
@@ -136,13 +179,17 @@ export class State {
 
     for (const e of this.events) {
       if (e.type === EVENTS.RUN_START) {
-        current = { start: e.ts, done: 0, failed: 0, violations: 0 }
+        current = { start: e.ts, done: 0, failed: 0, blocked: 0, violations: 0, tokens: 0 }
         runs.push(current)
       }
       if (!current) continue
       if (e.type === EVENTS.TICKET_DONE) current.done++
       if (e.type === EVENTS.TICKET_FAILED) current.failed++
+      if (e.type === EVENTS.TICKET_BLOCKED) current.blocked++
       if (e.type === EVENTS.VIOLATION) current.violations++
+      if (e.type === EVENTS.RESULT_RECEIVED && e.usage && Number.isFinite(e.usage.tokens)) {
+        current.tokens += e.usage.tokens
+      }
       if (e.type === EVENTS.RUN_END) current.end = e.ts
     }
 

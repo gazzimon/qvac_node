@@ -48,7 +48,17 @@ import {
 const DEFAULTS = {
   acceptTimeoutMs: 20000, // how long to wait for task:accept before trying another worker
   progressGraceMs: 120000, // no task:progress for this long ⇒ the attempt is a ghost
-  ciTimeoutMs: 30000
+  ciTimeoutMs: 30000,
+  // A ticket that has failed CI (or produced nothing usable) this many times
+  // stops being reassigned and is escalated as `ticket:blocked`. 4 is a
+  // guess, not a measurement: enough for a transient bad generation to
+  // recover, few enough that an impossible ticket does not burn a week of
+  // nightly inference. Override with --max-attempts.
+  maxAttempts: 4,
+  // Cumulative token ceiling for the whole project. 0 = no limit. The
+  // coordinator checks it before each wave and stops assigning once spend
+  // reaches it, logging `budget:exceeded`. --budget on the CLI.
+  budgetTokens: 0
 }
 
 export class Coordinator {
@@ -409,8 +419,8 @@ export class Coordinator {
   }
 
   pending() {
-    const closed = new Set(this.state.done())
-    return this.tickets.filter((t) => !closed.has(t.id))
+    const settled = new Set([...this.state.done(), ...this.state.blocked()])
+    return this.tickets.filter((t) => !settled.has(t.id))
   }
 
   async run() {
@@ -419,10 +429,39 @@ export class Coordinator {
 
     await this.resume()
 
-    const todo = this.pending()
+    let todo = this.pending()
+
+    // Retry ceiling: a ticket that has failed CI (or produced nothing usable)
+    // maxAttempts times stops being reassigned. Logged as `ticket:blocked`,
+    // reported in the summary, and — the point — NOT retried tonight or any
+    // night after. Without this an impossible ticket burns inference on every
+    // wake-up forever.
+    const overCeiling = todo.filter(
+      (t) => this.state.failuresFor(t.id) >= this.cfg.maxAttempts
+    )
+    for (const t of overCeiling) {
+      const failures = this.state.failuresFor(t.id)
+      this.state.append(EVENTS.TICKET_BLOCKED, { ticketId: t.id, failures })
+      this.log(`${t.id}: BLOCKED after ${failures} failed attempt(s) — needs a human`)
+    }
+    todo = todo.filter((t) => !overCeiling.includes(t))
+
     this.log(`${todo.length} pending out of ${this.tickets.length}`)
     if (todo.length === 0) {
-      this.state.append(EVENTS.RUN_END, { done: 0 })
+      this.endRun()
+      return this.summary()
+    }
+
+    // Global budget: stop before starting a run that is already over.
+    if (this.overBudget()) {
+      this.state.append(EVENTS.BUDGET_EXCEEDED, {
+        tokensSpent: this.state.tokensSpent(),
+        budgetTokens: this.cfg.budgetTokens
+      })
+      this.log(
+        `budget exhausted: ${this.state.tokensSpent()} / ${this.cfg.budgetTokens} tokens — not assigning`
+      )
+      this.endRun()
       return this.summary()
     }
 
@@ -455,6 +494,21 @@ export class Coordinator {
       for (let w = 0; w < waves.length; w++) {
         const wave = waves[w]
 
+        // A long run can cross the budget mid-way. Checked per wave (not per
+        // ticket) so a wave already in flight finishes, but no new wave
+        // starts — overshoot is bounded by one wave's worth of tokens.
+        if (this.overBudget()) {
+          this.state.append(EVENTS.BUDGET_EXCEEDED, {
+            tokensSpent: this.state.tokensSpent(),
+            budgetTokens: this.cfg.budgetTokens
+          })
+          this.log(
+            `budget exhausted mid-run at wave ${w + 1}/${waves.length}` +
+              ` (${this.state.tokensSpent()} / ${this.cfg.budgetTokens} tokens) — stopping`
+          )
+          break
+        }
+
         // A later wave's tickets may need to read a file an earlier wave just
         // wrote. Re-publish before assigning anything in this wave; without
         // it, a worker here would still see the tree as it stood at the top
@@ -474,11 +528,26 @@ export class Coordinator {
       }
     }
 
-    this.state.append(EVENTS.RUN_END, { done: this.state.done().length })
+    this.endRun()
+    return this.summary()
+  }
+
+  overBudget() {
+    return this.cfg.budgetTokens > 0 && this.state.tokensSpent() >= this.cfg.budgetTokens
+  }
+
+  endRun() {
+    this.state.append(EVENTS.RUN_END, {
+      done: this.state.done().length,
+      blocked: this.state.blocked().length,
+      tokensSpent: this.state.tokensSpent()
+    })
     if (this.state.isStalled()) {
       this.log('WARNING: two runs in a row closed no ticket — look before spending more')
     }
-    return this.summary()
+    if (this.state.blocked().length > 0) {
+      this.log(`WARNING: ${this.state.blocked().length} ticket(s) blocked — see ${path.join(this.storageDir, 'runs.jsonl')}`)
+    }
   }
 
   // Try each slot, starting at `startAt` (this ticket's round-robin position
@@ -502,14 +571,24 @@ export class Coordinator {
 
   summary() {
     const done = this.state.done()
+    const blocked = this.state.blocked()
     const r = {
       total: this.tickets.length,
       done: done.length,
-      pending: this.tickets.length - done.length,
+      blocked: blocked.length,
+      blockedIds: blocked,
+      pending: this.tickets.length - done.length - blocked.length,
       stalled: this.state.isStalled(),
+      tokensSpent: this.state.tokensSpent(),
+      budgetTokens: this.cfg.budgetTokens || null,
+      overBudget: this.overBudget(),
       contextKey: this.context?.key || null
     }
-    this.log(`summary: ${r.done}/${r.total} closed`)
+    this.log(
+      `summary: ${r.done}/${r.total} closed` +
+        (r.blocked ? `, ${r.blocked} blocked` : '') +
+        `, ${r.tokensSpent} tokens${r.budgetTokens ? ` / ${r.budgetTokens}` : ''}`
+    )
     return r
   }
 
@@ -572,11 +651,20 @@ async function main() {
     limits: {
       maxSteps: opts.maxSteps ? +opts.maxSteps : undefined,
       maxTokens: opts.maxTokens ? +opts.maxTokens : undefined
-    }
+    },
+    ...(opts.maxAttempts ? { maxAttempts: +opts.maxAttempts } : {}),
+    ...(opts.budget ? { budgetTokens: +opts.budget } : {})
   })
 
   try {
-    await coord.run()
+    const summary = await coord.run()
+    // Exit code carries the state a nightly wrapper needs to branch on without
+    // parsing the log: 0 = made progress or nothing to do, 2 = a ticket is
+    // blocked and needs a human, 3 = the budget stopped the run.
+    let code = 0
+    if (summary.overBudget) code = 3
+    else if (summary.blocked > 0) code = 2
+    process.exitCode = code
   } finally {
     await coord.close()
     await swarm.destroy()
@@ -594,7 +682,9 @@ function parseCliArgv(argv) {
     '--model': 'model',
     '--operator': 'operator',
     '--max-steps': 'maxSteps',
-    '--max-tokens': 'maxTokens'
+    '--max-tokens': 'maxTokens',
+    '--max-attempts': 'maxAttempts',
+    '--budget': 'budget'
   }
   const opts = {}
   for (let i = 0; i < argv.length; i++) {

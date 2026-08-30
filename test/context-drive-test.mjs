@@ -130,8 +130,18 @@ await check('a later change to the workspace is visible after the old reader clo
   assert.equal(changed, 1, 'only the one changed file should be re-put')
 
   const ctx2 = await openContext(storeWorker, key, { timeoutMs: 10000 })
-  const buf = await ctx2.readFile('src/db.js')
-  assert.equal(buf.toString('utf8'), 'export const db = 2\n')
+  // Replication is eventually-consistent: one `drive.update()` learns the new
+  // length but the block for the changed entry can still be a beat behind, so
+  // poll a few times rather than assume the first read is caught up. (Cold and
+  // isolated this passes on the first read; it only lags when this is the 9th
+  // suite churning sockets back-to-back.)
+  let text = ''
+  for (let i = 0; i < 20; i++) {
+    text = (await ctx2.readFile('src/db.js')).toString('utf8')
+    if (text === 'export const db = 2\n') break
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  assert.equal(text, 'export const db = 2\n')
   await ctx2.close()
 })
 
