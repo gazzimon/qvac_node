@@ -1,67 +1,69 @@
 #!/usr/bin/env node
 'use strict'
 
-// D30.3 — despliega el activo de prueba. SOLO EN TESTNET.
+// D30.3 — deploys the test asset. TESTNET ONLY.
 //
 //   PYRUS_DESPLIEGUE_CLAVE=0x…  npm run desplegar-activo   -- --rpc https://testnet-rpc.plasma.to
 //
 // -----------------------------------------------------------------------------
-// POR QUE ESTO NO ES HARDHAT NI FOUNDRY
+// WHY THIS IS NEITHER HARDHAT NOR FOUNDRY
 //
-// El repo no tiene Solidity ni toolchain, y no lo gana acá: lo que hay en
-// `scripts/` es el **bytecode ya compilado** (`activo-prueba.artefacto.json`) y
-// esto, que lo manda. La compilación pasó una vez, fuera del árbol, con `solc`
-// suelto — el artefacto registra la versión exacta del compilador, los settings
-// y el SHA-256 de la fuente, así que se puede repetir sin adivinar. El producto
-// no se entera de que existe Solidity, que es la condición.
+// The repo has no Solidity or toolchain, and it doesn't gain one here: what's
+// in `scripts/` is the **already compiled bytecode** (`activo-prueba.artefacto.json`)
+// and this, which sends it. The compilation happened once, outside the tree,
+// with a standalone `solc` — the artifact records the exact compiler version,
+// the settings, and the SHA-256 of the source, so it can be repeated without
+// guessing. The product never finds out Solidity exists, which is the point.
 //
-// El precio de esa decisión, dicho: recompilar no es `npm run` de nada. Si
-// alguien edita `activo-prueba.sol`, el artefacto queda viejo — y por eso hay un
-// test que recomputa el hash de la fuente y rompe cuando dejan de corresponder.
+// The price of that decision, stated plainly: recompiling isn't `npm run`
+// anything. If someone edits `activo-prueba.sol`, the artifact goes stale —
+// and that's why there's a test that recomputes the source hash and breaks
+// when they no longer match.
 //
 // -----------------------------------------------------------------------------
-// COMO SE RECOMPILA, EXACTAMENTE
+// HOW TO RECOMPILE, EXACTLY
 //
-// Estaba escrito "con solc suelto" y eso no alcanza para repetirlo: hubo que
-// adivinar una vez. La receta entera, fuera del árbol:
+// It used to just say "with a standalone solc" and that's not enough to
+// repeat it: it had to be guessed once. The full recipe, outside the tree:
 //
 //   mkdir /tmp/solcbox && cd /tmp/solcbox && npm init -y && npm i solc@0.8.28
 //
-// y compilar con la interfaz STANDARD JSON, usando los tres campos que el
-// artefacto ya registra — `solc`, `settings` y `claveFuente`:
+// and compile with the STANDARD JSON interface, using the three fields the
+// artifact already records — `solc`, `settings`, and `claveFuente`:
 //
 //   {
 //     "language": "Solidity",
-//     "sources": { "<claveFuente>": { "content": "<el .sol entero>" } },
+//     "sources": { "<claveFuente>": { "content": "<the whole .sol>" } },
 //     "settings": { ...<settings>, "outputSelection": { "*": { "*": [
 //       "abi", "evm.bytecode.object", "evm.deployedBytecode.object" ] } } }
 //   }
 //
-// **`claveFuente` no es cosmética y por eso se anota.** La clave con la que se
-// le pasa la fuente a solc entra en el hash de metadata que el compilador pega
-// al final del bytecode: la misma fuente, con la misma versión y los mismos
-// settings, compila a bytecode DISTINTO si la clave cambia. Con `solc@0.8.28` y
-// `claveFuente: "activo-prueba.sol"` el artefacto se reproduce byte a byte —
-// comprobado, y es el control que hay que pasar ANTES de regenerarlo: si no
-// reproducís el artefacto viejo, tu toolchain no es el de este archivo y lo que
-// generes va a diferir por razones que no son tu cambio.
+// **`claveFuente` is not cosmetic, hence the note.** The key under which the
+// source is handed to solc goes into the metadata hash the compiler appends
+// to the end of the bytecode: the same source, with the same version and the
+// same settings, compiles to DIFFERENT bytecode if the key changes. With
+// `solc@0.8.28` and `claveFuente: "activo-prueba.sol"` the artifact
+// reproduces byte for byte — verified, and it's the check to pass BEFORE
+// regenerating it: if you can't reproduce the old artifact, your toolchain
+// isn't the one this file was built with, and what you generate will differ
+// for reasons that aren't your change.
 //
-// El repo sigue sin ganar toolchain: `/tmp/solcbox` no es este árbol y
-// `package.json` no se entera.
+// The repo still gains no toolchain: `/tmp/solcbox` isn't this tree and
+// `package.json` never finds out.
 //
 // -----------------------------------------------------------------------------
-// LOS DOS GUARDIAS, Y POR QUE NO SE PUEDEN APAGAR
+// THE TWO GUARDS, AND WHY THEY CAN'T BE TURNED OFF
 //
-// 1. La red tiene que estar en la lista blanca de `redes-prueba.js`. Mainnet
-//    está afuera por D30 y no hay flag que lo saltee.
-// 2. El chainId se lee DE LA CADENA, no de lo que diga el flag `--rpc`. Un RPC
-//    mal apuntado es exactamente el modo de falla contra el que sirve el guardia,
-//    así que preguntarle a la cadena quién es antes de firmar nada es el orden
-//    correcto.
+// 1. The network has to be on `redes-prueba.js`'s whitelist. Mainnet is out
+//    per D30 and there's no flag that skips it.
+// 2. The chainId is read FROM THE CHAIN, not from whatever the `--rpc` flag
+//    says. A misconfigured RPC is exactly the failure mode this guard exists
+//    for, so asking the chain who it is before signing anything is the
+//    correct order.
 //
-// La clave de despliegue es DESECHABLE y no es la wallet de cobro del nodo:
-// paga gas de faucet en una red de prueba. No se guarda, no se cifra, y no tiene
-// por qué — si se filtra, lo que se pierde es XPL de testnet.
+// The deploy key is DISPOSABLE and is not the node's payout wallet: it pays
+// faucet gas on a test network. It isn't stored, isn't encrypted, and doesn't
+// need to be — if it leaks, all that's lost is testnet XPL.
 
 const fs = require('fs')
 const path = require('path')
@@ -85,14 +87,14 @@ async function main() {
   const clave = process.env[VAR_CLAVE]
   if (!clave) {
     console.error('')
-    console.error(`  falta ${VAR_CLAVE}.`)
+    console.error(`  missing ${VAR_CLAVE}.`)
     console.error('')
-    console.error('  Es una clave DESECHABLE de testnet, con gas del faucet. NO es la wallet')
-    console.error('  de cobro del nodo y no se guarda en ningun lado.')
+    console.error('  It\'s a DISPOSABLE testnet key, with faucet gas. It is NOT the node\'s')
+    console.error('  payout wallet and it isn\'t stored anywhere.')
     console.error('')
     console.error('    node -e "console.log(require(\'viem/accounts\').generatePrivateKey())"')
     console.error('')
-    console.error(`  Despues pedile ${testnetDe(9746).nativo} al faucet para esa direccion.`)
+    console.error(`  Then ask the faucet for ${testnetDe(9746).nativo} for that address.`)
     console.error('')
     process.exit(1)
   }
@@ -103,20 +105,20 @@ async function main() {
 
   const publico = viem.createPublicClient({ transport: viem.http(rpcUrl) })
 
-  // El chainId sale DE LA CADENA. Ver el encabezado: confiar en el flag es
-  // confiar justo en el dato que puede estar mal.
+  // The chainId comes FROM THE CHAIN. See the header: trusting the flag means
+  // trusting exactly the data that can be wrong.
   let chainId
   try {
     chainId = await publico.getChainId()
   } catch (err) {
-    console.error(`  el RPC ${rpcUrl} no responde: ${(err && err.message) || err}`)
+    console.error(`  RPC ${rpcUrl} is not responding: ${(err && err.message) || err}`)
     process.exit(1)
   }
 
   const motivo = porQueNoSeEstrena(chainId)
   if (motivo) {
     console.error('')
-    console.error('  NO SE DESPLIEGA. ' + motivo)
+    console.error('  NOT DEPLOYING. ' + motivo)
     console.error('')
     process.exit(1)
   }
@@ -125,10 +127,10 @@ async function main() {
   const artefacto = JSON.parse(fs.readFileSync(ARTEFACTO, 'utf8'))
 
   console.log('')
-  console.log(`  red        ${red.nombre} (eip155:${chainId})`)
+  console.log(`  network    ${red.nombre} (eip155:${chainId})`)
   console.log(`  rpc        ${rpcUrl}`)
-  console.log(`  desde      ${cuenta.address}`)
-  console.log(`  contrato   ${artefacto.contrato} — ${artefacto.solc}`)
+  console.log(`  from       ${cuenta.address}`)
+  console.log(`  contract   ${artefacto.contrato} — ${artefacto.solc}`)
   console.log(`  bytecode   ${(artefacto.bytecode.length - 2) / 2} bytes`)
   console.log('')
 
@@ -136,7 +138,7 @@ async function main() {
   console.log(`  gas        ${viem.formatEther(saldo)} ${red.nativo}`)
   if (saldo === 0n) {
     console.error('')
-    console.error(`  sin ${red.nativo} no se puede desplegar. Pedile al faucet de ${red.nombre}.`)
+    console.error(`  no ${red.nativo}, cannot deploy. Ask the ${red.nombre} faucet for some.`)
     console.error('')
     process.exit(1)
   }
@@ -158,15 +160,15 @@ async function main() {
 
   const recibo = await publico.waitForTransactionReceipt({ hash })
   if (recibo.status !== 'success' || !recibo.contractAddress) {
-    console.error(`  el despliegue fallo: status=${recibo.status}`)
+    console.error(`  deployment failed: status=${recibo.status}`)
     process.exit(1)
   }
   const activo = recibo.contractAddress
-  console.log(`  contrato   ${activo}`)
+  console.log(`  contract   ${activo}`)
   if (red.explorer) console.log(`  explorer   ${red.explorer}/address/${activo}`)
 
-  // El `mint` es abierto (ver el .sol), así que esto es una comodidad y no un
-  // privilegio del que desplegó: cualquiera puede volver a llamarlo después.
+  // `mint` is open (see the .sol), so this is a convenience and not a
+  // privilege reserved for whoever deployed: anyone can call it again later.
   if (mintA) {
     const h = await billetera.writeContract({
       address: activo,
@@ -175,12 +177,12 @@ async function main() {
       args: [mintA, 1000000000000n]
     })
     await publico.waitForTransactionReceipt({ hash: h })
-    console.log(`  mint       1.000.000 tUSD -> ${mintA}`)
+    console.log(`  mint       1,000,000 tUSD -> ${mintA}`)
   }
 
-  // El `name` se lee DE LA CADENA y no de una constante de acá: es el que va a
-  // entrar al dominio EIP-712 con el que se firma, así que tiene que salir del
-  // mismo lugar del que lo va a leer el que verifique.
+  // `name` is read FROM THE CHAIN and not from a constant in here: it's the
+  // one that's going into the EIP-712 domain used to sign, so it has to come
+  // from the same place whoever verifies is going to read it from.
   const nombre = await publico.readContract({
     address: activo,
     abi: artefacto.abi,
@@ -194,16 +196,16 @@ async function main() {
 
   console.log('')
   console.log('  ' + '-'.repeat(70))
-  console.log('  Ahora el criterio de aceptacion, que ya existia y es ejecutable:')
+  console.log('  Now the acceptance criterion, which already existed and is executable:')
   console.log('')
   console.log(`    PYRUS_X402_PLASMA_TESTNET_ASSET=${activo} \\`)
   console.log(`    PYRUS_X402_PLASMA_TESTNET_NAME="${nombre}" \\`)
   console.log(`    PYRUS_X402_PLASMA_TESTNET_VERSION=${version} \\`)
   console.log('    npm run verificar-x402')
   console.log('')
-  console.log('  Eso comprueba contra LA CADENA que el contrato implementa EIP-3009 y que')
-  console.log('  su DOMAIN_SEPARATOR es el mismo dominio EIP-712 con el que vamos a firmar.')
-  console.log('  Hasta que eso pase en verde, el activo no esta verificado.')
+  console.log('  That checks against THE CHAIN that the contract implements EIP-3009 and')
+  console.log('  that its DOMAIN_SEPARATOR is the same EIP-712 domain we are going to sign with.')
+  console.log('  Until that passes green, the asset is not verified.')
   console.log('')
 }
 

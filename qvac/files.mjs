@@ -1,38 +1,38 @@
-// Transferencia de archivos entre maquinas, sobre Hyperdrive.
+// File transfer between machines, over Hyperdrive.
 //
-// POR QUE NO ALCANZA EL CANAL QUE YA HAY
+// WHY THE EXISTING CHANNEL ISN'T ENOUGH
 //
-// El canal de control (channel.mjs) transporta JSON y esta capado en 16 MiB
-// por frame, y `Provider._validate` corta el contenido de un mensaje en 32000
-// caracteres. Los nodos verticales del catalogo -"Facturas AR", "Lectura de
-// planos"- no pueden trabajar asi: un PDF escaneado o un plano no entra, y
-// meterlo en base64 adentro de un mensaje de control seria mandar 30 MB por el
-// mismo canal donde viajan los tokens del streaming.
+// The control channel (channel.mjs) carries JSON and is capped at 16 MiB per
+// frame, and `Provider._validate` cuts a message's content off at 32000
+// characters. The catalog's vertical nodes -"Facturas AR", "Lectura de
+// planos"- can't work like that: a scanned PDF or a blueprint doesn't fit,
+// and stuffing it as base64 inside a control message would mean sending 30 MB
+// over the same channel where the streaming tokens travel.
 //
-// Hyperdrive es el canal correcto. Un drive es un Hyperbee de metadata
-// (ruta -> puntero al blob) mas un Hyperblobs con los bytes. De ahi salen las
-// dos propiedades que importan:
+// Hyperdrive is the right channel. A drive is a metadata Hyperbee (path ->
+// pointer to blob) plus a Hyperblobs with the bytes. That gives it the two
+// properties that matter:
 //
-//   - DESCARGA SPARSE POR RUTA. El drive puede tener 40 GB y el otro lado baja
-//     solo el archivo que pidio. No hay "sincronizar la carpeta".
-//   - INTEGRIDAD POR BLOQUE. Cada bloque se verifica contra el merkle root del
-//     core al llegar. Un archivo corrupto o alterado a mitad de camino no
-//     puede completarse. Esto lo da Hypercore, no lo agrega este modulo.
+//   - SPARSE DOWNLOAD BY PATH. The drive can be 40 GB and the other side only
+//     downloads the file it asked for. There's no "sync the whole folder".
+//   - PER-BLOCK INTEGRITY. Each block gets verified against the core's merkle
+//     root on arrival. A file corrupted or altered midway can't complete.
+//     This comes from Hypercore, this module doesn't add it.
 //
-// LO QUE LA CLAVE **NO** PRUEBA
+// WHAT THE KEY DOES **NOT** PROVE
 //
-// Que los bytes correspondan a la clave esta garantizado. Que la clave sea de
-// quien vos crees, NO: eso lo tiene que atar quien la recibe. Cuando la clave
-// llega por `files:announce` viene por el canal Noise autenticado, asi que es
-// atribuible al par -- pero no esta firmada por el manifiesto (el schema v0
-// tiene `additionalProperties: false` y no hay campo donde ponerla). Cuando la
-// clave llega por un link pegado a mano, la confianza es la del canal por el
-// que te lo pasaron.
+// That the bytes match the key is guaranteed. That the key belongs to who you
+// think it does, is NOT: whoever receives it has to tie that down themselves.
+// When the key arrives via `files:announce` it comes over the authenticated
+// Noise channel, so it's attributable to the peer -- but it isn't signed by
+// the manifest (the v0 schema has `additionalProperties: false` and there's
+// no field to put it in). When the key arrives via a link pasted by hand, the
+// trust is whatever the channel it was passed through gives you.
 //
-// UN DRIVE NO ES STORE-AND-FORWARD. Hypercore no guarda copias en un servidor:
-// el que manda tiene que estar online mientras el otro baja, o tiene que haber
-// un tercer par que ya tenga esos bloques y los este seedeando. Por eso
-// `qvac-node send` se queda corriendo en vez de terminar.
+// A DRIVE IS NOT STORE-AND-FORWARD. Hypercore doesn't keep copies on a
+// server: whoever's sending has to be online while the other side downloads,
+// or there has to be a third peer that already has those blocks and is
+// seeding them. That's why `qvac-node send` stays running instead of exiting.
 
 import Hyperdrive from 'hyperdrive'
 import fs from 'bare-fs'
@@ -40,9 +40,10 @@ import path from 'bare-path'
 
 export const LINK_SCHEME = 'qvac://'
 
-// Un link es `qvac://<clave hex de 64>/<ruta>`. La ruta va en el link y no
-// aparte porque un archivo sin su drive no se puede pedir, y un drive sin ruta
-// no dice que bajar: las dos mitades no sirven separadas.
+// A link is `qvac://<64-char hex key>/<path>`. The path lives in the link and
+// not separately because a file without its drive can't be requested, and a
+// drive without a path doesn't say what to download: the two halves are
+// useless apart.
 export function formatLink(keyHex, filePath = '/') {
   const p = filePath.startsWith('/') ? filePath : '/' + filePath
   return LINK_SCHEME + keyHex + p
@@ -50,7 +51,7 @@ export function formatLink(keyHex, filePath = '/') {
 
 export function parseLink(link) {
   if (typeof link !== 'string' || !link.startsWith(LINK_SCHEME)) {
-    throw new Error('un link de QVAC empieza con ' + LINK_SCHEME + ' (recibido: ' + link + ')')
+    throw new Error('a QVAC link starts with ' + LINK_SCHEME + ' (got: ' + link + ')')
   }
   const rest = link.slice(LINK_SCHEME.length)
   const slash = rest.indexOf('/')
@@ -58,15 +59,15 @@ export function parseLink(link) {
   const filePath = slash === -1 ? '/' : rest.slice(slash)
 
   if (!/^[0-9a-f]{64}$/.test(keyHex)) {
-    throw new Error('la clave del link no es hex de 32 bytes: ' + keyHex.slice(0, 16) + '…')
+    throw new Error('the link key is not 32-byte hex: ' + keyHex.slice(0, 16) + '…')
   }
   return { keyHex, path: filePath }
 }
 
-// Normaliza a la forma que usa Hyperdrive: siempre absoluta, siempre con '/'.
-// En Windows `path.join` mete backslashes y el drive las guardaria como parte
-// del nombre -- el archivo se sube como "\carpeta\x.pdf" y del otro lado no lo
-// encuentra nadie.
+// Normalizes to the form Hyperdrive uses: always absolute, always with '/'.
+// On Windows `path.join` inserts backslashes and the drive would store them
+// as part of the name -- the file gets uploaded as "\folder\x.pdf" and nobody
+// on the other end can find it.
 export function drivePath(p) {
   const norm = String(p).replace(/\\/g, '/').replace(/\/+/g, '/')
   return norm.startsWith('/') ? norm : '/' + norm
@@ -74,16 +75,17 @@ export function drivePath(p) {
 
 export class Files {
   constructor(corestore, { swarm = null, dir = null } = {}) {
-    // Namespace propio: el drive tiene que ser un par de cores distinto del
-    // directorio, si no comparten clave y anunciar uno anunciaria el otro.
+    // Own namespace: the drive has to be a different pair of cores from the
+    // directory, otherwise they'd share a key and announcing one would
+    // announce the other.
     this.drive = new Hyperdrive(corestore.namespace('files'))
     this.corestore = corestore
     this.swarm = swarm
     this.dir = dir
     this.opened = false
 
-    // Drives remotos ya abiertos, por clave hex. Se cachean porque abrir el
-    // mismo drive dos veces crea dos sesiones sobre los mismos cores.
+    // Already-opened remote drives, by hex key. Cached because opening the
+    // same drive twice creates two sessions over the same cores.
     this._remotes = new Map()
     this._discovery = null
   }
@@ -107,12 +109,12 @@ export class Files {
     return this.drive.version
   }
 
-  // Anuncia el drive propio en su PROPIO topic (la discoveryKey del drive), no
-  // en el topic del marketplace. Asi `qvac-node fetch` puede bajar un archivo
-  // de una maquina sin que ninguna de las dos entre al marketplace: el que
-  // recibe se une al topic del drive, y solo a ese.
+  // Announces its own drive on its OWN topic (the drive's discoveryKey), not
+  // on the marketplace topic. That way `qvac-node fetch` can download a file
+  // from a machine without either of them joining the marketplace: the
+  // receiver joins the drive's topic, and only that one.
   async serve() {
-    if (!this.swarm) throw new Error('Files.serve() necesita un swarm')
+    if (!this.swarm) throw new Error('Files.serve() needs a swarm')
     await this.ready()
     if (this._discovery) return this._discovery
 
@@ -122,19 +124,19 @@ export class Files {
   }
 
   // -------------------------------------------------------------------------
-  // Publicar
+  // Publish
   // -------------------------------------------------------------------------
 
-  // Copia un archivo del disco al drive, por streaming. No se lee entero a
-  // memoria a proposito: el caso de uso son planos y PDFs escaneados, y un
-  // `readFileSync` de 200 MB adentro de un nodo que esta sirviendo tokens es
-  // una pausa de GC en el medio de un streaming.
+  // Copies a file from disk to the drive, by streaming. Deliberately not read
+  // whole into memory: the use case is blueprints and scanned PDFs, and a
+  // 200 MB `readFileSync` inside a node that's serving tokens is a GC pause
+  // in the middle of a stream.
   async share(localPath, name = null) {
     await this.ready()
 
     const stat = await fs.promises.stat(localPath)
     if (!stat.isFile()) {
-      throw new Error(localPath + ' no es un archivo (las carpetas van con shareDir)')
+      throw new Error(localPath + ' is not a file (folders go through shareDir)')
     }
 
     const target = drivePath(name || path.basename(localPath))
@@ -144,8 +146,8 @@ export class Files {
     return { path: target, bytes: stat.size, link: formatLink(this.keyHex, target) }
   }
 
-  // Una carpeta entera, recursiva. Cada archivo entra como una entrada propia,
-  // que es lo que permite que el otro lado baje uno solo.
+  // A whole folder, recursively. Each file becomes its own entry, which is
+  // what lets the other side download just one.
   async shareDir(localDir, prefix = null) {
     await this.ready()
 
@@ -175,7 +177,7 @@ export class Files {
     await this.drive.del(drivePath(name))
   }
 
-  // Lo publicado por ESTE nodo.
+  // What THIS node has published.
   async list(folder = '/') {
     await this.ready()
     const out = []
@@ -190,13 +192,13 @@ export class Files {
   }
 
   // -------------------------------------------------------------------------
-  // Bajar
+  // Download
   // -------------------------------------------------------------------------
 
-  // Abre un drive remoto de solo lectura. El corestore ya replica sobre los
-  // sockets abiertos, asi que no hay que conectarse de nuevo: la peticion sale
-  // por la discoveryKey del drive y contesta cualquier par conectado que lo
-  // tenga (ver `ondiscoverykey` en corestore.replicate).
+  // Opens a remote read-only drive. The corestore already replicates over the
+  // open sockets, so there's no need to reconnect: the request goes out over
+  // the drive's discoveryKey and any connected peer that has it answers (see
+  // `ondiscoverykey` in corestore.replicate).
   async remote(keyHex) {
     if (this._remotes.has(keyHex)) return this._remotes.get(keyHex)
 
@@ -204,8 +206,8 @@ export class Files {
     await drive.ready()
     this._remotes.set(keyHex, drive)
 
-    // Si hay swarm, se busca activamente a quien lo tenga. Sin esto un drive
-    // cuya clave llego por un link no tiene por donde aparecer.
+    // If there's a swarm, it actively looks for whoever has it. Without this
+    // a drive whose key arrived via a link has no way to show up.
     if (this.swarm) {
       this.swarm.join(drive.discoveryKey, { server: false, client: true })
     }
@@ -213,17 +215,17 @@ export class Files {
     return drive
   }
 
-  // Sincroniza la METADATA de un drive remoto antes de leerlo. Es obligatorio
-  // y no una optimizacion:
+  // Syncs a remote drive's METADATA before reading it. This is mandatory, not
+  // an optimization:
   //
-  //   Un core recien abierto tiene `length === 0` localmente. Hyperbee, sobre
-  //   un core de largo cero, contesta `null` a cualquier get -- EN EL ACTO y
-  //   sin error. Sin este update, pedir un archivo que existe perfectamente
-  //   del otro lado devuelve "el drive no tiene esa ruta": un falso negativo
-  //   que se ve igual que un link mal escrito.
+  //   A freshly opened core has `length === 0` locally. Hyperbee, over a
+  //   zero-length core, answers `null` to any get -- RIGHT AWAY and with no
+  //   error. Without this update, requesting a file that perfectly well
+  //   exists on the other side returns "the drive doesn't have that path": a
+  //   false negative that looks exactly like a mistyped link.
   //
-  // `findingPeers` es lo que hace que `update({ wait: true })` espere a que
-  // aparezca alguien en vez de resolver de una contra cero pares.
+  // `findingPeers` is what makes `update({ wait: true })` wait for someone to
+  // show up instead of resolving against zero peers.
   async _syncRemote(drive, timeoutMs) {
     const done = drive.findingPeers()
     if (this.swarm) this.swarm.flush().then(done, done)
@@ -233,22 +235,22 @@ export class Files {
       await withTimeout(
         drive.update({ wait: true }),
         timeoutMs,
-        'no aparecio ningun par con ese drive en ' + Math.round(timeoutMs / 1000) + 's'
+        'no peer with that drive showed up in ' + Math.round(timeoutMs / 1000) + 's'
       )
     } finally {
       done()
     }
 
     if (drive.core.length === 0) {
-      throw new Error('el drive existe pero esta vacio (o nadie contesto todavia)')
+      throw new Error('the drive exists but is empty (or nobody has answered yet)')
     }
   }
 
-  // Baja UN archivo a disco. Devuelve los bytes escritos.
+  // Downloads ONE file to disk. Returns the bytes written.
   //
-  // `timeoutMs` no es un lujo: si nadie tiene esos bloques -- porque el que
-  // mando el link se fue -- el stream no falla, se queda esperando para
-  // siempre. Un CLI que cuelga sin decir nada es peor que uno que falla.
+  // `timeoutMs` isn't a luxury: if nobody has those blocks -- because whoever
+  // sent the link left -- the stream doesn't fail, it just waits forever. A
+  // CLI that hangs without saying anything is worse than one that fails.
   async pull(keyHex, filePath, destPath, { onProgress = null, timeoutMs = 60000 } = {}) {
     const drive = await this.remote(keyHex)
     const src = drivePath(filePath)
@@ -256,7 +258,7 @@ export class Files {
     await this._syncRemote(drive, timeoutMs)
 
     const entry = await drive.entry(src)
-    if (!entry) throw new Error('el drive no tiene "' + src + '"')
+    if (!entry) throw new Error('the drive does not have "' + src + '"')
 
     const total = entry.value && entry.value.blob ? entry.value.blob.byteLength : 0
 
@@ -275,7 +277,7 @@ export class Files {
     return { bytes: bajados || total, total, path: destPath }
   }
 
-  // Baja una carpeta entera del drive remoto al disco.
+  // Downloads a whole folder from the remote drive to disk.
   async pullDir(keyHex, folder, destDir, { onFile = null, timeoutMs = 60000 } = {}) {
     const drive = await this.remote(keyHex)
     const base = drivePath(folder)
@@ -283,12 +285,12 @@ export class Files {
     await this._syncRemote(drive, timeoutMs)
 
     const entradas = await collect(drive.list(base, { recursive: true }))
-    if (entradas.length === 0) throw new Error('el drive no tiene nada bajo "' + base + '"')
+    if (entradas.length === 0) throw new Error('the drive has nothing under "' + base + '"')
 
     const escritos = []
     for (const entry of entradas) {
-      // La ruta relativa a la carpeta pedida, para no recrear todo el arbol
-      // del drive adentro del destino.
+      // The path relative to the requested folder, so the whole drive tree
+      // doesn't get recreated inside the destination.
       const rel = entry.key.slice(base.length).replace(/^\//, '')
       const dest = path.join(destDir, ...rel.split('/'))
       await fs.promises.mkdir(path.dirname(dest), { recursive: true })
@@ -299,8 +301,8 @@ export class Files {
     return escritos
   }
 
-  // Lo que publica un par, sin bajarlo. El panel lo usa para poder listar los
-  // archivos de un nodo remoto antes de que nadie pida nada.
+  // What a peer publishes, without downloading it. The panel uses this to
+  // list a remote node's files before anyone requests anything.
   async listRemote(keyHex, folder = '/', { timeoutMs = 30000 } = {}) {
     const drive = await this.remote(keyHex)
 

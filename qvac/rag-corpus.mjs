@@ -1,65 +1,67 @@
-// De un directorio a trozos embebibles. La mitad "sabe de archivos" del RAG.
+// From a directory to embeddable chunks. The "knows about files" half of RAG.
 //
-// No toca la red ni el indice: entra una ruta, salen objetos { id, content,
-// source, lines }. Por eso se puede probar sin API key y sin hypercore.
-//
-// -----------------------------------------------------------------------------
-// CADA TROZO DICE DE DONDE SALIO
-//
-// El chunker por defecto de @qvac/rag corta por parrafos, que para prosa esta
-// bien y para codigo es malo: parte una funcion al medio y el agente recupera
-// un fragmento que no puede citar.
-//
-// Aca cada trozo lleva pegada arriba una linea `// archivo:desde-hasta`. Eso
-// hace dos cosas: le da al agente un `file:line` clickeable, y mete el nombre
-// del archivo DENTRO del texto que se embebe, con lo cual "que hace
-// provider.mjs" recupera provider.mjs aunque el cuerpo no diga su propio
-// nombre en ningun lado.
+// Doesn't touch the network or the index: a path goes in, objects
+// { id, content, source, lines } come out. That's why it can be tested
+// without an API key and without hypercore.
 //
 // -----------------------------------------------------------------------------
-// NINGUN SECRETO ENTRA AL INDICE
+// EVERY CHUNK SAYS WHERE IT CAME FROM
 //
-// El indice vive en un hypercore que el swarm replica. Un secreto que entra
-// aca no queda en esta maquina: se le sirve a cualquier par que pida el
-// indice, y borrarlo del disco propio no lo borra de los que ya lo copiaron.
+// @qvac/rag's default chunker splits by paragraph, which is fine for prose
+// and bad for code: it splits a function in half and the agent retrieves a
+// fragment it can't cite.
 //
-// La lista blanca de extensiones ya deja afuera .env, pero eso protege del
-// archivo esperado, no del secreto pegado en un README o en un comentario. Por
-// eso ADEMAS cada trozo se revisa contra patrones de credencial conocidos y se
-// descarta entero si matchea. Descartar de mas es barato; una key replicada
-// por P2P no se puede deshacer.
+// Here every chunk has a `// file:from-to` line stuck on top. That does two
+// things: it gives the agent a clickable `file:line`, and it puts the file
+// name INSIDE the text that gets embedded, so "what does provider.mjs do"
+// retrieves provider.mjs even if the body never mentions its own name
+// anywhere.
+//
+// -----------------------------------------------------------------------------
+// NO SECRET GOES INTO THE INDEX
+//
+// The index lives in a hypercore the swarm replicates. A secret that gets in
+// here doesn't stay on this machine: it gets served to any peer that
+// requests the index, and deleting it from your own disk doesn't delete it
+// from the peers that already copied it.
+//
+// The extension allowlist already keeps out .env, but that protects against
+// the expected file, not against a secret pasted into a README or a comment.
+// That's why every chunk is ALSO checked against known credential patterns
+// and discarded entirely if it matches. Over-discarding is cheap; a key
+// replicated over P2P can't be undone.
 // -----------------------------------------------------------------------------
 
 import fs from 'bare-fs'
 import path from 'bare-path'
 
-// Solo lo que sabemos leer. Es lista blanca y no lista negra a proposito: un
-// formato nuevo que nadie penso entra como "no indexado", no como "indexado a
-// ver que pasa".
+// Only what we know how to read. It's an allowlist and not a denylist on
+// purpose: a new format nobody thought of counts as "not indexed", not as
+// "indexed, let's see what happens".
 export const EXTENSIONES = ['.mjs', '.js', '.json', '.md', '.sh', '.ps1', '.txt', '.yml', '.yaml']
 
-// Directorios que nunca se recorren.
+// Directories that never get walked.
 export const EXCLUIR_DIR = [
   'node_modules', '.git', 'build', 'out', 'data', 'deck', 'brand', 'landing',
   '.playwright-mcp', 'old', 'logs', 'dist', 'coverage', '.claude'
 ]
 
-// Archivos que nunca se leen, aunque la extension pase.
+// Files that never get read, even if the extension passes.
 export const EXCLUIR_ARCHIVO = [
   '.env', '.env.local', '.env.production', 'package-lock.json',
   'identity.json', 'consent.json', 'upstreams.json'
 ]
 
-// Patrones de credencial. No pretenden ser exhaustivos -- son los que este
-// proyecto tiene cerca -- pero cada uno que se agrega es un modo de fuga que
-// deja de existir.
+// Credential patterns. Not meant to be exhaustive -- they're the ones this
+// project has nearby -- but every one that gets added is a leak vector that
+// stops existing.
 const SECRETOS = [
   /nvapi-[A-Za-z0-9_\-]{20,}/,          // NVIDIA NIM
   /sk-[A-Za-z0-9]{32,}/,                 // OpenAI
   /sk-ant-[A-Za-z0-9_\-]{20,}/,          // Anthropic
-  /qvac_sk_[A-Za-z0-9_\-]{20,}/,         // las propias de este gateway
+  /qvac_sk_[A-Za-z0-9_\-]{20,}/,         // this gateway's own keys
   /gh[pousr]_[A-Za-z0-9]{30,}/,          // GitHub
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,  // claves privadas
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,  // private keys
   /xox[baprs]-[A-Za-z0-9-]{10,}/         // Slack
 ]
 
@@ -68,9 +70,9 @@ export function pareceSecreto(texto) {
   return false
 }
 
-// Tamano objetivo de un trozo, en caracteres. No en tokens: contarlos exige el
-// tokenizador del modelo, que del lado remoto no tenemos. Se apunta bajo para
-// que el trozo entre comodo en cualquier ventana.
+// Target size of a chunk, in characters. Not tokens: counting those requires
+// the model's tokenizer, which we don't have on the remote side. Aimed low
+// so the chunk fits comfortably in any window.
 const OBJETIVO_CHARS = 1400
 const MINIMO_CHARS = 80
 
@@ -78,7 +80,7 @@ function esDirectorioExcluido(nombre) {
   return EXCLUIR_DIR.indexOf(nombre) !== -1 || nombre.startsWith('.')
 }
 
-// Recorre una raiz y devuelve los archivos indexables, con su ruta relativa.
+// Walks a root and returns the indexable files, with their relative path.
 export function recolectar(raiz, { extensiones = EXTENSIONES, maxBytes = 512 * 1024 } = {}) {
   const out = []
 
@@ -103,8 +105,8 @@ export function recolectar(raiz, { extensiones = EXTENSIONES, maxBytes = 512 * 1
       }
       if (EXCLUIR_ARCHIVO.indexOf(nombre) !== -1) continue
       if (extensiones.indexOf(path.extname(nombre)) === -1) continue
-      // Un archivo enorme casi siempre es generado (un bundle, un dump) y
-      // embeberlo gasta cuota sin agregar señal.
+      // A huge file is almost always generated (a bundle, a dump) and
+      // embedding it burns quota without adding signal.
       if (st.size > maxBytes) continue
       out.push({ ruta: completo, rel: path.relative(raiz, completo).split('\\').join('/'), bytes: st.size })
     }
@@ -114,12 +116,12 @@ export function recolectar(raiz, { extensiones = EXTENSIONES, maxBytes = 512 * 1
   return out.sort((a, b) => (a.rel < b.rel ? -1 : 1))
 }
 
-// Corta un archivo en trozos que respetan los limites naturales del texto.
+// Splits a file into chunks that respect the text's natural boundaries.
 //
-// Para markdown: los encabezados. Para codigo: los bloques separados por linea
-// en blanco, que en este repo coinciden con las declaraciones de nivel
-// superior y -- mas importante -- con los comentarios largos que explican POR
-// QUE, que es justo lo que un agente quiere recuperar.
+// For markdown: headings. For code: blocks separated by blank lines, which
+// in this repo line up with top-level declarations and -- more importantly
+// -- with the long comments that explain WHY, which is exactly what an agent
+// wants to retrieve.
 export function trozar(rel, contenido, { objetivo = OBJETIVO_CHARS } = {}) {
   const lineas = contenido.split('\n')
   const esMarkdown = rel.endsWith('.md')
@@ -139,8 +141,8 @@ export function trozar(rel, contenido, { objetivo = OBJETIVO_CHARS } = {}) {
     const linea = lineas[i]
     const nro = i + 1
 
-    // Un encabezado markdown abre trozo nuevo aunque el anterior sea corto: la
-    // seccion es la unidad de sentido del documento.
+    // A markdown heading opens a new chunk even if the previous one is
+    // short: the section is the document's unit of meaning.
     const corteFuerte = esMarkdown && /^#{1,4}\s/.test(linea) && actual.length > 0
     if (corteFuerte) {
       cerrar(nro - 1)
@@ -151,8 +153,8 @@ export function trozar(rel, contenido, { objetivo = OBJETIVO_CHARS } = {}) {
 
     const largo = actual.join('\n').length
     if (largo >= objetivo) {
-      // Se busca hacia atras una linea en blanco para no partir al medio de
-      // una funcion. Si no hay ninguna cerca, se corta donde toca.
+      // Looks backward for a blank line to avoid splitting a function in
+      // half. If there's none nearby, it cuts wherever it lands.
       let corte = actual.length
       for (let j = actual.length - 1; j > actual.length - 25 && j > 1; j--) {
         if (actual[j].trim() === '') { corte = j; break }
@@ -167,8 +169,8 @@ export function trozar(rel, contenido, { objetivo = OBJETIVO_CHARS } = {}) {
   cerrar(lineas.length)
 
   return bloques.map((b) => {
-    // El encabezado va DENTRO del texto embebido, no solo en la metadata: es
-    // lo que hace que buscar por nombre de archivo funcione.
+    // The heading goes INSIDE the embedded text, not just in the metadata:
+    // that's what makes searching by file name work.
     const cabecera = '// ' + rel + ':' + b.desde + '-' + b.hasta
     return {
       id: rel + ':' + b.desde,
@@ -179,9 +181,9 @@ export function trozar(rel, contenido, { objetivo = OBJETIVO_CHARS } = {}) {
   })
 }
 
-// El pipeline entero: raiz -> trozos listos para embeber, con los secretos
-// afuera. Devuelve tambien lo que descarto, para poder decirlo en vez de
-// perderlo en silencio.
+// The whole pipeline: root -> chunks ready to embed, with secrets kept out.
+// Also returns what it discarded, so it can be reported instead of getting
+// silently lost.
 export function corpusDe(raiz, opts = {}) {
   const archivos = recolectar(raiz, opts)
   const trozos = []
@@ -194,12 +196,12 @@ export function corpusDe(raiz, opts = {}) {
     } catch {
       continue
     }
-    // Un archivo con un secreto adentro no entra NI PARCIALMENTE: si la key
-    // esta en la linea 3, el trozo 7 puede seguir siendo inocente, pero
-    // adivinar cual es cual es exactamente el tipo de decision que no hay que
-    // tomar con credenciales.
+    // A file with a secret inside doesn't get in AT ALL, not even partially:
+    // if the key is on line 3, chunk 7 might still be innocent, but guessing
+    // which is which is exactly the kind of call you shouldn't make with
+    // credentials.
     if (pareceSecreto(contenido)) {
-      descartados.push({ rel: a.rel, motivo: 'parece contener una credencial' })
+      descartados.push({ rel: a.rel, motivo: 'appears to contain a credential' })
       continue
     }
     for (const t of trozar(a.rel, contenido, opts)) trozos.push(t)

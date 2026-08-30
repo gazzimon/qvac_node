@@ -1,63 +1,67 @@
 #!/usr/bin/env node
 'use strict'
 
-// D14(b) / D30.4 — el facilitator self-hosted. Tres endpoints y una wallet con gas.
+// D14(b) / D30.4 — the self-hosted facilitator. Three endpoints and a wallet with gas.
 //
 //   PYRUS_FACILITATOR_CLAVE=0x…  PYRUS_X402_PLASMA_TESTNET_ASSET=0x…  npm run facilitator
 //
-// y del otro lado, el nodo:
+// and on the other side, the node:
 //
 //   PYRUS_X402_FACILITATOR=http://127.0.0.1:8402  npm run serve
 //
 // -----------------------------------------------------------------------------
-// POR QUE DEJA DE SER PLAN B
+// WHY IT STOPS BEING PLAN B
 //
-// D14 eligió el hosted de Semantic "hasta la Fase 10". D30 lo adelantó por dos
-// hechos, no por preferencia: el hosted devolvía 500/503 en TODOS sus endpoints
-// el 2026-08-27, y no soporta 9746 — y menos va a conocer un token que
-// desplegamos nosotros. Sin esto, D30 se puede escribir pero no demostrar.
-//
-// -----------------------------------------------------------------------------
-// ESTO ES NODE, NO BARE, Y NO ENTRA AL BINARIO. NO VIOLA D11.
-//
-// Conviene dejarlo escrito porque parece que sí: D11 decide el runtime de la
-// wallet DENTRO DEL BINARIO QUE SE DISTRIBUYE. Un facilitator ya es hoy un
-// servicio remoto — el nodo le habla por HTTP y nada más. Self-hostearlo cambia
-// un servicio remoto por uno local; no mete una línea nueva adentro del binario.
-// Vive en `scripts/`, que `package.json:files` no publica y que `pear.stage`
-// ignora, así que la separación es mecánica y no una promesa.
+// D14 picked Semantic's hosted facilitator "until Phase 10". D30 pulled that
+// forward for two facts, not out of preference: the hosted one was returning
+// 500/503 on ALL its endpoints on 2026-08-27, and it doesn't support 9746 —
+// let alone knowing about a token we deployed ourselves. Without this, D30 can
+// be written but not demonstrated.
 //
 // -----------------------------------------------------------------------------
-// SU WALLET ES OTRA WALLET, Y NECESITA GAS
+// THIS IS NODE, NOT BARE, AND IT DOES NOT GO INTO THE BINARY. IT DOES NOT VIOLATE D11.
 //
-// El facilitator DIFUNDE la transacción, así que paga gas nativo. En testnet sale
-// del faucet y es gratis. Es una wallet **distinta** de la de cobro del nodo:
-//
-//   - la del nodo (D13) cobra, vive cifrada en el keystore, y su seed no sale
-//     nunca del proceso que la abre;
-//   - esta gasta gas de faucet en una red de prueba, es desechable, y si se
-//     filtra lo que se pierde es XPL sin valor.
-//
-// Mezclarlas sería darle a un servicio HTTP la llave de la plata, para ahorrarse
-// una línea de configuración.
+// Worth spelling out because it looks like it might: D11 decides the wallet's
+// runtime INSIDE THE BINARY THAT SHIPS. A facilitator is already a remote
+// service today — the node just talks to it over HTTP, nothing more. Self-
+// hosting it swaps one remote service for a local one; it doesn't add a single
+// line inside the binary. It lives in `scripts/`, which `package.json:files`
+// doesn't publish and which `pear.stage` ignores, so the separation is
+// mechanical, not a promise.
 //
 // -----------------------------------------------------------------------------
-// SIN DEPENDENCIAS NUEVAS
+// ITS WALLET IS A DIFFERENT WALLET, AND IT NEEDS GAS
 //
-// El camino de referencia (SemanticPay/x402-usdt0-demo) usa Express y el adapter
-// `@semanticio/wdk-wallet-evm-x402-facilitator`. Acá no hace falta ninguno de los
-// dos y meterlos costaría caro:
+// The facilitator BROADCASTS the transaction, so it pays native gas. On testnet
+// that comes from the faucet and is free. It's a wallet **distinct** from the
+// node's payout wallet:
 //
-//   - ese adapter fija `@x402/evm@2.2.0` y `@tetherto/wdk-wallet-evm@1.0.0-beta.7`,
-//     y este árbol corre 2.23.0 y beta.17. Instalarlo dejaría DOS copias de
-//     `@x402/evm` en el mismo proceso, y la que arma el 402 no sería la que lo
-//     liquida. Es la clase de divergencia silenciosa que este repo persigue.
-//   - `@x402/evm` 2.23 ya exporta `toFacilitatorEvmSigner`, que es exactamente lo
-//     que ese adapter hacía: envolver un signer para el rol de facilitator.
-//   - los tres endpoints son un `http.createServer` de 40 líneas.
+//   - the node's (D13) collects payment, lives encrypted in the keystore, and
+//     its seed never leaves the process that opens it;
+//   - this one spends faucet gas on a test network, is disposable, and if it
+//     leaks all that's lost is worthless XPL.
 //
-// Resultado: `viem`, `@x402/core` y `@x402/evm` — los tres ya estaban en el
-// árbol. El facilitator no agrega ni una dependencia.
+// Mixing them would be handing an HTTP service the key to the money, just to
+// save one line of configuration.
+//
+// -----------------------------------------------------------------------------
+// NO NEW DEPENDENCIES
+//
+// The reference path (SemanticPay/x402-usdt0-demo) uses Express and the
+// `@semanticio/wdk-wallet-evm-x402-facilitator` adapter. Neither is needed here,
+// and pulling them in would be expensive:
+//
+//   - that adapter pins `@x402/evm@2.2.0` and `@tetherto/wdk-wallet-evm@1.0.0-beta.7`,
+//     and this tree runs 2.23.0 and beta.17. Installing it would leave TWO
+//     copies of `@x402/evm` in the same process, and the one that builds the
+//     402 wouldn't be the one that settles it. That's exactly the kind of
+//     silent divergence this repo is chasing down.
+//   - `@x402/evm` 2.23 already exports `toFacilitatorEvmSigner`, which is
+//     exactly what that adapter did: wrap a signer for the facilitator role.
+//   - the three endpoints are a 40-line `http.createServer`.
+//
+// Result: `viem`, `@x402/core` and `@x402/evm` — all three were already in the
+// tree. The facilitator doesn't add a single dependency.
 
 const http = require('http')
 const { porQueNoSeEstrena, testnetDe } = require('./redes-prueba.js')
@@ -68,8 +72,8 @@ const VAR_RPC = 'PYRUS_FACILITATOR_RPC'
 const VAR_CHAIN = 'PYRUS_FACILITATOR_CHAINID'
 const PUERTO_DEFAULT = 8402
 
-// La red por default es la de D30: 9746. No hay default de mainnet acá ni
-// escondido en un `||`, que es donde ese tipo de default se cuela.
+// The default network is D30's: 9746. There's no mainnet default here, hidden
+// in a `||` or otherwise — that's exactly where that kind of default sneaks in.
 const CHAIN_DEFAULT = 9746
 
 function leerCuerpo(req) {
@@ -77,23 +81,24 @@ function leerCuerpo(req) {
     let crudo = ''
     req.on('data', (c) => {
       crudo += c
-      // Un facilitator es un endpoint público de un nodo que además tiene GPU.
-      // Un POST infinito no puede ser una forma de tirarlo.
-      if (crudo.length > 1_000_000) req.destroy(new Error('cuerpo demasiado grande'))
+      // A facilitator is a public endpoint on a node that also has a GPU.
+      // An infinite POST can't be a way to take it down.
+      if (crudo.length > 1_000_000) req.destroy(new Error('body too large'))
     })
     req.on('end', () => {
       try {
         resolve(crudo ? JSON.parse(crudo) : {})
       } catch (err) {
-        reject(new Error('el cuerpo no es JSON'))
+        reject(new Error('body is not JSON'))
       }
     })
     req.on('error', reject)
   })
 }
 
-// `arrancar` devuelve el server ya escuchando en vez de terminar el proceso, para
-// que el test lo pueda levantar y bajar. `main` es el que corta con exit code.
+// `arrancar` returns the server already listening instead of ending the
+// process, so the test can bring it up and down. `main` is the one that exits
+// with an exit code.
 async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) {
   const viem = require('viem')
   const cuentas = require('viem/accounts')
@@ -101,9 +106,9 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
   const { registerExactEvmScheme } = require('@x402/evm/exact/facilitator')
   const { toFacilitatorEvmSigner } = require('@x402/evm')
 
-  // EL GUARDIA DE D30, ANTES DE CONSTRUIR NADA. Un facilitator liquida: es
-  // literalmente el componente que mueve valor, así que si hay un solo lugar
-  // donde esta comprobación no puede faltar, es éste.
+  // D30'S GUARD, BEFORE BUILDING ANYTHING. A facilitator settles: it's
+  // literally the component that moves value, so if there's one place this
+  // check can't be missing, it's here.
   const motivo = porQueNoSeEstrena(chainId)
   if (motivo) throw new Error('NO SE LEVANTA. ' + motivo)
 
@@ -126,10 +131,10 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
     transport: viem.http(rpcUrl)
   })
 
-  // `toFacilitatorEvmSigner` pide UN objeto con las lecturas, las escrituras y la
-  // espera de recibo. Se compone de los dos clientes de viem: el público lee, el
-  // de billetera escribe. Es la misma pieza que el adapter de SemanticPay armaba
-  // a mano, ya provista por el paquete.
+  // `toFacilitatorEvmSigner` wants ONE object with the reads, the writes, and
+  // the receipt wait. It's composed from the two viem clients: the public one
+  // reads, the wallet one writes. It's the same piece the SemanticPay adapter
+  // built by hand, already provided by the package.
   const signer = toFacilitatorEvmSigner({
     address: cuenta.address,
     readContract: (args) => publico.readContract(args),
@@ -141,20 +146,21 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
   })
 
   const facilitator = new x402Facilitator()
-  // `networks` es un parámetro, y por eso 9746 —que ningún facilitator hosted
-  // conoce— entra sin tocar el paquete.
+  // `networks` is a parameter, and that's why 9746 — which no hosted
+  // facilitator knows about — goes in without touching the package.
   registerExactEvmScheme(facilitator, { networks: [red.caip2], signer })
 
-  // `registerExactEvmScheme` NO registra sólo lo que le pedimos: adentro llama a
-  // `facilitator.registerV1(NETWORKS, …)` con su propia lista de fábrica, que
-  // trae `ethereum`, `base`, `avalanche` y demás. O sea que un `/supported`
-  // crudo anuncia MAINNETS que este proceso no puede servir —el signer y el RPC
-  // están en 9746— y que D30 dice que no se tocan.
+  // `registerExactEvmScheme` does NOT register only what we asked for: inside
+  // it calls `facilitator.registerV1(NETWORKS, …)` with its own factory list,
+  // which brings `ethereum`, `base`, `avalanche` and more. Which means a raw
+  // `/supported` advertises MAINNETS this process can't serve — the signer and
+  // the RPC are on 9746 — and that D30 says stay untouched.
   //
-  // Anunciar algo que no se puede cumplir es el modo de falla que este bloque
-  // entero existe para evitar: alguien lee `/supported`, ve `base`, y manda un
-  // pago que nadie va a liquidar. Así que se filtra a la red configurada, y
-  // `verify`/`settle` rechazan cualquier otra ANTES de mirar la firma.
+  // Advertising something that can't be honored is the failure mode this whole
+  // block exists to prevent: someone reads `/supported`, sees `base`, and sends
+  // a payment nobody's going to settle. So it gets filtered down to the
+  // configured network, and `verify`/`settle` reject anything else BEFORE
+  // looking at the signature.
   const soloNuestraRed = (soportado) => {
     const kinds = ((soportado && soportado.kinds) || []).filter((k) => k.network === red.caip2)
     return { ...soportado, kinds }
@@ -163,36 +169,37 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
   const redEquivocada = (cuerpo) => {
     const n = cuerpo && cuerpo.paymentPayload && cuerpo.paymentPayload.network
     if (!n || n === red.caip2) return null
-    return `este facilitator sirve ${red.caip2} y el pago dice ${n}`
+    return `this facilitator serves ${red.caip2} and the payment says ${n}`
   }
 
   // -------------------------------------------------------------------------
-  // LOS DOS CUERPOS DE ERROR, CON LA FORMA QUE EL CLIENTE OFICIAL ACEPTA
+  // THE TWO ERROR BODIES, SHAPED THE WAY THE OFFICIAL CLIENT ACCEPTS
   //
-  // No es estilo. `@x402/core` parsea TODA respuesta 200 contra un schema de
-  // zod, y los dos schemas son distintos:
+  // This isn't style. `@x402/core` parses EVERY 200 response against a zod
+  // schema, and the two schemas are different:
   //
   //   verifyResponseSchema  isValid + invalidReason / invalidMessage
-  //   settleResponseSchema  success + errorReason / errorMessage, y ADEMAS
-  //                         `transaction` y `network` como string OBLIGATORIOS,
-  //                         tambien cuando falla.
+  //   settleResponseSchema  success + errorReason / errorMessage, and ON TOP
+  //                         OF THAT `transaction` and `network` as REQUIRED
+  //                         strings, even when it fails.
   //
-  // Mandar el cuerpo equivocado no da un error ruidoso: da uno callado, y de dos
-  // formas distintas. Con las claves de settle en /verify, zod las DESCARTA sin
-  // quejarse y el gateway recibe `{isValid:false}` pelado, sin motivo. En
-  // /settle, sin `transaction` ni `network`, zod rechaza la respuesta ENTERA y
-  // el cliente tira `FacilitatorResponseError`, con lo que el motivo real queda
-  // anidado adentro del texto de otra excepcion.
+  // Sending the wrong body doesn't produce a loud error: it produces a quiet
+  // one, and in two different ways. With settle's keys on /verify, zod
+  // DISCARDS them without complaint and the gateway gets a bare
+  // `{isValid:false}`, no reason. On /settle, without `transaction` or
+  // `network`, zod rejects the ENTIRE response and the client throws
+  // `FacilitatorResponseError`, which buries the real reason nested inside
+  // another exception's text.
   //
-  // Las dos rompen exactamente lo que este bloque existe para sostener: del otro
-  // lado hay un gateway que YA sirvio los tokens -- D12 liquida DESPUES -- y que
-  // necesita poder registrar POR QUE no se cobro. Eso es lo que termina en el
-  // recibo, en el panel, y en lo que la Fase 10 va a leer para decidir si un
-  // fallo se reintenta, se descarta o acusa a alguien.
+  // Both break exactly what this block exists to uphold: on the other side
+  // there's a gateway that has ALREADY served the tokens — D12 settles
+  // AFTERWARD — and needs to be able to record WHY it didn't get paid. That's
+  // what ends up in the receipt, in the panel, and what Phase 10 will read to
+  // decide whether a failure gets retried, discarded, or blamed on someone.
   //
-  // Se comprobo contra el CLIENTE OFICIAL y no contra un curl: un test que mira
-  // el JSON crudo pasa con las dos fallas puestas, porque las dos ocurren del
-  // lado del que parsea.
+  // Verified against the OFFICIAL CLIENT and not against a curl: a test that
+  // looks at the raw JSON passes with both bugs in place, because both happen
+  // on the parsing side.
   // -------------------------------------------------------------------------
   const errorDeVerify = (motivo, mensaje) => ({
     isValid: false,
@@ -204,8 +211,9 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
     success: false,
     errorReason: motivo,
     errorMessage: mensaje,
-    // Vacios, pero PRESENTES y string: el schema los exige aunque no haya
-    // transaccion que informar, y sin ellos se pierde todo lo demas.
+    // Empty, but PRESENT and a string: the schema requires them even when
+    // there's no transaction to report, and without them everything else
+    // gets lost too.
     network: network || ''
   })
 
@@ -220,9 +228,9 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
 
   const server = http.createServer(async (req, res) => {
     const ruta = (req.url || '').split('?')[0]
-    // Se guarda apenas se parsea el cuerpo para que el `catch` de abajo pueda
-    // devolver la red del PAGO y no la que este proceso sirve: son distintas
-    // justo en el caso que mas importa debuggear.
+    // Saved as soon as the body is parsed so the `catch` below can return
+    // the PAYMENT's network and not the one this process serves: they differ
+    // exactly in the case that matters most to debug.
     let redDelPago = ''
     try {
       if (req.method === 'GET' && ruta === '/supported') {
@@ -252,18 +260,19 @@ async function arrancar({ chainId, rpcUrl, clave, puerto, host = '127.0.0.1' }) 
           await facilitator.settle(c.paymentPayload, c.paymentRequirements)
         )
       }
-      return responder(res, 404, { error: 'no existe: ' + req.method + ' ' + ruta })
+      return responder(res, 404, { error: 'not found: ' + req.method + ' ' + ruta })
     } catch (err) {
       const message = (err && err.message) || String(err)
       console.error(`[facilitator] ${req.method} ${ruta}: ${message}`)
-      // Un error se contesta ESTRUCTURADO y no con un 500 pelado: del otro lado
-      // hay un gateway que ya sirvió los tokens y necesita poder registrar por
-      // qué no se liquidó. Un 500 sin cuerpo se convierte en "settlement_failed"
-      // sin motivo, que es justo lo que D12 pide no perder.
+      // An error gets answered STRUCTURED and not with a bare 500: on the
+      // other side there's a gateway that already served the tokens and needs
+      // to be able to record why it didn't get settled. A bodyless 500 turns
+      // into a "settlement_failed" with no reason, which is exactly what D12
+      // asks not to lose.
       //
-      // Y estructurado quiere decir CON LA FORMA DE LA RUTA -- ver los dos
-      // constructores de arriba. Un cuerpo con las claves de la otra ruta se
-      // pierde igual que un 500, solo que sin ruido.
+      // And structured means SHAPED LIKE THE ROUTE — see the two constructors
+      // above. A body with the other route's keys gets lost just like a 500,
+      // only quietly.
       if (ruta === '/settle') {
         return responder(res, 200, errorDeSettle('facilitator_error', message, redDelPago))
       }
@@ -284,17 +293,18 @@ async function main() {
 
   if (!clave) {
     console.error('')
-    console.error(`  falta ${VAR_CLAVE}.`)
+    console.error(`  missing ${VAR_CLAVE}.`)
     console.error('')
-    console.error('  Es la wallet del FACILITATOR: paga el gas de difundir la transaccion, y')
-    console.error('  NO es la wallet de cobro del nodo. En testnet el gas sale del faucet.')
+    console.error('  This is the FACILITATOR wallet: it pays the gas to broadcast the')
+    console.error('  transaction, and it is NOT the node\'s payout wallet. On testnet the gas')
+    console.error('  comes from the faucet.')
     console.error('')
     console.error('    node -e "console.log(require(\'viem/accounts\').generatePrivateKey())"')
     console.error('')
     process.exit(1)
   }
   if (!rpcUrl) {
-    console.error(`  no hay RPC para chainId ${chainId}: ponelo en ${VAR_RPC}`)
+    console.error(`  no RPC for chainId ${chainId}: set it in ${VAR_RPC}`)
     process.exit(1)
   }
 
@@ -310,26 +320,26 @@ async function main() {
 
   console.log('')
   console.log(`  facilitator  ${vivo.url}`)
-  console.log(`  red          ${vivo.red.nombre} (${vivo.red.caip2})`)
+  console.log(`  network      ${vivo.red.nombre} (${vivo.red.caip2})`)
   console.log(`  rpc          ${rpcUrl}`)
-  console.log(`  wallet       ${vivo.cuenta.address}   <- necesita ${vivo.red.nativo} del faucet`)
+  console.log(`  wallet       ${vivo.cuenta.address}   <- needs ${vivo.red.nativo} from the faucet`)
   console.log('')
-  console.log('  Del otro lado, el nodo:')
+  console.log('  On the other side, the node:')
   console.log(`    PYRUS_X402_FACILITATOR=${vivo.url}`)
   console.log('')
 
-  // El saldo se mira DESPUES de levantar, y no corta el arranque: /supported y
-  // /verify funcionan sin un centavo. El unico que necesita gas es /settle, y
-  // avisar temprano evita descubrirlo con un request ya servido encima.
+  // The balance is checked AFTER startup, and doesn't block it: /supported and
+  // /verify work without a cent. The only one that needs gas is /settle, and
+  // warning early avoids finding out about it with a request already served.
   try {
     const saldo = await vivo.publico.getBalance({ address: vivo.cuenta.address })
     if (saldo === 0n) {
-      console.log(`  AVISO: la wallet no tiene ${vivo.red.nativo}. /verify anda; /settle no va a`)
-      console.log('         poder difundir nada hasta que el faucet la fondee.')
+      console.log(`  WARNING: the wallet has no ${vivo.red.nativo}. /verify works; /settle won't be`)
+      console.log('           able to broadcast anything until the faucet funds it.')
       console.log('')
     }
   } catch {
-    console.log('  AVISO: no se pudo leer el saldo (el RPC no contesto). /settle puede fallar.')
+    console.log('  WARNING: could not read the balance (the RPC did not respond). /settle may fail.')
     console.log('')
   }
 }

@@ -1,17 +1,17 @@
-// Los 3 paneles del marketplace simulado, como strings HTML puros.
+// The 3 panels of the simulated marketplace, as pure HTML strings.
 //
-// Van embebidos en JS (no como archivos .html sueltos en /public) a proposito:
-// bare-pack arma el binario standalone siguiendo el grafo de imports de
-// bin.mjs, y un archivo estatico fuera de ese grafo no viaja con el binario.
-// Un string exportado si viaja, sin tener que resolver paths a mano ni
-// depender de bare-fs para servir contenido estatico.
+// They're embedded in JS (not as loose .html files in /public) on purpose:
+// bare-pack builds the standalone binary by following the import graph from
+// bin.mjs, and a static file outside that graph doesn't travel with the
+// binary. An exported string does travel, without having to resolve paths
+// by hand or depend on bare-fs to serve static content.
 //
-// FASE 9 — lo que la fase emitia y no se veia (el 402, el recibo, la atestacion
-// de D24 y el split de D25) se dibuja con `qvac/panel-x402.mjs`. Ese archivo NO
-// se importa para llamarlo desde aca: se importa para PEGAR SU CODIGO adentro
-// del <script> de cada pagina, y asi la suite prueba las mismas funciones que
-// corre el navegador. La nota larga de por que esta ahi y no aca vive en la
-// cabecera de ese archivo.
+// PHASE 9 — what the phase emitted and wasn't visible (the 402, the receipt,
+// D24's attestation and D25's split) is rendered with `qvac/panel-x402.mjs`.
+// That file is NOT imported to call it from here: it's imported to PASTE ITS
+// CODE inside each page's <script>, so the suite tests the same functions
+// that run in the browser. The long note on why it lives there and not here
+// is in that file's header.
 
 import { FUENTE_EMBEBIDA } from './panel-x402.mjs'
 

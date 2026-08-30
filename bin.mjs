@@ -13,31 +13,31 @@ const appName = pkg.productName || pkg.name
 const isDev = path.basename(Bare.argv[0]) === (isWindows ? 'bare.exe' : 'bare')
 const runtimeLabel = isDev ? 'bare (dev)' : 'pear (installed)'
 
-// El trabajo de cada subcomando arranca desde el runner de paparam, que no es
-// awaiteable desde afuera. Se guarda la promesa aca y se espera al final.
+// Each subcommand's work starts from paparam's runner, which isn't
+// awaitable from outside. The promise is stashed here and awaited at the end.
 let pending = null
 
 const promptCmd = command(
   'prompt',
-  summary('Responder un prompt con inferencia 100% local'),
+  summary('Answer a prompt with 100% local inference'),
   description(
-    'Carga un LLM con QVAC y responde sin salir de esta maquina.\n' +
-      'Los pesos viajan por hypercore (P2P), no por HTTP, y quedan\n' +
-      'cacheados en ~/.qvac/models para las corridas siguientes.'
+    'Loads an LLM with QVAC and answers without leaving this machine.\n' +
+      'The weights travel over hypercore (P2P), not HTTP, and stay\n' +
+      'cached under ~/.qvac/models for the next runs.'
   ),
-  arg('<prompt>', 'el texto a responder, o "-" para leerlo de stdin'),
+  arg('<prompt>', 'the text to answer, or "-" to read it from stdin'),
   flag(
     '--model <alias>',
-    `modelo: ${Object.keys(MODELS).join(' | ')} o un nombre exacto del registry (default ${DEFAULT_MODEL})`
+    `model: ${Object.keys(MODELS).join(' | ')} or an exact registry name (default ${DEFAULT_MODEL})`
   ),
-  flag('--ctx <n>', `tamano de contexto (default ${DEFAULT_CTX_SIZE})`),
+  flag('--ctx <n>', `context size (default ${DEFAULT_CTX_SIZE})`),
   flag(
     '--gpu-layers <n>',
-    'capas a mandar a la GPU. 0 = todo CPU. Sin el flag decide el SDK.' +
-      ' En una iGPU floja (Intel UHD 620) 0 es 5x mas rapido: ver NOTES.md'
+    'layers to hand off to the GPU. 0 = all CPU. Without the flag the SDK decides.' +
+      ' On a weak iGPU (Intel UHD 620) 0 is 5x faster: see NOTES.md'
   ),
-  flag('--no-download', 'fallar en vez de bajar los pesos si no estan en cache'),
-  flag('--quiet|-q', 'imprimir solo la respuesta, sin diagnostico ni mediciones'),
+  flag('--no-download', 'fail instead of downloading the weights if they are not cached'),
+  flag('--quiet|-q', 'print only the answer, with no diagnostics or measurements'),
   () => {
     pending = runPrompt()
   }
@@ -45,90 +45,91 @@ const promptCmd = command(
 
 const serveCmd = command(
   'serve',
-  summary('Levantar el gateway compatible con OpenAI y los paneles'),
+  summary('Bring up the OpenAI-compatible gateway and the panels'),
   description(
-    'Sirve los 3 paneles (cliente/proveedor/admin) y POST /v1/chat/completions\n' +
-      'en formato OpenAI: { model, messages[], stream }.\n\n' +
-      'Arranca con el registro VACIO: sin nodos anunciados devuelve un error\n' +
-      'claro de "no hay nodos sirviendo ese modelo", que es el estado real\n' +
-      'mientras el descubrimiento por swarm no este conectado (Fase 2-b).\n' +
-      'Con --demo se puebla con nodos SIMULADOS para el video.'
+    'Serves the 3 panels (client/provider/admin) and POST /v1/chat/completions\n' +
+      'in OpenAI format: { model, messages[], stream }.\n\n' +
+      'Starts with an EMPTY registry: with no nodes advertised it returns a\n' +
+      'clear "no nodes serving that model" error, which is the real state\n' +
+      'while swarm discovery isn\'t connected yet (Phase 2-b).\n' +
+      'With --demo it gets populated with SIMULATED nodes for the video.'
   ),
-  flag('--port <n>', 'puerto HTTP del gateway (default 8787)'),
+  flag('--port <n>', 'gateway HTTP port (default 8787)'),
   flag(
     '--demo',
-    'poblar el registro con nodos simulados (1 real + 3 mocks) para la demo.' +
-      ' Sin este flag el gateway arranca sin ningun nodo.'
+    'populate the registry with simulated nodes (1 real + 3 mocks) for the demo.' +
+      ' Without this flag the gateway starts with no nodes at all.'
   ),
-  flag('--swarm', 'unirse al topic P2P y poblar el registro con pares verificados (Fase 2-b)'),
+  flag('--swarm', 'join the P2P topic and populate the registry with verified peers (Phase 2-b)'),
   flag(
     '--no-store',
-    'no abrir el Hyperbee/Hyperdrive: el nodo corre sin persistencia ni archivos,' +
-      ' como antes de Fase 5. Util para correr dos nodos sobre el mismo --storage.'
+    'do not open the Hyperbee/Hyperdrive: the node runs with no persistence or files,' +
+      ' as it did before Phase 5. Useful for running two nodes over the same --storage.'
   ),
-  flag('--operator <nombre>', 'nombre del operador que se anuncia en el manifiesto'),
+  flag('--operator <nombre>', 'operator name advertised in the manifest'),
   flag(
     '--model <alias>',
-    `modelo que sirve este nodo: ${Object.keys(MODELS).join(' | ')} (default ${DEFAULT_MODEL}).` +
-      ' Es el que se anuncia en el manifiesto Y el que carga el motor: una sola fuente.'
+    `model this node serves: ${Object.keys(MODELS).join(' | ')} (default ${DEFAULT_MODEL}).` +
+      ' The one advertised in the manifest AND the one the engine loads: a single source.'
   ),
   flag(
     '--ctx <n>',
-    `ventana de contexto del modelo (default ${DEFAULT_CTX_SIZE}). Son prompt + razonamiento +` +
-      ' respuesta JUNTOS: un modelo "thinking" con 2048 se queda sin lugar antes de contestar.'
+    `model's context window (default ${DEFAULT_CTX_SIZE}). Prompt + reasoning +` +
+      ' answer TOGETHER: a "thinking" model with 2048 runs out of room before answering.'
   ),
   flag(
     '--gpu-layers <n>',
-    'capas a mandar a la GPU del nodo real. 0 = todo CPU (8x mas rapido en la iGPU de la demo, ver NOTES.md)'
+    'layers to hand off to the real node\'s GPU. 0 = all CPU (8x faster on the demo iGPU, see NOTES.md)'
   ),
   flag(
     '--log-inference',
-    'mostrar el progreso de cada generacion: TTFT, bytes y chunks cada 5s.' +
-      ' Sin esto, una respuesta que tarda minutos se ve igual que un proceso colgado.'
+    'show progress of each generation: TTFT, bytes and chunks every 5s.' +
+      ' Without this, an answer that takes minutes looks exactly like a hung process.'
   ),
   () => {
     pending = runServe()
   }
 )
 
-// El comando que verifica el DoD de Fase 2 sin levantar el gateway: se une al
-// topic, anuncia su manifiesto firmado y reporta que pares aparecieron y si su
-// manifiesto verifico. Es lo que se corre en las DOS maquinas del runbook.
+// The command that verifies Phase 2's DoD without bringing up the gateway: it
+// joins the topic, advertises its signed manifest and reports which peers
+// showed up and whether their manifest verified. This is what runs on the
+// TWO machines in the runbook.
 const peersCmd = command(
   'peers',
-  summary('Unirse al topic P2P y listar los pares con manifiesto verificado'),
+  summary('Join the P2P topic and list peers with a verified manifest'),
   description(
-    'Anuncia el manifiesto firmado de este nodo en el topic fijo y muestra los\n' +
-      'pares que se descubren, con el tiempo de join -> primer par y\n' +
-      'join -> primer manifiesto verificado (D7 del ROADMAP).\n\n' +
-      'Sale solo con --timeout, o con Ctrl+C.'
+    'Advertises this node\'s signed manifest on the fixed topic and shows the\n' +
+      'peers that get discovered, with the time from join -> first peer and\n' +
+      'join -> first verified manifest (ROADMAP\'s D7).\n\n' +
+      'Only exits with --timeout, or with Ctrl+C.'
   ),
-  flag('--operator <nombre>', 'nombre del operador que se anuncia en el manifiesto'),
-  flag('--timeout <s>', 'salir despues de N segundos (default: no sale, Ctrl+C)'),
-  flag('--expect <n>', 'exit code 1 si al salir no hay al menos N pares verificados'),
+  flag('--operator <nombre>', 'operator name advertised in the manifest'),
+  flag('--timeout <s>', 'exit after N seconds (default: never exits, Ctrl+C)'),
+  flag('--expect <n>', 'exit code 1 if fewer than N verified peers exist on exit'),
   () => {
     pending = runPeers()
   }
 )
 
 // ---------------------------------------------------------------------------
-// Archivos entre maquinas (Hyperdrive). Ver qvac/files.mjs.
+// Files between machines (Hyperdrive). See qvac/files.mjs.
 // ---------------------------------------------------------------------------
 
 const sendCmd = command(
   'send',
-  summary('Publicar un archivo o carpeta y compartirlo por P2P'),
+  summary('Publish a file or folder and share it over P2P'),
   description(
-    'Mete el archivo en el Hyperdrive de este nodo y lo anuncia en la DHT.\n' +
-      'Imprime un link qvac:// que la otra maquina baja con `pyrusllm fetch`.\n\n' +
-      'El proceso QUEDA CORRIENDO a proposito: Hypercore no es store-and-forward,\n' +
-      'no hay servidor donde el archivo quede guardado. Los bytes salen de esta\n' +
-      'maquina, asi que tiene que estar prendida mientras la otra baja.\n\n' +
-      'Solo se transfiere lo que se pide: un drive con 40 GB publicados no\n' +
-      'obliga a nadie a bajar mas que el archivo que eligio.'
+    'Puts the file into this node\'s Hyperdrive and advertises it on the DHT.\n' +
+      'Prints a qvac:// link the other machine downloads with `pyrusllm fetch`.\n\n' +
+      'The process STAYS RUNNING on purpose: Hypercore is not store-and-forward,\n' +
+      'there is no server where the file stays saved. The bytes come out of this\n' +
+      'machine, so it has to stay on while the other one downloads.\n\n' +
+      'Only what is requested gets transferred: a drive with 40 GB published does\n' +
+      'not force anyone to download more than the file they picked.'
   ),
-  arg('<ruta>', 'archivo o carpeta a publicar'),
-  flag('--as <nombre>', 'nombre con el que se publica (default: el del archivo)'),
+  arg('<ruta>', 'file or folder to publish'),
+  flag('--as <nombre>', 'name to publish it under (default: the file\'s own name)'),
   () => {
     pending = runSend()
   }
@@ -136,16 +137,16 @@ const sendCmd = command(
 
 const fetchCmd = command(
   'fetch',
-  summary('Bajar un archivo publicado por otra maquina'),
+  summary('Download a file published by another machine'),
   description(
-    'Toma un link qvac://<clave>/<ruta> y baja ese archivo a disco.\n\n' +
-      'Cada bloque se verifica contra el merkle root del drive al llegar: un\n' +
-      'archivo alterado a mitad de camino no puede completarse. Lo que la clave\n' +
-      'NO prueba es de quien es; eso depende del canal por el que llego el link.'
+    'Takes a qvac://<key>/<path> link and downloads that file to disk.\n\n' +
+      'Every block is verified against the drive\'s merkle root as it arrives: a\n' +
+      'file altered partway through cannot complete. What the key does NOT\n' +
+      'prove is who it belongs to; that depends on the channel the link came through.'
   ),
-  arg('<link>', 'link qvac:// que imprimio `pyrusllm send`'),
-  flag('--out <dir>', 'carpeta destino (default: la actual)'),
-  flag('--timeout <s>', 'cuanto esperar a que aparezca un par con el drive (default 60)'),
+  arg('<link>', 'qvac:// link printed by `pyrusllm send`'),
+  flag('--out <dir>', 'destination folder (default: the current one)'),
+  flag('--timeout <s>', 'how long to wait for a peer with the drive to show up (default 60)'),
   () => {
     pending = runFetch()
   }
@@ -153,14 +154,14 @@ const fetchCmd = command(
 
 const filesCmd = command(
   'files',
-  summary('Listar los archivos publicados por este nodo o por un par'),
+  summary('List the files published by this node or by a peer'),
   description(
-    'Sin argumentos lista lo que publica esta maquina.\n' +
-      'Con --link lista lo que publica el drive de otra, sin bajar el contenido:\n' +
-      'la metadata de un Hyperdrive se replica aparte de los blobs.'
+    'With no arguments, lists what this machine publishes.\n' +
+      'With --link, lists what another machine\'s drive publishes, without downloading the content:\n' +
+      'a Hyperdrive\'s metadata replicates separately from the blobs.'
   ),
-  flag('--link <qvac://…>', 'listar el drive de otra maquina en vez del propio'),
-  flag('--timeout <s>', 'cuanto esperar al par remoto (default 30)'),
+  flag('--link <qvac://…>', 'list another machine\'s drive instead of this one\'s'),
+  flag('--timeout <s>', 'how long to wait for the remote peer (default 30)'),
   () => {
     pending = runFiles()
   }
@@ -168,20 +169,20 @@ const filesCmd = command(
 
 const walletCmd = command(
   'wallet',
-  summary('Ver, crear o restaurar la wallet de cobro de este nodo'),
+  summary('View, create, or restore this node\'s payment wallet'),
   description(
-    'Sin flags muestra la direccion de cobro, o dice que todavia no hay wallet.\n' +
+    'With no flags, shows the payment address, or says there is no wallet yet.\n' +
       '\n' +
-      'La seed se guarda CIFRADA con la passphrase de PYRUS_WALLET_PASSPHRASE\n' +
-      '(se puede poner en el .env). Limite honesto: si ese .env vive al lado del\n' +
-      'keystore, el cifrado protege de un backup o de un repo, no de alguien que\n' +
-      'ya tiene acceso a esta maquina.\n' +
+      'The seed is stored ENCRYPTED with the PYRUS_WALLET_PASSPHRASE passphrase\n' +
+      '(it can be set in the .env). Honest limit: if that .env lives next to the\n' +
+      'keystore, the encryption protects against a backup or a repo leak, not\n' +
+      'against someone who already has access to this machine.\n' +
       '\n' +
-      '--crear muestra las 24 palabras UNA vez. Anotalas: sin ellas y sin el\n' +
-      'keystore, la wallet se pierde. --restaurar <frase> las vuelve a usar.'
+      '--crear shows the 24 words ONCE. Write them down: without them and\n' +
+      'without the keystore, the wallet is lost. --restaurar <phrase> reuses them.'
   ),
-  flag('--crear', 'generar una wallet nueva para este nodo'),
-  flag('--restaurar <frase>', 'restaurar desde las 24 palabras de un respaldo'),
+  flag('--crear', 'generate a new wallet for this node'),
+  flag('--restaurar <frase>', 'restore from the 24 words of a backup'),
   () => {
     pending = runWallet()
   }
@@ -193,10 +194,10 @@ const cmd = command(
   flag('--version|-v', 'Print the current version'),
   flag('--storage <dir>', 'custom storage directory'),
   flag('--no-updates', 'disable OTA updates for this run'),
-  flag('--port <n>', 'puerto HTTP de la app (default 8787)'),
-  flag('--no-serve', 'solo el updater OTA, sin levantar la app'),
-  flag('--no-open', 'no abrir el navegador al arrancar'),
-  flag('--update-delay <ms>', 'ventana de jitter del OTA en ms (default 10000)'),
+  flag('--port <n>', 'app HTTP port (default 8787)'),
+  flag('--no-serve', 'just the OTA updater, without bringing up the app'),
+  flag('--no-open', 'do not open the browser on startup'),
+  flag('--update-delay <ms>', 'OTA jitter window in ms (default 10000)'),
   promptCmd,
   serveCmd,
   peersCmd,
@@ -225,23 +226,23 @@ async function runPrompt() {
   const gpuLayers = promptCmd.flags.gpuLayers === undefined ? undefined : +promptCmd.flags.gpuLayers
   const say = quiet ? () => {} : (line = '') => console.log(line)
 
-  // "-" lee el prompt de stdin. No es un lujo: en Windows el binario
-  // standalone de bare-build recibe el argv en la codepage ANSI y le rompe
-  // cualquier caracter no-ASCII —"Respondé" llega como "Respond�"—,
-  // mientras que `bare.exe` con el mismo string lo pasa intacto. stdin es un
-  // stream de bytes y no pasa por esa conversion. Repro y detalle en NOTES.md.
+  // "-" reads the prompt from stdin. Not a luxury: on Windows the standalone
+  // bare-build binary receives argv in the ANSI codepage and mangles any
+  // non-ASCII character —"Respondé" arrives as "Respond�"—,
+  // while `bare.exe` with the same string passes it through intact. stdin is
+  // a byte stream and doesn't go through that conversion. Repro and detail in NOTES.md.
   const text = promptCmd.args.prompt === '-' ? await readStdin() : promptCmd.args.prompt
 
   if (!text || text.trim() === '') {
-    console.error('[qvac] el prompt esta vacio.')
+    console.error('[qvac] the prompt is empty.')
     Bare.exitCode = 1
     return
   }
 
-  // Import DINAMICO: importar el motor hace dlopen del addon de llamacpp
-  // (96 MB en win32-x64) en el acto. `pyrusllm` a secas no tiene por que
-  // pagar eso. bare-pack igual lo mete en el binario standalone: el traverse
-  // sigue los `import()` con especificador literal.
+  // DYNAMIC import: importing the engine dlopens the llamacpp addon
+  // (96 MB on win32-x64) right away. Plain `pyrusllm` shouldn't have to
+  // pay for that. bare-pack still bundles it into the standalone binary: the
+  // traverse follows `import()` calls with a literal specifier.
   const engine = await import('./qvac/engine.mjs')
 
   let modelId = null
@@ -252,45 +253,45 @@ async function runPrompt() {
     const mb = (entry.expectedSize / 1e6).toFixed(0)
 
     say()
-    say(`  QVAC-NODE v${pkg.version} - inferencia 100% local`)
+    say(`  QVAC-NODE v${pkg.version} - 100% local inference`)
     say()
-    say(`  modelo   : ${name}  ${entry.params}  ${mb} MB`)
-    say(`  pesos    : ${cached ? 'en cache' : 'faltan, se bajan por hypercore'}`)
+    say(`  model    : ${name}  ${entry.params}  ${mb} MB`)
+    say(`  weights  : ${cached ? 'cached' : 'missing, downloading over hypercore'}`)
     say(`  cache    : ${engine.modelsDir()}`)
     say(`  runtime  : ${runtimeLabel}`)
     say()
 
-    // La descarga de pesos es un efecto explicito de PEDIR una inferencia,
-    // nunca un efecto de arrancar el nodo. Esa invariante del runbook sigue en
-    // pie: `pyrusllm` a secas no baja un solo byte de modelo. `--no-download`
-    // esta para forzar el modo estricto igual.
+    // Downloading weights is an explicit effect of REQUESTING an inference,
+    // never an effect of starting the node. That invariant from the runbook
+    // still holds: plain `pyrusllm` doesn't download a single byte of model.
+    // `--no-download` is there to force strict mode regardless.
     if (!cached && !allowDownload) {
       throw new Error(
-        `"${name}" no esta en cache y se paso --no-download. Son ${mb} MB. Corre el mismo comando sin --no-download.`
+        `"${name}" is not cached and --no-download was passed. That's ${mb} MB. Run the same command without --no-download.`
       )
     }
 
     let lastPct = -1
-    if (!cached) say(`  bajando ${mb} MB por hypercore...`)
+    if (!cached) say(`  downloading ${mb} MB over hypercore...`)
 
     modelId = await engine.loadModel({
       modelSrc,
       ctxSize,
       gpuLayers,
       onProgress: (p) => {
-        // Solo cuando de verdad esta bajando: con el modelo en cache el SDK
-        // igual emite progreso, y una barra que va de 0% a 0% confunde.
+        // Only while it's actually downloading: with the model cached the SDK
+        // still emits progress, and a bar that goes from 0% to 0% is confusing.
         if (quiet || cached) return
         const pct = Math.floor((p && (p.progress ?? p.percent ?? 0)) * 100)
         if (pct === lastPct) return
         lastPct = pct
-        process.stdout.write(`\r  descarga ${pct}%   `)
+        process.stdout.write(`\r  download ${pct}%   `)
         if (pct >= 100) process.stdout.write('\n')
       }
     })
 
     const tLoaded = Date.now()
-    say(`  modelo listo en ${secs(tLoaded - t0)}`)
+    say(`  model ready in ${secs(tLoaded - t0)}`)
     say()
     say(`> ${text}`)
     say()
@@ -304,16 +305,16 @@ async function runPrompt() {
 
     const tEnd = Date.now()
     say()
-    say(`  carga del modelo    : ${secs(tLoaded - t0)}`)
-    say(`  primer token (TTFT) : ${firstTokenAt ? secs(firstTokenAt - tLoaded, 2) : 'n/d'}`)
-    say(`  respuesta completa  : ${secs(tEnd - tLoaded)}`)
+    say(`  model load          : ${secs(tLoaded - t0)}`)
+    say(`  first token (TTFT)  : ${firstTokenAt ? secs(firstTokenAt - tLoaded, 2) : 'n/a'}`)
+    say(`  full answer         : ${secs(tEnd - tLoaded)}`)
     say()
   } catch (err) {
-    console.error('\n[qvac] fallo la inferencia:', (err && err.message) || err)
+    console.error('\n[qvac] inference failed:', (err && err.message) || err)
     Bare.exitCode = 1
   } finally {
-    // Sin esto el proceso no termina: `unloadModel` deja arriba el swarm, el
-    // cliente del registry y el corestore a proposito.
+    // Without this the process never exits: `unloadModel` deliberately leaves
+    // the swarm, the registry client and the corestore up.
     await engine.shutdown(modelId)
   }
 }
@@ -332,13 +333,15 @@ async function readStdin() {
 // pyrusllm serve
 // ---------------------------------------------------------------------------
 
-// Carga el `.env` del directorio de trabajo y el del storage, en ese orden.
-// El primero que defina una variable gana, y una variable YA presente en el
-// entorno le gana a los dos: ver la nota de qvac/dotenv.mjs.
+// Loads the `.env` from the working directory and the one from storage, in
+// that order. Whichever defines a variable first wins, and a variable
+// ALREADY present in the environment beats both: see the note in
+// qvac/dotenv.mjs.
 //
-// Se dice que se cargo, con los NOMBRES y nunca los valores. Sin ese aviso,
-// "el .env no se leyo" y "el .env se leyo pero la variable se llama distinto"
-// se ven exactamente igual desde afuera -- que es como se perdio una tarde.
+// It reports that it loaded, with the NAMES and never the values. Without
+// that notice, "the .env wasn't read" and "the .env was read but the
+// variable is named differently" look exactly the same from outside -- which
+// is how an afternoon got lost.
 async function cargarEnv() {
   const dotenv = await import('./qvac/dotenv.mjs')
   const vistos = []
@@ -349,22 +352,23 @@ async function cargarEnv() {
   if (vistos.length) console.log(`  [env] .env: ${vistos.join(', ')}`)
 }
 
-// Lee `<storage>/upstreams.json` y convierte cada modelo externo en una fila
-// del registro. Es TODO el cableado de la Fase 8.5 del lado del arranque: a
-// partir de aca /v1/models lo lista, el chat lo ofrece y el ruteo lo puntua.
+// Reads `<storage>/upstreams.json` and turns each external model into a row
+// in the registry. This is ALL of Phase 8.5's wiring on the startup side:
+// from here on /v1/models lists it, chat offers it, and routing scores it.
 //
-// Un upstream se registra OFFLINE si le falta la credencial o el precio. Las
-// dos ausencias son distintas y ninguna puede pasar en silencio:
+// An upstream is registered OFFLINE if it's missing the credential or the
+// price. The two absences are different and neither can pass silently:
 //
-//   - sin credencial no puede contestar, y el error saldria recien en el
-//     primer prompt, con el usuario mirando;
-//   - sin precio `costs.estimar` devuelve CERO, la reserva no aparta nada y el
-//     tope de gasto deja de cortar justo en el unico camino que cuesta
-//     dolares. Un externo gratis-a-los-ojos-del-contador es peor que un
-//     externo apagado.
+//   - without a credential it cannot answer, and the error would only surface
+//     on the first prompt, with the user watching;
+//   - without a price `costs.estimar` returns ZERO, the reserve doesn't set
+//     anything aside and the spending cap stops cutting off on exactly the
+//     one path that costs dollars. An external that's free-in-the-ledger's-
+//     eyes is worse than an external that's turned off.
 //
-// Offline y no ausente porque el panel tiene que mostrarlo con lo que le
-// falta: "configuraste mal" y "no configuraste nada" no pueden verse igual.
+// Offline, not absent, because the panel has to show it along with what it's
+// missing: "you misconfigured it" and "you configured nothing" can't look
+// the same.
 async function registrarUpstreams({ gw, store, dir }) {
   const upstream = await import('./qvac/upstream.mjs')
   const costs = await import('./qvac/costs.mjs')
@@ -372,13 +376,13 @@ async function registrarUpstreams({ gw, store, dir }) {
   const cfg = await upstream.leerConfig(dir)
   if (cfg.error) {
     console.error(`  [upstream] ${cfg.error}`)
-    console.error('  [upstream] se sigue sin asistente externo')
+    console.error('  [upstream] continuing without an external assistant')
     return
   }
 
-  // Se relee entero: las filas y los precios de una corrida anterior se borran
-  // antes de escribir los nuevos, o un modelo sacado del archivo seguiria
-  // anunciado.
+  // Reread in full: the rows and prices from a previous run are cleared
+  // before writing the new ones, or a model removed from the file would
+  // keep being advertised.
   store.clearUpstreams()
   costs.olvidarPreciosExternos()
   gw.setUpstreams(cfg.upstreams)
@@ -387,40 +391,40 @@ async function registrarUpstreams({ gw, store, dir }) {
   if (cfg.upstreams.length === 0) return
 
   for (const u of cfg.upstreams) {
-    // El precio se registra contra el ID DE LA FILA del registro y no contra
-    // el modelId: si dos nodos sirven el mismo modelo -- un par gratis y esta
-    // API cobrando-- indexar por nombre de modelo le cobraria al par la tarifa
-    // del tercero. Ver claveDePrecio() en gateway.mjs.
+    // The price is registered against the registry's ROW ID and not against
+    // the modelId: if two nodes serve the same model -- a free peer and this
+    // API charging -- indexing by model name would charge the peer the third
+    // party's rate. See claveDePrecio() in gateway.mjs.
     const filaId = `upstream:${u.id}`
     const conPrecio = u.precio ? costs.registrarPrecio(filaId, u.precio) : false
 
-    // Que le falta a este upstream para poder contestar. Las dos exigencias
-    // valen para un proveedor REMOTO y ninguna para uno local:
+    // What this upstream is missing to be able to answer. Both requirements
+    // apply to a REMOTE provider and neither to a local one:
     //
-    //   - credencial: un endpoint en localhost no lleva ninguna;
-    //   - precio: un endpoint propio no cuesta dolares, asi que cero no es un
-    //     agujero en el contador -- es la verdad. Exigirselo dejaria apagado
-    //     al unico upstream que nunca puede pasarse de un tope.
+    //   - credential: a localhost endpoint carries none;
+    //   - price: an endpoint of your own costs no dollars, so zero isn't a
+    //     hole in the ledger -- it's the truth. Requiring it would leave
+    //     disabled the one upstream that can never go over a cap.
     const falta = []
-    if (!u.disponible()) falta.push(`falta la variable de entorno ${u.apiKeyEnv}`)
-    if (!conPrecio && !u.esLocal) falta.push('falta "pricePerMTok" en la config')
+    if (!u.disponible()) falta.push(`missing the ${u.apiKeyEnv} environment variable`)
+    if (!conPrecio && !u.esLocal) falta.push('missing "pricePerMTok" in the config')
 
     store.registerUpstream({
       id: u.id,
-      // El nombre con el que entra al marketplace, que puede no ser el que usa
-      // el proveedor: dos puertas al mismo modelo tienen que caer en la misma
-      // fila del catalogo para poder competir entre si.
+      // The name it enters the marketplace under, which may not be the one
+      // the provider uses: two doors to the same model have to land on the
+      // same catalogue row so they can compete against each other.
       modelId: u.anunciadoComo,
       displayName: u.displayName,
-      // El operador que se muestra en el panel y viaja en los headers de
-      // procedencia. Dice el proveedor Y de que lado esta: la promesa de
-      // privacidad se acota en el nombre mismo de quien contesto.
-      operator: u.esLocal ? `${u.label} (local)` : `${u.label} (externo)`,
+      // The operator shown in the panel and carried in the provenance
+      // headers. States the provider AND which side it's on: the privacy
+      // promise is scoped right in the name of whoever answered.
+      operator: u.esLocal ? `${u.label} (local)` : `${u.label} (external)`,
       pricing: conPrecio
         ? `${costs.formatUSD(u.precio.salida)} / per 1m completion tokens`
         : u.esLocal
-          ? 'sin costo: corre en esta maquina'
-          : 'sin precio declarado',
+          ? 'no cost: runs on this machine'
+          : 'no price declared',
       tags: u.tags,
       maxConcurrentRequests: u.maxConcurrent,
       status: falta.length ? 'offline' : 'online',
@@ -430,39 +434,39 @@ async function registrarUpstreams({ gw, store, dir }) {
     const comoSeLlama =
       u.anunciadoComo === u.model
         ? u.model
-        : `${u.anunciadoComo} (el proveedor lo llama ${u.model})`
+        : `${u.anunciadoComo} (the provider calls it ${u.model})`
 
     if (falta.length) {
-      console.log(`  [upstream] ${u.displayName} (${u.label}) DESACTIVADO: ${falta.join('; ')}`)
+      console.log(`  [upstream] ${u.displayName} (${u.label}) DISABLED: ${falta.join('; ')}`)
     } else if (u.esLocal) {
       console.log(
-        `  [upstream] ${u.displayName} (${u.label}) listo en ${u.baseUrl} — local, sin costo — ${comoSeLlama}`
+        `  [upstream] ${u.displayName} (${u.label}) ready at ${u.baseUrl} — local, no cost — ${comoSeLlama}`
       )
     } else {
       console.log(
-        `  [upstream] ${u.displayName} (${u.label}) listo — hasta ${u.maxTokens} tokens de salida, ` +
+        `  [upstream] ${u.displayName} (${u.label}) ready — up to ${u.maxTokens} output tokens, ` +
           `${costs.formatUSD(u.precio.salida)}/1M — ${comoSeLlama}`
       )
     }
   }
 
-  // El opt-in habla de TERCEROS. Un nodo cuyos upstreams son todos locales no
-  // tiene por que leer un aviso sobre prompts que salen de la maquina, porque
-  // ninguno sale: decirselo igual entrena a ignorar el aviso el dia que sea
-  // cierto.
+  // The opt-in is about THIRD PARTIES. A node whose upstreams are all local
+  // has no reason to read a notice about prompts leaving the machine,
+  // because none do: showing it anyway trains people to ignore the notice
+  // on the day it's actually true.
   if (cfg.upstreams.some((u) => !u.esLocal)) {
     console.log(
       cfg.optIn
-        ? '  [upstream] opt-in PRENDIDO: con la red sin capacidad, el prompt puede salir a un tercero'
-        : '  [upstream] opt-in apagado: ningun prompt sale a un tercero (se prende en /node)'
+        ? '  [upstream] opt-in ON: with the network at no capacity, the prompt may go out to a third party'
+        : '  [upstream] opt-in off: no prompt leaves to a third party (turn it on at /node)'
     )
   }
 }
 
-// Levanta el gateway y los paneles. La usan DOS caminos: `pyrusllm serve` con
-// sus flags, y `pyrusllm` a secas -- que ademas corre el updater OTA. Recibe
-// opciones en vez de leer serveCmd.flags porque en el segundo camino ese
-// subcomando nunca se parseo y todos sus flags son undefined.
+// Brings up the gateway and the panels. Used by TWO paths: `pyrusllm serve`
+// with its flags, and plain `pyrusllm` -- which also runs the OTA updater.
+// Takes options instead of reading serveCmd.flags because on the second path
+// that subcommand never got parsed and all its flags are undefined.
 async function startGateway(opts = {}) {
   const port = Number.isFinite(+opts.port) ? +opts.port : 8787
   const gpuLayers = Number.isFinite(+opts.gpuLayers) ? +opts.gpuLayers : undefined
@@ -471,45 +475,45 @@ async function startGateway(opts = {}) {
   const useSwarm = opts.swarm === true
   const withStore = opts.store !== false
 
-  // El `.env` va PRIMERO de todo: las credenciales de los upstreams se leen
-  // del entorno, y cargarlo despues de registrarlos dejaria los upstreams
-  // apagados por una variable que estaba ahi todo el tiempo.
+  // The `.env` goes FIRST, before anything else: upstream credentials are
+  // read from the environment, and loading it after registering them would
+  // leave the upstreams disabled over a variable that was there the whole time.
   //
-  // Se busca en el directorio de trabajo y no en el de storage: un `.env` es
-  // del proyecto que se esta corriendo, y el que lo escribe lo pone al lado de
-  // donde ejecuta. Tambien en el storage, para el binario instalado, que no
-  // tiene un "al lado" obvio.
+  // It's looked up in the working directory and not the storage one: a
+  // `.env` belongs to the project being run, and whoever writes it puts it
+  // next to where it executes. Also in storage, for the installed binary,
+  // which has no obvious "next to it".
   await cargarEnv()
 
-  // FASE 6.5 — el ledger de consumo se abre ANTES del gateway. Si se abriera
-  // despues, los primeros requests correrian sin contador: pocos, pero
-  // justamente los del arranque, que es cuando un loop recien lanzado gasta
-  // mas rapido. Un tope con una ventana ciega no es un tope.
+  // PHASE 6.5 — the spend ledger is opened BEFORE the gateway. If it opened
+  // afterward, the first requests would run uncounted: a handful, but
+  // exactly the startup ones, which is when a freshly launched loop spends
+  // fastest. A cap with a blind window is not a cap.
   const budget = await import('./qvac/budget.mjs')
   const budgetDir = swarmStorageDir()
   try {
     const fs = await import('bare-fs')
     fs.default.mkdirSync(budgetDir, { recursive: true })
   } catch {
-    // Si no se puede crear, budget.open avisa y sigue en memoria.
+    // If it can't be created, budget.open warns and falls back to memory.
   }
   budget.open(budgetDir)
 
-  // Y el registro de API keys ANTES que el gateway, por la misma razon y por
-  // una mas: la cuenta a la que el ledger le imputa el gasto ES la key, asi que
-  // un registro que no sobrevive al proceso es un tope que se resetea
-  // reiniciando. Van juntos o el de arriba no garantiza nada.
+  // And the API key registry BEFORE the gateway, for the same reason and one
+  // more: the account the ledger charges spend against IS the key, so a
+  // registry that doesn't survive the process is a cap that resets on
+  // restart. They go together or the one above guarantees nothing.
   const apikeys = await import('./qvac/apikeys.mjs')
   const cargadas = apikeys.open(budgetDir)
-  if (cargadas > 0) console.log(`  [apikeys] ${cargadas} key(s) del registro guardado`)
+  if (cargadas > 0) console.log(`  [apikeys] ${cargadas} key(s) from the saved registry`)
 
-  // `modeloElegido()` valida el alias y tira si no existe: mejor no arrancar
-  // que anunciar un modelo que el motor despues no puede cargar.
+  // `modeloElegido()` validates the alias and throws if it doesn't exist:
+  // better not to start than to advertise a model the engine can't load later.
   const modelo = modeloElegido()
 
   const ctx = serveCmd.flags && serveCmd.flags.ctx ? Number(serveCmd.flags.ctx) : undefined
   if (ctx !== undefined && (!Number.isFinite(ctx) || ctx < 512)) {
-    throw new Error(`--ctx "${serveCmd.flags.ctx}" tiene que ser un entero >= 512`)
+    throw new Error(`--ctx "${serveCmd.flags.ctx}" must be an integer >= 512`)
   }
 
   const logInference = !!(serveCmd.flags && serveCmd.flags.logInference)
@@ -521,47 +525,50 @@ async function startGateway(opts = {}) {
   const store = await import('./qvac/store.mjs')
   const operator = opts.operator || `Node on ${os.hostname()}`
 
-  // FASE 9 — la wallet se abre en el ARRANQUE, no al unirse al swarm.
+  // PHASE 9 — the wallet is opened at STARTUP, not when joining the swarm.
   //
-  // Estaba adentro de `launchAgent`, y eso tenia dos consecuencias que no se
-  // veian: un nodo con wallet corriendo `serve` SIN `--swarm` nunca podia
-  // cobrar -- el gateway no se enteraba de que existia --, y con `--swarm` los
-  // requests que llegaban durante los segundos que tarda el join recibian 401
-  // en vez de 402. Las dos salieron probando el curl del DoD contra el nodo de
-  // verdad, no en los tests.
+  // It used to be inside `launchAgent`, and that had two consequences that
+  // weren't obvious: a node with a wallet running `serve` WITHOUT `--swarm`
+  // could never charge -- the gateway never found out it existed --, and
+  // with `--swarm`, requests arriving during the seconds the join takes got
+  // 401 instead of 402. Both surfaced by testing the DoD curl against the
+  // real node, not in the tests.
   //
-  // La wallet no depende del swarm: es de esta maquina. `joinSwarm` la vuelve a
-  // leer para el manifiesto, que es otra cosa -- ahi va FIRMADA.
-  // D30.1 — el keystore NO sale de `budgetDir`: ese puede estar en temp.
+  // The wallet doesn't depend on the swarm: it belongs to this machine.
+  // `joinSwarm` reads it again for the manifest, which is a different thing
+  // -- there it goes SIGNED.
+  // D30.1 — the keystore does NOT come from `budgetDir`: that one can live in temp.
   const dirWallet = await walletStorageDir()
   const cobro = await economicDelNodo(dirWallet)
   gw.setEconomic(cobro.economic)
-  // D24 — sin firmante no hay atestacion, y eso es lo correcto: se prefiere no
-  // emitirla a emitirla sin firma. El gateway lo dice en el recibo.
+  // D24 — no signer means no attestation, and that's correct: better to not
+  // issue one than to issue it unsigned. The gateway says so in the receipt.
   gw.setWalletSigner(cobro.firmar)
 
-  // FASE 10 — el acumulador de recibos del lote se abre ACA, con la misma
-  // precedencia que el ledger y las API keys (antes del gateway) y por el mismo
-  // motivo: un recibo que llega antes de cargar los pendientes de la corrida
-  // anterior arrancaria un lote incompleto. Va contra `dirWallet` —el dir
-  // persistente de D30.1, NO `budgetDir` que bajo bare es temp—: lo que se guarda
-  // ahi son autorizaciones EIP-3009 firmadas, o sea cobros. Se le inyecta con que
-  // firmar (la wallet del nodo) y con que liquidar (`x402.liquidar`); el flush
-  // arma-firma-liquida por tamano, por tiempo, y en el `close` de abajo. El
-  // provider comparte este mismo singleton, asi que la persistencia es una sola.
+  // PHASE 10 — the batch receipt accumulator is opened HERE, with the same
+  // precedence as the ledger and the API keys (before the gateway) and for
+  // the same reason: a receipt arriving before the pending ones from a
+  // previous run are loaded would start an incomplete batch. It's opened
+  // against `dirWallet` — D30.1's persistent dir, NOT `budgetDir`, which is
+  // temp under bare — because what gets saved there are signed EIP-3009
+  // authorizations, i.e. charges. It's injected with what to sign with (the
+  // node's wallet) and what to settle with (`x402.liquidar`); the flush
+  // builds-signs-settles by size, by time, and in the `close` below. The
+  // provider shares this same singleton, so there is only one persistence layer.
   const lote = await import('./qvac/lote.mjs')
   const x402 = await import('./qvac/x402.mjs')
   const pendientesLote = lote.abrir(dirWallet, { firmar: cobro.firmar, liquidar: x402.liquidar })
   if (pendientesLote > 0) {
-    console.log(`  [lote] ${pendientesLote} recibo(s) pendiente(s) de una corrida anterior`)
+    console.log(`  [lote] ${pendientesLote} receipt(s) pending from a previous run`)
   }
 
-  // Esta maquina puede responder con SU modelo sin haberse unido a nada, y el
-  // registro tiene que decirlo desde el arranque. Si la fila local recien
-  // apareciera con --swarm, un gateway sin agente lanzado no tendria NINGUN
-  // nodo y el chat contestaria "no hay nodos sirviendo ese modelo" -- cuando
-  // la maquina puede contestar sola. Es la mitad local de la puerta: a la red
-  // se entra lanzando el agente, al modelo propio se llega siempre.
+  // This machine can answer with ITS OWN model without having joined
+  // anything, and the registry has to say so from startup. If the local row
+  // only appeared with --swarm, a gateway with no agent launched would have
+  // NO node at all and chat would answer "no nodes serving that model" --
+  // when the machine can answer on its own. This is the local half of the
+  // gate: you enter the network by launching the agent, but your own model
+  // is always reachable.
   for (const m of swarmModels()) {
     store.registerLocal({
       modelId: m.modelId,
@@ -573,51 +580,52 @@ async function startGateway(opts = {}) {
     })
   }
 
-  // FASE 8.5 — el asistente externo, si el operador configuro alguno. Va
-  // DESPUES de la fila local a proposito: el orden en que se registran no
-  // decide nada (eso es pickCandidate), pero el log de arranque se lee mejor
-  // con la maquina propia primero y el tercero despues.
+  // PHASE 8.5 — the external assistant, if the operator configured one. This
+  // goes AFTER the local row on purpose: the order they're registered in
+  // doesn't decide anything (that's pickCandidate's job), but the startup
+  // log reads better with this machine first and the third party after.
   await registrarUpstreams({ gw, store, dir: budgetDir })
 
   let nodeSwarm = null
   let provider = null
   let data = null
 
-  // Lo que antes corria una sola vez al arrancar con --swarm es ahora una
-  // funcion: el boton "Launch local agent" del chat la llama por HTTP, asi
-  // nadie tiene que volver a la terminal a reiniciar el proceso con otro flag.
+  // What used to run once at startup with --swarm is now a function: the
+  // chat's "Launch local agent" button calls it over HTTP, so nobody has to
+  // go back to the terminal to restart the process with another flag.
   async function launchAgent() {
     if (nodeSwarm) return nodeSwarm
 
-    // El swarm escribe en el MISMO registro que lee el gateway: un manifiesto
-    // verificado se vuelve una fila del marketplace, y los paneles la dibujan
-    // sin saber que vino de un par. Esa es la costura de Fase 2-c. `store` y
-    // `operator` son los de runServe: declararlos de nuevo aca los sombreaba
-    // con OTRO default de nombre.
+    // The swarm writes to the SAME registry the gateway reads: a verified
+    // manifest becomes a marketplace row, and the panels draw it without
+    // knowing it came from a peer. That's Phase 2-c's seam. `store` and
+    // `operator` are runServe's own: declaring them again here would shadow
+    // them with ANOTHER default name.
 
-    // El Hyperbee y el Hyperdrive se abren ANTES del join: el manifiesto que
-    // se firma al conectarse lleva la clave del directorio adentro, y firmarlo
-    // sin ella significaria anunciar el mock de D2 durante toda la sesion.
+    // The Hyperbee and the Hyperdrive are opened BEFORE the join: the
+    // manifest signed on connecting carries the directory's key inside, and
+    // signing it without one would mean advertising D2's mock for the whole session.
     if (withStore) {
       data = await openData(swarmStorageDir())
       store.attachDirectory(data.directory)
 
       const hidratados = await store.hydrateFromDirectory()
       if (hidratados > 0) {
-        console.log(`  [store] ${hidratados} par/es del directorio, offline hasta que se conecten`)
+        console.log(`  [store] ${hidratados} peer(s) from the directory, offline until they connect`)
       }
 
-      // La poda es del arranque y no de un timer: correrla mientras el nodo
-      // sirve tokens seria meter escrituras al bee en el camino caliente.
+      // Pruning happens at startup and not on a timer: running it while the
+      // node is serving tokens would put writes to the bee on the hot path.
       data.directory.pruneLog().catch(() => {})
     }
 
     nodeSwarm = await joinSwarm({ operator, store, data })
 
-    // Este nodo tambien SIRVE: `serve --swarm` es el nodo completo (gateway +
-    // proveedor). Se registra la fila local en el registro con o sin --demo,
-    // porque no es un mock: es esta maquina, y sin ella `node:status`
-    // anunciaria capacidad CERO mientras esta sirviendo.
+    // This node also SERVES: `serve --swarm` is the full node (gateway +
+    // provider). The local row gets registered in the registry with or
+    // without --demo, because it's not a mock: it's this machine, and
+    // without it `node:status` would advertise ZERO capacity while it's
+    // actually serving.
     const { Provider } = await import('./qvac/provider.mjs')
     const models = swarmModels()
     for (const m of models) {
@@ -631,28 +639,29 @@ async function startGateway(opts = {}) {
       })
     }
 
-    // S2 de NOTES-SATURACION.md: la capacidad HONRADA sale de la misma lista
-    // que la ANUNCIADA. Antes eran dos literales `3` escritos aparte, y el
-    // comentario de swarmModels() ya declaraba la intencion de que fuera una
-    // sola fuente -- pero el Provider no la leia. Con el manifiesto editable
-    // desde el panel eso deja de ser teorico: subir la capacidad anunciada no
-    // subia la que se cumple, y el nodo pasaba a anunciar lo que no sirve.
+    // S2 from NOTES-SATURACION.md: the HONEST capacity comes from the same
+    // list as the ADVERTISED one. It used to be two `3` literals written
+    // separately, and swarmModels()'s comment already declared the intent
+    // for it to be a single source -- but the Provider wasn't reading it.
+    // With the manifest now editable from the panel that stops being
+    // theoretical: raising the advertised capacity wouldn't raise the
+    // enforced one, and the node would end up advertising what it doesn't serve.
     provider = new Provider({
       engineLoader: () => import('./qvac/engine.mjs'),
       store,
       models,
       maxConcurrent: capacidadDeclarada(models),
-      // FASE 10 — la misma capacidad de firmar que recibe el gateway. Sirve
-      // para atestiguar (D24) y acumular en el lote lo que ESTE nodo sirve a un
-      // par. Sin wallet, el nodo sirve igual pero no cobra un ruteado -- el
-      // `chat:done` lo dice con un motivo.
+      // PHASE 10 — the same signing capability the gateway receives. Used to
+      // attest (D24) and accumulate in the batch what THIS node serves a
+      // peer. Without a wallet, the node still serves but doesn't charge a
+      // routed request -- `chat:done` says so with a reason.
       walletAddress: cobro.economic ? cobro.economic.walletAddress : null,
       firmarConWallet: cobro.firmar
     })
     nodeSwarm.setProvider(provider)
 
-    // El gateway necesita el swarm y los archivos para poder mandar chat:request
-    // a un par y publicar los que se suben.
+    // The gateway needs the swarm and the files to be able to send
+    // chat:request to a peer and publish the ones that get uploaded.
     gw.setSwarm(nodeSwarm)
     if (data && data.files) gw.setFiles(data.files)
 
@@ -666,41 +675,41 @@ async function startGateway(opts = {}) {
   const shutdown = async (code) => {
     if (closing) return
     closing = true
-    console.log('\n[gateway] cerrando...')
+    console.log('\n[gateway] closing...')
 
-    // `server.close()` destruye las conexiones ociosas pero ESPERA a las que
-    // estan en vuelo, y su callback nunca corre mientras haya un SSE abierto.
-    // Con una inferencia real de 30s en curso, Ctrl+C no salia. El timeout
-    // corta por lo sano: 3s para cerrar prolijo, despues se sale igual.
+    // `server.close()` destroys idle connections but WAITS for the ones in
+    // flight, and its callback never runs while an SSE stream is still open.
+    // With a real 30s inference in progress, Ctrl+C wouldn't exit. The
+    // timeout cuts it off cleanly: 3s to close nicely, after that it exits anyway.
     const forced = setTimeout(() => {
-      console.log('[gateway] habia requests en vuelo, saliendo igual.')
+      console.log('[gateway] there were requests in flight, exiting anyway.')
       Bare.exit(code)
     }, 3000)
     forced.unref?.()
 
-    // El provider primero: corta los streams en vuelo antes de que el swarm
-    // les cierre el socket abajo.
+    // The provider first: cuts off in-flight streams before the swarm
+    // closes their socket underneath them.
     if (provider) await provider.shutdown()
     if (nodeSwarm) await nodeSwarm.destroy()
 
-    // El corestore va DESPUES del swarm: cerrarlo con sockets replicando
-    // encima deja streams escribiendo contra cores ya cerrados. Si tarda, el
-    // timeout de arriba corta igual.
+    // The corestore goes AFTER the swarm: closing it with sockets still
+    // replicating on top leaves streams writing against already-closed
+    // cores. If it takes too long, the timeout above cuts it off anyway.
     if (data) await data.close().catch(() => {})
 
-    // FASE 10 — un ultimo flush del lote y persistir lo que quede. `cerrar`
-    // persiste ANTES de intentar el flush: si el facilitator no contesta y el
-    // forced-exit de arriba corta, los pendientes ya estan en disco y el proximo
-    // arranque los reintenta.
+    // PHASE 10 — one last flush of the batch and persist whatever's left.
+    // `cerrar` persists BEFORE attempting the flush: if the facilitator
+    // doesn't answer and the forced-exit above cuts in, the pending ones are
+    // already on disk and the next startup retries them.
     try {
       await lote.cerrar()
     } catch (err) {
-      console.error(`[lote] al cerrar: ${(err && err.message) || err}`)
+      console.error(`[lote] on close: ${(err && err.message) || err}`)
     }
 
-    // Los dos archivos que sostienen el tope de gasto. `close` de apikeys es lo
-    // unico que baja el `lastUsedAt` a disco -- `verifyKey` lo toca en cada
-    // request y no guarda, para no pagar un fsync en el camino caliente.
+    // The two files that back the spending cap. apikeys' `close` is the only
+    // thing that flushes `lastUsedAt` to disk -- `verifyKey` touches it on
+    // every request and doesn't save, to avoid paying an fsync on the hot path.
     apikeys.close()
     budget.close()
 
@@ -716,7 +725,7 @@ async function startGateway(opts = {}) {
   process.on('SIGQUIT', () => shutdown(131))
   process.on('SIGTERM', () => shutdown(143))
 
-  console.log('Ctrl+C para salir.\n')
+  console.log('Ctrl+C to exit.\n')
   return server
 }
 
@@ -731,9 +740,9 @@ async function runServe() {
   })
 }
 
-// Abrir el navegador es lo que convierte "corri un comando" en "se abrio la
-// app". Es best-effort a proposito: si falla -- sin entorno grafico, por SSH,
-// con el navegador sin registrar -- se imprime la URL y listo.
+// Opening the browser is what turns "I ran a command" into "the app opened".
+// It's best-effort on purpose: if it fails -- no graphical environment, over
+// SSH, no registered browser -- the URL is printed and that's it.
 async function openBrowser(url) {
   try {
     const { spawn } = await import('bare-subprocess')
@@ -753,31 +762,34 @@ async function openBrowser(url) {
 }
 
 // ---------------------------------------------------------------------------
-// Swarm (Fase 2-b): identidad + join al topic, compartido por `serve --swarm`
-// y por `peers`.
+// Swarm (Phase 2-b): identity + join the topic, shared by `serve --swarm`
+// and by `peers`.
 // ---------------------------------------------------------------------------
 
-// Lo que este nodo declara servir. Es su modelo real, no el catalogo del modo
-// --demo: anunciar un mock seria mentirle a la red.
+// What this node declares it serves. Its real model, not the --demo mode's
+// catalogue: advertising a mock would be lying to the network.
 //
-// UNA sola fuente: la usa el manifiesto que se firma Y el Provider que atiende
-// los chat:request. Si divergieran, el nodo anunciaria un modelo que despues
-// rechaza -- y el error se veria del lado del que confio en el manifiesto.
+// ONE single source: used by both the manifest that gets signed AND the
+// Provider handling chat:request. If they diverged, the node would advertise
+// a model it later rejects -- and the error would show up on the side of
+// whoever trusted the manifest.
 //
-// maxConcurrentRequests 3: medido, no elegido. Tres completions concurrentes
-// sobre el mismo modelo cargado corren en paralelo real y sin mezclarse entre
-// si (probado con prompts distinguibles, ver NOTES.md).
-// El alias que este nodo sirve. Sale de `--model` y cae al default. Se valida
-// contra el catalogo: un alias mal escrito tiene que fallar al arrancar, no en
-// el primer chat -- para entonces el manifiesto ya se firmo y se anuncio.
+// maxConcurrentRequests 3: measured, not chosen. Three concurrent completions
+// over the same loaded model run in real parallel with no mixing between
+// them (tested with distinguishable prompts, see NOTES.md).
+// The alias this node serves. Comes from `--model` and falls back to the
+// default. Validated against the catalogue: a misspelled alias has to fail
+// at startup, not on the first chat -- by then the manifest is already
+// signed and advertised.
 function modeloElegido() {
-  // Optional chaining porque `peers` tambien llama a `swarmModels()` y ahi
-  // `serveCmd` no se invoco: sin el `?.` seria un TypeError en vez de caer al
-  // default, que es lo correcto para un comando que no elige modelo.
+  // Optional chaining because `peers` also calls `swarmModels()`, and there
+  // `serveCmd` was never invoked: without the `?.` it would be a TypeError
+  // instead of falling back to the default, which is the right behavior for
+  // a command that doesn't pick a model.
   const pick = (serveCmd.flags && serveCmd.flags.model) || DEFAULT_MODEL
   if (!MODELS[pick]) {
     throw new Error(
-      `--model "${pick}" no esta en el catalogo. Opciones: ${Object.keys(MODELS).join(', ')}`
+      `--model "${pick}" is not in the catalogue. Options: ${Object.keys(MODELS).join(', ')}`
     )
   }
   return pick
@@ -794,9 +806,9 @@ function swarmModels(pick = modeloElegido()) {
   ]
 }
 
-// La suma de los slots que este nodo declara en su manifiesto. El Provider
-// cuenta requests en vuelo sin importar el modelo, asi que el limite que hace
-// cumplir tiene que ser el total declarado -- no el de un modelo suelto.
+// The sum of the slots this node declares in its manifest. The Provider
+// counts requests in flight regardless of model, so the limit it enforces
+// has to be the declared total -- not a single model's own.
 function capacidadDeclarada(models) {
   const total = models.reduce(
     (n, m) => n + (Number.isFinite(m.maxConcurrentRequests) ? m.maxConcurrentRequests : 0),
@@ -809,17 +821,18 @@ function swarmStorageDir() {
   return cmd.flags.storage || path.join(isDev ? os.tmpdir() : persistent(), appName)
 }
 
-// D30.1 — EL KEYSTORE NO VA A %TEMP%, Y POR ESO NO SALE DE `swarmStorageDir`.
+// D30.1 — THE KEYSTORE DOES NOT GO TO %TEMP%, AND THAT'S WHY IT DOESN'T COME
+// FROM `swarmStorageDir`.
 //
-// Bajo `bare` —o sea en desarrollo, que es justo donde se va a probar el fondeo—
-// `swarmStorageDir()` manda todo a `os.tmpdir()`. Para el Corestore eso es
-// aceptable: se vuelve a bajar. Para una wallet no, porque Windows limpia temp y
-// ahi adentro lo que se pierde es la unica copia de una seed.
+// Under `bare` —i.e. in development, which is exactly where funding is going
+// to get tested— `swarmStorageDir()` sends everything to `os.tmpdir()`. For
+// the Corestore that's fine: it just re-downloads. Not for a wallet, because
+// Windows clears temp, and what's lost in there is the only copy of a seed.
 //
-// La resolucion vive en `wallet.mjs` y no aca porque es la regla que hay que
-// poder probar sola; esto solo le pasa las tres rutas y grita si el resultado
-// quedo en temp igual. Un `--storage` explicito se respeta —es del operador—
-// pero no en silencio.
+// The resolution logic lives in `wallet.mjs` and not here because it's the
+// rule that needs to be testable on its own; this just passes it the three
+// paths and shouts if the result still landed in temp. An explicit
+// `--storage` is honored —it's the operator's call— but not silently.
 async function walletStorageDir() {
   const { directorioKeystore } = await import('./qvac/wallet.mjs')
   const r = directorioKeystore({
@@ -828,20 +841,20 @@ async function walletStorageDir() {
     app: appName
   })
   if (r.volatil) {
-    console.error(`  [wallet] OJO: ${r.motivo}`)
-    console.error('  [wallet] una wallet fondeada ahi puede desaparecer sin aviso')
+    console.error(`  [wallet] HEADS UP: ${r.motivo}`)
+    console.error('  [wallet] a wallet funded there can disappear without warning')
   }
   return r.dir
 }
 
-// Abre el Corestore y lo que cuelga de el: el Hyperbee del directorio y el
-// Hyperdrive de archivos. Devuelve las tres cosas mas un `close()` que las
-// cierra en orden.
+// Opens the Corestore and whatever hangs off it: the directory's Hyperbee
+// and the files Hyperdrive. Returns all three plus a `close()` that closes
+// them in order.
 //
-// UN SOLO PROCESO POR DIRECTORIO DE STORAGE. El Corestore toma un lock de
-// RocksDB sobre su carpeta: `pyrusllm send` mientras corre `pyrusllm serve`
-// sobre el mismo `--storage` falla al abrir. Es una restriccion real y no un
-// bug; para correr los dos a la vez, pasale `--storage` distinto al segundo.
+// ONE SINGLE PROCESS PER STORAGE DIRECTORY. The Corestore takes a RocksDB
+// lock on its folder: `pyrusllm send` while `pyrusllm serve` is running over
+// the same `--storage` fails to open. This is a real restriction, not a bug;
+// to run both at once, pass the second one a different `--storage`.
 async function openData(dir, { files = true } = {}) {
   const { openStore, closeStore } = await import('./qvac/corestore.mjs')
   const { Directory } = await import('./qvac/directory.mjs')
@@ -870,47 +883,48 @@ async function openData(dir, { files = true } = {}) {
   }
 }
 
-// FASE 7 — la direccion de cobro del nodo, si tiene una.
+// PHASE 7 — the node's payment address, if it has one.
 //
-// Devuelve el bloque `economic` listo para el manifiesto, o null. Que no haya
-// wallet es el caso NORMAL de un nodo que todavia no cobra: se sigue sin ella y
-// el manifiesto lleva el mock, marcado. Lo que SI se avisa fuerte es la wallet
-// que existe y no se puede abrir, porque ahi alguien la configuro y el nodo la
-// esta ignorando -- y "no cobro nunca" no puede verse igual que "no pude abrir
-// mi wallet".
-// Devuelve `{ economic, firmar }`: el bloque publico que va al manifiesto, y una
-// FUNCION que firma con la wallet (D24). La cuenta no sale de acá y la seed
-// menos: el gateway pide firmas, no llaves.
+// Returns the `economic` block ready for the manifest, or null. No wallet is
+// the NORMAL case for a node that doesn't charge yet: it just goes without
+// one and the manifest carries the mock, marked as such. What DOES get a
+// loud warning is a wallet that exists and can't be opened, because there
+// somebody configured it and the node is ignoring it -- and "never charges"
+// can't look the same as "couldn't open my wallet".
+// Returns `{ economic, firmar }`: the public block that goes in the
+// manifest, and a FUNCTION that signs with the wallet (D24). The account
+// never leaves here, and the seed even less so: the gateway asks for
+// signatures, not keys.
 async function economicDelNodo(dir) {
   const wallet = await import('./qvac/wallet.mjs')
   if (!wallet.existe(dir)) return { economic: null, firmar: null }
 
   try {
-    // D30.2 — la red se resuelve del entorno y SE LE PASA. Antes `abrir` recibia
-    // un `rpc` que nadie completaba, asi que la constante de mainnet ganaba
-    // siempre y no habia forma de operar contra 9746.
+    // D30.2 — the network is resolved from the environment and PASSED IN.
+    // `abrir` used to receive an `rpc` that nobody filled in, so the mainnet
+    // constant always won and there was no way to operate against 9746.
     const red = wallet.redDe(env)
     const abierta = await wallet.abrir(dir, env[wallet.VAR_PASSPHRASE], { red })
-    console.log(`  [wallet] direccion de cobro: ${abierta.address}`)
-    console.log(`  [wallet] redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
-    console.log(`  [wallet] red: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
-    // D30 en una linea: mainnet no es donde se prueba. No corta —el operador
-    // puede querer estar ahi— pero no puede pasar desapercibido.
+    console.log(`  [wallet] payment address: ${abierta.address}`)
+    console.log(`  [wallet] networks: ${wallet.CHAINS.join(', ')} — settlement: ${wallet.SETTLEMENT}`)
+    console.log(`  [wallet] network: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
+    // D30 in one line: mainnet is not where testing happens. Doesn't block
+    // —the operator may actually want to be there— but it can't go unnoticed.
     if (red.mainnet) {
-      console.log(`  [wallet] OJO: ${red.nombre} es MAINNET y mueve plata real.`)
-      console.log(`  [wallet] D30: se estrena en testnet. ${wallet.VAR_RED}=plasma-testnet`)
+      console.log(`  [wallet] HEADS UP: ${red.nombre} is MAINNET and moves real money.`)
+      console.log(`  [wallet] D30: this debuts on testnet. ${wallet.VAR_RED}=plasma-testnet`)
     }
     return {
       economic: wallet.economicDe(abierta.address),
-      // FASE 9 / D24 — `account.sign` de WDK es un personal_sign EIP-191 sobre
-      // el mensaje, que es lo que `recoverMessageAddress` verifica del otro
-      // lado. Se envuelve en una closure para que lo unico que cruce a
-      // gateway.mjs sea la capacidad de firmar, no la cuenta ni la frase.
+      // PHASE 9 / D24 — WDK's `account.sign` is an EIP-191 personal_sign over
+      // the message, which is what `recoverMessageAddress` verifies on the
+      // other side. Wrapped in a closure so the only thing that crosses over
+      // to gateway.mjs is the ability to sign, not the account or the phrase.
       firmar: (mensaje) => abierta.cuenta.sign(mensaje)
     }
   } catch (err) {
     console.error(`  [wallet] ${(err && err.message) || err}`)
-    console.error('  [wallet] el nodo se anuncia SIN direccion de cobro (economic queda en mock)')
+    console.error('  [wallet] the node advertises itself WITHOUT a payment address (economic stays mocked)')
     return { economic: null, firmar: null }
   }
 }
@@ -929,8 +943,8 @@ async function runWallet() {
 
   if (walletCmd.flags.crear || restaurar) {
     if (!passphrase) {
-      console.error(`  falta ${wallet.VAR_PASSPHRASE}: es con lo que se cifra la seed.`)
-      console.error(`  Ponela en el .env de este directorio y volve a correr esto.`)
+      console.error(`  missing ${wallet.VAR_PASSPHRASE}: it's what the seed gets encrypted with.`)
+      console.error(`  Put it in this directory's .env and run this again.`)
       process.exitCode = 1
       return
     }
@@ -940,27 +954,27 @@ async function runWallet() {
         frase: typeof restaurar === 'string' ? restaurar : null
       })
       console.log('')
-      console.log(`  direccion de cobro: ${r.address}`)
-      console.log(`  redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
-      console.log(`  red activa: ${red.nombre} (eip155:${red.chainId})`)
+      console.log(`  payment address: ${r.address}`)
+      console.log(`  networks: ${wallet.CHAINS.join(', ')} — settlement: ${wallet.SETTLEMENT}`)
+      console.log(`  active network: ${red.nombre} (eip155:${red.chainId})`)
       console.log('')
       if (r.restaurada) {
-        console.log('  wallet RESTAURADA desde el respaldo.')
+        console.log('  wallet RESTORED from the backup.')
       } else {
-        // Se muestran UNA vez y no vuelven a estar disponibles sin la
-        // passphrase. Decirlo con todas las letras es parte del trabajo: quien
-        // no las anote se entera el dia que pierda el keystore.
-        console.log('  ANOTA ESTAS 24 PALABRAS. No se vuelven a mostrar:')
+        // Shown ONCE and never available again without the passphrase.
+        // Spelling it out plainly is part of the job: whoever doesn't write
+        // them down finds out the day they lose the keystore.
+        console.log('  WRITE DOWN THESE 24 WORDS. They will not be shown again:')
         console.log('')
         const p = r.frase.split(' ')
         for (let i = 0; i < p.length; i += 6) {
           console.log('    ' + p.slice(i, i + 6).join(' '))
         }
         console.log('')
-        console.log('  Sin ellas Y sin el keystore, la wallet se pierde.')
+        console.log('  Without them AND without the keystore, the wallet is lost.')
       }
       console.log('')
-      console.log(`  keystore: ${path.join(dir, 'wallet.json')} (cifrado)`)
+      console.log(`  keystore: ${path.join(dir, 'wallet.json')} (encrypted)`)
       console.log('')
     } catch (err) {
       console.error(`  ${(err && err.message) || err}`)
@@ -971,10 +985,10 @@ async function runWallet() {
 
   if (!wallet.existe(dir)) {
     console.log('')
-    console.log('  Este nodo todavia no tiene wallet, asi que no declara direccion de cobro.')
-    console.log('  Su manifiesto anuncia `economic` como mock, y eso esta marcado.')
+    console.log('  This node does not have a wallet yet, so it declares no payment address.')
+    console.log('  Its manifest advertises `economic` as a mock, and that is marked.')
     console.log('')
-    console.log(`  Para crear una:  ${appName} wallet --crear`)
+    console.log(`  To create one:  ${appName} wallet --crear`)
     console.log('')
     return
   }
@@ -982,14 +996,14 @@ async function runWallet() {
   try {
     const abierta = await wallet.abrir(dir, passphrase, { red })
     console.log('')
-    console.log(`  direccion de cobro: ${abierta.address}`)
-    console.log(`  redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
-    console.log(`  red activa: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
-    console.log(`  keystore: ${path.join(dir, 'wallet.json')} (cifrado)`)
+    console.log(`  payment address: ${abierta.address}`)
+    console.log(`  networks: ${wallet.CHAINS.join(', ')} — settlement: ${wallet.SETTLEMENT}`)
+    console.log(`  active network: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
+    console.log(`  keystore: ${path.join(dir, 'wallet.json')} (encrypted)`)
     if (red.mainnet) {
       console.log('')
-      console.log(`  OJO: ${red.nombre} es MAINNET. D30: se estrena en testnet.`)
-      console.log(`  Para apuntar a la de prueba:  ${wallet.VAR_RED}=plasma-testnet`)
+      console.log(`  HEADS UP: ${red.nombre} is MAINNET. D30: this debuts on testnet.`)
+      console.log(`  To point at the test one:  ${wallet.VAR_RED}=plasma-testnet`)
     }
     console.log('')
   } catch (err) {
@@ -1008,14 +1022,14 @@ async function joinSwarm({ operator, store = null, data = null }) {
   const identity = loadOrCreateIdentity(dir)
 
   const models = swarmModels()
-  // Solo el bloque publico: al manifiesto va la direccion, nunca la capacidad de
-  // firmar. El firmante lo recibe el gateway, en runServe.
+  // Just the public block: the address goes into the manifest, never the
+  // ability to sign. The gateway receives the signer, in runServe.
   const { economic } = await economicDelNodo(await walletStorageDir())
 
   const nodeSwarm = new NodeSwarm({
     identity,
     models,
-    operator: operator || `Nodo de ${os.hostname()}`,
+    operator: operator || `Node at ${os.hostname()}`,
     tags: ['general', 'chat'],
     store,
     corestore: data ? data.corestore : null,
@@ -1026,30 +1040,30 @@ async function joinSwarm({ operator, store = null, data = null }) {
 
   console.log('')
   console.log(`  [swarm] topic    : ${TOPIC_NAME}`)
-  console.log(`  [swarm] identidad: ${identity.publicKey.toString('hex').slice(0, 16)}…`)
-  console.log(`  [swarm] ${identity.created ? 'clave NUEVA generada' : 'clave existente reusada'}`)
-  console.log(`  [swarm] anuncia  : ${models.map((m) => m.modelId).join(', ')}`)
+  console.log(`  [swarm] identity : ${identity.publicKey.toString('hex').slice(0, 16)}…`)
+  console.log(`  [swarm] ${identity.created ? 'NEW key generated' : 'existing key reused'}`)
+  console.log(`  [swarm] advertises: ${models.map((m) => m.modelId).join(', ')}`)
   if (data) {
     console.log(
-      `  [swarm] directorio: ${data.directory.keyHex.slice(0, 16)}… (v${data.directory.version})`
+      `  [swarm] directory: ${data.directory.keyHex.slice(0, 16)}… (v${data.directory.version})`
     )
-    if (data.files) console.log(`  [swarm] archivos : ${data.files.keyHex.slice(0, 16)}…`)
+    if (data.files) console.log(`  [swarm] files    : ${data.files.keyHex.slice(0, 16)}…`)
   }
   console.log('')
 
   await nodeSwarm.join()
   nodeSwarm.startStatusBroadcast()
 
-  // El drive se anuncia tambien en SU propio topic, no solo por
-  // `files:announce` a los pares del marketplace. Asi un link `qvac://` que
-  // alguien pegue en otra maquina se puede bajar sin que esa maquina tenga que
-  // entrar al marketplace ni descubrir a este nodo por el topic comun.
+  // The drive is also advertised on ITS OWN topic, not just via
+  // `files:announce` to marketplace peers. That way a `qvac://` link someone
+  // pastes on another machine can be downloaded without that machine having
+  // to join the marketplace or discover this node through the shared topic.
   if (data && data.files) {
     data.files.swarm = nodeSwarm.swarm
     await data.files.serve()
   }
 
-  console.log('  [swarm] anunciado en la DHT, esperando pares...')
+  console.log('  [swarm] advertised on the DHT, waiting for peers...')
   console.log('')
 
   return nodeSwarm
@@ -1065,9 +1079,9 @@ async function runPeers() {
 
   const nodeSwarm = await joinSwarm({ operator: peersCmd.flags.operator })
 
-  // El resumen se imprime UNA vez al salir, por cualquiera de las dos vias
-  // (timeout o Ctrl+C), para que el runbook tenga siempre la misma salida que
-  // leer -- y para que el exit code no dependa de como se corto.
+  // The summary is printed ONCE on exit, whichever of the two paths triggers
+  // it (timeout or Ctrl+C), so the runbook always has the same output to
+  // read -- and so the exit code doesn't depend on how it was cut off.
   let done = false
   const finish = async (code) => {
     if (done) return
@@ -1077,34 +1091,34 @@ async function runPeers() {
     const verificados = nodeSwarm.verifiedPeers()
 
     console.log('')
-    console.log('  --- resumen ---')
-    console.log(`  pares conectados AHORA: ${t.peers}`)
-    console.log(`  con manifiesto OK     : ${t.verified}`)
-    // El numero del DoD. Un par que se conecto, verifico y se fue cumplio el
-    // DoD igual: si el otro nodo corta antes, "conectados ahora" da cero.
-    console.log(`  verificados EN TOTAL  : ${t.verifiedEver}`)
-    console.log(`  join -> primer par    : ${t.joinToFirstPeerMs ?? 'n/d'} ms`)
-    console.log(`  join -> primer OK     : ${t.joinToFirstManifestMs ?? 'n/d'} ms`)
+    console.log('  --- summary ---')
+    console.log(`  peers connected NOW   : ${t.peers}`)
+    console.log(`  with manifest OK      : ${t.verified}`)
+    // The DoD number. A peer that connected, verified, and left still met
+    // the DoD: if the other node disconnects earlier, "connected now" reads zero.
+    console.log(`  verified EVER TOTAL   : ${t.verifiedEver}`)
+    console.log(`  join -> first peer    : ${t.joinToFirstPeerMs ?? 'n/a'} ms`)
+    console.log(`  join -> first OK      : ${t.joinToFirstManifestMs ?? 'n/a'} ms`)
     for (const p of verificados) {
       const op = (p.manifest.metadata && p.manifest.metadata.operator) || '?'
       const modelos = p.manifest.models.map((m) => m.modelId).join(', ')
       const carga = p.status
         ? `${p.status.activeRequests}/${p.status.maxConcurrentRequests}`
-        : 'n/d'
-      console.log(`    · ${op} [${p.key.slice(0, 8)}…] modelos: ${modelos} carga: ${carga}`)
+        : 'n/a'
+      console.log(`    · ${op} [${p.key.slice(0, 8)}…] models: ${modelos} load: ${carga}`)
     }
     console.log('')
 
-    // El gate del runbook. Sin esto un verificador puede dar OK sobre cero
-    // pares -- exactamente el falso positivo que ya se cazo una vez en la
-    // MacBook (ver NOTES.md).
+    // The runbook's gate. Without this a verifier could report OK over zero
+    // peers -- exactly the false positive already caught once on the
+    // MacBook (see NOTES.md).
     if (expect !== null && t.verifiedEver < expect) {
       console.error(
-        `[peers] FALLO: se esperaban al menos ${expect} par(es) con manifiesto verificado, hubo ${t.verifiedEver}.`
+        `[peers] FAILED: expected at least ${expect} peer(s) with a verified manifest, got ${t.verifiedEver}.`
       )
       code = 1
     } else if (expect !== null) {
-      console.log(`  [peers] OK: ${t.verifiedEver} par(es) verificado(s), se esperaban ${expect}.`)
+      console.log(`  [peers] OK: ${t.verifiedEver} peer(s) verified, expected ${expect}.`)
     }
 
     await nodeSwarm.destroy()
@@ -1112,10 +1126,10 @@ async function runPeers() {
   }
 
   if (timeoutS !== null) {
-    console.log(`  [peers] saliendo en ${timeoutS}s...`)
+    console.log(`  [peers] exiting in ${timeoutS}s...`)
     setTimeout(() => finish(0), timeoutS * 1000)
   } else {
-    console.log('  Ctrl+C para salir.')
+    console.log('  Ctrl+C to exit.')
   }
 
   process.on('SIGHUP', () => finish(129))
@@ -1128,10 +1142,10 @@ async function runPeers() {
 // pyrusllm send / fetch / files
 // ---------------------------------------------------------------------------
 
-// Sesion minima para los comandos de archivos: corestore + drive + un swarm
-// propio. NO se une al topic del marketplace -- un `fetch` no tiene por que
-// anunciarse como nodo de inferencia ni descubrir proveedores. Se une nada mas
-// que al topic del drive que le interesa.
+// Minimal session for the file commands: corestore + drive + its own swarm.
+// Does NOT join the marketplace topic -- a `fetch` has no reason to
+// advertise itself as an inference node or discover providers. It joins only
+// the topic of the drive it cares about.
 async function filesSession() {
   const Hyperswarm = (await import('hyperswarm')).default
   const { loadOrCreateIdentity } = await import('./qvac/identity.mjs')
@@ -1141,8 +1155,8 @@ async function filesSession() {
   const data = await openData(dir)
 
   const swarm = new Hyperswarm({ keyPair: identity })
-  // Cada conexion replica el corestore entero. Es la unica cosa que estos
-  // comandos hacen sobre la red.
+  // Every connection replicates the whole corestore. That's the only thing
+  // these commands do over the network.
   swarm.on('connection', (socket) => {
     socket.on('error', () => {})
     data.corestore.replicate(socket)
@@ -1174,7 +1188,7 @@ async function runSend() {
   try {
     stat = fs.default.statSync(ruta)
   } catch {
-    console.error(`[files] no existe: ${ruta}`)
+    console.error(`[files] does not exist: ${ruta}`)
     Bare.exitCode = 1
     return
   }
@@ -1187,40 +1201,40 @@ async function runSend() {
       ? await sesion.files.shareDir(ruta, sendCmd.flags.as)
       : await sesion.files.share(ruta, sendCmd.flags.as)
 
-    // El drive se anuncia en su propio topic. `flushed()` espera a que este
-    // publicado en la DHT: sin eso, imprimir el link y que el otro lo pegue al
-    // segundo siguiente es una carrera que pierde el que baja.
+    // The drive is advertised on its own topic. `flushed()` waits for it to
+    // be published on the DHT: without that, printing the link and having
+    // the other side paste it the very next second is a race the downloader loses.
     await sesion.files.serve()
 
     console.log('')
-    console.log(`  QVAC-NODE v${pkg.version} — compartiendo por P2P`)
+    console.log(`  QVAC-NODE v${pkg.version} — sharing over P2P`)
     console.log('')
     if (esDir) {
-      console.log(`  carpeta  : ${res.base}  (${res.files.length} archivo/s)`)
+      console.log(`  folder   : ${res.base}  (${res.files.length} file(s))`)
       const total = res.files.reduce((n, f) => n + f.bytes, 0)
-      console.log(`  tamaño   : ${mb(total)}`)
+      console.log(`  size     : ${mb(total)}`)
     } else {
-      console.log(`  archivo  : ${res.path}`)
-      console.log(`  tamaño   : ${mb(res.bytes)}`)
+      console.log(`  file     : ${res.path}`)
+      console.log(`  size     : ${mb(res.bytes)}`)
     }
     console.log(`  drive    : ${sesion.files.keyHex}`)
     console.log('')
-    console.log('  En la otra maquina:')
+    console.log('  On the other machine:')
     console.log('')
     console.log(`    pyrusllm fetch ${res.link}`)
     console.log('')
-    console.log('  Este proceso tiene que quedar CORRIENDO mientras el otro baja:')
-    console.log('  los bytes salen de aca, no de un servidor. Ctrl+C para cortar.')
+    console.log('  This process has to stay RUNNING while the other one downloads:')
+    console.log('  the bytes come out of here, not from a server. Ctrl+C to stop.')
     console.log('')
   } catch (err) {
-    console.error(`[files] no se pudo publicar: ${(err && err.message) || err}`)
+    console.error(`[files] could not publish: ${(err && err.message) || err}`)
     await sesion.close()
     Bare.exitCode = 1
     return
   }
 
   const finish = async (code) => {
-    console.log('\n[files] cerrando...')
+    console.log('\n[files] closing...')
     await sesion.close()
     Bare.exit(code)
   }
@@ -1250,23 +1264,23 @@ async function runFetch() {
 
   console.log('')
   console.log(`  drive    : ${link.keyHex.slice(0, 16)}…`)
-  console.log(`  ruta     : ${link.path}`)
-  console.log('  buscando un par que lo tenga...')
+  console.log(`  path     : ${link.path}`)
+  console.log('  looking for a peer that has it...')
 
   let code = 0
   const t0 = Date.now()
 
   try {
-    // Una ruta que termina en '/' es una carpeta. Es la unica pista que hay:
-    // preguntarle al drive obliga a esperar la metadata, y si no aparece nadie
-    // no se puede distinguir "es carpeta" de "no hay par".
+    // A path ending in '/' is a folder. It's the only clue there is: asking
+    // the drive means waiting for the metadata, and if nobody shows up
+    // there's no way to tell "it's a folder" apart from "no peer".
     if (link.path.endsWith('/')) {
       const escritos = await sesion.files.pullDir(link.keyHex, link.path, outDir, {
         timeoutMs,
         onFile: ({ dest }) => console.log(`  ✓ ${dest}`)
       })
       console.log('')
-      console.log(`  ${escritos.length} archivo/s en ${secs(Date.now() - t0)}`)
+      console.log(`  ${escritos.length} file(s) in ${secs(Date.now() - t0)}`)
     } else {
       const nombre = link.path.split('/').filter(Boolean).pop()
       const dest = pathMod.default.join(outDir, nombre)
@@ -1278,16 +1292,16 @@ async function runFetch() {
           const pct = Math.floor(progress * 100)
           if (pct === ultimo) return
           ultimo = pct
-          process.stdout.write(`\r  bajando ${pct}%  ${mb(bytes)} / ${mb(total)}   `)
+          process.stdout.write(`\r  downloading ${pct}%  ${mb(bytes)} / ${mb(total)}   `)
         }
       })
       process.stdout.write('\n')
       console.log('')
-      console.log(`  ✓ ${res.path}  (${mb(res.bytes)} en ${secs(Date.now() - t0)})`)
+      console.log(`  ✓ ${res.path}  (${mb(res.bytes)} in ${secs(Date.now() - t0)})`)
     }
     console.log('')
   } catch (err) {
-    console.error(`\n[files] no se pudo bajar: ${(err && err.message) || err}`)
+    console.error(`\n[files] could not download: ${(err && err.message) || err}`)
     code = 1
   }
 
@@ -1305,17 +1319,17 @@ async function runFiles() {
   try {
     if (filesCmd.flags.link) {
       const link = parseLink(filesCmd.flags.link)
-      console.log(`\n  drive remoto ${link.keyHex.slice(0, 16)}…\n`)
+      console.log(`\n  remote drive ${link.keyHex.slice(0, 16)}…\n`)
       const entradas = await sesion.files.listRemote(link.keyHex, link.path, { timeoutMs })
-      if (entradas.length === 0) console.log('  (vacio)')
+      if (entradas.length === 0) console.log('  (empty)')
       for (const e of entradas) console.log(`  ${e.path.padEnd(40)} ${mb(e.bytes)}`)
     } else {
-      console.log(`\n  drive local ${sesion.files.keyHex}\n`)
+      console.log(`\n  local drive ${sesion.files.keyHex}\n`)
       const entradas = await sesion.files.list()
       if (entradas.length === 0) {
-        console.log('  (todavia no publicaste nada)')
+        console.log('  (you have not published anything yet)')
         console.log('')
-        console.log(`  Proba:  ${appName} send ./archivo.pdf`)
+        console.log(`  Try:  ${appName} send ./file.pdf`)
       }
       for (const e of entradas) console.log(`  ${e.path.padEnd(40)} ${mb(e.bytes)}`)
     }
@@ -1330,7 +1344,7 @@ async function runFiles() {
 }
 
 // ---------------------------------------------------------------------------
-// pyrusllm  (nodo: banner + OTA)
+// pyrusllm  (node: banner + OTA)
 // ---------------------------------------------------------------------------
 
 async function runNode() {
@@ -1341,22 +1355,21 @@ async function runNode() {
 
   const updates = cmd.flags.updates
 
-  // Ventana de jitter del updater. El default de pear-runtime-updater es UNA
-  // HORA (`_defaultDelay = 3_600_000`), y solo se ignora si la version nueva
-  // aparece dentro de los primeros 60s de vida del proceso
-  // (`_bootGracePeriod`). Pasado ese minuto, el update se agenda en un punto
-  // aleatorio de la ventana.
+  // The updater's jitter window. pear-runtime-updater's default is ONE HOUR
+  // (`_defaultDelay = 3_600_000`), and it's only ignored if the new version
+  // shows up within the process's first 60s of life (`_bootGracePeriod`).
+  // Past that minute, the update gets scheduled at a random point in the window.
   //
-  // Ese default es correcto para una flota grande -evita que miles de nodos se
-  // actualicen a la vez- y es inservible aca: el OTA en vivo es el pitch, y con
-  // una hora de jitter la demo simplemente no muestra nada. 10s da un update
-  // visible sin volverlo sincronizado entre todos los nodos.
+  // That default is correct for a large fleet -it keeps thousands of nodes
+  // from updating all at once- and useless here: live OTA is the whole
+  // pitch, and with an hour of jitter the demo simply shows nothing. 10s
+  // gives a visible update without making it synchronized across all nodes.
   const updateDelay = Number.isFinite(+cmd.flags.updateDelay) ? +cmd.flags.updateDelay : 10000
   const storage = cmd.flags.storage || (isDev ? null : path.join(persistent(), appName))
   const dir = storage || path.join(os.tmpdir(), 'pear', appName)
 
-  // Banner. El numero de version se imprime a proposito en grande: es lo que
-  // cambia en vivo cuando se demuestra el OTA, y tiene que verse en el proyector.
+  // Banner. The version number is printed deliberately big: it's what
+  // changes live when the OTA is demoed, and it has to be visible on the projector.
   console.log('')
   console.log('  QVAC-NODE  v' + pkg.version)
   console.log('  ' + pkg.description)
@@ -1379,15 +1392,15 @@ async function runNode() {
   })
 
   app.on('message', (message) => console.log(message))
-  app.on('updating', () => console.log('[updater] bajando nueva version'))
-  app.on('updated', () => console.log('[updater] descarga completa... aplicando'))
+  app.on('updating', () => console.log('[updater] downloading new version'))
+  app.on('updated', () => console.log('[updater] download complete... applying'))
   app.on('update-applied', () =>
-    console.log('[updater] update aplicado, reinicia para correr la ultima version')
+    console.log('[updater] update applied, restart to run the latest version')
   )
 
-  // Progreso de la descarga OTA. Se imprime en una sola linea reescrita, en vez
-  // de una por evento: el updater emite seguido y a 55MB inunda la terminal.
-  // Esta linea es lo que el jurado mira durante la demo del OTA.
+  // OTA download progress. Printed as a single rewritten line instead of one
+  // per event: the updater emits often and at 55MB it floods the terminal.
+  // This is the line the judges are watching during the OTA demo.
   app.on('updating-progress', (s) => {
     const mb = (s.bytes / 1e6).toFixed(1)
     const pct = Math.round((s.progress || 0) * 100)
@@ -1396,11 +1409,11 @@ async function runNode() {
     if (pct >= 100) process.stdout.write('\n')
   })
 
-  // Un updater caido NO tumba el nodo: si esta sirviendo tokens, sigue
-  // sirviendolos. Se avisa y se sigue.
+  // A crashed updater does NOT bring down the node: if it's serving tokens,
+  // it keeps serving them. It's reported and life goes on.
   app.on('updater-error', (err) => {
-    console.error('\n[updater] fallo la actualizacion:', err.message)
-    console.error('[updater] el nodo sigue corriendo en la version actual.')
+    console.error('\n[updater] update failed:', err.message)
+    console.error('[updater] the node keeps running on the current version.')
   })
 
   app.on('error', (err) => console.error('[app:error]', err))
@@ -1413,25 +1426,26 @@ async function runNode() {
   try {
     await app.ready()
 
-    // `pyrusllm` a secas ABRE LA APP. El updater OTA sigue corriendo abajo:
-    // esto es ademas, no en vez de. Con --no-serve queda el comportamiento
-    // viejo, que era supervisar la version y nada mas.
+    // Plain `pyrusllm` OPENS THE APP. The OTA updater keeps running
+    // underneath: this is in addition to, not instead of. With --no-serve
+    // you get the old behavior, which was just supervising the version and
+    // nothing else.
     if (cmd.flags.serve === false) {
-      console.log(`CLI listo. Proba:  ${appName} prompt "hola"`)
-      console.log('Ctrl+C para salir.\n')
+      console.log(`CLI ready. Try:  ${appName} prompt "hola"`)
+      console.log('Ctrl+C to exit.\n')
       return
     }
 
     const port = Number.isFinite(+cmd.flags.port) ? +cmd.flags.port : 8787
 
-    // Arranca SIN unirse al swarm a proposito: entrar a la red es lo que hace
-    // el boton "Launch local agent" de la pagina, y esa puerta es el producto.
-    // Un arranque que ya se unio solo se la saltea.
+    // Starts WITHOUT joining the swarm on purpose: entering the network is
+    // what the page's "Launch local agent" button does, and that gate is the
+    // product. A startup that already joined skips right past it.
     await startGateway({ port })
 
     const url = `http://localhost:${port}`
     const abierto = cmd.flags.open === false ? false : await openBrowser(url)
-    console.log(abierto ? `  abriendo ${url}` : `  abri ${url} en el navegador`)
+    console.log(abierto ? `  opening ${url}` : `  open ${url} in your browser`)
     console.log('')
   } catch (err) {
     console.error('[app:error]', err)

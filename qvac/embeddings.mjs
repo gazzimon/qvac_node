@@ -1,54 +1,56 @@
-// De texto a vector. La mitad "sabe de embeddings" del RAG; la que sabe de
-// indice y busqueda es rag.mjs.
+// Text to vector. The "knows about embeddings" half of RAG; the one that
+// knows about the index and search is rag.mjs.
 //
-// Se separa por la misma razon que costs.mjs de budget.mjs: el indice no tiene
-// por que saber contra que API se embebe, y el embebedor no tiene por que
-// saber que existe un hypercore del otro lado.
-//
-// -----------------------------------------------------------------------------
-// REMOTO PRIMERO, LOCAL DESPUES
-//
-// El nodo arranca sin capacidad de inferencia, asi que el primer embebedor es
-// HTTP contra una API OpenAI-compatible. El dia que la maquina tenga con que,
-// se cambia por el plugin local (@qvac/bare-sdk/llamacpp-embedding/plugin) y
-// el indice NO se toca -- siempre que sea el mismo modelo. Si cambia el
-// modelo cambian los vectores, y ahi hay que reindexar: ver el chequeo de
-// `embeddingModelId` en rag.mjs.
+// Kept separate for the same reason as costs.mjs from budget.mjs: the index
+// doesn't need to know which API does the embedding, and the embedder doesn't
+// need to know a hypercore exists on the other end.
 //
 // -----------------------------------------------------------------------------
-// LA ASIMETRIA QUERY/PASSAGE ES REAL, Y ES SILENCIOSA
+// REMOTE FIRST, LOCAL LATER
 //
-// Los modelos de la familia embedqa embeben distinto un documento que una
-// pregunta. Medido contra nvidia/nemotron-3-embed-1b con el MISMO texto:
+// The node boots with no inference capability, so the first embedder is HTTP
+// against an OpenAI-compatible API. The day the machine has what it takes,
+// it swaps for the local plugin (@qvac/bare-sdk/llamacpp-embedding/plugin)
+// and the index is NOT touched -- as long as it's the same model. If the
+// model changes the vectors change, and then there's a reindex to do: see the
+// `embeddingModelId` check in rag.mjs.
 //
-//     coseno(passage, query) = 0.72
+// -----------------------------------------------------------------------------
+// THE QUERY/PASSAGE ASYMMETRY IS REAL, AND IT'S SILENT
 //
-// No es ruido: son dos vectores distintos a proposito. Mandar el input_type
-// equivocado no da error -- la API contesta 200 y devuelve un vector util para
-// otra cosa -- y el unico sintoma es que el recall baja sin que nada falle.
+// Models in the embedqa family embed a document differently from a question.
+// Measured against nvidia/nemotron-3-embed-1b with the SAME text:
 //
-// Por eso el modo NO es un flag mutable del embebedor: se devuelven dos
-// funciones ya atadas, `paraDocumentos` y `paraConsultas`. Un flag que hay que
-// acordarse de poner antes de cada llamada es una carrera esperando a dos
-// requests concurrentes.
+//     cosine(passage, query) = 0.72
+//
+// It's not noise: they're two different vectors on purpose. Sending the wrong
+// input_type doesn't error out -- the API answers 200 and returns a vector
+// that's useful for something else -- and the only symptom is recall dropping
+// with nothing failing.
+//
+// That's why the mode is NOT a mutable flag on the embedder: two already-bound
+// functions are returned instead, `paraDocumentos` and `paraConsultas`. A flag
+// you have to remember to set before every call is a race waiting for two
+// concurrent requests.
 // -----------------------------------------------------------------------------
 
 import env from 'bare-env'
 
-// El default es el que se verifico contra la cuenta: 2048 dimensiones, acepta
-// lotes y respeta input_type. `nvidia/llama-3.2-nv-embedqa-1b-v1` da 404 en
-// esta cuenta aunque figure en /v1/models, asi que no sirve de default.
+// The default is the one verified against the account: 2048 dimensions,
+// accepts batches and respects input_type. `nvidia/llama-3.2-nv-embedqa-1b-v1`
+// gives a 404 on this account even though it shows up in /v1/models, so it's
+// no good as a default.
 export const MODELO_DEFAULT = 'nvidia/nemotron-3-embed-1b'
 export const DIMENSION_DEFAULT = 2048
 export const BASE_URL_DEFAULT = 'https://integrate.api.nvidia.com/v1'
 
-// Cuantos textos por request. La API acepta lotes; el limite de aca es para no
-// armar un body gigante con un repo entero adentro.
+// How many texts per request. The API accepts batches; the limit here is to
+// avoid building a giant body with an entire repo inside.
 const LOTE_DEFAULT = 32
 
-// Reintento SOLO para lo que puede salir distinto si se vuelve a intentar
-// (D20 del ROADMAP): 429 y 5xx son transitorios, un 400 o un 401 van a fallar
-// igual las tres veces y reintentarlos solo multiplica la cuenta.
+// Retry ONLY for what can come out different on a retry (ROADMAP's D20): 429
+// and 5xx are transient, a 400 or a 401 will fail the same way all three
+// times and retrying them just multiplies the bill.
 const REINTENTOS = 3
 const ESPERA_BASE_MS = 500
 
@@ -67,8 +69,8 @@ async function postJson(url, key, body, { signal = null } = {}) {
   let ultimo = null
   for (let intento = 0; intento < REINTENTOS; intento++) {
     if (intento > 0) {
-      // Jitter, no backoff pelado: sin el, N nodos que arrancan juntos
-      // reintentan todos en el mismo milisegundo y se vuelven a chocar.
+      // Jitter, not bare backoff: without it, N nodes booting together all
+      // retry in the same millisecond and collide again.
       const espera = ESPERA_BASE_MS * Math.pow(2, intento - 1) * (0.5 + Math.random())
       await esperar(espera)
     }
@@ -82,32 +84,33 @@ async function postJson(url, key, body, { signal = null } = {}) {
         signal
       })
     } catch (err) {
-      // Error de conexion: transitorio por definicion.
-      ultimo = new Error('no se pudo llegar al servicio de embeddings: ' + ((err && err.message) || err))
+      // Connection error: transient by definition.
+      ultimo = new Error('could not reach the embeddings service: ' + ((err && err.message) || err))
       continue
     }
 
     if (res.ok) return await res.json()
 
-    // El detalle del proveedor va al log de ESTE proceso y no al que pregunta:
-    // puede traer el nombre de la cuenta o el id de la funcion interna.
+    // The provider's detail goes to THIS process's log, not to whoever's
+    // asking: it might carry the account name or an internal function id.
     const detalle = await res.text().catch(() => '')
     console.error('[embeddings] ' + res.status + ': ' + detalle.slice(0, 300))
 
     if (!esReintentable(res.status)) {
-      // 401 es el caso mas probable y el mas facil de arreglar: se dice como.
+      // 401 is the most likely case and the easiest to fix: say how.
       if (res.status === 401 || res.status === 403) {
-        throw new Error('la API de embeddings rechazo la credencial (HTTP ' + res.status + ')')
+        throw new Error('the embeddings API rejected the credential (HTTP ' + res.status + ')')
       }
-      throw new Error('la API de embeddings contesto HTTP ' + res.status)
+      throw new Error('the embeddings API answered HTTP ' + res.status)
     }
-    ultimo = new Error('la API de embeddings contesto HTTP ' + res.status)
+    ultimo = new Error('the embeddings API answered HTTP ' + res.status)
   }
-  throw ultimo || new Error('no se pudo embeber')
+  throw ultimo || new Error('could not embed')
 }
 
-// Crea el embebedor HTTP. La key se lee de una VARIABLE DE ENTORNO cuyo nombre
-// viene en la config: en el repo queda el nombre, nunca el secreto.
+// Creates the HTTP embedder. The key is read from an ENVIRONMENT VARIABLE
+// whose name comes from the config: the repo keeps the name, never the
+// secret.
 export function crearEmbedderHttp({
   baseUrl = BASE_URL_DEFAULT,
   model = MODELO_DEFAULT,
@@ -118,7 +121,7 @@ export function crearEmbedderHttp({
   const key = env[apiKeyEnv]
   if (!key) {
     throw new Error(
-      'falta la credencial de embeddings: pone la variable de entorno ' + apiKeyEnv
+      'missing embeddings credential: set the environment variable ' + apiKeyEnv
     )
   }
 
@@ -139,9 +142,9 @@ export function crearEmbedderHttp({
       }, { signal })
 
       if (!json || !Array.isArray(json.data) || json.data.length !== tanda.length) {
-        throw new Error('respuesta de embeddings inesperada: se pidieron ' + tanda.length + ' vectores')
+        throw new Error('unexpected embeddings response: asked for ' + tanda.length + ' vectors')
       }
-      // La API puede devolver desordenado: cada item trae su `index`.
+      // The API can return out of order: each item carries its own `index`.
       const ordenados = json.data.slice().sort((a, b) => (a.index || 0) - (b.index || 0))
       for (const d of ordenados) out.push(d.embedding)
     }
@@ -153,14 +156,14 @@ export function crearEmbedderHttp({
     dimension,
     origen: url,
 
-    // Para INGESTAR. Es la que se le pasa a RAG como embeddingFunction.
+    // For INGESTING. This is the one passed to RAG as embeddingFunction.
     async paraDocumentos(textos, opts) {
       const vs = await embeber(textos, 'passage', opts || {})
       return Array.isArray(textos) ? vs : vs[0]
     },
 
-    // Para BUSCAR. Va aparte y no como un modo mutable justamente para que dos
-    // operaciones concurrentes no se pisen el input_type.
+    // For SEARCHING. Kept separate and not as a mutable mode precisely so two
+    // concurrent operations don't stomp on each other's input_type.
     async paraConsultas(texto, opts) {
       const vs = await embeber([texto], 'query', opts || {})
       return vs[0]
@@ -168,17 +171,17 @@ export function crearEmbedderHttp({
   }
 }
 
-// Comprobacion barata de que la credencial y el modelo andan, para poder
-// fallar al arrancar y no a la mitad de ingestar un repo entero.
+// Cheap check that the credential and the model work, so it can fail on
+// startup instead of halfway through ingesting an entire repo.
 export async function verificar(embedder) {
   const v = await embedder.paraConsultas('prueba')
-  if (!Array.isArray(v) || v.length === 0) throw new Error('el embebedor no devolvio un vector')
+  if (!Array.isArray(v) || v.length === 0) throw new Error('the embedder did not return a vector')
   if (v.length !== embedder.dimension) {
-    // Que la dimension declarada no sea la real rompe el indice de forma
-    // dificil de leer despues: se corta aca.
+    // The declared dimension not matching the real one breaks the index in a
+    // way that's hard to read afterwards: cut it off here.
     throw new Error(
-      'el modelo ' + embedder.model + ' devuelve ' + v.length +
-      ' dimensiones y la config declara ' + embedder.dimension
+      'model ' + embedder.model + ' returns ' + v.length +
+      ' dimensions and the config declares ' + embedder.dimension
     )
   }
   return { model: embedder.model, dimension: v.length }

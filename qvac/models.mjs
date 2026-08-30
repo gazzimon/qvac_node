@@ -1,13 +1,13 @@
-// Catalogo de modelos de QVAC-Node. Datos puros, sin SDK: bin.mjs lo importa
-// de forma estatica para armar el texto del `--help` sin arrastrar el addon de
-// llamacpp (que se abre con dlopen apenas se importa el plugin).
+// QVAC-Node model catalog. Pure data, no SDK: bin.mjs imports it statically
+// to build the `--help` text without dragging in the llamacpp addon (which
+// opens via dlopen as soon as the plugin is imported).
 
-// Catalogo verificado contra el registry real de QVAC (`sdk.modelRegistrySearch`
-// con filtro vacio, corrido en esta sesion — no son nombres inventados: el
-// track de QVAC descarta sin revision cualquier nombre de modelo alucinado).
-// `sizeGB` es el `expectedSize` real que devuelve el registry, no una
-// estimacion — es lo que la deteccion de hardware (qvac/hardware.mjs) usa
-// para decidir que modelos entran en la RAM de una maquina dada.
+// Catalog verified against QVAC's real registry (`sdk.modelRegistrySearch`
+// with an empty filter, run in this session — these aren't made-up names:
+// the QVAC track rejects any hallucinated model name without review).
+// `sizeGB` is the real `expectedSize` the registry returns, not an estimate —
+// it's what hardware detection (qvac/hardware.mjs) uses to decide which
+// models fit in a given machine's RAM.
 export const MODEL_INFO = {
   smol: {
     name: 'smollm2-360m-instruct-q8_0',
@@ -84,16 +84,16 @@ export const MODEL_INFO = {
   }
 }
 
-// Compatibilidad hacia atras: alias -> nombre exacto del registry. `bin.mjs`
-// y `engine.mjs` (resolveName) siguen usando esta forma; no se toca su shape
-// para no tener que tocar los dos.
+// Backward compatibility: alias -> exact registry name. `bin.mjs` and
+// `engine.mjs` (resolveName) still use this shape; its shape isn't touched
+// so both don't have to be touched.
 export const MODELS = Object.fromEntries(
   Object.entries(MODEL_INFO).map(([alias, info]) => [alias, info.name])
 )
 
-// Default medido, no elegido por gusto: el 360M responde 0.72s antes pero
-// produce castellano incoherente, y la salida es lo que se lee en pantalla.
-// Los numeros estan en NOTES.md.
+// Default chosen by measurement, not by preference: the 360M responds 0.72s
+// faster but produces incoherent Spanish, and the output is what gets read
+// on screen. The numbers are in NOTES.md.
 export const DEFAULT_MODEL = 'llama1b'
 
 export const DEFAULT_CTX_SIZE = 2048

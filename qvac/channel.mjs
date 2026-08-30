@@ -1,51 +1,53 @@
-// El canal de control del protocolo QVAC, sobre Protomux.
+// The QVAC protocol's control channel, over Protomux.
 //
-// Reemplaza al FramedStream que envolvia el socket crudo. El motivo no es
-// estetico: FramedStream se ADUEÑA del stream, y `corestore.replicate(socket)`
-// necesita ese mismo stream para multiplexar la replicacion de hypercores.
-// Con FramedStream, las dos cosas no entran en la misma conexion y habria que
-// abrir una segunda -- que es exactamente lo que D1 del ROADMAP decidio no
-// hacer.
+// Replaces the FramedStream that used to wrap the raw socket. The reason
+// isn't aesthetic: FramedStream TAKES OWNERSHIP of the stream, and
+// `corestore.replicate(socket)` needs that same stream to multiplex hypercore
+// replication. With FramedStream, the two things don't fit on the same
+// connection and a second one would have to be opened -- which is exactly
+// what D1 of the ROADMAP decided not to do.
 //
-// Protomux multiplexa canales por (protocolo, id) sobre un solo stream. Este
-// modulo abre el canal `qvac/node/v0`, que transporta los MISMOS mensajes JSON
-// que antes iban por FramedStream: la tabla de D1 no cambia, cambia el framing.
+// Protomux multiplexes channels by (protocol, id) over a single stream. This
+// module opens the `qvac/node/v0` channel, which carries the SAME JSON
+// messages that used to go over FramedStream: D1's table doesn't change, the
+// framing does.
 //
-// ORDEN DE APERTURA -- importa y es sutil:
+// OPENING ORDER -- matters and is subtle:
 //
-//   Protomux.from(socket) devuelve `socket.userData` si ya hay un mux ahi, y
-//   si no crea uno NUEVO sin guardarlo. `corestore.replicate(socket)` hace lo
-//   mismo por su lado (via Hypercore.createProtocolStream, que si lo guarda en
-//   userData). Si el canal de control se abre sin dejar el mux en userData,
-//   corestore crea un SEGUNDO mux sobre el mismo socket y los dos escriben
-//   frames intercalados en el mismo stream: la conexion se rompe de una forma
-//   ilegible desde afuera.
+//   Protomux.from(socket) returns `socket.userData` if there's already a mux
+//   there, and if not creates a NEW one without saving it. `corestore.replicate(socket)`
+//   does the same thing on its side (via Hypercore.createProtocolStream, which
+//   DOES save it in userData). If the control channel is opened without
+//   leaving the mux in userData, corestore creates a SECOND mux on the same
+//   socket and both write interleaved frames on the same stream: the
+//   connection breaks in a way that's unreadable from the outside.
 //
-//   Por eso `attachMux` guarda el mux en userData antes que nada, y tanto el
-//   canal como la replicacion salen de ahi.
+//   That's why `attachMux` saves the mux in userData before anything else,
+//   and both the channel and the replication come from there.
 //
-// TAMAÑO MAXIMO DE FRAME: el cap de 16 MiB que daba `bits: 24` en FramedStream
-// no se pierde. NoiseSecretStream (el socket de Hyperswarm) frena en
-// MAX_ATOMIC_WRITE = 0xffffff, que son los mismos 16 MiB, y lo hace una capa
-// mas abajo -- antes de que Protomux llegue a reservar nada.
+// MAXIMUM FRAME SIZE: the 16 MiB cap that `bits: 24` used to give in
+// FramedStream isn't lost. NoiseSecretStream (Hyperswarm's socket) caps at
+// MAX_ATOMIC_WRITE = 0xffffff, which is the same 16 MiB, and does it a layer
+// below -- before Protomux even gets to reserve anything.
 
 import Protomux from 'protomux'
 import c from 'compact-encoding'
 
 export const PROTOCOL = 'qvac/node/v0'
 
-// Deja el mux en `socket.userData` y lo devuelve. Todo lo que quiera hablar
-// sobre este socket -- el canal de control, la replicacion del corestore --
-// tiene que pasar por aca primero.
+// Leaves the mux in `socket.userData` and returns it. Anything that wants to
+// talk over this socket -- the control channel, the corestore replication --
+// has to go through here first.
 export function attachMux(socket) {
   const mux = Protomux.from(socket)
   if (!socket.userData) socket.userData = mux
   return mux
 }
 
-// Abre el canal de control. Devuelve `null` si ya habia uno sobre este socket
-// (protomux no permite dos canales con el mismo protocolo e id), que es un
-// error de programa, no de red: quien llama tiene que tratarlo como tal.
+// Opens the control channel. Returns `null` if there was already one on this
+// socket (protomux doesn't allow two channels with the same protocol and id),
+// which is a program error, not a network one: the caller has to treat it as
+// such.
 export function openChannel(socket, { onmessage = () => {}, onclose = () => {} } = {}) {
   const mux = attachMux(socket)
 
@@ -56,14 +58,14 @@ export function openChannel(socket, { onmessage = () => {}, onclose = () => {} }
 
   if (channel === null) return null
 
-  // UN solo tipo de mensaje que lleva el objeto JSON entero, en vez de un
-  // mensaje de protomux por cada `type` del protocolo. Es deliberado: los
-  // mensajes de un canal se aparean POR ORDEN DE REGISTRO entre las dos
-  // puntas, asi que una tabla de mensajes tipados obliga a que las dos
-  // versiones del nodo registren exactamente los mismos, en el mismo orden.
-  // Con el OTA corriendo, dos nodos en versiones distintas es el caso NORMAL,
-  // no el raro. Un solo mensaje JSON hace que agregar un `type` nuevo sea
-  // compatible hacia atras: el nodo viejo lo ignora en `_dispatch` y sigue.
+  // A SINGLE message type carrying the whole JSON object, instead of one
+  // protomux message per protocol `type`. This is deliberate: a channel's
+  // messages get paired up BY REGISTRATION ORDER between the two ends, so a
+  // table of typed messages would force both node versions to register
+  // exactly the same ones, in the same order. With OTA running, two nodes on
+  // different versions is the NORMAL case, not the rare one. A single JSON
+  // message makes adding a new `type` backward compatible: the old node
+  // ignores it in `_dispatch` and keeps going.
   const message = channel.addMessage({
     encoding: c.json,
     onmessage
@@ -74,9 +76,9 @@ export function openChannel(socket, { onmessage = () => {}, onclose = () => {} }
   return {
     channel,
     send(msg) {
-      // El canal puede haberse cerrado entre el check del que llama y este
-      // write. Igual que el `try` del `_send` viejo: el 'close' del socket ya
-      // limpia, aca no hay nada que hacer.
+      // The channel may have closed between the caller's check and this
+      // write. Same as the old `_send`'s `try`: the socket's 'close' already
+      // cleans up, there's nothing to do here.
       try {
         message.send(msg)
       } catch {}

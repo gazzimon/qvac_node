@@ -1,33 +1,33 @@
-// Gateway del marketplace. Sirve los 3 paneles y una API compatible con OpenAI.
+// Marketplace gateway. Serves the 3 panels and an OpenAI-compatible API.
 //
-// QUE ES COMPATIBLE (probado en test/index.js):
-//   POST /v1/chat/completions  acepta { model, messages[], stream } y responde
-//     - con stream:true  -> SSE de `chat.completion.chunk` (choices[].delta.content)
-//     - con stream:false -> un `chat.completion` (choices[].message.content)
-//   GET  /v1/models            devuelve { object:"list", data:[{id,object:"model",...}] }
-//   Los errores viajan como { error: { message, type, code } }, la forma de OpenAI.
+// WHAT IS COMPATIBLE (tested in test/index.js):
+//   POST /v1/chat/completions  accepts { model, messages[], stream } and responds
+//     - with stream:true  -> SSE of `chat.completion.chunk` (choices[].delta.content)
+//     - with stream:false -> a `chat.completion` (choices[].message.content)
+//   GET  /v1/models            returns { object:"list", data:[{id,object:"model",...}] }
+//   Errors travel as { error: { message, type, code } }, OpenAI's shape.
 //
-// QUE NO ESTA (dicho aca para que nadie lo descubra en la demo):
-//   - `usage` (conteo de tokens) NO se emite. El SDK no lo expone por ahora y
-//     un conteo inventado es peor que un campo ausente: un cliente que factura
-//     por token leeria un numero falso. Ausente es honesto y no rompe a nadie
-//     que use chat simple.
-//   - Sin `tools`/`function_call`, sin `n`>1, sin `logprobs`.
+// WHAT'S NOT THERE (said here so nobody discovers it in the demo):
+//   - `usage` (token count) is NOT emitted. The SDK doesn't expose it yet and
+//     a made-up count is worse than an absent field: a client billing by
+//     token would read a fake number. Absent is honest and doesn't break
+//     anyone using simple chat.
+//   - No `tools`/`function_call`, no `n`>1, no `logprobs`.
 //
-// EXTENSIONES PROPIAS (no chocan con OpenAI, ningun cliente suyo las manda):
-//   - El request tambien acepta la forma corta { modelId, prompt }.
-//   - GET /v1/nodes devuelve la vista rica del marketplace (precio, operador,
-//     carga) que consumen los paneles. /v1/models queda para el protocolo.
+// OWN EXTENSIONS (don't clash with OpenAI, no OpenAI client sends these):
+//   - The request also accepts the short form { modelId, prompt }.
+//   - GET /v1/nodes returns the marketplace's rich view (price, operator,
+//     load) that the panels consume. /v1/models stays for the protocol.
 //
-// RUTEO: contra el registro en memoria (store.mjs), que se puebla de tres
-// fuentes distintas y las trata distinto:
-//   kind 'peer' -> par descubierto por Hyperswarm con manifiesto firmado
-//                  verificado. La inferencia viaja por chat:request/chat:chunk
-//                  sobre el FramedStream del swarm (D1). Requiere --swarm.
-//   kind 'real' -> este equipo, via engine.mjs.
-//   kind 'mock' -> respuesta enlatada. Solo existe con --demo.
-// Para un mismo modelId se prefiere el par P2P (ver findAllByModelId), y el
-// log de routing dice cuantos candidatos hubo.
+// ROUTING: against the in-memory registry (store.mjs), which gets populated
+// from three different sources and treats them differently:
+//   kind 'peer' -> peer discovered via Hyperswarm with a verified signed
+//                  manifest. Inference travels over chat:request/chat:chunk
+//                  on the swarm's FramedStream (D1). Requires --swarm.
+//   kind 'real' -> this machine, via engine.mjs.
+//   kind 'mock' -> canned response. Only exists with --demo.
+// For the same modelId the P2P peer is preferred (see findAllByModelId), and
+// the routing log states how many candidates there were.
 
 import http from 'bare-http1'
 import * as store from './store.mjs'

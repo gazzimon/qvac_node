@@ -1,22 +1,22 @@
-// Deteccion de hardware para restringir que modelos ofrece este nodo.
+// Hardware detection to restrict which models this node offers.
 //
-// Corre del lado del proceso `qvac-node` que ya esta vivo en la maquina del
-// proveedor -no es el navegador ejecutando nada, es el propio Bare leyendo su
-// sistema operativo con `bare-os`, que ya es dependencia del proyecto. Cero
-// paquetes nuevos, cero scraping de terceros: el limite real para correr un
-// LLM local es la RAM disponible, y QVAC lo documenta explicito ("a 4B model
-// at Q4 needs roughly 4 GB, 8B wants ~8GB") -- mismo criterio, sin depender de
-// una base de datos externa que no fue pensada para esto (ver ROADMAP/NOTES
-// sobre por que no se scrapeo canirun.ai: es para GPUs de juegos, no para
-// cuanta RAM pide un modelo cuantizado).
+// Runs on the side of the `qvac-node` process that's already alive on the
+// provider's machine -this isn't a browser running anything, it's Bare
+// itself reading its own operating system with `bare-os`, already a project
+// dependency. Zero new packages, zero scraping third parties: the real limit
+// for running a local LLM is available RAM, and QVAC documents it explicitly
+// ("a 4B model at Q4 needs roughly 4 GB, 8B wants ~8GB") -- same criterion,
+// with no dependency on an external database that wasn't built for this (see
+// ROADMAP/NOTES on why canirun.ai wasn't scraped: it's for gaming GPUs, not
+// for how much RAM a quantized model needs).
 
 import os from 'bare-os'
 import { MODEL_INFO } from './models.mjs'
 
-// Margen para el SO, el runtime de Bare y el contexto de inferencia -- no es
-// solo el archivo de pesos. Sin este margen, un modelo "justo justo" del
-// tamano de la RAM total carga y despues el proceso se queda sin memoria a
-// mitad de una respuesta larga.
+// Margin for the OS, the Bare runtime, and the inference context -- not just
+// the weights file. Without this margin, a model that's a tight fit for total
+// RAM loads and then the process runs out of memory partway through a long
+// response.
 const RAM_OVERHEAD_GB = 1.5
 
 export function systemInfo() {
@@ -30,16 +30,16 @@ export function systemInfo() {
   }
 }
 
-// Un modelo "entra" si sus pesos mas el margen no superan la RAM TOTAL de la
-// maquina (no la libre en este instante: la libre fluctua con lo que el SO
-// tenga cacheado y subestimaria maquinas sanas). El margen es lo que absorbe
-// esa diferencia.
+// A model "fits" if its weights plus the margin don't exceed the machine's
+// TOTAL RAM (not what's free right now: free memory fluctuates with whatever
+// the OS has cached and would underestimate healthy machines). The margin is
+// what absorbs that difference.
 export function fitsInMemory(sizeGB, totalMemGB) {
   return sizeGB + RAM_OVERHEAD_GB <= totalMemGB
 }
 
-// Catalogo completo + cual entra en ESTA maquina, para que el panel Proveedor
-// arme el selector sin tener que repetir la cuenta del lado del cliente.
+// Full catalog + which ones fit on THIS machine, so the Provider panel can
+// build the selector without repeating the calculation on the client side.
 export function availableModels(totalMemGB = systemInfo().totalMemGB) {
   return Object.entries(MODEL_INFO).map(([alias, info]) => ({
     alias,

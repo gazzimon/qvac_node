@@ -1,86 +1,90 @@
-// El stack de x402, cargado de la única forma en que funciona bajo Bare.
-// Fase 9 del ROADMAP_FASE7-X402 (D8, D9, D10, D14, D15).
+// The x402 stack, loaded the only way that works under Bare.
+// Phase 9 of ROADMAP_FASE7-X402 (D8, D9, D10, D14, D15).
 //
 // -----------------------------------------------------------------------------
-// POR QUÉ ESTE ARCHIVO EXISTE, Y POR QUÉ NO ES UN `import` SUELTO
+// WHY THIS FILE EXISTS, AND WHY IT ISN'T A LOOSE `import`
 //
-// `@x402/evm` NO IMPORTA BAJO BARE POR SU CUENTA, y el motivo está
-// diagnosticado: **viem usa `TextEncoder`, que Bare no tiene como global.**
+// `@x402/evm` DOES NOT IMPORT UNDER BARE ON ITS OWN, and the cause has been
+// diagnosed: **viem uses `TextEncoder`, which Bare doesn't have as a global.**
 //
-//     antes de importar WDK:   typeof globalThis.TextEncoder === 'undefined'
-//     después:                 'function'
+//     before importing WDK:   typeof globalThis.TextEncoder === 'undefined'
+//     after:                  'function'
 //
-// WDK los instala (`TextEncoder` y `TextDecoder`) al cargarse, y viem —que está
-// abajo de `@x402/evm`— los usa en `utils/encoding/toHex.js`. Sin ese polyfill,
-// el import muere con `ReferenceError: TextEncoder is not defined`.
+// WDK installs them (`TextEncoder` and `TextDecoder`) when it loads, and
+// viem — which sits underneath `@x402/evm` — uses them in
+// `utils/encoding/toHex.js`. Without that polyfill, the import dies with
+// `ReferenceError: TextEncoder is not defined`.
 //
-// Alcanza con IMPORTAR WDK: no hace falta derivar ninguna cuenta ni abrir
-// ninguna wallet. Lo que importa es que el polyfill quede instalado antes.
+// Just IMPORTING WDK is enough: there's no need to derive an account or open
+// a wallet. What matters is that the polyfill gets installed first.
 //
-// (Hubo un segundo problema, ya resuelto por otro lado: `@noble/hashes` elegía
-// su variante `node:crypto` bajo el packer. Eso rompía el BINARIO, no el
-// runtime, y lo arregla `scripts/parche-noble-bare.js`.)
+// (There was a second problem, already fixed elsewhere: `@noble/hashes`
+// picked its `node:crypto` variant under the packer. That broke the BINARY,
+// not the runtime, and `scripts/parche-noble-bare.js` fixes it.)
 //
-// Depender de un polyfill que instala otro paquete es frágil igual, así que en
-// vez de dejarlo como un `import` de arriba de archivo que alguien va a
-// reordenar en un refactor de imports —y la falla aparecería tres saltos más
-// allá—, vive acá, con el porqué al lado y con dos cosas que lo vigilan:
+// Depending on a polyfill installed by another package is still fragile, so
+// instead of leaving it as a top-of-file `import` that someone will reorder
+// in an import refactor — and the failure would show up three hops
+// later — it lives here, with the why right next to it, watched over by two
+// things:
 //
-//   - el paso 5 de `scripts/spike-d11-wdk-bare.mjs`, que mide si `@x402/evm`
-//     importa AISLADO lanzando un proceso bare limpio (hoy falla, y está bien
-//     que falle: falla el spike, no la fase);
-//   - un test de la suite que carga ESTE módulo en un proceso limpio.
+//   - step 5 of `scripts/spike-d11-wdk-bare.mjs`, which measures whether
+//     `@x402/evm` imports IN ISOLATION by spawning a clean bare process
+//     (fails today, and it's fine that it does: the spike fails, not the
+//     phase);
+//   - a test in the suite that loads THIS module in a clean process.
 //
-// El día que `@noble/hashes` o Bare cambien, uno de los dos se rompe y dice
-// exactamente qué se rompió.
+// The day `@noble/hashes` or Bare change, one of the two breaks and says
+// exactly what broke.
 //
 // -----------------------------------------------------------------------------
-// D15 — LAS CADENAS, Y LA QUE X402 NO CONOCE
+// D15 — THE CHAINS, AND THE ONE X402 DOESN'T KNOW
 //
-// D15 decidió Plasma (`eip155:9745`) como default y Stable (`eip155:988`) como
-// fallback. Pero `@x402/evm` sólo trae Stable de fábrica:
+// D15 decided on Plasma (`eip155:9745`) as the default and Stable
+// (`eip155:988`) as fallback. But `@x402/evm` only ships Stable out of the
+// box:
 //
-//     getDefaultAsset('eip155:988')   -> USDT0, 6 decimales
+//     getDefaultAsset('eip155:988')   -> USDT0, 6 decimals
 //     getDefaultAsset('eip155:9745')  -> throw: "No default asset configured"
 //
-// Así que el activo de Plasma hay que declararlo nosotros, y ese es exactamente
-// el tipo de dato que no se inventa: es la dirección de un contrato a la que se
-// le va a mandar plata real. Ver `ACTIVOS` abajo.
+// So we have to declare Plasma's asset ourselves, and that's exactly the kind
+// of data you don't make up: it's the address of a contract that real money
+// is going to be sent to. See `ACTIVOS` below.
 
 import env from 'bare-env'
 
 // -----------------------------------------------------------------------------
-// Las cadenas
+// The chains
 // -----------------------------------------------------------------------------
 
-// CAIP-2 de cada red que este nodo puede aceptar, en el orden de preferencia de
-// D15. Los nombres cortos son los que viajan en `economic.chains` del
-// manifiesto (kebab-case, ver wallet.mjs).
+// CAIP-2 for each network this node can accept, in D15's order of preference.
+// The short names are what travels in the manifest's `economic.chains`
+// (kebab-case, see wallet.mjs).
 //
-// `plasma-testnet` (9746) lo agrega la Fase 10 y REABRE la Fase 9: D30 decidió
-// que nada se estrena en mainnet, así que el `curl` que cobra de verdad lo hace
-// primero en 9746. El chainId no es un detalle de config — por EIP-155 entra en
-// lo que se firma —, así que 9745 y 9746 son dos redes distintas y no una con
-// una bandera.
+// `plasma-testnet` (9746) is added by Phase 10 and REOPENS Phase 9: D30
+// decided nothing gets a first run on mainnet, so the `curl` that actually
+// charges does it on 9746 first. The chainId isn't a config detail — under
+// EIP-155 it's part of what gets signed — so 9745 and 9746 are two different
+// networks, not one with a flag.
 export const CAIP2 = {
   plasma: 'eip155:9745',
   'plasma-testnet': 'eip155:9746',
   stable: 'eip155:988'
 }
 
-// El activo con el que se cobra en cada red.
+// The asset each network charges in.
 //
-// El de Stable NO se escribe acá: se le pide a `@x402/evm`, que lo trae de
-// fábrica. Duplicar una dirección de contrato que el paquete ya conoce es
-// crear una segunda fuente de verdad para un dato que, si se desincroniza,
-// manda plata a otro lado.
+// Stable's is NOT written here: it's requested from `@x402/evm`, which ships
+// it out of the box. Duplicating a contract address the package already knows
+// would create a second source of truth for a value that, if it drifts,
+// sends money somewhere else.
 //
-// El de Plasma sí hay que declararlo, porque x402 no lo tiene. Y acá está el
-// límite honesto: la dirección de abajo es la que usó el spike de D11
-// (`scripts/spike-d11-wdk-bare.mjs`, dominio EIP-712 de la firma), y **no está
-// verificada contra la cadena**. Por eso `activoDe()` no la devuelve sin más:
-// exige que el operador confirme, porque el modo de falla es mandar USD₮ a un
-// contrato equivocado y eso no tiene vuelta atrás.
+// Plasma's does have to be declared, because x402 doesn't have it. And here's
+// the honest limit: the address below is the one the D11 spike used
+// (`scripts/spike-d11-wdk-bare.mjs`, the signature's EIP-712 domain), and
+// **it is not verified against the chain**. That's why `activoDe()` doesn't
+// just hand it out: it requires the operator to confirm, because the failure
+// mode is sending USD₮ to the wrong contract, and that has no undo.
 const PLASMA_USDT0_SIN_VERIFICAR = {
   asset: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
   name: 'USDT0',
@@ -89,27 +93,28 @@ const PLASMA_USDT0_SIN_VERIFICAR = {
   symbol: 'USDT0'
 }
 
-// La variable con la que el operador declara que verificó la dirección de
-// Plasma contra el explorer. Sin esto, Plasma queda fuera y se cobra en Stable.
+// The variable the operator uses to declare they've verified Plasma's address
+// against the explorer. Without this, Plasma stays disabled and charging
+// falls back to Stable.
 export const VAR_PLASMA_OK = 'PYRUS_X402_PLASMA_ASSET_VERIFICADO'
 
 // -----------------------------------------------------------------------------
-// Plasma TESTNET (9746) — donde D30 dice que se estrena
+// Plasma TESTNET (9746) — where D30 says first runs happen
 // -----------------------------------------------------------------------------
 
-// En 9746 NO hay stablecoin: los faucets dan sólo XPL, que es gas nativo y no
-// tiene contrato. El activo con EIP-3009 lo despliega el operador
-// (`npm run desplegar-activo`, `scripts/activo-prueba.sol` → tUSD) y cada
-// despliegue tiene su propia dirección, así que —a diferencia de Plasma
-// mainnet— acá no hay una constante canónica que hardcodear: se declara por
-// variable.
+// On 9746 there is NO stablecoin: the faucets only give out XPL, which is
+// native gas and has no contract. The EIP-3009 asset gets deployed by the
+// operator (`npm run desplegar-activo`, `scripts/activo-prueba.sol` → tUSD)
+// and each deployment has its own address, so — unlike Plasma mainnet —
+// there's no canonical constant to hardcode here: it's declared via
+// environment variable.
 //
-// Son los MISMOS nombres que lee `scripts/verificar-x402.js`, que es el que
-// comprueba CONTRA LA CADENA que ese contrato implementa EIP-3009 y que su
-// dominio EIP-712 coincide con el que vamos a firmar. Acá no se verifica nada:
-// declarar `ASSET` y `NAME` es el operador diciendo "ya lo corrí y quedó bien".
-// Sin los dos, la red no se ofrece — el default es no cobrar en una red cuyo
-// activo nadie declaró.
+// These are the SAME names `scripts/verificar-x402.js` reads, which is what
+// checks AGAINST THE CHAIN that the contract implements EIP-3009 and that its
+// EIP-712 domain matches what we're about to sign. Nothing gets verified
+// here: declaring `ASSET` and `NAME` is the operator saying "I already ran it
+// and it checked out." Without both, the network isn't offered — the default
+// is not charging on a network nobody declared an asset for.
 export const VAR_PLASMA_TESTNET_ASSET = 'PYRUS_X402_PLASMA_TESTNET_ASSET'
 export const VAR_PLASMA_TESTNET_NAME = 'PYRUS_X402_PLASMA_TESTNET_NAME'
 export const VAR_PLASMA_TESTNET_SYMBOL = 'PYRUS_X402_PLASMA_TESTNET_SYMBOL'
@@ -117,21 +122,22 @@ export const VAR_PLASMA_TESTNET_VERSION = 'PYRUS_X402_PLASMA_TESTNET_VERSION'
 export const VAR_PLASMA_TESTNET_DECIMALS = 'PYRUS_X402_PLASMA_TESTNET_DECIMALS'
 
 // -----------------------------------------------------------------------------
-// La carga
+// Loading
 // -----------------------------------------------------------------------------
 
 let cache = null
 
-// Carga el stack, en orden. Devuelve `{ core, evm }`.
+// Loads the stack, in order. Returns `{ core, evm }`.
 //
-// Es async y con cache: el import de WDK cuesta, y esto lo llama el camino de
-// un request. La segunda vez sale de memoria.
+// It's async and cached: importing WDK is expensive, and this gets called on
+// the request path. The second time it comes from memory.
 export async function cargar() {
   if (cache) return cache
 
-  // ESTE IMPORT NO SE MUEVE Y NO SE BORRA. Ver el encabezado: instala los
-  // globales `TextEncoder`/`TextDecoder` que viem necesita, y sin él el de
-  // abajo muere con un ReferenceError que no menciona x402 por ningún lado.
+  // THIS IMPORT DOES NOT MOVE AND DOES NOT GET DELETED. See the header: it
+  // installs the `TextEncoder`/`TextDecoder` globals viem needs, and without
+  // it the one below dies with a ReferenceError that doesn't mention x402
+  // anywhere.
   await import('@tetherto/wdk-wallet-evm')
 
   const core = await import('@x402/core')
@@ -141,30 +147,31 @@ export async function cargar() {
   return cache
 }
 
-// El activo con el que se cobra en `red` ('plasma' | 'stable'), o null si esa
-// red no se puede usar todavía.
+// The asset charged on `red` ('plasma' | 'stable'), or null if that network
+// can't be used yet.
 //
-// Devolver null en vez de tirar es deliberado: que Plasma no esté disponible
-// no es un error del programa, es una configuración incompleta, y el llamador
-// tiene que poder caer a Stable —que es exactamente lo que D15 llama fallback—
-// en vez de quedarse sin cobrar.
+// Returning null instead of throwing is deliberate: Plasma being unavailable
+// isn't a program error, it's incomplete configuration, and the caller has to
+// be able to fall back to Stable — which is exactly what D15 calls the
+// fallback — instead of being unable to charge at all.
 export async function activoDe(red) {
   const { evm } = await cargar()
   const id = CAIP2[red]
   if (!id) return null
 
   if (red === 'plasma') {
-    // Sin la confirmación explícita del operador, Plasma no se usa. El default
-    // es no cobrar en una red cuya dirección de contrato no verificó nadie.
+    // Without the operator's explicit confirmation, Plasma isn't used. The
+    // default is not charging on a network whose contract address nobody
+    // verified.
     if (env[VAR_PLASMA_OK] !== '1') return null
     return { network: id, ...PLASMA_USDT0_SIN_VERIFICAR }
   }
 
   if (red === 'plasma-testnet') {
-    // Igual que Plasma pero sin dirección de fábrica: la pone el operador
-    // después de correr `npm run verificar-x402`. Sin `ASSET` y `NAME` la red
-    // no entra al `accepts[]` — un cliente no puede firmar un EIP-712 contra un
-    // dominio a medias.
+    // Same as Plasma but with no out-of-the-box address: the operator sets
+    // it after running `npm run verificar-x402`. Without `ASSET` and `NAME`
+    // the network doesn't enter `accepts[]` — a client can't sign an EIP-712
+    // against a half-declared domain.
     const asset = env[VAR_PLASMA_TESTNET_ASSET]
     const name = env[VAR_PLASMA_TESTNET_NAME]
     if (!asset || !name) return null
@@ -186,9 +193,9 @@ export async function activoDe(red) {
   }
 }
 
-// Las redes que este nodo puede aceptar HOY, en orden de preferencia. Puede ser
-// más corta que `wallet.CHAINS`: el manifiesto declara en qué redes el nodo
-// quiere cobrar, esto dice en cuáles efectivamente puede.
+// The networks this node can accept TODAY, in order of preference. Can be
+// shorter than `wallet.CHAINS`: the manifest declares which networks the node
+// wants to charge on, this says which ones it actually can.
 export async function redesDisponibles() {
   const out = []
   for (const red of ['plasma', 'plasma-testnet', 'stable']) {
@@ -198,20 +205,23 @@ export async function redesDisponibles() {
 }
 
 // -----------------------------------------------------------------------------
-// El 402
+// The 402
 // -----------------------------------------------------------------------------
 
-// Una entrada de `accepts[]`: qué se acepta, cuánto, a quién y en qué red.
+// An `accepts[]` entry: what's accepted, how much, to whom, and on which
+// network.
 //
-// D9(a) — esquema `exact`: un monto FIJO declarado antes de generar. Un LLM no
-// sabe cuántos tokens va a producir, así que lo honesto es lo que el DoD pide
-// textualmente: que el 402 declare el tope. El `accepts[]` dice "hasta N tokens
-// de salida por $X" y el gateway aplica ese `max_tokens` aunque el cliente no
-// lo mande. Cobrar un precio fijo sin declarar el tope sería cobrar por algo
-// que el cliente no puede acotar.
+// D9(a) — `exact` scheme: a FIXED amount declared before generating. An LLM
+// doesn't know how many tokens it's going to produce, so the honest thing is
+// what the DoD asks for literally: that the 402 declare the cap. `accepts[]`
+// says "up to N output tokens for $X" and the gateway enforces that
+// `max_tokens` even if the client doesn't send one. Charging a fixed price
+// without declaring the cap would be charging for something the client can't
+// bound.
 //
-// `maxTimeoutSeconds` es cuánto vale la autorización firmada: pasado eso, el
-// cliente puede volver a firmar sin riesgo de que la vieja se cobre tarde.
+// `maxTimeoutSeconds` is how long the signed authorization is valid for: past
+// that, the client can sign again without risk of the old one being charged
+// late.
 export function entradaAccepts({
   payTo,
   activo,
@@ -221,23 +231,23 @@ export function entradaAccepts({
   descripcion,
   maxTimeoutSeconds = 300
 }) {
-  if (!payTo) throw new Error('x402: no hay a quien pagarle')
-  if (!activo) throw new Error('x402: no hay activo para esa red')
+  if (!payTo) throw new Error('x402: no one to pay')
+  if (!activo) throw new Error('x402: no asset for that network')
 
-  // Micro-dolares -> unidades minimas del activo. USD₮0 tiene 6 decimales, o
-  // sea que 1 micro-dolar ES una unidad minima; se calcula igual en vez de
-  // asumirlo, porque `decimals` viene del activo y no todos los de la tabla de
-  // x402 son de 6 (hay de 18).
+  // Micro-dollars -> minimum units of the asset. USD₮0 has 6 decimals, so 1
+  // micro-dollar IS one minimum unit; it's calculated anyway instead of
+  // assumed, because `decimals` comes from the asset and not everything in
+  // x402's table is 6 (some are 18).
   const amount = montoEnUnidades(micros, activo)
 
   return {
     scheme: 'exact',
     network: activo.network,
-    // `amount`, no `maxAmountRequired`. El segundo es el nombre de x402 v1 y es
-    // el que sale en media documentacion; el cliente de v2 lee `amount`
-    // (`createEIP3009Payload` en @x402/evm), asi que con el nombre viejo el
-    // cliente firma `BigInt(undefined)` y ni siquiera llega a mandarnos nada.
-    // Preguntado al paquete, no adivinado.
+    // `amount`, not `maxAmountRequired`. The latter is x402 v1's name and
+    // it's the one that shows up in half the docs; the v2 client reads
+    // `amount` (`createEIP3009Payload` in @x402/evm), so with the old name
+    // the client signs `BigInt(undefined)` and doesn't even get to send us
+    // anything. Checked against the package, not guessed.
     amount,
     resource: recurso,
     description: descripcion,
@@ -245,21 +255,21 @@ export function entradaAccepts({
     payTo,
     maxTimeoutSeconds,
     asset: activo.asset,
-    // `extra` es donde el esquema `exact` de EVM espera el dominio EIP-712 del
-    // token, que es lo que el cliente necesita para firmar la autorizacion.
+    // `extra` is where EVM's `exact` scheme expects the token's EIP-712
+    // domain, which is what the client needs to sign the authorization.
     extra: { name: activo.name, version: activo.version },
-    // NO es parte del spec de x402: es nuestro, y es la mitad honesta de D9(a).
-    // El cliente tiene que poder saber por cuanto trabajo esta pagando ese
-    // monto fijo, y "hasta N tokens de salida" es ese numero.
+    // NOT part of the x402 spec: this is ours, and it's the honest half of
+    // D9(a). The client has to be able to know how much work that fixed
+    // amount is paying for, and "up to N output tokens" is that number.
     outputTokenLimit: maxTokens
   }
 }
 
-// El cuerpo entero de un 402, con una entrada por red disponible.
+// The full body of a 402, with one entry per available network.
 //
-// Se ordena por la preferencia de D15 y el cliente elige. Si no queda ninguna
-// red usable, devuelve null: el llamador tiene que poder distinguir "hay que
-// pagar" de "este nodo no puede cobrar", que terminan en respuestas distintas.
+// Ordered by D15's preference, and the client picks. If no usable network is
+// left, returns null: the caller has to be able to tell "payment required"
+// apart from "this node can't charge," which end up as different responses.
 export async function desafio({ payTo, micros, maxTokens, recurso, descripcion }) {
   const { core } = await cargar()
   const accepts = []
@@ -280,22 +290,30 @@ export async function desafio({ payTo, micros, maxTokens, recurso, descripcion }
 }
 
 // -----------------------------------------------------------------------------
-// La verificación (D12)
+// Verification (D12)
 // -----------------------------------------------------------------------------
 
-// D12 decide: VERIFICAR sincrónico, servir, LIQUIDAR después. Esto es la
-// primera parte, y es la que protege al proveedor de gastar GPU gratis.
+// D12 decides: synchronous VERIFY, serve, SETTLE later. This is the first
+// part, and it's what protects the provider from spending GPU for free.
 //
-// No toca la cadena, y eso no es una optimización: meter una transacción
-// on-chain delante del primer token pondría su latencia delante del TTFT, que
-// es el número que el proyecto mide y publica. Lo que se verifica acá es que la
-// autorización esté BIEN FIRMADA y diga lo que tiene que decir. Que la wallet
-// tenga saldo se sabe al liquidar, y para eso está el facilitator.
+// It doesn't touch the chain, and that's not an optimization: putting an
+// on-chain transaction in front of the first token would put its latency in
+// front of TTFT, which is the number the project measures and publishes.
+// What gets verified here is that the authorization is PROPERLY SIGNED and
+// says what it has to say. Whether the wallet has balance is found out at
+// settlement time, and that's what the facilitator is for.
 //
-// Lo que esto NO prueba, y hay que decirlo: que el pagador tenga fondos, y que
-// el nonce no se haya usado ya. Un firmante sin saldo pasa esta verificación y
-// falla al liquidar. Es exactamente el riesgo que D12 acepta a cambio del TTFT,
-// y por eso la Fase 10 (recibos en lote) existe.
+// What this does NOT prove, and it has to be said: that the payer has funds,
+// and that the nonce hasn't already been used. A signer with no balance
+// passes this verification and fails at settlement. That's exactly the risk
+// D12 accepts in exchange for TTFT, and it's why Phase 10 (batched receipts)
+// exists.
+//
+// NOTE: the `motivo` (reason) strings returned by this function are asserted
+// verbatim by tests (e.g. `test/index.js`, `test/integracion.js` check for
+// exact substrings like "red equivocada" / "firma no corresponde"). They are
+// left in Spanish deliberately — translating them here without updating the
+// corresponding test assertions in the same pass would break the test suite.
 export async function verificarPago(cabecera, { payTo, activo, micros, red }) {
   const no = (motivo) => ({ ok: false, motivo })
 
@@ -322,14 +340,15 @@ export async function verificarPago(cabecera, { payTo, activo, micros, red }) {
   const firma = sobre.payload && sobre.payload.signature
   if (!a || !firma) return no('el payload no trae authorization y signature')
 
-  // A QUIEN. Se compara en minuscula porque las direcciones EVM viajan con
-  // checksum de mayusculas y dos formas del MISMO valor no pueden leerse como
-  // dos direcciones distintas.
+  // WHO TO. Compared lowercase because EVM addresses travel with uppercase
+  // checksums, and two forms of the SAME value can't be read as two different
+  // addresses.
   if (String(a.to || '').toLowerCase() !== String(payTo).toLowerCase()) {
     return no('la autorizacion paga a otra direccion')
   }
 
-  // CUANTO. Mayor o igual: pagar de mas es del pagador, pagar de menos no.
+  // HOW MUCH. Greater than or equal: overpaying is the payer's business,
+  // underpaying isn't.
   let valor
   try {
     valor = BigInt(a.value)
@@ -341,8 +360,8 @@ export async function verificarPago(cabecera, { payTo, activo, micros, red }) {
     return no(`el pago es de ${valor} y se pidieron ${requerido}`)
   }
 
-  // CUANDO. Una autorizacion vencida no se acepta aunque este bien firmada, y
-  // una que todavia no empezó tampoco.
+  // WHEN. An expired authorization isn't accepted even if it's properly
+  // signed, and neither is one that hasn't started yet.
   const ahora = BigInt(Math.floor(Date.now() / 1000))
   try {
     if (BigInt(a.validBefore) <= ahora) return no('la autorizacion ya vencio')
@@ -351,8 +370,8 @@ export async function verificarPago(cabecera, { payTo, activo, micros, red }) {
     return no('validAfter/validBefore no son enteros')
   }
 
-  // QUIEN FIRMO. Es lo unico que no se puede falsificar, y por eso es lo ultimo:
-  // si algo de arriba esta mal, no hace falta gastar un ecrecover.
+  // WHO SIGNED. It's the only thing that can't be forged, which is why it's
+  // last: if anything above is wrong, there's no need to spend an ecrecover.
   const { evm } = await cargar()
   const viem = await import('viem')
   const chainId = Number(String(activo.network).split(':')[1])
@@ -388,9 +407,9 @@ export async function verificarPago(cabecera, { payTo, activo, micros, red }) {
   return {
     ok: true,
     payer: firmante,
-    // El nonce es la clave de idempotencia del pago (D20): el mismo nonce
-    // liquidado dos veces cobra una sola. Se devuelve para que quien sirve lo
-    // pueda registrar.
+    // The nonce is the payment's idempotency key (D20): the same nonce
+    // settled twice only charges once. It's returned so whoever serves the
+    // request can record it.
     nonce: a.nonce,
     valor: valor.toString(),
     red,
@@ -399,10 +418,11 @@ export async function verificarPago(cabecera, { payTo, activo, micros, red }) {
   }
 }
 
-// Micro-dolares -> unidades minimas del activo. Vive aparte porque lo usan el
-// que arma el 402, el que lo verifica y el que lo PAGA (`x402-cliente.mjs`, al
-// convertir su techo de gasto), y los tres tienen que dar EXACTAMENTE lo mismo:
-// declarar un monto y verificar contra otro es rechazar pagos correctos.
+// Micro-dollars -> minimum units of the asset. Lives on its own because it's
+// used by whatever builds the 402, whatever verifies it, and whatever PAYS it
+// (`x402-cliente.mjs`, when converting its spending cap), and all three have
+// to give EXACTLY the same result: declaring one amount and verifying against
+// another rejects correct payments.
 export function montoEnUnidades(micros, activo) {
   const enteros = BigInt(Math.max(0, Math.ceil(Number(micros) || 0)))
   const escala = BigInt(10) ** BigInt(Math.max(0, activo.decimals - 6))
@@ -410,84 +430,86 @@ export function montoEnUnidades(micros, activo) {
 }
 
 // -----------------------------------------------------------------------------
-// La liquidación (D12, D14)
+// Settlement (D12, D14)
 // -----------------------------------------------------------------------------
 
-// EL PROTOCOLO ENTRE ESTE NODO Y EL FACILITATOR, escrito acá porque es lo que la
-// Fase 10 liquida en lote y un lote que no se arma con estos campos exactos se
-// rechaza del otro lado sin decir por qué.
+// THE PROTOCOL BETWEEN THIS NODE AND THE FACILITATOR, written here because
+// it's what Phase 10 settles in batches, and a batch not built with these
+// exact fields gets rejected on the other end without saying why.
 //
-// El transporte lo pone `HTTPFacilitatorClient` de `@x402/core/http`, que envía
-// POST JSON a `<url>/verify` y `<url>/settle` y GET a `<url>/supported`. Lo que
-// viaja en cada uno, por nombre de campo (el contrato vinculante es el schema
-// del paquete instalado, no el spec público, que no fija los campos de
-// respuesta):
+// The transport is provided by `HTTPFacilitatorClient` from
+// `@x402/core/http`, which sends POST JSON to `<url>/verify` and
+// `<url>/settle`, and GET to `<url>/supported`. What travels in each one, by
+// field name (the binding contract is the installed package's schema, not
+// the public spec, which doesn't fix the response fields):
 //
 //   POST /verify   ->  { paymentPayload, paymentRequirements }
 //   POST /settle   ->  { paymentPayload, paymentRequirements }
 //
 //     paymentPayload      = { x402Version, scheme: 'exact', network,
 //                             payload: { authorization, signature } }
-//     paymentRequirements = la entrada de `accepts[]` TAL CUAL se ofreció en el
+//     paymentRequirements = the `accepts[]` entry EXACTLY as offered in the
 //                           402 (`entradaAccepts`): network, amount, asset,
 //                           payTo, maxTimeoutSeconds, extra:{ name, version }.
-//                           Recalcularla de este lado es liquidar contra otros
-//                           números que los que el cliente firmó.
+//                           Recomputing it on this side would mean settling
+//                           against different numbers than the ones the
+//                           client signed.
 //
 //   /verify  <-  { isValid: boolean, invalidReason?, invalidMessage? }
 //   /settle  <-  { success: boolean, transaction: string, network: string,
 //                  payer: string, errorReason?, errorMessage? }
-//                `transaction` y `network` vienen como string aunque falle:
-//                el schema los exige y sin ellos el cliente descarta la
-//                respuesta entera (ver 0-quinquies, revisión del Bloque 0).
+//                `transaction` and `network` come as strings even on
+//                failure: the schema requires them and without them the
+//                client discards the entire response (see 0-quinquies,
+//                Block 0 review).
 //
-// Esta es la unidad que la Fase 10 difiere: `liquidarLote` de `qvac/lote.mjs`
-// llama a `liquidar()` una vez por recibo acumulado, con el mismo par
-// (paymentPayload, paymentRequirements) que se hubiera mandado en la Fase 9 —
-// settlement diferido, no un mecanismo nuevo.
+// This is the unit Phase 10 defers: `liquidarLote` in `qvac/lote.mjs` calls
+// `liquidar()` once per accumulated receipt, with the same
+// (paymentPayload, paymentRequirements) pair that would have been sent in
+// Phase 9 — deferred settlement, not a new mechanism.
 export const PROTOCOLO_FACILITATOR = Object.freeze({
   endpoints: Object.freeze({ verify: '/verify', settle: '/settle', supported: '/supported' }),
-  // Lo que este nodo MANDA en /verify y /settle.
+  // What this node SENDS on /verify and /settle.
   envia: Object.freeze(['paymentPayload', 'paymentRequirements']),
   paymentPayload: Object.freeze(['x402Version', 'scheme', 'network', 'payload']),
   paymentPayloadPayload: Object.freeze(['authorization', 'signature']),
-  // Lo que este nodo LEE de /settle (SettleResponse de x402).
+  // What this node READS from /settle (x402's SettleResponse).
   settleResponse: Object.freeze(['success', 'transaction', 'network', 'payer']),
   settleResponseError: Object.freeze(['errorReason', 'errorMessage']),
-  // Lo que este nodo LEE de /verify (VerifyResponse de x402).
+  // What this node READS from /verify (x402's VerifyResponse).
   verifyResponse: Object.freeze(['isValid', 'invalidReason', 'invalidMessage'])
 })
 
-// D14 — el facilitator. La decisión es el HOSTED de Semantic hasta la Fase 10:
-// el self-hosted está en beta, necesita una wallet adicional con gas nativo, y
-// agrega un componente que no controlamos al camino crítico de la primera demo
-// que cobra de verdad.
+// D14 — the facilitator. The decision is Semantic's HOSTED one until Phase
+// 10: self-hosted is in beta, needs an additional wallet with native gas, and
+// adds a component we don't control to the critical path of the first demo
+// that charges for real.
 //
-// Y lo que hay que decir en voz alta, que también es de D14: la documentación de
-// WDK aclara que Tether *"does not endorse, operate, or assume legal or
-// financial responsibility for any third-party facilitator"*. Va acá y en el
-// README, no escondido.
+// And what needs to be said out loud, also from D14: WDK's documentation
+// makes clear that Tether *"does not endorse, operate, or assume legal or
+// financial responsibility for any third-party facilitator"*. That goes here
+// and in the README, not hidden away.
 export const FACILITATOR_DEFAULT = 'https://x402.semanticpay.io'
 
-// Se puede apuntar a otro -- un self-hosted, o el falso de los tests -- sin
-// tocar código.
+// Can be pointed at another one — a self-hosted one, or the tests' fake one —
+// without touching code.
 export const VAR_FACILITATOR = 'PYRUS_X402_FACILITATOR'
 
 export function facilitatorUrl() {
   return env[VAR_FACILITATOR] || FACILITATOR_DEFAULT
 }
 
-// Liquida un pago ya verificado. Devuelve el `SettleResponse` de x402:
+// Settles an already-verified payment. Returns x402's `SettleResponse`:
 // `{ success, transaction, network, payer, errorReason?, errorMessage? }`.
 //
-// Esto SÍ toca la cadena, y por eso va DESPUÉS de servir (D12). El precio de esa
-// decisión hay que decirlo: si la liquidación falla, el cliente ya recibió sus
-// tokens. Es deliberado —la alternativa es poner una transacción on-chain
-// delante del TTFT— y es lo que la Fase 10 arregla de verdad, acumulando
-// recibos en vez de liquidar de a uno.
+// This DOES touch the chain, which is why it happens AFTER serving (D12). The
+// cost of that decision has to be stated: if settlement fails, the client has
+// already received their tokens. It's deliberate — the alternative is putting
+// an on-chain transaction in front of TTFT — and it's what Phase 10 actually
+// fixes, by accumulating receipts instead of settling one at a time.
 //
-// No tira nunca: una liquidación que falla no puede llevarse puesta una
-// respuesta que ya salió bien. Devuelve `success: false` con el motivo.
+// Never throws: a settlement that fails can't take down a response that
+// already went out fine. Returns `success: false` with the reason.
 export async function liquidar({ pago, requisito }) {
   try {
     const { HTTPFacilitatorClient } = await import('@x402/core/http')
@@ -503,7 +525,7 @@ export async function liquidar({ pago, requisito }) {
     return await cliente.settle(payload, requisito)
   } catch (err) {
     const message = (err && err.message) || String(err)
-    console.error(`[x402] la liquidacion fallo: ${message}`)
+    console.error(`[x402] settlement failed: ${message}`)
     return {
       success: false,
       errorReason: 'settlement_failed',
@@ -515,7 +537,7 @@ export async function liquidar({ pago, requisito }) {
   }
 }
 
-// El `X-PAYMENT-RESPONSE`, con el formato que define x402 y no uno nuestro.
+// The `X-PAYMENT-RESPONSE`, in the format x402 defines, not one of ours.
 export async function cabeceraDeRecibo(recibo) {
   const { encodePaymentResponseHeader } = await import('@x402/core/http')
   return encodePaymentResponseHeader(recibo)

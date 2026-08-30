@@ -1,20 +1,21 @@
-// Registro del marketplace: la vista CALIENTE, en memoria.
+// Marketplace registry: the HOT view, in memory.
 //
-// Mezcla UN nodo real (infiere de verdad via engine.mjs) con nodos mock
-// (responden texto enlatado, tokenizado, para parecer streaming real) y con
-// los pares P2P verificados.
+// Mixes ONE real node (actually infers via engine.mjs) with mock nodes
+// (answer with canned, tokenized text, to look like real streaming) and with
+// verified P2P peers.
 //
-// PERSISTENCIA. Este Map sigue siendo la unica fuente para el ruteo, y sigue
-// arrancando vacio: lo que un candidato necesita es un socket vivo, y eso no
-// se persiste. Lo que SI se persiste es la historia -- quien existe, que
-// anuncio, como se porto -- y eso vive en el Hyperbee de directory.mjs. Se
-// engancha con `attachDirectory()`; sin el, este modulo se comporta
-// exactamente como antes.
+// PERSISTENCE. This Map is still the only source for routing, and still
+// starts empty: what a candidate needs is a live socket, and that doesn't
+// persist. What DOES persist is the history -- who exists, what they
+// announced, how they behaved -- and that lives in directory.mjs's
+// Hyperbee. Hooked up with `attachDirectory()`; without it, this module
+// behaves exactly like before.
 //
-// La regla que ordena las dos capas: el bee no puede crear candidatos. Una
-// fila que salio del directorio entra como 'known' y con `status: 'offline'`,
-// y `findAllByModelId` filtra por online -- asi D3 (el candidato muere con el
-// socket) no tiene excepciones ni siquiera por accidente.
+// The rule that governs the two layers: the bee can't create candidates. A
+// row that came from the directory enters as 'known' with
+// `status: 'offline'`, and `findAllByModelId` filters by online -- that way
+// D3 (a candidate dies with its socket) has no exceptions, not even by
+// accident.
 
 const nodes = new Map()
 const routingLog = []
@@ -22,8 +23,8 @@ const MAX_LOG = 30
 
 let fluctuationTimer = null
 
-// El Hyperbee, si hay. Escribir es fire-and-forget: `directory._write` encola
-// y traga los errores, para que un disco lento no frene el handler del swarm.
+// The Hyperbee, if there is one. Writing is fire-and-forget: `directory._write`
+// queues and swallows errors, so a slow disk doesn't stall the swarm handler.
 let directory = null
 
 export function attachDirectory(dir) {
@@ -34,10 +35,10 @@ export function getDirectory() {
   return directory
 }
 
-// Trae del directorio los pares que este nodo conocio ALGUNA VEZ y los deja en
-// la grilla como offline. Es lo que hace que el panel muestre el marketplace
-// entero al arrancar en vez de una tabla vacia esperando a que alguien se
-// conecte.
+// Pulls from the directory the peers this node has EVER known and leaves
+// them in the grid as offline. This is what makes the panel show the whole
+// marketplace on startup instead of an empty table waiting for someone to
+// connect.
 export async function hydrateFromDirectory() {
   if (!directory) return 0
 
@@ -70,7 +71,7 @@ function makeNode({
     operator,
     maxConcurrentRequests,
     activeRequests: 0,
-    status: 'online' // 'online' | 'offline' (admin lo tira)
+    status: 'online' // 'online' | 'offline' (kicked by admin)
   }
 }
 
@@ -86,7 +87,7 @@ export function seed() {
       displayName: 'Llama 3.2 1B Instruct',
       tags: ['general', 'chat'],
       pricing: '0.002 QVAC / 1K tok',
-      operator: 'Nodo local (este equipo)',
+      operator: 'Local node (this machine)',
       maxConcurrentRequests: 3
     })
   )
@@ -95,8 +96,8 @@ export function seed() {
       id: 'mock-facturas',
       kind: 'mock',
       modelId: 'facturas-ar',
-      displayName: 'Facturas AR',
-      tags: ['facturas', 'contable', 'ar'],
+      displayName: 'AR Invoices',
+      tags: ['invoices', 'accounting', 'ar'],
       pricing: '0.001 QVAC / doc',
       operator: 'FiscalNode SRL',
       maxConcurrentRequests: 6
@@ -107,9 +108,9 @@ export function seed() {
       id: 'mock-arquitectura',
       kind: 'mock',
       modelId: 'arquitectura-planos',
-      displayName: 'Lectura de planos',
-      tags: ['arquitectura', 'planos'],
-      pricing: '0.004 QVAC / plano',
+      displayName: 'Blueprint reading',
+      tags: ['architecture', 'blueprints'],
+      pricing: '0.004 QVAC / blueprint',
       operator: 'ArqNode Rosario',
       maxConcurrentRequests: 4
     })
@@ -119,8 +120,8 @@ export function seed() {
       id: 'mock-traductor',
       kind: 'mock',
       modelId: 'traductor-en-es',
-      displayName: 'Traductor EN-ES',
-      tags: ['traduccion', 'nmt'],
+      displayName: 'EN-ES Translator',
+      tags: ['translation', 'nmt'],
       pricing: '0.0005 QVAC / 1K tok',
       operator: 'LinguaNode',
       maxConcurrentRequests: 8
@@ -266,7 +267,7 @@ const UNIDAD_ES = {
 }
 
 function formatPricing(pricing) {
-  if (!Array.isArray(pricing) || pricing.length === 0) return 'sin precio declarado'
+  if (!Array.isArray(pricing) || pricing.length === 0) return 'no price declared'
   return pricing
     .map((p) => {
       const clave = String(p.unit || '')
@@ -322,18 +323,19 @@ function peerNodeId(peerKey, modelId) {
 export function upsertFromManifest(peerKey, manifest, { online = true } = {}) {
   const operator = (manifest.metadata && manifest.metadata.operator) || 'Nodo remoto'
   const tags = (manifest.metadata && manifest.metadata.tags) || []
-  // FASE 9 / D10 — a donde se le paga a este par.
+  // PHASE 9 / D10 — where this peer gets paid.
   //
-  // Sale del manifiesto que ACABA de verificar la firma (swarm.mjs), y esa es
-  // toda la garantia que hace posible el `payTo` directo: la firma Ed25519 ata
-  // la clave de red del par -- la del socket -- con la direccion de cobro que
-  // declara. Sin eso, cualquiera podria reenviar el manifiesto de otro con su
-  // propia wallet adentro y cobrar el trabajo ajeno.
+  // It comes from the manifest whose signature JUST got verified (swarm.mjs),
+  // and that's the entire guarantee that makes a direct `payTo` possible: the
+  // Ed25519 signature ties the peer's network key — the socket's — to the
+  // payout address it declares. Without that, anyone could relay someone
+  // else's manifest with their own wallet inside and get paid for someone
+  // else's work.
   //
-  // El bloque mock trae `_mock` y la direccion cero: eso NO es una direccion de
-  // cobro, es un par que no declara ninguna, y se guarda como null. Un par sin
-  // wallet no se puede cobrar, y confundirlo con uno que sí la tiene mandaria
-  // la plata a un pozo.
+  // The mock block carries `_mock` and the zero address: that is NOT a payout
+  // address, it's a peer declaring none, and it's stored as null. A peer with
+  // no wallet can't be charged, and confusing it with one that does have one
+  // would send the money into a hole.
   const economic = economicVerificado(manifest)
 
   // Se borran las filas viejas de ESTE par antes de insertar: si reanuncia con
@@ -361,30 +363,32 @@ export function upsertFromManifest(peerKey, manifest, { online = true } = {}) {
   }
 }
 
-// El nodo local como proveedor. Se registra cuando este proceso puede servir
-// inferencia de verdad (`serve --swarm`), con --demo o sin él: no es un mock,
-// es esta máquina. Sin esta fila, `localLoad()` devolvía 0/0 y el nodo
-// anunciaba capacidad CERO por `node:status` mientras estaba sirviendo.
+// The local node as a provider. Registered when this process can serve real
+// inference (`serve --swarm`), with or without --demo: it's not a mock, it's
+// this machine. Without this row, `localLoad()` used to return 0/0 and the
+// node announced ZERO capacity via `node:status` while it was actively
+// serving.
 export function registerLocal({
   modelId,
   displayName,
   operator,
-  pricing = 'sin precio declarado',
+  pricing = 'no price declared',
   tags = [],
   maxConcurrentRequests = 3
 }) {
-  // Con --demo, seed() ya dejo una fila 'real' para este mismo modelo. Sin
-  // esto quedaban DOS: la grilla mostraba el mismo nodo local dos veces, y
-  // -peor- `localLoad()` sumaba las dos capacidades y el nodo anunciaba 6
-  // slots cuando tenia 3. Anunciarle a la red el doble de capacidad de la que
-  // existe es la clase de mentira que el manifiesto firmado esta para evitar.
+  // With --demo, seed() already left a 'real' row for this same model.
+  // Without this there would be TWO: the grid showed the same local node
+  // twice, and — worse — `localLoad()` summed both capacities and the node
+  // announced 6 slots when it had 3. Announcing double the actual capacity to
+  // the network is exactly the kind of lie the signed manifest exists to
+  // prevent.
   //
-  // Se borra CUALQUIER fila local anterior, no solo la del mismo modelId:
-  // solo hay UN nodo local por proceso, y cambiar de modelo desde el panel
-  // Proveedor (POST /v1/swarm/manifest) vuelve a llamar esto con un modelId
-  // distinto. Filtrar por modelId dejaba la fila vieja huerfana -el store
-  // mostraba dos nodos locales con dos modelos, cuando el proceso solo puede
-  // servir el nuevo.
+  // ANY previous local row gets deleted, not just the one for the same
+  // modelId: there's only ONE local node per process, and switching model
+  // from the Provider panel (POST /v1/swarm/manifest) calls this again with a
+  // different modelId. Filtering by modelId left the old row orphaned — the
+  // store showed two local nodes with two models, when the process can only
+  // serve the new one.
   for (const [existingId, node] of nodes) {
     if (node.kind === 'real' && existingId.startsWith('local:')) nodes.delete(existingId)
   }
@@ -397,7 +401,7 @@ export function registerLocal({
     displayName: displayName || modelId,
     tags,
     pricing,
-    operator: operator || 'Nodo local (este equipo)',
+    operator: operator || 'Local node (this machine)',
     maxConcurrentRequests,
     activeRequests: 0,
     status: 'online'
@@ -405,8 +409,8 @@ export function registerLocal({
   return id
 }
 
-// Con qué fila del registro se contabiliza la carga de un request que este
-// nodo sirve para un par remoto.
+// Which registry row counts the load of a request this node serves for a
+// remote peer.
 export function localNodeIdFor(modelId) {
   for (const node of nodes.values()) {
     if (node.kind === 'real' && node.modelId === modelId) return node.id
@@ -415,23 +419,25 @@ export function localNodeIdFor(modelId) {
 }
 
 // ---------------------------------------------------------------------------
-// El asistente externo (Fase 8.5) como UNA FILA MAS del registro.
+// The external assistant (Phase 8.5) as ONE MORE ROW in the registry.
 //
-// Es todo el argumento de la fase: un upstream no necesita camino propio.
-// Entra aca con kind 'upstream' y, sin escribir una linea mas, /v1/models lo
-// lista, /v1/nodes lo dibuja en el panel, findAllByModelId lo considera,
-// pickCandidate lo puntua y los headers de procedencia lo declaran.
+// That's the whole argument of the phase: an upstream doesn't need its own
+// separate path. It enters here with kind 'upstream' and, without writing
+// another line, /v1/models lists it, /v1/nodes draws it in the panel,
+// findAllByModelId considers it, pickCandidate scores it, and the provenance
+// headers declare it.
 //
-// `status` arranca donde diga el llamador: un upstream configurado pero SIN
-// credencial en el entorno se registra igual y se deja offline. Se ve en el
-// panel -- con lo que le falta -- en vez de no existir, que es la diferencia
-// entre "configuraste mal" y "no configuraste nada".
+// `status` starts wherever the caller says: an upstream that's configured but
+// has NO credential in the environment still gets registered and is left
+// offline. It shows up in the panel — with what it's missing — instead of not
+// existing at all, which is the difference between "you misconfigured it" and
+// "you didn't configure anything."
 export function registerUpstream({
   id,
   modelId,
   displayName,
   operator,
-  pricing = 'sin precio declarado',
+  pricing = 'no price declared',
   tags = [],
   maxConcurrentRequests = 4,
   status = 'online',
@@ -532,33 +538,33 @@ export function localLoad() {
   return { activeRequests, maxConcurrentRequests }
 }
 
-// Todos los candidatos para un modelo, no solo el primero. El gateway lo usa
-// para poder LOGUEAR cuantos habia: con pares reales puede haber dos nodos
-// sirviendo el mismo modelId, y el log no puede seguir diciendo "unico
-// candidato" cuando habia tres.
+// All candidates for a model, not just the first one. The gateway uses this
+// to be able to LOG how many there were: with real peers there can be two
+// nodes serving the same modelId, and the log can't keep saying "only
+// candidate" when there were three.
 export function findAllByModelId(modelId) {
-  // El filtro por `online` es tambien la barrera del directorio: las filas
-  // 'known' que salieron del Hyperbee estan siempre offline, asi que no pueden
-  // convertirse en candidatas por mas que anuncien el modelo. Un manifiesto
-  // replicado prueba que alguien dijo algo, no que ese alguien este vivo
-  // (ver la nota larga de directory.mjs).
+  // The `online` filter is also the directory's barrier: 'known' rows that
+  // came out of the Hyperbee are always offline, so they can't become
+  // candidates no matter how much they advertise the model. A replicated
+  // manifest proves someone said something, not that that someone is alive
+  // (see the long note in directory.mjs).
   const candidatos = [...nodes.values()].filter(
     (n) => n.modelId === modelId && n.status === 'online'
   )
 
-  // Orden DELIBERADO, no por carga (elegir por carga es D6 y sigue sin
-  // implementar): primero los pares P2P, después el nodo local, después los
-  // mocks.
+  // DELIBERATE order, not by load (choosing by load is D6 and still isn't
+  // implemented): P2P peers first, then the local node, then mocks.
   //
-  // Los pares van primero por una razón de demo, no de performance: con
-  // `--demo --swarm` hay un llama1b local Y uno remoto, y si gana el local el
-  // prompt del escenario lo contesta la misma máquina — el camino P2P queda
-  // sin ejercitar justo cuando se lo está mostrando. El log dice cuántos
-  // candidatos hubo, así que la preferencia queda visible y no escondida.
-  // Mismo orden que RANK_KIND de routing.mjs. Estaban divergiendo: aca no
-  // figuraba 'upstream', asi que caia en el `?? 3` -- detras de los mocks-. Un
-  // externo que cuesta dolares y contesta de verdad no puede ordenarse peor
-  // que el teatro del modo --demo.
+  // Peers go first for a demo reason, not a performance one: with
+  // `--demo --swarm` there's a local llama1b AND a remote one, and if the
+  // local one wins, the scenario's prompt gets answered by the same
+  // machine — the P2P path goes unexercised right when it's being shown off.
+  // The log says how many candidates there were, so the preference stays
+  // visible instead of hidden.
+  // Same order as RANK_KIND in routing.mjs. They had drifted apart: this one
+  // didn't list 'upstream', so it fell into the `?? 3` bucket — behind the
+  // mocks. An external provider that costs real dollars and answers for real
+  // can't be ranked worse than --demo mode's theater.
   const rank = { peer: 0, real: 1, upstream: 2, mock: 3 }
   return candidatos.sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9))
 }

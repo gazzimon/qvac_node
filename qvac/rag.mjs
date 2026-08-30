@@ -1,39 +1,42 @@
-// El indice vectorial del nodo. Junta el embebedor (embeddings.mjs) con el
-// corpus (rag-corpus.mjs) y los guarda en un hypercore.
+// The node's vector index. Combines the embedder (embeddings.mjs) with the
+// corpus (rag-corpus.mjs) and stores them in a hypercore.
 //
 // -----------------------------------------------------------------------------
-// POR QUE @qvac/rag Y NO OTRA COSA
+// WHY @qvac/rag AND NOT SOMETHING ELSE
 //
-// Ya estaba instalado y sin estrenar: viene como dependencia de
-// @qvac/bare-sdk. Trae RAG + HyperDBAdapter, que guarda el indice IVF sobre un
-// Corestore -- el mismo que swarm.mjs ya replica por cada socket.
+// It was already installed and unused: it comes as a dependency of
+// @qvac/bare-sdk. It brings RAG + HyperDBAdapter, which stores the IVF index
+// on a Corestore -- the same one swarm.mjs already replicates per socket.
 //
-// Eso es lo que hace barata la parte que importa: el indice no es un archivo
-// local que hay que exportar y mandar, es un hypercore. Otro nodo lo abre
-// read-only con su clave y busca sin haber ingestado nada, por el mismo stream
-// multiplexado que ya lleva el directorio y los drives.
-//
-// -----------------------------------------------------------------------------
-// UN SOLO CORESTORE POR PROCESO
-//
-// corestore.mjs toma un lock de RocksDB: dos Corestore sobre el mismo path y
-// el segundo no abre. Este modulo NUNCA abre uno propio -- recibe el que ya
-// existe. Quien no tiene uno (el CLI con el nodo apagado) lo abre con
-// `openStore` y se lo pasa, y el CLI con el nodo PRENDIDO ni lo intenta: le
-// habla por HTTP al gateway, que es el que tiene el lock.
+// That's what makes the part that matters cheap: the index isn't a local
+// file you have to export and send, it's a hypercore. Another node opens it
+// read-only with its key and searches without having ingested anything,
+// over the same multiplexed stream that already carries the directory and
+// the drives.
 //
 // -----------------------------------------------------------------------------
-// EL MODELO DE EMBEDDING ES PARTE DEL INDICE
+// ONE SINGLE CORESTORE PER PROCESS
 //
-// Dos modelos distintos producen vectores que no se pueden comparar: la
-// busqueda no falla, devuelve cualquier cosa con un score de aspecto normal.
-// Por eso el modelo se guarda con el indice y buscar con otro se RECHAZA en
-// vez de degradarse en silencio.
+// corestore.mjs takes a RocksDB lock: two Corestores on the same path and
+// the second one doesn't open. This module NEVER opens its own -- it
+// receives the one that already exists. Whoever doesn't have one (the CLI
+// with the node off) opens it with `openStore` and passes it in, and the CLI
+// with the node ON doesn't even try: it talks HTTP to the gateway, which is
+// the one holding the lock.
 //
-// Y ojo con los scores: query y passage se embeben distinto a proposito (ver
-// embeddings.mjs), asi que los cosenos absolutos son bajos -- 0.18 a 0.52 en
-// las pruebas -- aunque el orden sea correcto. Sirve el ranking, NO un umbral
-// fijo. Un `if (score > 0.7)` copiado de otro proyecto deja el indice mudo.
+// -----------------------------------------------------------------------------
+// THE EMBEDDING MODEL IS PART OF THE INDEX
+//
+// Two different models produce vectors that can't be compared: the search
+// doesn't fail, it returns anything with a normal-looking score. That's why
+// the model gets saved with the index and searching with a different one is
+// REJECTED instead of silently degrading.
+//
+// And watch out for the scores: query and passage are embedded differently
+// on purpose (see embeddings.mjs), so the absolute cosines are low -- 0.18
+// to 0.52 in testing -- even when the ordering is correct. What matters is
+// the ranking, NOT a fixed threshold. An `if (score > 0.7)` copied from
+// another project leaves the index mute.
 // -----------------------------------------------------------------------------
 
 import { crearEmbedderHttp, verificar } from './embeddings.mjs'
@@ -61,24 +64,24 @@ export function info() {
   }
 }
 
-// Abre el indice sobre un Corestore YA ABIERTO. No abre uno propio: ver la
-// nota de arriba sobre el lock.
+// Opens the index on an ALREADY-OPEN Corestore. Doesn't open its own: see
+// the note above about the lock.
 export async function abrir(corestore, { embedderOpts = {} } = {}) {
   if (rag) return { rag, adapter, meta }
 
   const { RAG, HyperDBAdapter } = await import('@qvac/rag')
 
   embedder = crearEmbedderHttp(embedderOpts)
-  // Se verifica ANTES de tocar el disco: fallar por una credencial vencida a
-  // la mitad de ingestar 700 trozos deja el indice a medio llenar.
+  // Verified BEFORE touching the disk: failing on an expired credential
+  // halfway through ingesting 700 chunks leaves the index half-filled.
   const chequeo = await verificar(embedder)
 
   adapter = new HyperDBAdapter({ store: corestore, dbName: DB_NAME })
 
   rag = new RAG({
-    // La funcion atada a `passage`: es la que usa ingest(). Las consultas van
-    // por otro camino (ver buscar) justamente para no compartir un modo
-    // mutable entre dos operaciones concurrentes.
+    // The function bound to `passage`: it's the one ingest() uses. Queries
+    // go through a different path (see buscar) specifically so as not to
+    // share a mutable mode between two concurrent operations.
     embeddingFunction: (t) => embedder.paraDocumentos(t),
     dbAdapter: adapter
   })
@@ -88,8 +91,8 @@ export async function abrir(corestore, { embedderOpts = {} } = {}) {
   try {
     key = adapter.core && adapter.core.key ? adapter.core.key.toString('hex') : null
   } catch {
-    // Sin clave el indice sigue sirviendo local; lo unico que se pierde es
-    // poder ofrecerselo a un par.
+    // Without a key the index still serves locally; the only thing lost is
+    // being able to offer it to a peer.
   }
 
   meta = { model: chequeo.model, dimension: chequeo.dimension, key }
@@ -104,19 +107,19 @@ export async function cerrar() {
   meta = null
 }
 
-// Ingesta un directorio entero. Devuelve el resumen, incluido lo que NO entro:
-// un archivo descartado por parecer una credencial tiene que decirse, no
-// desaparecer.
+// Ingests an entire directory. Returns the summary, including what did NOT
+// get in: a file discarded for looking like a credential has to be reported,
+// not disappeared.
 export async function ingestar(raiz, { onProgress = null } = {}) {
-  if (!rag) throw new Error('el indice no esta abierto')
+  if (!rag) throw new Error('the index is not open')
 
   const { trozos, archivos, descartados } = corpusDe(raiz)
   if (trozos.length === 0) {
     return { archivos, trozos: 0, guardados: 0, descartados, model: meta.model }
   }
 
-  // Se embebe y se guarda en tandas: una sola llamada con 700 trozos arma un
-  // body enorme y, si falla, no queda nada.
+  // Embedded and saved in batches: a single call with 700 chunks builds a
+  // huge body and, if it fails, nothing is left.
   const TANDA = 32
   let guardados = 0
 
@@ -141,23 +144,24 @@ export async function ingestar(raiz, { onProgress = null } = {}) {
   return { archivos, trozos: trozos.length, guardados, descartados, model: meta.model }
 }
 
-// Busca. NO usa rag.search(): esa embebe la consulta con la misma funcion que
-// los documentos, y este modelo distingue query de passage. Se embebe a mano
-// con el modo correcto y se le pasa el vector al adapter.
+// Searches. Does NOT use rag.search(): that embeds the query with the same
+// function as the documents, and this model distinguishes query from
+// passage. It's embedded by hand with the right mode and the vector is
+// passed to the adapter.
 export async function buscar(consulta, { topK = 5 } = {}) {
-  if (!rag) throw new Error('el indice no esta abierto')
+  if (!rag) throw new Error('the index is not open')
   if (typeof consulta !== 'string' || consulta.trim() === '') {
-    throw new Error('la consulta tiene que ser un texto no vacio')
+    throw new Error('the query must be non-empty text')
   }
 
-  // Si el indice se construyo con otro modelo, los vectores no son
-  // comparables. Se corta con un motivo en vez de devolver ruido con cara de
-  // resultado.
+  // If the index was built with a different model, the vectors aren't
+  // comparable. It bails out with a reason instead of returning noise that
+  // looks like a result.
   const guardado = await adapter.getConfig().catch(() => null)
   if (guardado && guardado.embeddingModelId && guardado.embeddingModelId !== meta.model) {
     throw new Error(
-      'el indice se construyo con "' + guardado.embeddingModelId + '" y ahora se busca con "' +
-      meta.model + '": hay que reindexar antes de poder buscar'
+      'the index was built with "' + guardado.embeddingModelId + '" and is now being searched with "' +
+      meta.model + '": you need to reindex before you can search'
     )
   }
 
@@ -165,9 +169,9 @@ export async function buscar(consulta, { topK = 5 } = {}) {
   const crudos = await adapter.search(consulta, vector, { topK })
 
   return crudos.map((r) => {
-    // La cabecera `// archivo:desde-hasta` que puso el chunker: se devuelve
-    // parseada para que el que consume no tenga que volver a leerla, pero se
-    // deja en el contenido porque es parte de lo que se embebio.
+    // The `// file:from-to` header the chunker put there: it's returned
+    // parsed so the consumer doesn't have to read it again, but it's left in
+    // the content because it's part of what got embedded.
     const m = /^\/\/ (\S+):(\d+-\d+)\n/.exec(r.content || '')
     return {
       id: r.id,

@@ -327,11 +327,11 @@
   <div class="topbar-inner">
     <div class="brand">QVAC<span>&middot;</span>NODE &mdash; RUNBOOK / PEARS</div>
     <nav>
-      <a href="#invariantes">Invariantes</a>
-      <a href="#cambios">Qu&eacute; se retira</a>
-      <a href="#critico">Camino cr&iacute;tico</a>
-      <a href="#fases">Fases</a>
-      <a href="#recorte">Recorte</a>
+      <a href="#invariantes">Invariants</a>
+      <a href="#cambios">What's cut</a>
+      <a href="#critico">Critical path</a>
+      <a href="#fases">Phases</a>
+      <a href="#recorte">Cuts</a>
       <a href="#checklist">Checklist</a>
       <a href="#stack">Stack</a>
     </nav>
@@ -342,178 +342,178 @@
 
   <header class="hero">
     <div class="eyebrow">&#127824; Pears Track &middot; Tether &middot; 24h</div>
-    <h1>Runbook de implementaci&oacute;n <span class="mono">bajo reloj</span></h1>
+    <h1>Implementation runbook <span class="mono">against the clock</span></h1>
     <p class="sub">
-      QVAC-Node reorientado al <b>Pears Track</b>: un CLI instalable con
-      <span class="mono">pear install pear://&lt;key&gt;</span>, con actualizaciones OTA P2P, que al instalarse
-      <b>entra a una red de inferencia viva</b>. Bare + <span class="mono">@qvac/bare-sdk</span> +
+      QVAC-Node reoriented to the <b>Pears Track</b>: an installable CLI with
+      <span class="mono">pear install pear://&lt;key&gt;</span>, with P2P OTA updates, that on install
+      <b>joins a live inference network</b>. Bare + <span class="mono">@qvac/bare-sdk</span> +
       Hyperswarm + <span class="mono">bare-http1</span>.
     </p>
     <div class="meta">
-      <span>Horizonte: <b>24h</b></span>
+      <span>Horizon: <b>24h</b></span>
       <span>Track: <b>&#127824; Pears (Tether)</b></span>
-      <span>Pool: <b>$1.500 USDt</b></span>
-      <span>Juzgado: <b>domingo 13:00 ARG</b></span>
+      <span>Pool: <b>$1,500 USDt</b></span>
+      <span>Judging: <b>Sunday 13:00 ARG</b></span>
     </div>
   </header>
 
   <section id="invariantes">
-    <div class="eyebrow">Principio rector</div>
-    <h2>Lo que se decide una vez y no se vuelve a discutir</h2>
+    <div class="eyebrow">Guiding principle</div>
+    <h2>What gets decided once and isn't revisited</h2>
     <div class="invariants">
       <ol>
         <li>
-          <b><span class="mono">pear install pear://&lt;key&gt;</span> desde una m&aacute;quina limpia es el criterio de juzgado #1,
-          y se prueba en la Fase 0 &mdash; no al final.</b> El jurado instala tu app como lo har&iacute;a un usuario. Es una compuerta
-          binaria: anda o no anda. Si el t&uacute;nel de distribuci&oacute;n no est&aacute; probado a <span class="mono">H+3</span>, no hay submission
-          y hay que decirlo en voz alta, no seguir programando features.
+          <b><span class="mono">pear install pear://&lt;key&gt;</span> from a clean machine is judging criterion #1,
+          and it gets tested in Phase 0 &mdash; not at the end.</b> The jury installs your app the way a user would. It's a
+          binary gate: it works or it doesn't. If the distribution tunnel isn't tested by <span class="mono">H+3</span>, there is no submission,
+          and that has to be said out loud, not papered over by continuing to build features.
         </li>
         <li>
-          <b>El jurado nunca descarga un modelo.</b> El gateway funciona con cero modelo y enruta a los nodos seedeados.
-          <span class="mono">serve</span> usa un modelo &le;1B con descarga <i>opt-in expl&iacute;cita</i>. Wifi de venue m&aacute;s 2,5&nbsp;GB
-          en el momento del juicio es la forma m&aacute;s tonta de perder el track.
+          <b>The jury never downloads a model.</b> The gateway works with zero models and routes to seeded nodes.
+          <span class="mono">serve</span> uses a &le;1B model with <i>explicit opt-in</i> download. Venue wifi plus 2.5&nbsp;GB
+          at judging time is the dumbest way to lose the track.
         </li>
         <li>
-          <b>El install <i>es</i> la demo.</b> Instalar no es el pre&aacute;mbulo de la demo: es la demo. La m&aacute;quina del jurado
-          entra al topic Hyperswarm en vivo y ve tokens en streaming desde nodos reales en menos de 60 segundos.
+          <b>The install <i>is</i> the demo.</b> Installing isn't the preamble to the demo: it is the demo. The jury's machine
+          joins the live Hyperswarm topic and sees streaming tokens from real nodes in under 60 seconds.
         </li>
         <li>
-          <b>El process shape se elige con criterio y se justifica por escrito en el README.</b>
-          Es criterio de juzgado expl&iacute;cito, no una nota de implementaci&oacute;n. Variante <span class="mono">main</span>
-          (updater en worker thread): el OTA no puede bloquear el streaming de tokens.
+          <b>The process shape is chosen deliberately and justified in writing in the README.</b>
+          It's an explicit judging criterion, not an implementation footnote. <span class="mono">main</span> variant
+          (updater on a worker thread): the OTA update can't block token streaming.
         </li>
       </ol>
     </div>
   </section>
 
   <section id="cambios">
-    <div class="eyebrow">Diferencias con el runbook anterior</div>
-    <h2>Qu&eacute; se retira, y por qu&eacute;</h2>
+    <div class="eyebrow">Differences from the previous runbook</div>
+    <h2>What's cut, and why</h2>
     <p class="prose" style="color:var(--ink-2);font-size:0.94rem;">
-      El plan anterior optimizaba para un pitch de arquitectura P2P a 48h. El Pears Track punt&uacute;a otra cosa:
-      install limpio, OTA funcionando, process shape adecuado y utilidad pr&aacute;ctica. Varias piezas que eran
-      &ldquo;intocables&rdquo; dejan de pagar, y varias que eran &ldquo;detalle de packaging&rdquo; pasan a ser el centro.
+      The previous plan optimized for a 48h P2P architecture pitch. The Pears Track scores something else:
+      clean install, working OTA, the right process shape, and practical utility. Several pieces that were
+      &ldquo;untouchable&rdquo; stop paying off, and several that were &ldquo;packaging detail&rdquo; become the center of the plan.
     </p>
     <table class="cutlist">
       <thead>
-        <tr><th>Pieza</th><th>Antes</th><th>Ahora</th></tr>
+        <tr><th>Piece</th><th>Before</th><th>Now</th></tr>
       </thead>
       <tbody>
         <tr>
-          <td class="cut-desc"><b>Gateway ciego / cifrado E2E</b></td>
-          <td class="cut-desc">Invariante #1, &ldquo;desde el primer commit&rdquo;</td>
-          <td class="cut-desc">Sale del plan. Pears no lo punt&uacute;a. <b>Se conserva la disciplina de interfaz</b>
-            (el gateway relaya el cuerpo, no lo inspecciona) porque es gratis, pero no se implementa criptograf&iacute;a.</td>
+          <td class="cut-desc"><b>Blind gateway / E2E encryption</b></td>
+          <td class="cut-desc">Invariant #1, &ldquo;from the first commit&rdquo;</td>
+          <td class="cut-desc">Dropped from the plan. Pears doesn't score it. <b>The interface discipline stays</b>
+            (the gateway relays the body, doesn't inspect it) because it's free, but no cryptography gets implemented.</td>
         </tr>
         <tr>
-          <td class="cut-desc"><b>WDK / recibos / liquidaci&oacute;n</b></td>
-          <td class="cut-desc">Fase 4 completa</td>
-          <td class="cut-desc">Sale entero. Cero puntos en este track, y su compatibilidad con Bare no est&aacute; verificada.</td>
+          <td class="cut-desc"><b>WDK / receipts / settlement</b></td>
+          <td class="cut-desc">Full Phase 4</td>
+          <td class="cut-desc">Dropped entirely. Zero points in this track, and its Bare compatibility isn't verified.</td>
         </tr>
         <tr>
-          <td class="cut-desc"><b>Distribuci&oacute;n por npm</b></td>
-          <td class="cut-desc">&ldquo;Parte del producto&rdquo;</td>
-          <td class="cut-desc">Se invierte: el canal es <span class="mono">pear install</span>. La red distribuye su propio cliente por la red.</td>
+          <td class="cut-desc"><b>Distribution via npm</b></td>
+          <td class="cut-desc">&ldquo;Part of the product&rdquo;</td>
+          <td class="cut-desc">Inverted: the channel is <span class="mono">pear install</span>. The network distributes its own client over the network.</td>
         </tr>
         <tr>
-          <td class="cut-desc"><b>Runtime Node.js</b></td>
-          <td class="cut-desc">&ldquo;En Fase 0/1 NO usamos Bare&rdquo;</td>
-          <td class="cut-desc">Revertido. QVAC soporta Bare &ge;1.24 <b>oficialmente</b>, con <span class="mono">@qvac/bare-sdk</span>
-            dedicado. La premisa que justificaba evitarlo era falsa.</td>
+          <td class="cut-desc"><b>Node.js runtime</b></td>
+          <td class="cut-desc">&ldquo;In Phase 0/1 we do NOT use Bare&rdquo;</td>
+          <td class="cut-desc">Reversed. QVAC officially supports Bare &ge;1.24, with a dedicated
+            <span class="mono">@qvac/bare-sdk</span>. The premise that justified avoiding it was false.</td>
         </tr>
         <tr>
           <td class="cut-desc"><b>Fastify</b></td>
-          <td class="cut-desc">Gateway HTTP</td>
-          <td class="cut-desc">No corre bajo Bare. Va <span class="mono">bare-http1</span> con SSE por chunked writes manuales.
-            Es el &uacute;nico bloque no trivial de la migraci&oacute;n.</td>
+          <td class="cut-desc">HTTP gateway</td>
+          <td class="cut-desc">Doesn't run under Bare. Goes with <span class="mono">bare-http1</span> and SSE via manual chunked writes.
+            It's the only non-trivial block in the migration.</td>
         </tr>
         <tr>
-          <td class="cut-desc"><b>Generaci&oacute;n de JSON Schema</b></td>
-          <td class="cut-desc"><span class="mono">schema:gen</span> + test de comparaci&oacute;n</td>
-          <td class="cut-desc">Se recorta. Era un lujo de presupuesto de 48h. Queda el zod y firma/verificaci&oacute;n.</td>
+          <td class="cut-desc"><b>JSON Schema generation</b></td>
+          <td class="cut-desc"><span class="mono">schema:gen</span> + comparison test</td>
+          <td class="cut-desc">Trimmed. It was a luxury of the 48h budget. Zod plus signing/verification stay.</td>
         </tr>
       </tbody>
     </table>
   </section>
 
   <section id="critico">
-    <div class="eyebrow">Dependencias</div>
-    <h2>Camino cr&iacute;tico</h2>
+    <div class="eyebrow">Dependencies</div>
+    <h2>Critical path</h2>
     <p class="prose" style="color:var(--ink-2);font-size:0.94rem;">
-      Tres tareas bloquean todo lo dem&aacute;s, y <b>la primera no es de producto</b>. El orden invierte el instinto
-      natural: se prueba primero c&oacute;mo se entrega, despu&eacute;s qu&eacute; se entrega. Un binario trivial que instala y
-      se actualiza vale m&aacute;s, a esta altura del reloj, que un nodo perfecto que nadie puede instalar.
+      Three tasks block everything else, and <b>the first one isn't product work</b>. The order inverts the natural
+      instinct: test how it's delivered first, then what's delivered. A trivial binary that installs and
+      updates is worth more, at this point in the clock, than a perfect node nobody can install.
     </p>
     <div class="tracks-grid">
       <div class="track-card">
-        <div class="tag payments">1 &middot; T&uacute;nel de distribuci&oacute;n</div>
+        <div class="tag payments">1 &middot; Distribution tunnel</div>
         <p><span class="mono">pear touch</span> &rarr; <span class="mono">stage</span> &rarr; <span class="mono">seed</span> &rarr;
-        <span class="mono">install</span> desde una segunda m&aacute;quina. Bloquea absolutamente todo.</p>
+        <span class="mono">install</span> from a second machine. Blocks absolutely everything.</p>
       </div>
       <div class="track-card">
-        <div class="tag node">2 &middot; QVAC bajo Bare</div>
-        <p><span class="mono">@qvac/bare-sdk</span> + addon <span class="mono">@qvac/llm-llamacpp</span> registrado
-        expl&iacute;citamente. En Bare nada se auto-registra.</p>
+        <div class="tag node">2 &middot; QVAC under Bare</div>
+        <p><span class="mono">@qvac/bare-sdk</span> + <span class="mono">@qvac/llm-llamacpp</span> addon registered
+        explicitly. In Bare, nothing self-registers.</p>
       </div>
       <div class="track-card">
-        <div class="tag gateway">3 &middot; Gateway sin fastify</div>
-        <p><span class="mono">bare-http1</span> con SSE manual. Es la reescritura, no un port.</p>
+        <div class="tag gateway">3 &middot; Gateway without fastify</div>
+        <p><span class="mono">bare-http1</span> with manual SSE. It's a rewrite, not a port.</p>
       </div>
       <div class="track-card">
         <div class="tag ops">Demo / submission</div>
-        <p>Seeder 24/7, ensayo de OTA en vivo, video de respaldo, README con la justificaci&oacute;n del process shape.</p>
+        <p>Seeder running 24/7, live OTA rehearsal, backup video, README with the process shape justification.</p>
       </div>
     </div>
   </section>
 
   <section id="fases">
-    <div class="eyebrow">Ejecuci&oacute;n</div>
-    <h2>Fases con bloques horarios</h2>
+    <div class="eyebrow">Execution</div>
+    <h2>Phases with time blocks</h2>
 
     <div class="phase-spine">
 
       <div class="phase">
         <div class="phase-head">
           <div>
-            <div class="num">FASE 0</div>
-            <h3>El t&uacute;nel de distribuci&oacute;n, primero</h3>
+            <div class="num">PHASE 0</div>
+            <h3>The distribution tunnel, first</h3>
           </div>
           <div class="hours">H+0 &rarr; H+3</div>
         </div>
         <div class="phase-body">
           <p class="phase-obj">
-            Probar el pipeline completo de entrega con una app trivial, <b>antes</b> de escribir una l&iacute;nea de l&oacute;gica de negocio.
-            Todo lo dem&aacute;s del hackathon se apoya en que esto funcione.
+            Test the full delivery pipeline with a trivial app, <b>before</b> writing a single line of business logic.
+            Everything else in the hackathon depends on this working.
           </p>
           <div class="track-tasks">
             <div>
-              <h4>Distribuci&oacute;n</h4>
+              <h4>Distribution</h4>
               <ul>
-                <li>Clonar <span class="mono">hello-pear-bare</span>, <b>variante main</b> (pear-runtime en worker thread).</li>
-                <li><span class="mono">pear touch</span> y pegar el link en el campo <span class="mono">upgrade</span> del
-                  <span class="mono">package.json</span>. Si queda el placeholder, arranca con <span class="mono">INVALID_URL</span>.</li>
-                <li><span class="mono">pear stage &lt;link&gt;</span> y <span class="mono">pear seed &lt;link&gt;</span>.</li>
-                <li><b><span class="mono">pear install pear://&lt;key&gt;</span> desde una segunda m&aacute;quina limpia.</b></li>
+                <li>Clone <span class="mono">hello-pear-bare</span>, <b>main variant</b> (pear-runtime on a worker thread).</li>
+                <li><span class="mono">pear touch</span> and paste the link into the <span class="mono">upgrade</span> field of the
+                  <span class="mono">package.json</span>. If the placeholder is left in, it starts with <span class="mono">INVALID_URL</span>.</li>
+                <li><span class="mono">pear stage &lt;link&gt;</span> and <span class="mono">pear seed &lt;link&gt;</span>.</li>
+                <li><b><span class="mono">pear install pear://&lt;key&gt;</span> from a second, clean machine.</b></li>
               </ul>
             </div>
             <div>
-              <h4>Prueba de OTA</h4>
+              <h4>OTA test</h4>
               <ul>
-                <li>Un bin <span class="mono">qvac-node</span> que solo imprime <span class="mono">--help</span> y una versi&oacute;n.</li>
-                <li>Cambiar el string de versi&oacute;n, re-stagear, y ver la copia <i>ya instalada</i> actualizarse sola.</li>
-                <li>Anotar el flag <span class="mono">--no-updates</span> para desarrollo.</li>
+                <li>A <span class="mono">qvac-node</span> bin that only prints <span class="mono">--help</span> and a version.</li>
+                <li>Change the version string, re-stage, and watch the <i>already installed</i> copy update itself.</li>
+                <li>Note the <span class="mono">--no-updates</span> flag for development.</li>
               </ul>
             </div>
           </div>
           <div class="phase-foot">
             <div class="dod">
               <span class="lbl">Definition of done</span>
-              <p>Una segunda m&aacute;quina instala desde el link y recibe una actualizaci&oacute;n OTA sin intervenci&oacute;n manual.</p>
+              <p>A second machine installs from the link and receives an OTA update with no manual intervention.</p>
             </div>
             <div class="risk">
-              <span class="lbl">Riesgo principal</span>
-              <p>Es la compuerta binaria del track. <b>Si a H+3 no anda, se escala y se replantea el track</b> &mdash; no se sigue
-                de largo esperando que se acomode.</p>
+              <span class="lbl">Main risk</span>
+              <p>This is the track's binary gate. <b>If it doesn't work by H+3, escalate and rethink the track</b> &mdash; don't
+                keep going and hope it sorts itself out.</p>
             </div>
           </div>
         </div>
@@ -522,43 +522,43 @@
       <div class="phase">
         <div class="phase-head">
           <div>
-            <div class="num">FASE 1</div>
-            <h3>QVAC corriendo adentro de Bare</h3>
+            <div class="num">PHASE 1</div>
+            <h3>QVAC running inside Bare</h3>
           </div>
           <div class="hours">H+3 &rarr; H+7</div>
         </div>
         <div class="phase-body">
           <p class="phase-obj">
-            Inferencia local real desde adentro de la app Pear. Sigue sin haber red ni gateway: solo un prompt que responde.
+            Real local inference from inside the Pear app. Still no network or gateway: just a prompt that gets answered.
           </p>
           <div class="track-tasks">
             <div>
-              <h4>Nodo</h4>
+              <h4>Node</h4>
               <ul>
-                <li><span class="mono">qvac doctor</span> como preflight.</li>
-                <li>Instalar <span class="mono">@qvac/bare-sdk</span> y el addon <span class="mono">@qvac/llm-llamacpp</span>
-                  &mdash; el SDK no trae addons por defecto.</li>
-                <li>Proveer el global <span class="mono">process</span> y <b>registrar los plugins expl&iacute;citamente</b>.</li>
-                <li>Modelo &le;1B respondiendo un prompt dentro del worker.</li>
+                <li><span class="mono">qvac doctor</span> as preflight.</li>
+                <li>Install <span class="mono">@qvac/bare-sdk</span> and the <span class="mono">@qvac/llm-llamacpp</span> addon
+                  &mdash; the SDK doesn't ship addons by default.</li>
+                <li>Provide the global <span class="mono">process</span> and <b>register the plugins explicitly</b>.</li>
+                <li>&le;1B model answering a prompt inside the worker.</li>
               </ul>
             </div>
             <div>
-              <h4>Tama&ntilde;o del bundle</h4>
+              <h4>Bundle size</h4>
               <ul>
-                <li><span class="mono">qvac bundle sdk</span> para un worker bundle tree-shakeado si el peso molesta al instalar.</li>
-                <li>Medir cu&aacute;nto pesa el install real: es lo que el jurado va a esperar descargando.</li>
+                <li><span class="mono">qvac bundle sdk</span> for a tree-shaken worker bundle if the size hurts install time.</li>
+                <li>Measure how heavy the real install is: that's what the jury will be waiting to download.</li>
               </ul>
             </div>
           </div>
           <div class="phase-foot">
             <div class="dod">
               <span class="lbl">Definition of done</span>
-              <p>La app instalada por <span class="mono">pear install</span> responde un prompt con inferencia 100% local.</p>
+              <p>The app installed via <span class="mono">pear install</span> answers a prompt with 100% local inference.</p>
             </div>
             <div class="risk">
-              <span class="lbl">Riesgo principal</span>
-              <p>El registro de addons. En Bare nada se auto-registra y los errores son poco descriptivos.
-                Presupuestar tiempo de pelea ac&aacute;, no darlo por trivial.</p>
+              <span class="lbl">Main risk</span>
+              <p>Addon registration. In Bare nothing self-registers and errors aren't very descriptive.
+                Budget fight time here, don't treat it as trivial.</p>
             </div>
           </div>
         </div>
@@ -567,45 +567,45 @@
       <div class="phase">
         <div class="phase-head">
           <div>
-            <div class="num">FASE 2</div>
-            <h3>Nodo, manifiesto firmado y swarm</h3>
+            <div class="num">PHASE 2</div>
+            <h3>Node, signed manifest, and swarm</h3>
           </div>
           <div class="hours">H+7 &rarr; H+11</div>
         </div>
         <div class="phase-body">
           <p class="phase-obj">
-            El nodo se anuncia en un topic fijo con un manifiesto firmado que otros pueden verificar.
-            Ac&aacute; es donde la app deja de ser un CLI y pasa a ser una red.
+            The node announces itself on a fixed topic with a signed manifest that others can verify.
+            This is where the app stops being a CLI and becomes a network.
           </p>
           <div class="track-tasks">
             <div>
-              <h4>Manifiesto</h4>
+              <h4>Manifest</h4>
               <ul>
-                <li>Portar <span class="mono">manifest-v0.json</span> a zod 4 (<b>ya es dependencia de
-                  <span class="mono">@qvac/bare-sdk</span></b>, no hay conflicto de versi&oacute;n).</li>
-                <li><span class="mono">signManifest</span> / <span class="mono">verifyManifest</span>: Ed25519 sobre JCS (RFC 8785),
-                  con test de caso negativo.</li>
-                <li><b>Sin</b> generaci&oacute;n de JSON Schema ni test de comparaci&oacute;n &mdash; recortado.</li>
+                <li>Port <span class="mono">manifest-v0.json</span> to zod 4 (<b>already a dependency of
+                  <span class="mono">@qvac/bare-sdk</span></b>, no version conflict).</li>
+                <li><span class="mono">signManifest</span> / <span class="mono">verifyManifest</span>: Ed25519 over JCS (RFC 8785),
+                  with a negative-case test.</li>
+                <li><b>No</b> JSON Schema generation or comparison test &mdash; cut.</li>
               </ul>
             </div>
             <div>
               <h4>Swarm</h4>
               <ul>
-                <li><span class="mono">hyperswarm</span> ya viene con el SDK. Topic fijo, hardcodeado.</li>
-                <li>El nodo publica su manifiesto firmado al conectarse con un par.</li>
-                <li>Un manifiesto que no verifica se descarta antes de leer <span class="mono">pricing</span>.</li>
+                <li><span class="mono">hyperswarm</span> already ships with the SDK. Fixed topic, hardcoded.</li>
+                <li>The node publishes its signed manifest when connecting with a peer.</li>
+                <li>A manifest that fails verification is discarded before reading <span class="mono">pricing</span>.</li>
               </ul>
             </div>
           </div>
           <div class="phase-foot">
             <div class="dod">
               <span class="lbl">Definition of done</span>
-              <p>Dos nodos en m&aacute;quinas distintas se descubren en el topic e intercambian manifiestos verificados.</p>
+              <p>Two nodes on different machines discover each other on the topic and exchange verified manifests.</p>
             </div>
             <div class="risk">
-              <span class="lbl">Riesgo principal</span>
-              <p>Irse por la madriguera del protocolo. El manifiesto ac&aacute; es medio, no fin: Pears no punt&uacute;a
-                elegancia de esquema. Timeboxear duro.</p>
+              <span class="lbl">Main risk</span>
+              <p>Going down the protocol rabbit hole. The manifest here is a means, not an end: Pears doesn't score
+                schema elegance. Timebox this hard.</p>
             </div>
           </div>
         </div>
@@ -614,45 +614,45 @@
       <div class="phase">
         <div class="phase-head">
           <div>
-            <div class="num">FASE 3</div>
-            <h3>Gateway sobre bare-http1</h3>
+            <div class="num">PHASE 3</div>
+            <h3>Gateway on bare-http1</h3>
           </div>
           <div class="hours">H+11 &rarr; H+15</div>
         </div>
         <div class="phase-body">
           <p class="phase-obj">
-            La reescritura que reemplaza a fastify. Endpoint compatible con OpenAI, streaming de punta a punta,
-            y decisi&oacute;n de routing loggeada.
+            The rewrite that replaces fastify. OpenAI-compatible endpoint, end-to-end streaming,
+            and a logged routing decision.
           </p>
           <div class="track-tasks">
             <div>
               <h4>Gateway</h4>
               <ul>
-                <li><span class="mono">POST /v1/chat/completions</span> sobre <span class="mono">bare-http1</span>.</li>
-                <li><b>SSE a mano</b>: chunked writes manuales, sin helpers de fastify.</li>
-                <li>Elige entre los pares del topic filtrando por <span class="mono">modelId</span> y por
+                <li><span class="mono">POST /v1/chat/completions</span> over <span class="mono">bare-http1</span>.</li>
+                <li><b>SSE by hand</b>: manual chunked writes, no fastify helpers.</li>
+                <li>Chooses among the topic's peers, filtering by <span class="mono">modelId</span> and by
                   <span class="mono">capabilities.streaming</span>.</li>
-                <li>Log de routing en JSON-Lines append-only: qu&eacute; candidatos hab&iacute;a, cu&aacute;l eligi&oacute;, por qu&eacute;.</li>
+                <li>Routing log in append-only JSON-Lines: what candidates existed, which one it picked, why.</li>
               </ul>
             </div>
             <div>
-              <h4>Cero modelo</h4>
+              <h4>Zero model</h4>
               <ul>
-                <li><b>El gateway arranca sin ning&uacute;n modelo descargado.</b> Es la pieza que hace viable el demo del jurado.</li>
-                <li>Si no hay pares, mensaje claro &mdash; nunca un cuelgue silencioso.</li>
+                <li><b>The gateway starts with no model downloaded.</b> This is the piece that makes the jury demo viable.</li>
+                <li>If there are no peers, a clear message &mdash; never a silent hang.</li>
               </ul>
             </div>
           </div>
           <div class="phase-foot">
             <div class="dod">
               <span class="lbl">Definition of done</span>
-              <p>Un <span class="mono">curl</span> con <span class="mono">"stream": true</span> devuelve tokens desde otro
-                nodo, y el log muestra por qu&eacute; se eligi&oacute; ese.</p>
+              <p>A <span class="mono">curl</span> with <span class="mono">"stream": true</span> returns tokens from another
+                node, and the log shows why that one was picked.</p>
             </div>
             <div class="risk">
-              <span class="lbl">Riesgo principal</span>
-              <p>Subestimar el SSE manual. El framing de <span class="mono">data:</span> y el flush por chunk son
-                exactamente donde se pierden dos horas.</p>
+              <span class="lbl">Main risk</span>
+              <p>Underestimating manual SSE. The <span class="mono">data:</span> framing and per-chunk flush are
+                exactly where two hours get lost.</p>
             </div>
           </div>
         </div>
@@ -661,43 +661,43 @@
       <div class="phase">
         <div class="phase-head">
           <div>
-            <div class="num">FASE 4</div>
-            <h3>El install <i>es</i> la demo</h3>
+            <div class="num">PHASE 4</div>
+            <h3>The install <i>is</i> the demo</h3>
           </div>
           <div class="hours">H+15 &rarr; H+18</div>
         </div>
         <div class="phase-body">
           <p class="phase-obj">
-            Convertir el criterio de juzgado #1 en el momento m&aacute;s fuerte del pitch: una m&aacute;quina virgen entra a la red
-            en menos de un minuto.
+            Turn judging criterion #1 into the strongest moment of the pitch: a clean machine joins the network
+            in under a minute.
           </p>
           <div class="track-tasks">
             <div>
-              <h4>Recorrido del jurado</h4>
+              <h4>Jury walkthrough</h4>
               <ul>
-                <li><span class="mono">pear install pear://&lt;key&gt;</span> en una m&aacute;quina que nunca vio el proyecto.</li>
-                <li><span class="mono">qvac-node gateway</span> &rarr; tokens en streaming desde tus nodos seedeados.</li>
-                <li>Cronometrarlo. <b>Objetivo: bajo 60 segundos</b>, sin descarga de modelo.</li>
-                <li><span class="mono">qvac-node serve</span> como el camino opcional para aportar c&oacute;mputo.</li>
+                <li><span class="mono">pear install pear://&lt;key&gt;</span> on a machine that's never seen the project.</li>
+                <li><span class="mono">qvac-node gateway</span> &rarr; streaming tokens from your seeded nodes.</li>
+                <li>Time it. <b>Target: under 60 seconds</b>, no model download.</li>
+                <li><span class="mono">qvac-node serve</span> as the optional path for contributing compute.</li>
               </ul>
             </div>
             <div>
-              <h4>Infraestructura</h4>
+              <h4>Infrastructure</h4>
               <ul>
-                <li><b>Seeder dedicado 24/7</b>, no la laptop de la demo.</li>
-                <li>2 nodos de demo encendidos y anunci&aacute;ndose en el topic.</li>
-                <li>Probar el recorrido completo desde una red distinta a la del venue.</li>
+                <li><b>Dedicated seeder, 24/7</b>, not the demo laptop.</li>
+                <li>2 demo nodes up and announcing themselves on the topic.</li>
+                <li>Test the full walkthrough from a network different from the venue's.</li>
               </ul>
             </div>
           </div>
           <div class="phase-foot">
             <div class="dod">
               <span class="lbl">Definition of done</span>
-              <p>Instalaci&oacute;n cronometrada desde m&aacute;quina limpia hasta primer token en menos de 60 segundos, tres veces seguidas.</p>
+              <p>Timed install from a clean machine to first token in under 60 seconds, three times in a row.</p>
             </div>
             <div class="risk">
-              <span class="lbl">Riesgo principal</span>
-              <p>Que el seeder viva en una laptop que alguien cierra para ir a dormir. Va en una m&aacute;quina que no se toca.</p>
+              <span class="lbl">Main risk</span>
+              <p>The seeder living on a laptop someone closes to go to sleep. It goes on a machine nobody touches.</p>
             </div>
           </div>
         </div>
@@ -706,41 +706,41 @@
       <div class="phase">
         <div class="phase-head">
           <div>
-            <div class="num">FASE 5</div>
-            <h3>OTA en vivo y endurecimiento</h3>
+            <div class="num">PHASE 5</div>
+            <h3>Live OTA and hardening</h3>
           </div>
           <div class="hours">H+18 &rarr; H+21</div>
         </div>
         <div class="phase-body">
           <p class="phase-obj">
-            El criterio de juzgado #2, ensayado hasta que sea aburrido.
+            Judging criterion #2, rehearsed until it's boring.
           </p>
           <div class="track-tasks">
             <div>
-              <h4>Demo de OTA</h4>
+              <h4>OTA demo</h4>
               <ul>
-                <li>Bumpear versi&oacute;n y <span class="mono">pear stage</span> en vivo; el nodo corriendo toma el update en escena.</li>
-                <li>Que el cambio sea <b>visible</b>: un banner, un color, un comando nuevo. Nada de diffs invisibles.</li>
-                <li>Ensayarlo al menos tres veces. Es 60 segundos de demo y pega justo en el rubric.</li>
+                <li>Bump the version and <span class="mono">pear stage</span> live; the running node picks up the update on stage.</li>
+                <li>Make the change <b>visible</b>: a banner, a color, a new command. No invisible diffs.</li>
+                <li>Rehearse it at least three times. It's 60 seconds of demo and lands right on the rubric.</li>
               </ul>
             </div>
             <div>
-              <h4>Endurecimiento</h4>
+              <h4>Hardening</h4>
               <ul>
-                <li>Matar un nodo a mitad de stream y ver qu&eacute; hace el gateway. Arreglarlo o documentarlo honestamente.</li>
-                <li>Flujo completo tres veces consecutivas sin tocar c&oacute;digo.</li>
+                <li>Kill a node mid-stream and see what the gateway does. Fix it or document it honestly.</li>
+                <li>Full flow, three times in a row, without touching code.</li>
               </ul>
             </div>
           </div>
           <div class="phase-foot">
             <div class="dod">
               <span class="lbl">Definition of done</span>
-              <p>El update OTA se propaga a una instancia corriendo, en vivo, con un cambio visible a simple vista.</p>
+              <p>The OTA update propagates to a running instance, live, with a change visible at a glance.</p>
             </div>
             <div class="risk">
-              <span class="lbl">Riesgo principal</span>
-              <p>Ensayar el OTA por primera vez sobre el escenario. La propagaci&oacute;n tiene latencia variable: hay que
-                saber cu&aacute;nto tarda <i>antes</i> de contarlo.</p>
+              <span class="lbl">Main risk</span>
+              <p>Rehearsing the OTA for the first time on stage. Propagation has variable latency: you need to
+                know how long it takes <i>before</i> talking about it.</p>
             </div>
           </div>
         </div>
@@ -749,42 +749,42 @@
       <div class="phase">
         <div class="phase-head">
           <div>
-            <div class="num">FASE 6</div>
-            <h3>Submission y pitch</h3>
+            <div class="num">PHASE 6</div>
+            <h3>Submission and pitch</h3>
           </div>
           <div class="hours">H+21 &rarr; H+24</div>
         </div>
         <div class="phase-body">
           <p class="phase-obj">
-            Los requisitos de entrega son entregables duros, no buenas intenciones. Se cierran ac&aacute; con tiempo, no a las corridas.
+            Submission requirements are hard deliverables, not good intentions. Close them out here with time to spare, not at a run.
           </p>
           <div class="track-tasks">
             <div>
-              <h4>Entregables</h4>
+              <h4>Deliverables</h4>
               <ul>
-                <li>Repo p&uacute;blico con README y el <span class="mono">pear://</span> key bien visible arriba de todo.</li>
-                <li><b>Justificaci&oacute;n escrita del process shape elegido</b> &mdash; criterio de juzgado expl&iacute;cito.</li>
-                <li>Links directos al c&oacute;digo de integraci&oacute;n con Pear y con QVAC.</li>
-                <li>Instrucciones de setup verificadas desde install limpio.</li>
+                <li>Public repo with README and the <span class="mono">pear://</span> key clearly visible at the top.</li>
+                <li><b>Written justification of the chosen process shape</b> &mdash; explicit judging criterion.</li>
+                <li>Direct links to the Pear and QVAC integration code.</li>
+                <li>Setup instructions verified from a clean install.</li>
               </ul>
             </div>
             <div>
-              <h4>Cierre</h4>
+              <h4>Wrap-up</h4>
               <ul>
-                <li>Video de respaldo del recorrido completo, reproducido una vez en la laptop de la demo.</li>
-                <li>2&ndash;3 slides: el install como demo, el diagrama de la red, el OTA.</li>
-                <li>Ensayo cronometrado.</li>
+                <li>Backup video of the full walkthrough, played once on the demo laptop.</li>
+                <li>2&ndash;3 slides: the install as demo, the network diagram, the OTA.</li>
+                <li>Timed rehearsal.</li>
               </ul>
             </div>
           </div>
           <div class="phase-foot">
             <div class="dod">
               <span class="lbl">Definition of done</span>
-              <p>El video existe y se prob&oacute;; el README permite a un desconocido instalar y usar la red sin preguntarte nada.</p>
+              <p>The video exists and has been tested; the README lets a stranger install and use the network without asking you anything.</p>
             </div>
             <div class="risk">
-              <span class="lbl">Riesgo principal</span>
-              <p>Ninguno t&eacute;cnico. Ac&aacute; el riesgo es llegar sin dormir y con el pitch sin cronometrar.</p>
+              <span class="lbl">Main risk</span>
+              <p>None technical. The risk here is showing up sleep-deprived with an untimed pitch.</p>
             </div>
           </div>
         </div>
@@ -794,50 +794,50 @@
   </section>
 
   <section id="recorte">
-    <div class="eyebrow">Si el reloj aprieta</div>
-    <h2>Tabla de recorte de emergencia</h2>
+    <div class="eyebrow">If the clock runs short</div>
+    <h2>Emergency cut table</h2>
     <p class="prose" style="color:var(--ink-2);font-size:0.94rem;">
-      El orden est&aacute; invertido respecto del runbook anterior. Lo que antes era el coraz&oacute;n del pitch (directorio P2P,
-      gateway ciego) ahora es recortable; lo que antes parec&iacute;a packaging ahora es intocable.
+      The order is inverted from the previous runbook. What used to be the heart of the pitch (P2P directory,
+      blind gateway) is now cuttable; what used to look like packaging is now untouchable.
     </p>
     <table class="cutlist">
       <thead>
-        <tr><th>Orden</th><th>Se corta</th><th>Impacto</th></tr>
+        <tr><th>Order</th><th>Cut</th><th>Impact</th></tr>
       </thead>
       <tbody>
         <tr>
           <td class="cut-num">1</td>
-          <td class="cut-desc"><b>Manifiesto firmado con JCS</b> &rarr; lista de pares hardcodeada con verificaci&oacute;n m&iacute;nima.
-            Pears no punt&uacute;a el protocolo.</td>
-          <td><span class="impact low">Bajo</span></td>
+          <td class="cut-desc"><b>JCS-signed manifest</b> &rarr; hardcoded peer list with minimal verification.
+            Pears doesn't score the protocol.</td>
+          <td><span class="impact low">Low</span></td>
         </tr>
         <tr>
           <td class="cut-num">2</td>
-          <td class="cut-desc"><b>Routing por precio y latencia</b> &rarr; round-robin entre pares vivos. El log de decisi&oacute;n
-            se conserva igual: es barato y se ve bien.</td>
-          <td><span class="impact low">Bajo</span></td>
+          <td class="cut-desc"><b>Price- and latency-based routing</b> &rarr; round-robin among live peers. The decision
+            log stays the same either way: it's cheap and it looks good.</td>
+          <td><span class="impact low">Low</span></td>
         </tr>
         <tr>
           <td class="cut-num">3</td>
-          <td class="cut-desc"><b>Tres nodos</b> &rarr; dos. Sigue mostrando selecci&oacute;n entre candidatos.</td>
-          <td><span class="impact low">Bajo</span></td>
+          <td class="cut-desc"><b>Three nodes</b> &rarr; two. Still shows selection among candidates.</td>
+          <td><span class="impact low">Low</span></td>
         </tr>
         <tr>
           <td class="cut-num">4</td>
-          <td class="cut-desc"><b>Inferencia local en la m&aacute;quina instalada</b> &rarr; el install trae solo el gateway y enruta
-            a los nodos seedeados. Achica el install y sigue siendo una demo completa.</td>
-          <td><span class="impact mid">Medio</span></td>
+          <td class="cut-desc"><b>Local inference on the installed machine</b> &rarr; the install ships only the gateway and routes
+            to seeded nodes. Shrinks the install and it's still a complete demo.</td>
+          <td><span class="impact mid">Medium</span></td>
         </tr>
         <tr>
           <td class="cut-num">5</td>
-          <td class="cut-desc"><b>OTA en vivo</b> &rarr; <b>no se corta.</b> Es el criterio de juzgado #2. Si no llega a estar
-            ensayado, se muestra grabado, pero tiene que existir.</td>
-          <td><span class="impact high">Muy alto</span></td>
+          <td class="cut-desc"><b>Live OTA</b> &rarr; <b>not cuttable.</b> It's judging criterion #2. If it isn't
+            rehearsed in time, show it recorded, but it has to exist.</td>
+          <td><span class="impact high">Very high</span></td>
         </tr>
         <tr>
           <td class="cut-num">6</td>
-          <td class="cut-desc"><b><span class="mono">pear install</span> limpio</b> &rarr; <b>no se corta nunca.</b>
-            Sin esto no hay submission: el track dice expl&iacute;citamente que un repo local no califica.</td>
+          <td class="cut-desc"><b>Clean <span class="mono">pear install</span></b> &rarr; <b>never cuttable.</b>
+            Without this there's no submission: the track explicitly says a local repo doesn't qualify.</td>
           <td><span class="impact high">Terminal</span></td>
         </tr>
       </tbody>
@@ -845,65 +845,65 @@
   </section>
 
   <section id="checklist">
-    <div class="eyebrow">Antes de subir al escenario</div>
-    <h2>Checklist final de demo</h2>
+    <div class="eyebrow">Before going on stage</div>
+    <h2>Final demo checklist</h2>
     <ul class="checklist" id="demo-checklist">
-      <li><input type="checkbox" id="ck1"><label for="ck1">El seeder dedicado est&aacute; encendido y seedeando (no una laptop del equipo)</label></li>
-      <li><input type="checkbox" id="ck2"><label for="ck2">Los 2 nodos de demo est&aacute;n anunci&aacute;ndose en el topic</label></li>
-      <li><input type="checkbox" id="ck3"><label for="ck3"><span class="mono">pear install pear://&lt;key&gt;</span> probado hoy desde una m&aacute;quina limpia y una red que no es la del venue</label></li>
-      <li><input type="checkbox" id="ck4"><label for="ck4">Del install al primer token: cronometrado bajo 60 segundos</label></li>
-      <li><input type="checkbox" id="ck5"><label for="ck5">El update OTA se propag&oacute; a una instancia corriendo, con un cambio visible, al menos 3 veces</label></li>
-      <li><input type="checkbox" id="ck6"><label for="ck6">El gateway arranca sin ning&uacute;n modelo descargado</label></li>
-      <li><input type="checkbox" id="ck7"><label for="ck7">El <span class="mono">pear://</span> key est&aacute; arriba de todo en el README y en las slides</label></li>
-      <li><input type="checkbox" id="ck8"><label for="ck8">La justificaci&oacute;n del process shape est&aacute; escrita en el README</label></li>
-      <li><input type="checkbox" id="ck9"><label for="ck9">El video de respaldo existe y se reprodujo una vez en la laptop de la demo</label></li>
-      <li><input type="checkbox" id="ck10"><label for="ck10">Alguien del equipo puede explicar sin notas por qu&eacute; se eligi&oacute; la variante <span class="mono">main</span> y no <span class="mono">daemon</span></label></li>
+      <li><input type="checkbox" id="ck1"><label for="ck1">The dedicated seeder is on and seeding (not a team laptop)</label></li>
+      <li><input type="checkbox" id="ck2"><label for="ck2">Both demo nodes are announcing themselves on the topic</label></li>
+      <li><input type="checkbox" id="ck3"><label for="ck3"><span class="mono">pear install pear://&lt;key&gt;</span> tested today from a clean machine and a network that isn't the venue's</label></li>
+      <li><input type="checkbox" id="ck4"><label for="ck4">From install to first token: timed under 60 seconds</label></li>
+      <li><input type="checkbox" id="ck5"><label for="ck5">The OTA update propagated to a running instance, with a visible change, at least 3 times</label></li>
+      <li><input type="checkbox" id="ck6"><label for="ck6">The gateway starts with no model downloaded</label></li>
+      <li><input type="checkbox" id="ck7"><label for="ck7">The <span class="mono">pear://</span> key is at the top of the README and the slides</label></li>
+      <li><input type="checkbox" id="ck8"><label for="ck8">The process shape justification is written in the README</label></li>
+      <li><input type="checkbox" id="ck9"><label for="ck9">The backup video exists and has been played once on the demo laptop</label></li>
+      <li><input type="checkbox" id="ck10"><label for="ck10">Someone on the team can explain, without notes, why the <span class="mono">main</span> variant was chosen over <span class="mono">daemon</span></label></li>
     </ul>
-    <button class="checklist-reset" id="reset-btn">Reiniciar checklist</button>
+    <button class="checklist-reset" id="reset-btn">Reset checklist</button>
   </section>
 
   <section id="stack">
-    <div class="eyebrow">Referencia</div>
-    <h2>Stack decidido, por capa</h2>
+    <div class="eyebrow">Reference</div>
+    <h2>Decided stack, by layer</h2>
     <p class="prose" style="color:var(--ink-2);font-size:0.94rem;">
-      Versiones verificadas contra el registry de npm el 22 de agosto de 2026. Si algo no existe como se lista ac&aacute;,
-      es se&ntilde;al de parar y avisar, no de improvisar un reemplazo.
+      Versions verified against the npm registry on August 22, 2026. If something doesn't exist as listed here,
+      that's a signal to stop and flag it, not to improvise a replacement.
     </p>
     <div class="stack-grid">
       <div>
-        <h4>Runtime y distribuci&oacute;n</h4>
-        <p class="mono">bare &ge;1.24<br>pear-runtime 1.3.1<br>hello-pear-bare (variante main)</p>
+        <h4>Runtime and distribution</h4>
+        <p class="mono">bare &ge;1.24<br>pear-runtime 1.3.1<br>hello-pear-bare (main variant)</p>
       </div>
       <div>
-        <h4>Inferencia</h4>
+        <h4>Inference</h4>
         <p class="mono">@qvac/bare-sdk 0.17.1<br>@qvac/llm-llamacpp 0.46.0<br>@qvac/cli 0.11.0</p>
       </div>
       <div>
-        <h4>Red P2P</h4>
-        <p class="mono">hyperswarm 4.17.0<br>hypercore 11.35.2<br>(ambos ya vienen con el SDK)</p>
+        <h4>P2P network</h4>
+        <p class="mono">hyperswarm 4.17.0<br>hypercore 11.35.2<br>(both already ship with the SDK)</p>
       </div>
       <div>
-        <h4>Gateway HTTP</h4>
+        <h4>HTTP gateway</h4>
         <p class="mono">bare-http1 4.5.8</p>
-        <p style="font-size:0.85rem;color:var(--ink-2);margin-top:0.3rem;">fastify no corre bajo Bare</p>
+        <p style="font-size:0.85rem;color:var(--ink-2);margin-top:0.3rem;">fastify doesn't run under Bare</p>
       </div>
       <div>
-        <h4>Validaci&oacute;n</h4>
+        <h4>Validation</h4>
         <p class="mono">zod 4</p>
-        <p style="font-size:0.85rem;color:var(--ink-2);margin-top:0.3rem;">ya es dependencia de @qvac/bare-sdk</p>
+        <p style="font-size:0.85rem;color:var(--ink-2);margin-top:0.3rem;">already a dependency of @qvac/bare-sdk</p>
       </div>
       <div>
-        <h4>Fuera de alcance</h4>
-        <p style="font-size:0.85rem;color:var(--ink-2);">WDK, recibos, liquidaci&oacute;n, cifrado E2E, autobase, hyperdb, blind-pairing, capa ag&eacute;ntica</p>
+        <h4>Out of scope</h4>
+        <p style="font-size:0.85rem;color:var(--ink-2);">WDK, receipts, settlement, E2E encryption, autobase, hyperdb, blind-pairing, agentic layer</p>
       </div>
     </div>
   </section>
 
   <div class="page-foot">
     <p style="color:var(--ink-3);font-size:0.82rem;">
-      Runbook de ejecuci&oacute;n &mdash; QVAC-Node para el <b>Pears Track</b> (Bare + Pear + QVAC + Hyperswarm).
-      Horas relativas al inicio del hackathon, sobre un horizonte de 24h con juzgado el domingo 13:00 ARG.
-      Reemplaza al runbook de 48h orientado a arquitectura P2P, archivado en <span class="mono">old/</span>.
+      Execution runbook &mdash; QVAC-Node for the <b>Pears Track</b> (Bare + Pear + QVAC + Hyperswarm).
+      Hours relative to the start of the hackathon, over a 24h horizon with judging Sunday 13:00 ARG.
+      Replaces the 48h runbook oriented around P2P architecture, archived in <span class="mono">old/</span>.
     </p>
   </div>
 

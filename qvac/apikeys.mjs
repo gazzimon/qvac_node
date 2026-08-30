@@ -1,46 +1,46 @@
-// Registro en memoria de API keys para consumir el gateway desde AFUERA del
-// panel: tu propia terminal, OpenClaw (Telegram/WhatsApp), Hermes Agent, Open
-// WebUI, o cualquier cliente OpenAI-compatible.
+// In-memory registry of API keys to use the gateway from OUTSIDE the
+// panel: your own terminal, OpenClaw (Telegram/WhatsApp), Hermes Agent, Open
+// WebUI, or any OpenAI-compatible client.
 //
-// PERSISTE, y desde la Fase 6.5 eso NO es una comodidad: es la condicion para
-// que el tope de gasto exista.
+// It PERSISTS, and since Phase 6.5 that's NOT a nicety: it's the condition for
+// the spending cap to exist at all.
 //
-// El ledger le imputa el consumo a la cuenta, y la cuenta ES la key
-// (gateway.mjs, `cuentaDe`). Con el registro en memoria ese id no sobrevivia al
-// proceso: el cliente reconectaba, le daban una key nueva, y arrancaba con el
-// tope entero otra vez -- mientras `budget.json` acumulaba cuentas huerfanas que
-// nadie iba a reclamar. Un tope que se limpia reiniciando no es un tope.
+// The ledger charges consumption to the account, and the account IS the key
+// (gateway.mjs, `cuentaDe`). With an in-memory registry that id didn't survive
+// the process: the client reconnected, got handed a new key, and started over
+// with the full cap again -- while `budget.json` piled up orphan accounts that
+// nobody would ever claim. A cap that resets on restart isn't a cap.
 //
-// Y arregla algo que no era un bug declarado pero se sentia como uno: cada
-// reinicio del nodo invalidaba la configuracion de TODOS los clientes -- el bot
-// de Telegram, Open WebUI, la terminal-, que tenian que ir a buscar una key
-// nueva al panel.
+// And it fixes something that wasn't a declared bug but felt like one: every
+// node restart invalidated the config of EVERY client -- the Telegram bot,
+// Open WebUI, the terminal -- which then had to go fetch a new key from the
+// panel.
 //
-// LA KEY SE GUARDA EN CLARO, y es una decision, no un descuido. El mismo
-// directorio ya guarda la semilla de red en claro (identity.mjs), el gateway
-// escucha solo en 127.0.0.1, y el panel existe justamente para poder volver a
-// copiar una key semanas despues (ver `listKeysFull`). Hashearla obligaria a
-// rotar la credencial cada vez que alguien no la guardo, que para este modelo de
-// amenaza es peor. La que NO puede ir en claro es la semilla de la wallet: esa
-// es D13 y es otra cosa.
+// THE KEY IS STORED IN PLAINTEXT, and that's a decision, not an oversight. The
+// same directory already stores the network seed in plaintext (identity.mjs),
+// the gateway only listens on 127.0.0.1, and the panel exists precisely so you
+// can copy a key again weeks later (see `listKeysFull`). Hashing it would force
+// rotating the credential every time someone failed to save it, which is worse
+// for this threat model. What CANNOT go in plaintext is the wallet seed: that's
+// D13 and a different matter.
 //
-// El azar SI es criptografico: hypercore-crypto ya esta en el arbol de
-// dependencias (lo usa swarm.mjs para la identidad del nodo), asi que no hay
-// excusa para Math.random en algo que despues viaja como credencial en un
-// header Authorization.
+// The randomness IS cryptographic though: hypercore-crypto is already in the
+// dependency tree (swarm.mjs uses it for the node identity), so there's no
+// excuse for Math.random on something that later travels as a credential in an
+// Authorization header.
 
 import crypto from 'hypercore-crypto'
 import fs from 'bare-fs'
 import path from 'bare-path'
 
-// Sube cuando cambie la forma de una fila. Un archivo de otra version se
-// descarta entero y se avisa, en vez de cargar filas a medias.
+// Bumps when the shape of a row changes. A file from another version gets
+// discarded wholesale, with a warning, instead of loading half-baked rows.
 const VERSION = 1
 
 const keys = new Map() // id -> { id, key, label, nodeId, createdAt, lastUsedAt }
 
-// base64url sobre bytes aleatorios reales. Se evitan +/= para que la key se
-// pueda pegar en una URL, en un YAML o en un JSON5 sin escaparla.
+// base64url over real random bytes. +/= are avoided so the key can be pasted
+// into a URL, a YAML, or a JSON5 without escaping it.
 function randomToken(bytes) {
   return crypto
     .randomBytes(bytes)
@@ -51,35 +51,35 @@ function randomToken(bytes) {
 }
 
 // ---------------------------------------------------------------------------
-// Persistencia
+// Persistence
 // ---------------------------------------------------------------------------
 
-// `null` => todo en memoria. Es el camino de los tests y el de un nodo sin
-// directorio de storage.
+// `null` => everything in memory. That's the path used by tests and by a node
+// with no storage directory.
 let archivo = null
 
-// Escritura atomica, igual que budget.mjs: temporal y rename encima. Un
-// writeFileSync cortado a la mitad deja un JSON invalido, y perder este archivo
-// es perder la identidad de las cuentas -- o sea, resetear todos los topes.
+// Atomic write, same as budget.mjs: temp file then rename on top. A
+// writeFileSync cut in half leaves an invalid JSON, and losing this file means
+// losing the identity of the accounts -- i.e. resetting every cap.
 function guardar() {
   if (!archivo) return
   const tmp = archivo + '.tmp'
   try {
     fs.writeFileSync(tmp, JSON.stringify({ version: VERSION, keys: [...keys.values()] }, null, 2), {
-      // Solo el dueno. En Windows no hace nada (el modo se ignora), pero el
-      // archivo queda igual bajo %LOCALAPPDATA% del usuario.
+      // Owner only. On Windows this is a no-op (the mode is ignored), but the
+      // file still ends up under the user's %LOCALAPPDATA%.
       mode: 0o600
     })
     fs.renameSync(tmp, archivo)
   } catch (err) {
-    console.error(`[apikeys] no se pudo guardar el registro: ${(err && err.message) || err}`)
-    console.error('[apikeys] las keys corren EN MEMORIA: el tope de gasto se reinicia con el proceso')
+    console.error(`[apikeys] could not save the registry: ${(err && err.message) || err}`)
+    console.error('[apikeys] keys are running IN MEMORY: the spending cap resets with the process')
     archivo = null
   }
 }
 
-// Se abre ANTES que el gateway, por la misma razon que el ledger: una key que
-// llega antes de que el registro este cargado seria una key desconocida.
+// Opened BEFORE the gateway, for the same reason as the ledger: a key that
+// arrives before the registry is loaded would be an unknown key.
 export function open(dir) {
   archivo = dir ? path.join(dir, 'apikeys.json') : null
   keys.clear()
@@ -88,12 +88,12 @@ export function open(dir) {
   try {
     const crudo = JSON.parse(fs.readFileSync(archivo, 'utf8'))
     if (!crudo || crudo.version !== VERSION) {
-      if (crudo) console.error(`[apikeys] ${archivo} es de otra version, se arranca de cero`)
+      if (crudo) console.error(`[apikeys] ${archivo} is from another version, starting fresh`)
       return 0
     }
     for (const e of Array.isArray(crudo.keys) ? crudo.keys : []) {
-      // Una fila sin id o sin key no se puede usar para nada y romperia
-      // `verifyKey`, que compara longitudes.
+      // A row with no id or no key is useless and would break `verifyKey`,
+      // which compares lengths.
       if (!e || typeof e.id !== 'string' || typeof e.key !== 'string') continue
       keys.set(e.id, {
         id: e.id,
@@ -105,16 +105,16 @@ export function open(dir) {
       })
     }
   } catch {
-    // No existe todavia: primer arranque.
+    // Doesn't exist yet: first boot.
   }
   return keys.size
 }
 
-// Persiste el `lastUsedAt` acumulado. `verifyKey` lo toca en CADA request y no
-// guarda: un fsync por request para escribir una marca de tiempo cosmetica
-// seria pagar latencia de disco en el camino caliente. La cuenta y el tope no
-// dependen de ese campo -- dependen del id, que solo cambia al crear o revocar,
-// y esos si guardan al toque.
+// Persists the accumulated `lastUsedAt`. `verifyKey` touches it on EVERY
+// request and doesn't save: an fsync per request to write a cosmetic
+// timestamp would mean paying disk latency on the hot path. The account and
+// the cap don't depend on that field -- they depend on the id, which only
+// changes on create or revoke, and those DO save right away.
 export function close() {
   guardar()
   archivo = null
@@ -129,9 +129,9 @@ export function createKey({ label = 'unnamed', nodeId = null } = {}) {
   return entry
 }
 
-// Una key por nodo: apretar "Conectar" dos veces sobre la misma tarjeta tiene
-// que devolver la MISMA credencial, no llenar el registro de keys huerfanas
-// que el usuario ya pego en un config y no puede distinguir.
+// One key per node: clicking "Connect" twice on the same card has to return
+// the SAME credential, not fill the registry with orphan keys that the user
+// already pasted into a config and can no longer tell apart.
 export function keyForNode(nodeId, label) {
   for (const entry of keys.values()) {
     if (entry.nodeId === nodeId) return entry
@@ -154,14 +154,13 @@ export function listKeys() {
   return [...keys.values()].map(mask)
 }
 
-// Igual que listKeys pero con la credencial en claro.
+// Same as listKeys but with the credential in plaintext.
 //
-// Solo para el panel local: el gateway escucha unicamente en 127.0.0.1 y el
-// sentido de esa pantalla es poder volver a copiar una key en la config de un
-// bot semanas despues. Enmascararla ahi obligaria a rotarla cada vez que uno
-// se olvida de guardarla, que es peor que mostrarla en una pagina que solo se
-// alcanza desde esta maquina. `mask()` sigue existiendo para cualquier
-// consumidor que no sea local.
+// Local panel only: the gateway listens only on 127.0.0.1 and the whole point
+// of that screen is to be able to copy a key again into a bot's config weeks
+// later. Masking it there would force rotating it every time someone forgets
+// to save it, which is worse than showing it on a page only reachable from
+// this machine. `mask()` still exists for any consumer that isn't local.
 export function listKeysFull() {
   return [...keys.values()].map((e) => ({
     id: e.id,
@@ -182,11 +181,11 @@ export function revokeKey(id) {
   return habia
 }
 
-// Comparacion en tiempo constante. Una key es una credencial y `===` corta en
-// el primer byte distinto, o sea que el tiempo filtra el prefijo. Con pocas
-// keys en memoria el riesgo es teorico, pero hacerlo bien cuesta seis lineas.
-// (hypercore-crypto NO exporta constantTimeEqual -sus exports son keyPair,
-// sign, verify, data, hash, randomBytes...-, asi que se hace a mano.)
+// Constant-time comparison. A key is a credential and `===` short-circuits on
+// the first differing byte, meaning timing leaks the prefix. With few keys in
+// memory the risk is theoretical, but doing it right costs six lines.
+// (hypercore-crypto does NOT export constantTimeEqual -its exports are
+// keyPair, sign, verify, data, hash, randomBytes...-, so it's done by hand.)
 function equalConstantTime(a, b) {
   if (a.length !== b.length) return false
   let diff = 0
@@ -205,8 +204,8 @@ export function verifyKey(rawKey) {
   return null
 }
 
-// Devuelve cuantas revoco. Sin ese numero la UI solo podia decir "se revoco la
-// key actual", que es mentira cuando hay varias emitidas.
+// Returns how many it revoked. Without that number the UI could only say "the
+// current key was revoked", which is a lie when several have been issued.
 export function reset() {
   const n = keys.size
   keys.clear()

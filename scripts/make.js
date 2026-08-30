@@ -8,9 +8,9 @@ const { spawnSync } = require('child_process')
 const root = path.resolve(__dirname, '..')
 const host = `${os.platform()}-${os.arch()}`
 const script = `make:${host}`
-// win32-arm64 NO esta: @qvac/llm-llamacpp no publica prebuild para esa
-// plataforma, asi que con la inferencia adentro el binario no compila.
-// Ver NOTES.md, "Fase 1 / plataformas".
+// win32-arm64 is NOT here: @qvac/llm-llamacpp doesn't publish a prebuild for
+// that platform, so with inference built in the binary doesn't compile.
+// See NOTES.md, "Phase 1 / platforms".
 const supported = new Set(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'])
 
 if (!supported.has(host)) {

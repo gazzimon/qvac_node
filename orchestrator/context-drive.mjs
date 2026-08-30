@@ -87,8 +87,8 @@ export async function updateContext(drive, workspaceDir) {
 // `drive.ready()` and never resolve or reject.
 //
 // `qvac/files.mjs` hits the identical problem and solves it with a `_remotes`
-// cache keyed by hex — "abrir el mismo drive dos veces crea dos sesiones sobre
-// los mismos cores". This is the same fix, reference-counted so several
+// cache keyed by hex — "opening the same drive twice creates two sessions over
+// the same cores". This is the same fix, reference-counted so several
 // callers can share one open reader and the underlying session closes only
 // once the last of them is done with it.
 const _cachesByStore = new WeakMap()

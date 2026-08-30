@@ -1,50 +1,53 @@
-// La cuota gratuita que este nodo le regala a cada par. Fase 6.6 / D23.
+// The free quota this node gives away to each peer. Phase 6.6 / D23.
 //
-// Es el gemelo de budget.mjs y conviene leerlos juntos, porque la simetria es
-// el punto:
+// It's the twin of budget.mjs and they're best read together, because the
+// symmetry is the point:
 //
 //                     budget.mjs              quota.mjs
-//   que mide          dolares                 tokens de salida
-//   de quien          la cuenta que consume   el par que pide
-//   quien lo lleva    el gateway (consumidor) el proveedor (quien presta GPU)
-//   ventana           mes calendario          24 h deslizantes
-//   al agotarse       degrada a local         rechaza y el consumidor degrada
+//   what it measures  dollars                 output tokens
+//   of whom            the account consuming  the peer requesting
+//   who tracks it       the gateway (consumer) the provider (who lends GPU)
+//   window             calendar month          24h sliding
+//   on exhaustion       degrades to local       rejects and the consumer degrades
 //
-// Los dos siguen el principio de D18: EL CONTADOR VIVE DEL LADO QUE PAGA. Alla
-// el que paga es el que gasta dolares; aca es el que presta la GPU y la luz.
-//
-// -----------------------------------------------------------------------------
-// POR QUE ACA Y NO EN EL GATEWAY
-//
-// El gateway es del consumidor. Pedirle que respete la cuota del proveedor es
-// poner al zorro a cuidar el gallinero: cualquiera que edite su propio gateway
-// consume gratis sin limite, y la cuota pasa a ser decorativa.
-//
-// El proveedor, en cambio, sabe quien le esta pidiendo sin tener que creerle a
-// nadie: la clave del par la establece la conexion de Hyperswarm, no el
-// contenido del mensaje. Es la misma propiedad en la que se apoya
-// verifyManifest para atar un manifiesto a un socket.
+// Both follow the D18 principle: THE COUNTER LIVES ON THE SIDE THAT PAYS.
+// There, whoever pays is whoever spends dollars; here it's whoever lends the
+// GPU and the electricity.
 //
 // -----------------------------------------------------------------------------
-// POR QUE VENTANA DESLIZANTE Y NO "POR DIA"
+// WHY HERE AND NOT IN THE GATEWAY
 //
-// Un corte a medianoche crea un pico de trafico a las 00:01 y castiga al que
-// empezo 23:50: consume su cuota entera y diez minutos despues le regalan otra.
-// Con ventana deslizante la cuota se repone de a poco, sola, y no hay un
-// instante privilegiado en el dia.
+// The gateway belongs to the consumer. Asking it to respect the provider's
+// quota is putting the fox in charge of the henhouse: anyone who edits their
+// own gateway consumes for free without limit, and the quota becomes
+// decorative.
 //
-// La ventana se implementa con BALDES POR HORA, no con la lista de cada
-// request. Un balde por hora son 24 numeros por par -- memoria acotada aunque
-// un par mande un millon de requests. El precio es la granularidad: la ventana
-// efectiva es de entre 23 y 24 horas, no exactamente 24. Se elige a proposito,
-// y se dice aca en vez de que alguien lo descubra midiendo.
+// The provider, on the other hand, knows who's asking it without having to
+// take anyone's word for it: the peer's key is established by the Hyperswarm
+// connection, not by the message content. It's the same property
+// verifyManifest relies on to tie a manifest to a socket.
+//
+// -----------------------------------------------------------------------------
+// WHY A SLIDING WINDOW AND NOT "PER DAY"
+//
+// A cutoff at midnight creates a traffic spike at 00:01 and punishes whoever
+// started at 23:50: they burn their whole quota and ten minutes later get
+// handed a fresh one. With a sliding window the quota refills gradually, on
+// its own, and there's no privileged instant in the day.
+//
+// The window is implemented with HOURLY BUCKETS, not a list of every
+// request. One bucket per hour means 24 numbers per peer -- bounded memory
+// even if a peer sends a million requests. The price is granularity: the
+// effective window is between 23 and 24 hours, not exactly 24. It's a
+// deliberate choice, stated here instead of someone discovering it by
+// measuring.
 // -----------------------------------------------------------------------------
 
-// D23: 100.000 tokens de SALIDA cada 24 h, por par.
+// D23: 100,000 OUTPUT tokens every 24h, per peer.
 //
-// De salida y no de entrada porque son los que cuestan GPU: el prompt se
-// procesa una vez y es barato, la generacion es token por token. Contar la
-// entrada complicaria el numero sin cambiar quien paga que.
+// Output and not input because those are what cost GPU: the prompt is
+// processed once and is cheap, generation is token by token. Counting the
+// input would complicate the number without changing who pays for what.
 export const CUOTA_TOKENS = 100_000
 export const VENTANA_HORAS = 24
 
@@ -56,9 +59,10 @@ const baldes = new Map()
 let cuotaTokens = CUOTA_TOKENS
 let ventanaHoras = VENTANA_HORAS
 
-// El indice absoluto de la hora en la que cae `now`. Absoluto y no "hora del
-// dia": con 0..23 los baldes de hoy y los de ayer colisionan, y un par que
-// consumio ayer a las 15 arrastraria ese numero a las 15 de hoy.
+// The absolute index of the hour `now` falls into. Absolute and not "hour of
+// the day": with 0..23 today's buckets and yesterday's would collide, and a
+// peer that consumed yesterday at 15:00 would carry that number over to
+// 15:00 today.
 function horaDe(now) {
   return Math.floor(now / MS_POR_HORA)
 }
@@ -72,10 +76,10 @@ function baldesDe(peerKey) {
   return m
 }
 
-// Se poda al leer, no con un timer. Un timer no corre si el proceso estuvo
-// apagado, y ademas mantendria vivo el Map de un par que no vuelve nunca. Al
-// podar en la lectura, un par inactivo no cuesta CPU y su entrada se limpia
-// sola la proxima vez que aparece.
+// Pruned on read, not with a timer. A timer doesn't run if the process was
+// off, and would also keep alive the Map of a peer that never comes back. By
+// pruning on read, an inactive peer costs no CPU and its entry cleans itself
+// up the next time it shows up.
 function podar(m, now) {
   const corte = horaDe(now) - ventanaHoras
   for (const h of m.keys()) {
@@ -84,7 +88,7 @@ function podar(m, now) {
 }
 
 // ---------------------------------------------------------------------------
-// Consulta
+// Query
 // ---------------------------------------------------------------------------
 
 export function usado(peerKey, { now = Date.now() } = {}) {
@@ -99,9 +103,9 @@ export function restante(peerKey, { now = Date.now() } = {}) {
   return Math.max(0, cuotaTokens - usado(peerKey, { now }))
 }
 
-// Devuelve { ok, reason, ... } en vez de un booleano, por la misma razon que
-// verifyManifest: el proveedor tiene que poder mandarle al consumidor un
-// mensaje que explique que paso y en cuanto se repone.
+// Returns { ok, reason, ... } instead of a boolean, for the same reason as
+// verifyManifest: the provider needs to be able to send the consumer a
+// message explaining what happened and when it refills.
 export function check(peerKey, { now = Date.now() } = {}) {
   const usadoAhora = usado(peerKey, { now })
   const queda = Math.max(0, cuotaTokens - usadoAhora)
@@ -110,18 +114,18 @@ export function check(peerKey, { now = Date.now() } = {}) {
 
   return {
     ok: false,
-    reason: `cuota gratuita agotada: ${usadoAhora}/${cuotaTokens} tokens en las ultimas ${ventanaHoras} h`,
+    reason: `free quota exhausted: ${usadoAhora}/${cuotaTokens} tokens in the last ${ventanaHoras}h`,
     used: usadoAhora,
     remaining: 0,
     quota: cuotaTokens,
-    // Cuando vuelve a haber algo. Es el dato accionable: sin esto el
-    // consumidor solo sabe que no puede, no cuando podria.
+    // When there's something again. This is the actionable data: without it
+    // the consumer only knows it can't, not when it could.
     resetsInMs: msHastaQueSeLibere(peerKey, now)
   }
 }
 
-// Cuanto falta para que el balde mas viejo salga de la ventana. Es el primer
-// instante en el que la cuota deja de estar en cero.
+// How long until the oldest bucket falls out of the window. It's the first
+// instant the quota stops being zero.
 function msHastaQueSeLibere(peerKey, now) {
   const m = baldesDe(peerKey)
   podar(m, now)
@@ -132,18 +136,19 @@ function msHastaQueSeLibere(peerKey, now) {
 }
 
 // ---------------------------------------------------------------------------
-// Registro
+// Registration
 // ---------------------------------------------------------------------------
 
-// Se llama DESPUES de servir, con los tokens que se generaron de verdad.
+// Called AFTER serving, with the tokens actually generated.
 //
-// A diferencia de budget.mjs no hay reserva: aca no se puede rechazar a mitad
-// de camino sin cortarle el stream a alguien, y D4 dice que un stream empezado
-// no se corta. El chequeo va antes de empezar y el registro despues de
-// terminar; el desborde de un solo request -- servir hasta 4096 tokens
-// habiendo tenido 1 de cuota -- se acepta a proposito. Es acotado por
-// `max_tokens`, y la alternativa es cortar generaciones por la mitad, que se
-// ve como un bug y regala igual la GPU que ya se gasto.
+// Unlike budget.mjs there's no reservation: here you can't reject halfway
+// through without cutting off someone's stream, and D4 says a started
+// stream doesn't get cut off. The check happens before starting and the
+// registration after finishing; a single request's overflow -- serving up
+// to 4096 tokens while having 1 left of quota -- is accepted on purpose.
+// It's bounded by `max_tokens`, and the alternative is cutting generations
+// off midway, which looks like a bug and gives away the GPU that was
+// already spent anyway.
 export function registrar(peerKey, tokens, { now = Date.now() } = {}) {
   const n = Math.max(0, Math.floor(Number(tokens) || 0))
   if (n === 0) return 0
@@ -156,17 +161,17 @@ export function registrar(peerKey, tokens, { now = Date.now() } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Vista y configuracion
+// View and configuration
 // ---------------------------------------------------------------------------
 
-// Lo que muestra el panel del proveedor: cuanto regalo y a quien.
+// What the provider's panel shows: how much it gave away and to whom.
 export function listar({ now = Date.now() } = {}) {
   const filas = []
   for (const [peerKey, m] of baldes) {
     podar(m, now)
     if (m.size === 0) {
-      // Un par que no consumio nada en la ventana no ocupa lugar ni en la
-      // memoria ni en la pantalla.
+      // A peer that consumed nothing in the window takes up no room, in
+      // memory or on screen.
       baldes.delete(peerKey)
       continue
     }

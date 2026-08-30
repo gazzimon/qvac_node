@@ -1,36 +1,36 @@
 #!/usr/bin/env node
 'use strict'
 
-// D30.3 — mintea el activo de prueba (tUSD) a una direccion. SOLO EN TESTNET.
+// D30.3 — mints the test asset (tUSD) to an address. TESTNET ONLY.
 //
 //   PYRUS_DESPLIEGUE_CLAVE=0x…  npm run mintear-tusd -- \
-//     --asset 0x…  --a 0xDirDelPagador  --monto 100
+//     --asset 0x…  --a 0xPayerAddress  --monto 100
 //
 // -----------------------------------------------------------------------------
-// POR QUE ESTO EXISTE APARTE DEL DEPLOY
+// WHY THIS EXISTS SEPARATELY FROM THE DEPLOY
 //
-// `desplegar-activo-prueba.js` ya tiene un `--mint-a` de comodidad, pero mintea
-// un monto fijo (1.000.000 tUSD) y solo en el mismo tx del deploy. Para fondear
-// al PAGADOR de un `curl` de prueba —o al agente de la Fase 11— con un monto
-// elegido, contra un contrato que ya esta desplegado, hace falta esto.
+// `desplegar-activo-prueba.js` already has a convenience `--mint-a`, but it
+// mints a fixed amount (1,000,000 tUSD) and only in the same deploy tx. To
+// fund the PAYER of a test `curl` — or the Phase 11 agent — with a chosen
+// amount, against a contract that's already deployed, this is what's needed.
 //
-// El `mint` del contrato es ABIERTO (ver `scripts/activo-prueba.sol`): no es un
-// privilegio del que desplego. Cualquier clave con gas de faucet puede llamarlo,
-// a cualquier direccion. Que sea abierto es la marca mas fuerte de que tUSD no
-// es una stablecoin y no vale nada.
+// The contract's `mint` is OPEN (see `scripts/activo-prueba.sol`): it's not a
+// privilege reserved to whoever deployed it. Any key with faucet gas can call
+// it, to any address. Being open is the strongest signal that tUSD is not a
+// stablecoin and isn't worth anything.
 //
 // -----------------------------------------------------------------------------
-// LOS MISMOS DOS GUARDIAS QUE EL DEPLOY, Y POR EL MISMO MOTIVO
+// THE SAME TWO GUARDS AS THE DEPLOY, AND FOR THE SAME REASON
 //
-// 1. La red tiene que estar en la lista blanca de `redes-prueba.js`. Mainnet
-//    esta afuera por D30 y no hay flag que lo saltee — mintear un "activo de
-//    prueba" contra una mainnet seria desplegar teatro sobre plata real.
-// 2. El chainId se lee DE LA CADENA, no del flag `--rpc`. Un RPC mal apuntado es
-//    justo el modo de falla contra el que sirve el guardia.
+// 1. The network has to be on `redes-prueba.js`'s whitelist. Mainnet is out
+//    per D30 and there's no flag to skip it — minting a "test asset" against
+//    a mainnet would be staging theater on top of real money.
+// 2. The chainId is read FROM THE CHAIN, not from the `--rpc` flag. A
+//    misdirected RPC is exactly the failure mode the guard exists to catch.
 //
-// La clave es DESECHABLE (misma variable que el deploy): paga gas de faucet en
-// una red de prueba. No se guarda y no se cifra — si se filtra, se pierde XPL de
-// testnet.
+// The key is DISPOSABLE (same variable as the deploy): it pays faucet gas on
+// a test network. It's never saved and never encrypted — if it leaks, all
+// that's lost is testnet XPL.
 
 const fs = require('fs')
 const path = require('path')
@@ -45,15 +45,15 @@ function flag(nombre, porDefecto = null) {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : porDefecto
 }
 
-// "100" o "100.5" (dolares) -> unidades minimas del token, con SUS decimales
-// leidos de la cadena. Entero exacto, sin `Number` de por medio: un monto con el
-// que se firma no puede pasar por un float.
+// "100" or "100.5" (dollars) -> minimum token units, with ITS decimals read
+// from the chain. Exact integer, no `Number` in the middle: an amount that
+// gets signed can't go through a float.
 function aUnidades(montoStr, decimals) {
   const m = String(montoStr).trim()
-  if (!/^\d+(\.\d+)?$/.test(m)) throw new Error(`--monto invalido: ${JSON.stringify(montoStr)}`)
+  if (!/^\d+(\.\d+)?$/.test(m)) throw new Error(`--monto invalid: ${JSON.stringify(montoStr)}`)
   const [entero, frac = ''] = m.split('.')
   if (frac.length > decimals) {
-    throw new Error(`--monto tiene mas de ${decimals} decimales, que es la precision de tUSD`)
+    throw new Error(`--monto has more than ${decimals} decimals, which is tUSD's precision`)
   }
   const fracPad = (frac + '0'.repeat(decimals)).slice(0, decimals)
   return BigInt(entero) * 10n ** BigInt(decimals) + BigInt(fracPad || '0')
@@ -70,22 +70,22 @@ async function main() {
   const clave = process.env[VAR_CLAVE]
   if (!clave) {
     console.error('')
-    console.error(`  falta ${VAR_CLAVE}.`)
+    console.error(`  missing ${VAR_CLAVE}.`)
     console.error('')
-    console.error('  Es una clave DESECHABLE de testnet, con gas del faucet. NO es la wallet')
-    console.error('  de cobro del nodo y no se guarda en ningun lado.')
+    console.error('  This is a DISPOSABLE testnet key, with faucet gas. It is NOT the node\'s')
+    console.error('  payout wallet and it is not saved anywhere.')
     console.error('')
     console.error('    node -e "console.log(require(\'viem/accounts\').generatePrivateKey())"')
     console.error('')
-    console.error(`  Despues pedile ${testnetDe(9746).nativo} al faucet para esa direccion.`)
+    console.error(`  Then ask the faucet for ${testnetDe(9746).nativo} for that address.`)
     console.error('')
     process.exit(1)
   }
 
   if (!asset || !/^0x[0-9a-fA-F]{40}$/.test(asset)) {
     console.error('')
-    console.error(`  falta el contrato del activo. Pasalo con --asset 0x… o exporta ${VAR_ASSET}.`)
-    console.error('  Es la direccion que imprimio `npm run desplegar-activo`.')
+    console.error(`  missing the asset contract. Pass it with --asset 0x… or export ${VAR_ASSET}.`)
+    console.error('  It is the address that `npm run desplegar-activo` printed.')
     console.error('')
     process.exit(1)
   }
@@ -96,25 +96,25 @@ async function main() {
     : cuentas.mnemonicToAccount(clave.trim())
   const destino = a || cuenta.address
   if (!/^0x[0-9a-fA-F]{40}$/.test(destino)) {
-    console.error(`  --a no es una direccion EVM: ${JSON.stringify(destino)}`)
+    console.error(`  --a is not an EVM address: ${JSON.stringify(destino)}`)
     process.exit(1)
   }
 
   const publico = viem.createPublicClient({ transport: viem.http(rpcUrl) })
 
-  // El chainId sale DE LA CADENA (ver el encabezado).
+  // The chainId comes FROM THE CHAIN (see the header).
   let chainId
   try {
     chainId = await publico.getChainId()
   } catch (err) {
-    console.error(`  el RPC ${rpcUrl} no responde: ${(err && err.message) || err}`)
+    console.error(`  RPC ${rpcUrl} did not respond: ${(err && err.message) || err}`)
     process.exit(1)
   }
 
   const motivo = porQueNoSeEstrena(chainId)
   if (motivo) {
     console.error('')
-    console.error('  NO SE MINTEA. ' + motivo)
+    console.error('  WILL NOT MINT. ' + motivo)
     console.error('')
     process.exit(1)
   }
@@ -122,21 +122,21 @@ async function main() {
   const red = testnetDe(chainId)
   const artefacto = JSON.parse(fs.readFileSync(ARTEFACTO, 'utf8'))
 
-  // Los decimales salen de la cadena, no de una constante de acá: es el numero
-  // con el que se escala el monto, y tiene que venir del mismo lugar que lo lee
-  // todo el resto.
+  // The decimals come from the chain, not from a constant here: it's the
+  // number the amount gets scaled by, and it has to come from the same place
+  // everything else reads it.
   const decimals = Number(
     await publico.readContract({ address: asset, abi: artefacto.abi, functionName: 'decimals' })
   )
   const monto = aUnidades(montoStr, decimals)
 
   console.log('')
-  console.log(`  red        ${red.nombre} (eip155:${chainId})`)
+  console.log(`  network    ${red.nombre} (eip155:${chainId})`)
   console.log(`  rpc        ${rpcUrl}`)
-  console.log(`  activo     ${asset}`)
-  console.log(`  desde      ${cuenta.address}`)
-  console.log(`  a          ${destino}`)
-  console.log(`  monto      ${montoStr} tUSD  (${monto} unidades, ${decimals} decimales)`)
+  console.log(`  asset      ${asset}`)
+  console.log(`  from       ${cuenta.address}`)
+  console.log(`  to         ${destino}`)
+  console.log(`  amount     ${montoStr} tUSD  (${monto} units, ${decimals} decimals)`)
   console.log('')
 
   const saldoGas = await publico.getBalance({ address: cuenta.address })
@@ -144,7 +144,7 @@ async function main() {
   if (saldoGas === 0n) {
     console.error('')
     console.error(
-      `  sin ${red.nativo} no se puede firmar el mint. Pedile al faucet de ${red.nombre}.`
+      `  without ${red.nativo} the mint can't be signed. Ask the ${red.nombre} faucet for some.`
     )
     console.error('')
     process.exit(1)
@@ -179,7 +179,7 @@ async function main() {
 
   const recibo = await publico.waitForTransactionReceipt({ hash })
   if (recibo.status !== 'success') {
-    console.error(`  el mint fallo: status=${recibo.status}`)
+    console.error(`  the mint failed: status=${recibo.status}`)
     process.exit(1)
   }
 
@@ -192,8 +192,8 @@ async function main() {
 
   console.log('')
   console.log(`  balanceOf(${destino})`)
-  console.log(`    antes    ${antes} unidades`)
-  console.log(`    despues  ${despues} unidades  (+${despues - antes})`)
+  console.log(`    before   ${antes} units`)
+  console.log(`    after    ${despues} units  (+${despues - antes})`)
   if (red.explorer) console.log(`  explorer   ${red.explorer}/tx/${hash}`)
   console.log('')
 }

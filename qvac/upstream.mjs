@@ -1,85 +1,86 @@
-// El nodo que no tiene GPU igual contesta: le pregunta a una API externa.
-// Fase 8.5 del ROADMAP -- el asistente externo como UN CANDIDATO MAS.
+// The node without a GPU still answers: it asks an external API.
+// Phase 8.5 of the ROADMAP -- the external assistant as ONE MORE CANDIDATE.
 //
 // -----------------------------------------------------------------------------
-// POR QUE ES UN CANDIDATO Y NO UNA RAMA APARTE
+// WHY IT'S A CANDIDATE AND NOT A SEPARATE BRANCH
 //
-// La Fase 8 hizo que el ruteo eligiera por carga en vez de tomar el primero.
-// Con eso, un upstream no necesita ningun camino especial: se registra en el
-// store como una fila mas -- kind 'upstream' -- y todo lo que ya existe
-// empieza a funcionar solo. findAllByModelId lo considera, /v1/models y
-// /v1/nodes lo listan, el log de ruteo lo registra con su motivo, y los
-// headers de procedencia lo declaran al cliente.
+// Phase 8 made routing choose by load instead of taking the first one. With
+// that, an upstream doesn't need any special path: it registers in the store
+// as one more row -- kind 'upstream' -- and everything that already exists
+// starts working with it for free. findAllByModelId considers it, /v1/models
+// and /v1/nodes list it, the routing log records it with its reason, and the
+// provenance headers declare it to the client.
 //
-// Si en vez de eso fuera un `if (noHayNadie) llamarAOpenAI()` metido en
-// handleChat, todo eso habria que escribirlo de nuevo y quedaria fuera del
-// rastro.
+// If instead it were an `if (noHayNadie) llamarAOpenAI()` stuck inside
+// handleChat, all of that would have to be written again and would stay
+// outside the trail.
 //
 // -----------------------------------------------------------------------------
-// LO QUE OBDIENT-SEED YA APRENDIO
+// WHAT OBDIENT-SEED ALREADY LEARNED
 //
-// El proxy de obdient-seed (src/proxy/senior.mjs) lleva meses hablando con
-// esta misma API. Dos cosas que le costaron y que aca vienen de fabrica:
+// obdient-seed's proxy (src/proxy/senior.mjs) has spent months talking to
+// this same API. Two things it learned the hard way and that come free here:
 //
-//   1. Se lee SOLO delta.content. Los modelos con razonamiento mandan tambien
-//      `reasoning_content`, que expone el pensamiento del modelo y, con el, el
-//      proveedor detras. Se descarta por construccion, no por un filtro que
-//      alguien puede olvidar.
-//   2. El detalle del error del proveedor va al log de ESTE proceso, nunca al
-//      cliente: puede traer el nombre de la cuenta o el id interno de la
-//      funcion.
+//   1. ONLY delta.content gets read. Reasoning models also send
+//      `reasoning_content`, which exposes the model's thinking and, with it,
+//      the provider behind it. It's discarded by construction, not by a
+//      filter someone can forget.
+//   2. The provider's error detail goes to THIS process's log, never to the
+//      client: it can carry the account name or the function's internal id.
 //
-// Y dos que a obdient-seed le faltan y aca si hacen falta:
+// And two things obdient-seed is missing that are needed here:
 //
-//   3. Backoff con jitter SOLO para 429/5xx/errores de conexion. Un 400 o un
-//      401 van a fallar igual las tres veces (D20: sin idempotencia, el
-//      backoff no es tolerancia a fallos, es un multiplicador de la cuenta).
-//   4. Se lee `usage` del proveedor. obdient-seed lo descarta y su propia app
-//      lo esta esperando; aca es lo que alimenta la liquidacion del budget.
+//   3. Backoff with jitter ONLY for 429/5xx/connection errors. A 400 or a 401
+//      will fail all three times anyway (D20: without idempotency, backoff
+//      isn't fault tolerance, it's a bill multiplier).
+//   4. `usage` is read from the provider. obdient-seed discards it and its
+//      own app is waiting for it; here it's what feeds budget settlement.
 // -----------------------------------------------------------------------------
 
 import env from 'bare-env'
-// Bare no tiene AbortController global -- no es el navegador ni Node-. El
-// paquete es el mismo que usa bare-fetch por dentro para su `signal`, asi que
-// esto no suma una dependencia nueva al arbol: la vuelve explicita.
+// Bare has no global AbortController -- it's neither the browser nor Node.
+// The package is the same one bare-fetch already uses internally for its
+// `signal`, so this doesn't add a new dependency to the tree: it just makes
+// it explicit.
 import AbortController from 'bare-abort-controller'
 
 const REINTENTOS = 3
 const ESPERA_BASE_MS = 400
 
-// Hasta el primer byte del proveedor. No es el mismo numero que el del camino
-// P2P (120s): un par puede estar cargando 807 MB de pesos por primera vez, una
-// API de internet no.
+// Up to the provider's first byte. Not the same number as the P2P path's
+// (120s): a peer might be loading 807 MB of weights for the first time, an
+// internet API isn't.
 //
-// 180s, y el numero cambio (B16). La version anterior eran 60s y salian de lo
-// medido el 2026-08-25 contra integrate.api.nvidia.com: llama-3.3-70b tardaba
-// 43,4 segundos al primer byte y se descarto por inservible, asi que 60 parecia
-// dejar pasar hasta lo que ya sabiamos que era demasiado lento.
+// 180s, and the number changed (B16). The previous version was 60s, taken
+// from what was measured on 2026-08-25 against integrate.api.nvidia.com:
+// llama-3.3-70b took 43.4 seconds to first byte and got dropped as unusable,
+// so 60 seemed to let through even what was already known to be too slow.
 //
-// Al dia siguiente el MISMO endpoint tardo 58 segundos, y OpenRouter en su tier
-// gratis 10 al primer byte y 50 en total. O sea que el techo tenia dos segundos
-// de margen contra lo medido y los requests estaban por empezar a cortarse
-// solos -- no por un proveedor colgado, que es lo que este reloj existe para
-// atrapar, sino por uno lento contestando bien.
+// The next day the SAME endpoint took 58 seconds, and OpenRouter on its free
+// tier took 10 to first byte and 50 total. So the cap had two seconds of
+// margin against what had been measured, and requests were about to start
+// cutting themselves off -- not because of a hung provider, which is what
+// this clock exists to catch, but because of a slow one answering just fine.
 //
-// La leccion no es el numero sino de donde sale: un tier gratis es una COLA, y
-// cuanto se espera en ella no lo decide uno. Un techo calibrado al ras de una
-// sola medicion no es un techo, es la proxima falla. Estos 180s dan aire para
-// eso; lo que NO cambia es que un proveedor que no contesta nunca tiene que
-// cortarse, y para eso 180 alcanza igual.
+// The lesson isn't the number, it's where it comes from: a free tier is a
+// QUEUE, and how long you wait in it isn't up to you. A cap calibrated flush
+// against a single measurement isn't a cap, it's the next failure. These
+// 180s give room for that; what does NOT change is that a provider that
+// never answers still has to get cut off, and 180 is still enough for that.
 //
-// Se puede pisar por modelo desde la config (`timeoutPrimerChunkMs`), que es lo
-// que hay que hacer con un modelo del que se conozca la latencia real.
+// Can be overridden per model from the config (`timeoutPrimerChunkMs`),
+// which is what to do for a model whose real latency is known.
 const PRIMER_CHUNK_TIMEOUT_MS = 180000
 
-// Ya venian tokens y se cortaron sin cerrar el stream. Un socket TCP colgado no
-// avisa: sin esto el request queda abierto para siempre y, con el, la reserva
-// del presupuesto que lo autorizo.
+// Tokens were already coming in and they got cut off without closing the
+// stream. A hung TCP socket doesn't announce itself: without this the
+// request stays open forever, and with it, the budget reservation that
+// authorized it.
 const IDLE_TIMEOUT_MS = 30000
 
-// Techo de salida cuando ni la config ni el cliente dicen otra cosa. 1024 son
-// ~4 parrafos: alcanza para una respuesta de chat y acota el peor caso de la
-// reserva a un numero que se puede mirar sin susto.
+// Output cap when neither the config nor the client say otherwise. 1024 is
+// ~4 paragraphs: enough for a chat response, and it bounds the worst case of
+// the reservation to a number you can look at without flinching.
 const MAX_TOKENS_DEFAULT = 1024
 
 function enteroPositivo(v, porDefecto) {
@@ -95,22 +96,21 @@ function esperar(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-// Los nombres de header de HTTP NO distinguen mayusculas; un objeto de
-// JavaScript SI. Esa diferencia era un agujero (B11): un `authorization` en
-// minuscula escrito en la config no colisionaba con el `Authorization` que
-// escribe el codigo, asi que sobrevivian LOS DOS y bare-fetch los mandaba
-// concatenados --
+// HTTP header names are NOT case-sensitive; a JavaScript object IS. That
+// mismatch was a hole (B11): a lowercase `authorization` written in the
+// config didn't collide with the `Authorization` the code writes, so BOTH
+// survived and bare-fetch sent them concatenated --
 //
-//     authorization = Bearer <la-de-otro-proveedor>, Bearer <la-nuestra>
+//     authorization = Bearer <someone-else's-provider-key>, Bearer <ours>
 //
-// --, o sea la credencial de un proveedor viajando al endpoint de otro. Con
-// `content-type` pasaba lo mismo y el cuerpo JSON salia anunciado como
-// text/plain.
+// -- i.e. one provider's credential traveling to another one's endpoint. The
+// same thing happened with `content-type`, and the JSON body went out
+// announced as text/plain.
 //
-// Se normaliza todo a minuscula al ENTRAR, y entonces la colision la resuelve
-// el objeto: lo que escribe el codigo pisa lo que diga el archivo porque son la
-// misma clave. No hay lista de nombres reservados, que es lo que despues hay
-// que acordarse de mantener.
+// Everything gets normalized to lowercase on the way IN, and then the
+// object itself resolves the collision: whatever the code writes overwrites
+// whatever the file says, because they're the same key. There's no list of
+// reserved names to remember to keep up to date afterward.
 function enMinuscula(crudos) {
   const out = {}
   for (const [nombre, valor] of Object.entries(crudos || {})) {
@@ -143,92 +143,98 @@ export class Upstream {
     this.baseUrl = String(baseUrl).replace(/\/+$/, '')
     this.apiKeyEnv = apiKeyEnv
     this.model = model
-    // COMO LO LLAMA EL PROVEEDOR vs COMO LO ANUNCIA ESTA RED. Son dos cosas y
-    // hasta ahora eran una sola.
+    // WHAT THE PROVIDER CALLS IT vs WHAT THIS NETWORK ADVERTISES IT AS. Two
+    // different things, and until now they were one.
     //
-    // El mismo modelo tiene un nombre distinto en cada puerta: NVIDIA lo llama
-    // `nvidia/nemotron-3.5-lightning-30b-a3b` y OpenRouter
-    // `nvidia/nemotron-3.5-lightning`. Con un solo campo, dos proveedores del
-    // MISMO modelo entran al registro como dos modelos distintos y no compiten
-    // nunca -- findAllByModelId filtra por nombre exacto, asi que el ruteo por
-    // carga, el desempate y la degradacion por presupuesto no se ejercen jamas.
+    // The same model has a different name at each door: NVIDIA calls it
+    // `nvidia/nemotron-3.5-lightning-30b-a3b` and OpenRouter calls it
+    // `nvidia/nemotron-3.5-lightning`. With a single field, two providers of
+    // the SAME model enter the registry as two different models and never
+    // compete -- findAllByModelId filters by exact name, so load-based
+    // routing, tie-breaking, and budget degradation never come into play.
     //
-    // `anunciadoComo` es el nombre con el que la fila entra al marketplace;
-    // `model` es el string que viaja en el body al proveedor. Sin declararlo,
-    // son el mismo y todo se comporta como antes.
+    // `anunciadoComo` is the name the row enters the marketplace under;
+    // `model` is the string that travels in the body to the provider.
+    // Without declaring it, they're the same and everything behaves as
+    // before.
     this.anunciadoComo = anunciadoComo || model
     this.displayName = displayName || model
     this.tags = tags
     this.maxConcurrent = maxConcurrent
-    // TOPE DE SALIDA PROPIO, y con default distinto de cero a proposito.
+    // ITS OWN OUTPUT CAP, with a non-zero default on purpose.
     //
-    // La reserva del presupuesto es `promptTokens*entrada + maxTokens*salida`:
-    // con maxTokens en cero la cota superior da CERO y el tope deja de cortar
-    // justo en el unico camino que cuesta dolares. Un cliente de OpenAI que no
-    // manda `max_tokens` -que son casi todos- no puede desactivar el corte sin
-    // querer, asi que el limite lo pone el nodo.
+    // The budget reservation is `promptTokens*input + maxTokens*output`: with
+    // maxTokens at zero the upper bound comes out to ZERO, and the cap stops
+    // cutting off exactly on the one path that costs real money. An OpenAI
+    // client that doesn't send `max_tokens` — which is almost all of
+    // them — can't disable the cutoff by accident, so the node sets the
+    // limit.
     this.maxTokens =
       Number.isFinite(maxTokens) && maxTokens > 0 ? Math.floor(maxTokens) : MAX_TOKENS_DEFAULT
-    // { entrada, salida } en micro-dolares por 1M de tokens, o null si el
-    // operador no lo declaro. Sin precio no hay reserva posible: quien
-    // registra decide si eso deja al upstream afuera (bin.mjs lo deja).
+    // { entrada, salida } in micro-dollars per 1M tokens, or null if the
+    // operator didn't declare it. With no price there's no possible
+    // reservation: whoever registers it decides whether that leaves the
+    // upstream out (bin.mjs does leave it out).
     this.precio = precio
-    // Un endpoint que corre en ESTA maquina: llama-server, vLLM o un NIM
-    // self-hosted, hablando OpenAI en localhost. Es un upstream por como se le
-    // pide -- HTTP, no el motor embebido-- y NO es un tercero por donde va el
-    // prompt: no sale de la maquina, no lo ve nadie, no cuesta dolares.
+    // An endpoint running on THIS machine: llama-server, vLLM, or a
+    // self-hosted NIM, speaking OpenAI on localhost. It's an upstream by how
+    // it's called -- HTTP, not the embedded engine -- and it's NOT a third
+    // party the prompt travels to: it never leaves the machine, nobody sees
+    // it, it costs no money.
     //
-    // Esa diferencia no es cosmetica: decide si le aplican el opt-in, el
-    // filtro de `local: true` y la condicion de "sin capacidad local" de D19.
-    // A las tres les aplica que NO.
+    // That difference isn't cosmetic: it decides whether the opt-in, the
+    // `local: true` filter, and D19's "no local capacity" condition apply to
+    // it. All three say NO.
     this.esLocal = esLocal === true
-    // Los dos relojes salen de la config para que un modelo lento se pueda
-    // acomodar sin tocar el codigo -- y para que los tests los puedan ejercitar
-    // sin esperar un minuto. Un valor invalido cae al default: nunca a cero,
-    // que seria un timeout que dispara antes de empezar.
+    // Both clocks come from the config so a slow model can be accommodated
+    // without touching code -- and so tests can exercise them without
+    // waiting a minute. An invalid value falls back to the default: never to
+    // zero, which would be a timeout that fires before it even starts.
     this.timeoutPrimerChunkMs = enteroPositivo(timeoutPrimerChunkMs, PRIMER_CHUNK_TIMEOUT_MS)
     this.timeoutIdleMs = enteroPositivo(timeoutIdleMs, IDLE_TIMEOUT_MS)
-    // Algunos modelos piden campos fuera del estandar de OpenAI (por ejemplo
-    // chat_template_kwargs.enable_thinking). Viven en la config y no en el
-    // codigo: son del modelo, no nuestros.
+    // Some models ask for fields outside the OpenAI standard (for example
+    // chat_template_kwargs.enable_thinking). They live in the config, not in
+    // the code: they belong to the model, not to us.
     this.extraBody = extraBody
-    // Headers extra del proveedor. OpenRouter, por ejemplo, usa HTTP-Referer y
-    // X-Title para atribuir el trafico a una app. Van en la config y no en el
-    // codigo por la misma razon que extraBody: son del proveedor, no nuestros.
+    // Extra provider headers. OpenRouter, for example, uses HTTP-Referer and
+    // X-Title to attribute traffic to an app. They live in the config and
+    // not in the code for the same reason as extraBody: they belong to the
+    // provider, not to us.
     //
-    // Se guardan YA normalizados a minuscula, y eso es lo que hace cierta la
-    // garantia de abajo: `authorization` y `content-type` no se pueden pisar
-    // desde el archivo ESCRIBANSE COMO SE ESCRIBAN. Ver #headers.
+    // Stored ALREADY normalized to lowercase, which is what makes the
+    // guarantee below true: `authorization` and `content-type` cannot be
+    // overridden from the file NO MATTER HOW THEY'RE CAPITALIZED. See
+    // #headers.
     this.extraHeaders = extraHeaders ? enMinuscula(extraHeaders) : null
   }
 
-  // La credencial se lee de una VARIABLE DE ENTORNO cuyo NOMBRE esta en la
-  // config. En el repo queda el nombre; el secreto no toca el disco, y sobre
-  // todo no entra al manifiesto firmado que se le anuncia a la red.
+  // The credential is read from an ENVIRONMENT VARIABLE whose NAME is in the
+  // config. The repo keeps the name; the secret never touches disk, and
+  // above all never enters the signed manifest announced to the network.
   get apiKey() {
     return env[this.apiKeyEnv] || null
   }
 
   disponible() {
-    // Un endpoint local no lleva credencial: pedirle una lo dejaria apagado
-    // para siempre. Lo que lo hace usable es que este levantado, y eso se sabe
-    // recien al pedirle algo.
+    // A local endpoint carries no credential: requiring one would leave it
+    // permanently disabled. What makes it usable is being up, and that's
+    // only known once something is actually requested from it.
     return this.esLocal || !!this.apiKey
   }
 
-  // Genera deltas de texto. MISMA forma que engine.complete(), a proposito:
-  // el provider y el gateway consumen los dos con el mismo `for await`, asi
-  // que cancelacion, timeouts y conteo de tokens siguen funcionando sin
-  // cambios.
-  // `signal` lo manda el gateway cuando el cliente se va. Los timeouts son de
-  // acá: son del protocolo con el proveedor, no del cliente, y el gateway no
-  // tiene por que saber cuanto tarda una API que no eligio.
+  // Generates text deltas. SAME shape as engine.complete(), on purpose: the
+  // provider and the gateway consume both with the same `for await`, so
+  // cancellation, timeouts, and token counting keep working with no changes.
+  // `signal` is sent by the gateway when the client leaves. The timeouts are
+  // set here: they belong to the protocol with the provider, not the client,
+  // and the gateway has no reason to know how long an API it didn't choose
+  // takes.
   async *completar({ messages, maxTokens = 0, signal = null, onUsage = null, onFinish = null }) {
-    // Un solo controlador para las tres formas de cortar -- el cliente se fue,
-    // el proveedor no arranco, el proveedor se colgo a mitad-: la que dispare
-    // primero aborta el fetch, y el `motivo` dice cual fue. Sin esto el error
-    // que ve el operador es un AbortError pelado, que no distingue "cerraste la
-    // pestana" de "la API se murio".
+    // A single controller for the three ways to cut it off — the client left,
+    // the provider never started, the provider hung mid-stream —: whichever
+    // fires first aborts the fetch, and `motivo` says which one. Without this
+    // the error the operator sees is a bare AbortError, which doesn't
+    // distinguish "you closed the tab" from "the API died."
     const ctl = new AbortController()
     let motivo = null
     let temporizador = null
@@ -265,24 +271,24 @@ export class Upstream {
       })
     } finally {
       clearTimeout(temporizador)
-      // Si el consumidor corta el `for await` -- un `break`, o una excepcion mas
-      // arriba-, el generador se cierra por acá y el fetch tiene que morir con
-      // el. Sin este abort el proveedor sigue generando y facturando para un
-      // stream que ya no lee nadie.
+      // If the consumer cuts the `for await` — a `break`, or an exception
+      // further up — the generator closes here and the fetch has to die with
+      // it. Without this abort the provider keeps generating and billing for
+      // a stream nobody is reading anymore.
       cortar('el consumidor dejo de leer')
     }
   }
 
-  // Los de la config PRIMERO y los nuestros despues: `authorization` no se
-  // puede pisar desde un archivo -- seria mandarle la credencial de un
-  // proveedor a otro-- y `content-type` tampoco, porque el cuerpo es JSON
-  // aunque alguien escriba otra cosa.
+  // The config's FIRST and ours after: `authorization` cannot be overridden
+  // from a file -- that would mean sending one provider's credential to
+  // another -- and neither can `content-type`, because the body is JSON no
+  // matter what someone else writes.
   //
-  // Todo en minuscula, de los dos lados. Ese detalle es el arreglo entero de
-  // B11: el constructor ya bajo a minuscula lo que vino del archivo, asi que
-  // estas tres lineas colisionan con el nombre que sea que alguien haya escrito
-  // y lo pisan. Escritas en `Content-Type`/`Authorization` NO pisaban nada --
-  // convivian con la version en minuscula y viajaban las dos.
+  // Everything lowercase, on both sides. That detail is B11's entire fix: the
+  // constructor already lowercased whatever came from the file, so these
+  // three lines collide with whatever name someone wrote and overwrite it.
+  // Written as `Content-Type`/`Authorization` they overwrote nothing -- they
+  // coexisted with the lowercase version and both traveled.
   #headers(key) {
     const h = { ...(this.extraHeaders || {}) }
     h['content-type'] = 'application/json'
@@ -292,31 +298,32 @@ export class Upstream {
   }
 
   async *#completar({ messages, maxTokens, onUsage, onFinish, ctl, armar, motivoDe }) {
-    // El menor entre lo que pidio el cliente y lo que este nodo permite. Un
-    // cliente puede pedir MENOS que el tope; no puede pedir mas.
+    // The lesser of what the client asked for and what this node allows. A
+    // client can ask for LESS than the cap; it can't ask for more.
     const tope = maxTokens > 0 ? Math.min(maxTokens, this.maxTokens) : this.maxTokens
     const key = this.apiKey
     if (!key && !this.esLocal) {
-      throw new Error('falta la credencial: pone la variable de entorno ' + this.apiKeyEnv)
+      throw new Error('upstream: missing credential, set the ' + this.apiKeyEnv + ' environment variable')
     }
 
     const mod = await import('bare-fetch')
     const fetch = mod.default || mod.fetch || mod
 
-    // El orden importa y antes estaba al reves: `extraBody` iba ULTIMO, asi que
-    // un `max_tokens` escrito en la config pisaba el tope del nodo -- el unico
-    // numero con el que se calculo la reserva-, y un `stream: false` rompia el
-    // parser de SSE sin decir por que. Lo que el nodo necesita para acotar el
-    // gasto y para entender la respuesta va DESPUES: la config extiende, no
-    // sobreescribe.
+    // Order matters, and it used to be reversed: `extraBody` went LAST, so a
+    // `max_tokens` written in the config would override the node's cap -- the
+    // one number the reservation was calculated with -- and a
+    // `stream: false` would break the SSE parser without saying why. What
+    // the node needs to bound spend and understand the response goes AFTER:
+    // the config extends, it doesn't override.
     const extra = { ...(this.extraBody || {}) }
 
-    // `usage` en streaming es OPCIONAL en el protocolo de OpenAI: sin pedirlo,
-    // la enorme mayoria de los proveedores no lo manda. Y sin `usage` la
-    // liquidacion se queda sin los tokens reales -- sobre todo los de entrada,
-    // que de este lado no hay forma de contar-. Lo pide el CODIGO y no la
-    // config: era un campo de un archivo que se podia olvidar, y olvidarlo
-    // salia barato en la factura y caro en el tope.
+    // `usage` in streaming is OPTIONAL in the OpenAI protocol: without
+    // requesting it, the vast majority of providers don't send it. And
+    // without `usage`, settlement is left without the real token
+    // counts -- especially the input ones, which there's no way to count on
+    // this side. It's requested by the CODE, not the config: it used to be a
+    // field in a file that could be forgotten, and forgetting it came cheap
+    // on the bill and expensive on the cap.
     const streamOptions = { ...(extra.stream_options || {}), include_usage: true }
     delete extra.stream_options
 
@@ -332,7 +339,7 @@ export class Upstream {
     let res = null
     armar(
       this.timeoutPrimerChunkMs,
-      `el proveedor no contesto en ${this.timeoutPrimerChunkMs / 1000}s`
+      `provider did not respond within ${this.timeoutPrimerChunkMs / 1000}s`
     )
 
     for (let intento = 0; intento < REINTENTOS; intento++) {
@@ -349,12 +356,13 @@ export class Upstream {
         })
       } catch (err) {
         res = null
-        // Un corte nuestro NO es un fallo de red: reintentar seria volver a
-        // pedirle al proveedor algo que ya decidimos no querer -- y pagarlo.
+        // A cutoff on our end is NOT a network failure: retrying would mean
+        // asking the provider again for something we already decided we
+        // don't want -- and paying for it.
         const porque = motivoDe()
-        if (porque) throw new Error('se corto el pedido al proveedor: ' + porque)
+        if (porque) throw new Error('upstream: request to provider cut off: ' + porque)
         if (intento === REINTENTOS - 1) {
-          throw new Error('no se pudo llegar al proveedor: ' + ((err && err.message) || err))
+          throw new Error('upstream: could not reach provider: ' + ((err && err.message) || err))
         }
         continue
       }
@@ -365,23 +373,24 @@ export class Upstream {
       console.error('[upstream:' + this.id + '] HTTP ' + res.status + ': ' + detalle.slice(0, 300))
 
       if (!esReintentable(res.status)) {
-        // El mensaje que sale al cliente NO lleva el detalle del proveedor.
-        throw new Error('el proveedor externo rechazo el request (HTTP ' + res.status + ')')
+        // The message that goes out to the client does NOT carry the
+        // provider's detail.
+        throw new Error('external provider rejected the request (HTTP ' + res.status + ')')
       }
       if (intento === REINTENTOS - 1) {
-        throw new Error('el proveedor externo no esta disponible (HTTP ' + res.status + ')')
+        throw new Error('external provider is unavailable (HTTP ' + res.status + ')')
       }
       res = null
     }
 
-    // SSE a mano: mismo formato que ya parsea el chat del panel.
+    // Hand-rolled SSE: same format the panel's chat already parses.
     let buffer = ''
     let usage = null
     let finishReason = null
 
     for await (const chunk of res.body) {
       const porque = motivoDe()
-      if (porque) throw new Error('se corto el stream del proveedor: ' + porque)
+      if (porque) throw new Error('upstream: provider stream cut off: ' + porque)
 
       buffer += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')
 
@@ -402,65 +411,70 @@ export class Upstream {
             continue
           }
 
-          // B15 -- un 200 NO quiere decir que salio bien.
+          // B15 -- a 200 does NOT mean it went well.
           //
-          // El status llega con los headers, o sea antes de que el modelo
-          // genere un solo token. Todo lo que se rompe despues -- el proveedor
-          // de atras que se cae, la cuota que se agota a mitad, un filtro de
-          // contenido -- no puede viajar como status porque ya se mando: viaja
-          // como un objeto `error` adentro del cuerpo. OpenRouter lo hace, y
-          // aca no se miraba.
+          // The status arrives with the headers, i.e. before the model
+          // generates a single token. Everything that breaks
+          // afterward -- the provider behind it going down, a quota running
+          // out mid-stream, a content filter -- can't travel as a status
+          // because it's already been sent: it travels as an `error` object
+          // inside the body. OpenRouter does this, and it wasn't being
+          // checked here.
           //
-          // Sin esto el error se descartaba como cualquier evento desconocido:
-          // el generador terminaba normal, el gateway lo leia como `ok: true`,
-          // cortaba el recorrido de candidatos SIN probar el siguiente, y el
-          // cliente recibia una respuesta exitosa y vacia. La falla mas cara de
-          // todas: la que se ve igual que funcionar.
+          // Without this, the error used to get discarded like any unknown
+          // event: the generator finished normally, the gateway read it as
+          // `ok: true`, it cut the candidate walk short WITHOUT trying the
+          // next one, and the client received a successful, empty response.
+          // The most expensive kind of failure there is: the one that looks
+          // exactly like working.
           //
-          // Se tira, que es lo que hace que el gateway lo trate como un
-          // candidato caido y siga con el que sigue. El detalle del proveedor
-          // va al log de ESTE proceso y no al cliente, igual que en la rama de
-          // los status: puede traer el nombre de la cuenta o el id interno.
+          // It throws, which is what makes the gateway treat it as a fallen
+          // candidate and move on to the next one. The provider's detail
+          // goes to THIS process's log and not to the client, same as in the
+          // status branch: it can carry the account name or the internal id.
           if (ev.error) {
             const detalle =
               (ev.error && (ev.error.message || ev.error.code)) || JSON.stringify(ev.error)
             console.error(
-              '[upstream:' + this.id + '] error EN EL STREAM: ' + String(detalle).slice(0, 300)
+              '[upstream:' + this.id + '] error IN STREAM: ' + String(detalle).slice(0, 300)
             )
-            // El codigo se conserva en el mensaje porque el gateway lee un 429
-            // de ahi para tratarlo como saturacion en vez de como request roto.
+            // The code is kept in the message because the gateway reads a
+            // 429 from it to treat it as saturation instead of a broken
+            // request.
             const codigo = ev.error && ev.error.code
             throw new Error(
-              'el proveedor externo corto la respuesta' + (codigo ? ' (' + codigo + ')' : '')
+              'external provider cut off the response' + (codigo ? ' (' + codigo + ')' : '')
             )
           }
 
-          // El usage viaja en el ultimo chunk cuando el proveedor lo manda.
+          // Usage travels in the last chunk when the provider sends it.
           if (ev.usage) usage = ev.usage
 
-          // B14 -- COMO TERMINO, que hasta ahora se descartaba igual que se
-          // descartaba el error. El proveedor lo dice en el ultimo chunk, y es
-          // el unico que lo sabe con certeza: nosotros contamos deltas de SSE,
-          // no tokens, asi que comparar contra el tope daria un numero parecido
-          // y no el hecho.
+          // B14 -- HOW IT FINISHED, which until now was discarded the same
+          // way the error was discarded. The provider states it in the last
+          // chunk, and it's the only one that knows for sure: we count SSE
+          // deltas, not tokens, so comparing against the cap would give an
+          // approximate number, not the fact.
           //
-          // Importa porque D9 lo declara no negociable: si la respuesta se
-          // corto por el tope, el cliente tiene que leer `length` y no `stop`.
-          // Cobrar por un tope y reportar terminacion normal es mentir en el
-          // unico campo que el cliente mira para saber si le falta texto.
+          // Matters because D9 declares it non-negotiable: if the response
+          // was cut off by the cap, the client has to read `length`, not
+          // `stop`. Charging for a cap and reporting normal completion is
+          // lying in the one field the client looks at to know whether it's
+          // missing text.
           const fin = ev.choices && ev.choices[0] && ev.choices[0].finish_reason
           if (typeof fin === 'string' && fin !== '') finishReason = fin
 
           const delta = ev.choices && ev.choices[0] && ev.choices[0].delta
           if (!delta) continue
 
-          // SOLO content. `reasoning_content` se ignora sin excepcion: es el
-          // pensamiento del modelo y delata al proveedor.
+          // ONLY content. `reasoning_content` is ignored with no exception:
+          // it's the model's thinking and it gives away the provider.
           if (typeof delta.content === 'string' && delta.content !== '') {
-            // Cada token que llega prueba que el proveedor sigue vivo, asi que
-            // el reloj se corre. Lo que se acota de acá en mas es el SILENCIO
-            // entre tokens, no cuanto dura la respuesta entera: una respuesta
-            // larga que fluye es legitima, treinta segundos sin nada no.
+            // Every token that arrives proves the provider is still alive, so
+            // the clock resets. What's bounded from here on is the SILENCE
+            // between tokens, not how long the whole response takes: a long
+            // response that keeps flowing is legitimate, thirty seconds of
+            // nothing isn't.
             armar(
               this.timeoutIdleMs,
               `el proveedor dejo de mandar tokens por ${this.timeoutIdleMs / 1000}s`
@@ -480,16 +494,16 @@ export class Upstream {
 // Config
 // -----------------------------------------------------------------------------
 
-// Los upstreams salen de un archivo del directorio de datos, NO del codigo:
-// que APIs usa este nodo es una decision del operador, no del programa.
+// Upstreams come from a file in the data directory, NOT from the code: which
+// APIs this node uses is an operator decision, not the program's.
 export function cargarDesde(objeto) {
   if (!objeto || !Array.isArray(objeto.upstreams)) return []
   const out = []
   for (const u of objeto.upstreams) {
-    // `apiKeyEnv` deja de ser obligatorio SOLO para un proveedor local: es el
-    // unico que no lleva credencial. Para uno remoto sigue siendo obligatorio,
-    // porque un upstream sin nombre de variable no puede autenticarse y el
-    // fallo saldria recien en el primer prompt.
+    // `apiKeyEnv` stops being mandatory ONLY for a local provider: it's the
+    // only one with no credential. For a remote one it's still mandatory,
+    // because an upstream with no variable name can't authenticate, and the
+    // failure would only show up on the first prompt.
     const esLocal = u && u.local === true
     if (!u || !u.id || !u.baseUrl) continue
     if (!esLocal && !u.apiKeyEnv) continue
@@ -520,13 +534,13 @@ export function cargarDesde(objeto) {
   return out
 }
 
-// El precio que declara el operador, en USD por 1M de tokens, pasado a los
-// micro-dolares enteros con los que trabaja costs.mjs. Nunca floats mas alla
-// de esta conversion: es el unico punto donde un numero escrito por una
-// persona entra al contador.
+// The price the operator declares, in USD per 1M tokens, converted to the
+// integer micro-dollars costs.mjs works with. Never floats past this
+// conversion: it's the one point where a number a person wrote enters the
+// counter.
 //
-// Se redondea HACIA ARRIBA. Un precio subestimado hace que la reserva se
-// quede corta, y una reserva corta es un tope que se pasa.
+// Rounded UP. An underestimated price makes the reservation fall short, and
+// a short reservation is a cap that gets blown past.
 function precioDe(m) {
   const p = m && m.pricePerMTok
   if (!p) return null
@@ -541,32 +555,33 @@ function precioDe(m) {
   }
 }
 
-// El OPT-IN de D19: mandarle el prompt a un tercero es una decision del
-// operador y tiene que ser explicita. Ausente significa APAGADO -- un archivo
-// de config a medio escribir no puede terminar sacando prompts de la maquina.
+// D19's OPT-IN: sending the prompt to a third party is an operator decision
+// and has to be explicit. Absent means OFF -- a half-written config file
+// can't end up sending prompts off the machine.
 export function optInDe(objeto) {
   return !!(objeto && objeto.optIn === true)
 }
 
-// Revender la API de un tercero a la red es OTRA decision, y tambien apagada
-// por default. Todavia no la consume nadie: se lee aca para que el dia que se
-// cablee el broker el default seguro ya este escrito donde corresponde.
+// Reselling a third party's API to the network is ANOTHER decision, and also
+// off by default. Nothing consumes it yet: it's read here so that the day
+// the broker gets wired up, the safe default is already written where it
+// belongs.
 export function brokerDe(objeto) {
   return !!(objeto && objeto.brokerEnabled === true)
 }
 
 // -----------------------------------------------------------------------------
-// El archivo
+// The file
 // -----------------------------------------------------------------------------
 
-// `<storage>/upstreams.json`, el mismo directorio donde ya viven budget.json e
-// identity.json. NO se lee del repo: la config lleva el nombre de la variable
-// con la credencial y la lista de proveedores de esta persona.
+// `<storage>/upstreams.json`, the same directory where budget.json and
+// identity.json already live. NOT read from the repo: the config carries the
+// name of the credential variable and this person's list of providers.
 //
-// Que el archivo no exista es el caso NORMAL, no un error: la enorme mayoria
-// de los nodos no habla con ninguna API externa. Se devuelve la config vacia y
-// nadie se entera. Un archivo que existe pero esta roto SI se avisa, porque
-// ahi alguien quiso configurar algo y no le funciono.
+// The file not existing is the NORMAL case, not an error: the vast majority
+// of nodes don't talk to any external API. The empty config is returned and
+// nobody's bothered. A file that exists but is broken DOES get flagged,
+// because there someone tried to configure something and it didn't work.
 export async function leerConfig(dir) {
   const vacia = { upstreams: [], optIn: false, brokerEnabled: false, error: null }
   if (!dir) return vacia
@@ -584,7 +599,7 @@ export async function leerConfig(dir) {
   try {
     objeto = JSON.parse(crudo)
   } catch (err) {
-    return { ...vacia, error: 'upstreams.json no es JSON valido: ' + ((err && err.message) || err) }
+    return { ...vacia, error: 'upstreams.json is not valid JSON: ' + ((err && err.message) || err) }
   }
 
   return {

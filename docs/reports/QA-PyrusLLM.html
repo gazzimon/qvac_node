@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Protocolo de QA de PyrusLLM — 36 pruebas sobre las Fases 4 a 8.5, con comando, resultado esperado y veredicto.">
+<meta name="description" content="PyrusLLM QA protocol — 36 tests covering Phases 4 through 8.5, with command, expected result, and verdict.">
 <style>
   /* reset minimo */
   *, *::before, *::after { box-sizing: border-box; }
@@ -11,7 +11,7 @@
   img, svg, video { max-width: 100%; height: auto; }
   button, input, textarea, select { font: inherit; color: inherit; }
 </style>
-<title>Protocolo QA PyrusLLM</title>
+<title>PyrusLLM QA Protocol</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -579,19 +579,19 @@
 <header class="top">
   <div class="top-inner">
     <div>
-      <div class="eyebrow">Protocolo completo &middot; Fases 4 a 8.5</div>
-      <h1>Protocolo QA PyrusLLM</h1>
+      <div class="eyebrow">Full protocol &middot; Phases 4 to 8.5</div>
+      <h1>PyrusLLM QA Protocol</h1>
       <p class="lede">
-        Treinta y seis pruebas con comando, resultado esperado y veredicto, sobre el
-        binario instalado &mdash; no sobre el repo clonado. Se corre de arriba hacia abajo
-        y se completa mientras se corre: el reporte sale de esta misma página.
+        Thirty-six tests with command, expected result, and verdict, run against the
+        installed binary &mdash; not the cloned repo. Run top to bottom
+        and fill it in as you go: the report comes straight out of this page.
       </p>
     </div>
     <div class="meta">
-      <div><span>Versión objetivo</span><b>pyrusllm 0.11.0</b></div>
-      <div><span>Máquinas</span><b>2 (A y B)</b></div>
-      <div><span>Duración estimada</span><b>5 h</b></div>
-      <div><span>Pruebas</span><b id="meta-count">36</b></div>
+      <div><span>Target version</span><b>pyrusllm 0.11.0</b></div>
+      <div><span>Machines</span><b>2 (A and B)</b></div>
+      <div><span>Estimated duration</span><b>5 h</b></div>
+      <div><span>Tests</span><b id="meta-count">36</b></div>
     </div>
   </div>
 </header>
@@ -600,7 +600,7 @@
   <div class="cols">
     <aside>
       <div class="panel">
-        <h3>Avance</h3>
+        <h3>Progress</h3>
         <div class="bar">
           <i id="bar-pass" style="width:0%; background:var(--pass)"></i>
           <i id="bar-fail" style="width:0%; background:var(--fail)"></i>
@@ -608,165 +608,166 @@
           <i id="bar-na" style="width:0%; background:var(--ink-2)"></i>
         </div>
         <div class="tally">
-          <div class="tally-row"><span><i class="dot" style="background:var(--pass)"></i>Pasa</span><b id="n-pass">0</b></div>
-          <div class="tally-row"><span><i class="dot" style="background:var(--fail)"></i>Falla</span><b id="n-fail">0</b></div>
-          <div class="tally-row"><span><i class="dot" style="background:var(--block)"></i>Bloqueado</span><b id="n-block">0</b></div>
-          <div class="tally-row"><span><i class="dot" style="background:var(--ink-2)"></i>No aplica</span><b id="n-na">0</b></div>
+          <div class="tally-row"><span><i class="dot" style="background:var(--pass)"></i>Pass</span><b id="n-pass">0</b></div>
+          <div class="tally-row"><span><i class="dot" style="background:var(--fail)"></i>Fail</span><b id="n-fail">0</b></div>
+          <div class="tally-row"><span><i class="dot" style="background:var(--block)"></i>Blocked</span><b id="n-block">0</b></div>
+          <div class="tally-row"><span><i class="dot" style="background:var(--ink-2)"></i>N/A</span><b id="n-na">0</b></div>
           <div class="tally-row" style="border-top:1px solid var(--line); padding-top:8px; margin-top:2px">
-            <span>Sin correr</span><b id="n-todo">36</b>
+            <span>Not run</span><b id="n-todo">36</b>
           </div>
         </div>
       </div>
       <div class="panel">
-        <h3>Ir a</h3>
+        <h3>Jump to</h3>
         <nav class="jump" id="jump"></nav>
       </div>
     </aside>
 
     <main>
       <section class="block" id="prompt-agente">
-        <h2>Prompt de arranque del agente</h2>
+        <h2>Agent kickoff prompt</h2>
         <p>
-          Santiago: abrí una terminal en la carpeta del repo, arrancá el agente
-          (<code>claude</code>) y pegale esto como primer mensaje. Define el rol, lo que
-          puede y no puede tocar, y el formato con el que tiene que devolver cada resultado.
+          Santiago: open a terminal in the repo folder, start the agent
+          (<code>claude</code>), and paste this as the first message. It defines the role, what
+          it can and can't touch, and the format it has to return each result in.
         </p>
         <div class="code">
           <div class="code-head">
-            <span>Prompt · pegar tal cual</span>
-            <button class="copy" data-copy="#agent-prompt">Copiar</button>
+            <span>Prompt · paste as-is</span>
+            <button class="copy" data-copy="#agent-prompt">Copy</button>
           </div>
-          <pre id="agent-prompt">Sos el operador de QA de PyrusLLM. Vas a ejecutar el "Protocolo QA PyrusLLM"
-completo -- 36 pruebas, T01 a T36, Fases 4 a 8.5 -- que tengo abierto en el
-navegador, sobre DOS maquinas: A (esta) y B (la segunda, por SSH o a mano con
-la otra persona).
+          <pre id="agent-prompt">You are the PyrusLLM QA operator. You're going to run the full "PyrusLLM QA
+Protocol" -- 36 tests, T01 through T36, Phases 4 to 8.5 -- that I have open in
+the browser, across TWO machines: A (this one) and B (the second one, over
+SSH or by hand with the other person).
 
-El protocolo esta agrupado asi, y conviene correrlo por bloques:
+The protocol is grouped like this, and it's best run in blocks:
 
-  T01-T08  Fase 4 y 4.5  install, inferencia local, swarm-join, API OpenAI
-  T09-T15  Fase 5        OTA, D4, reintentos, credenciales, soak, auditoria
-  T16-T19  Fase 6        la suite, los mocks declarados, el README, las vistas
-  T20-T23  Fase 6.5      el ledger: reserva, tope, reparto por cuenta
-  T24-T25  Fase 6.6      la cuota gratuita por par
-  T26-T29  Fase 7        wallet, seed cifrada, manifiesto firmado con direccion
-  T30-T32  Fase 8        el precio rutea, y sale al chat
-  T33-T36  Fase 8.5      el asistente externo como un candidato mas
+  T01-T08  Phase 4 and 4.5  install, local inference, swarm-join, OpenAI API
+  T09-T15  Phase 5          OTA, D4, retries, credentials, soak, audit
+  T16-T19  Phase 6          the suite, the declared mocks, the README, the views
+  T20-T23  Phase 6.5        the ledger: reserve, cap, per-account split
+  T24-T25  Phase 6.6        the free quota per peer
+  T26-T29  Phase 7          wallet, encrypted seed, address-signed manifest
+  T30-T32  Phase 8          price routing, all the way to chat
+  T33-T36  Phase 8.5        the external assistant as just another candidate
 
-Reglas, en orden de importancia:
+Rules, in order of importance:
 
-1. NO arregles codigo. Este es un pase de QA, no de desarrollo. Si algo falla,
-   documentalo y segui con el test siguiente. Nada de editar archivos del repo
-   salvo que yo te lo pida explicitamente.
-2. Corre los tests EN ORDEN. Varios dependen del estado que deja el anterior
-   (nodo levantado, api key emitida, par descubierto, wallet creada).
-3. Para cada test devolveme, sin adornos:
-   - el ID (T0x) y el veredicto: PASA / FALLA / BLOQUEADO / NO APLICA
-   - el comando exacto que corriste (si lo adaptaste, deci por que)
-   - la salida REAL pegada, recortada a lo relevante (no la resumas: el
-     veredicto se lee de la salida, no de tu opinion)
-   - los numeros que el test pide medir (segundos, tokens/s, TTFT, micros,
-     codigo HTTP)
-4. Un test PASA solo si se cumple TODO lo que dice "Resultado esperado". Si se
-   cumple parcialmente es FALLA, con la parte que fallo escrita.
-5. BLOQUEADO es cuando no lo pudiste correr (falta la maquina B, falta una
-   credencial de proveedor, no hay red). Deci que falto.
-6. Antes de arrancar, ejecuta el bloque "Preparacion" y confirmame el entorno:
-   SO, version del binario (pyrusllm --version), directorio de storage, si hay
-   .env y que variables cargo, si hay upstreams.json, y si hay un proceso viejo
-   escuchando en 8787.
-7. Nunca imprimas el VALOR de una API key, de una credencial de proveedor ni de
-   PYRUS_WALLET_PASSPHRASE, y NUNCA las 24 palabras de la wallet. Los nombres de
-   las variables si, los valores no. Si una salida los trae, enmascaralos con
-   ****. Si un test te pide buscar la frase dentro de un archivo, reporta
-   solamente si aparece o no, nunca el contenido.
-8. Los comandos de la maquina B van marcados. No los corras en A "para
-   simular": un test de dos maquinas corrido en una sola es BLOQUEADO.
-9. Los tests que dicen "contra la suite" se verifican corriendo npm test y
-   leyendo la linea del test nombrado. Pegame esa linea, no todo el output.
+1. DO NOT fix code. This is a QA pass, not a dev pass. If something fails,
+   document it and move on to the next test. Do not edit any repo files
+   unless I explicitly ask you to.
+2. Run the tests IN ORDER. Several depend on the state left by the previous
+   one (node up, API key issued, peer discovered, wallet created).
+3. For each test, give me back, with no embellishment:
+   - the ID (T0x) and the verdict: PASS / FAIL / BLOCKED / N/A
+   - the exact command you ran (if you adapted it, say why)
+   - the REAL output pasted in, trimmed to what's relevant (don't summarize
+     it: the verdict is read from the output, not from your opinion)
+   - the numbers the test asks you to measure (seconds, tokens/s, TTFT,
+     micros, HTTP code)
+4. A test PASSES only if EVERYTHING the "Expected result" says holds. If it
+   only partially holds, it's a FAIL, with the part that failed written out.
+5. BLOCKED is when you couldn't run it (machine B is missing, a provider
+   credential is missing, no network). Say what was missing.
+6. Before starting, run the "Preparation" block and confirm the environment
+   to me: OS, binary version (pyrusllm --version), storage directory, whether
+   there's a .env and which variables it loaded, whether there's an
+   upstreams.json, and whether an old process is listening on 8787.
+7. Never print the VALUE of an API key, a provider credential, or
+   PYRUS_WALLET_PASSPHRASE, and NEVER the wallet's 24 words. Variable names
+   are fine, values are not. If an output includes them, mask them with
+   ****. If a test asks you to search for a phrase inside a file, report
+   only whether it appears or not, never the content.
+8. Machine B's commands are marked. Don't run them on A "to simulate": a
+   two-machine test run on just one machine is BLOCKED.
+9. Tests that say "against the suite" are verified by running npm test and
+   reading the line for the named test. Paste me that line, not the whole
+   output.
 
-Empeza por la Preparacion y para cuando la tengas: te confirmo el entorno antes
-de que arranques con T01.</pre>
+Start with Preparation and stop once you have it: I'll confirm the
+environment before you start on T01.</pre>
         </div>
       </section>
 
       <section class="block" id="preparacion">
-        <h2>Preparación</h2>
+        <h2>Preparation</h2>
         <p>
-          Se prueba <strong>la instalación real</strong>: el binario que baja un usuario, no
-          <code>node bin.mjs</code> desde el repo. El repo hace falta solo para
-          <code>scripts/</code> y las suites de test.
+          What's under test is <strong>the real install</strong>: the binary an end user
+          downloads, not <code>node bin.mjs</code> from the repo. The repo is only needed for
+          <code>scripts/</code> and the test suites.
         </p>
         <ul>
-          <li><strong>Máquina A</strong> — la que corre el pase completo. Windows 11 o macOS/Linux.</li>
-          <li><strong>Máquina B</strong> — segunda máquina, en <em>otra</em> red o en el mismo hotspot. Alcanza con que corra <code>pyrusllm serve --swarm</code>.</li>
-          <li><strong>Red</strong> — si el P2P no descubre pares, sospechar de la red antes que del código: un AP corporativo que bloquea UDP rompe el hole-punching. Plan B: hotspot del teléfono en las dos máquinas.</li>
-          <li><strong>Nada escuchando en 8787</strong> — un gateway viejo abierto es el error más probable de todo el pase.</li>
-          <li><strong>Credenciales de proveedor</strong> — los tests de Fase 8 y 8.5 (T30 a T36) piden al menos una API key de NVIDIA o de OpenRouter en el <code>.env</code>. Sin ninguna, ese bloque entero queda BLOQUEADO, no FALLA.</li>
-          <li><strong>Passphrase de wallet</strong> — <code>PYRUS_WALLET_PASSPHRASE</code> en el <code>.env</code>, larga y única. Sin ella no se puede crear ni abrir la wallet de la Fase 7.</li>
+          <li><strong>Machine A</strong> — the one running the full pass. Windows 11 or macOS/Linux.</li>
+          <li><strong>Machine B</strong> — second machine, on <em>another</em> network or on the same hotspot. It only needs to run <code>pyrusllm serve --swarm</code>.</li>
+          <li><strong>Network</strong> — if P2P doesn't discover peers, suspect the network before the code: a corporate AP that blocks UDP breaks hole-punching. Plan B: phone hotspot on both machines.</li>
+          <li><strong>Nothing listening on 8787</strong> — an old gateway left open is the single most likely error in the whole pass.</li>
+          <li><strong>Provider credentials</strong> — the Phase 8 and 8.5 tests (T30 to T36) require at least one NVIDIA or OpenRouter API key in <code>.env</code>. Without one, that entire block is BLOCKED, not FAIL.</li>
+          <li><strong>Wallet passphrase</strong> — <code>PYRUS_WALLET_PASSPHRASE</code> in <code>.env</code>, long and unique. Without it the Phase 7 wallet can't be created or opened.</li>
         </ul>
         <div class="code">
           <div class="code-head">
-            <span>Storage y config · dónde mira el nodo</span>
-            <button class="copy" data-copy="#prep-storage">Copiar</button>
+            <span>Storage and config · what the node looks at</span>
+            <button class="copy" data-copy="#prep-storage">Copy</button>
           </div>
-          <pre id="prep-storage"># El directorio de storage lo imprime el nodo al arrancar. Ahi viven:
-#   identity.json     la semilla de red (en claro, declarado)
-#   apikeys.json      las credenciales emitidas (persisten)
-#   wallet.json       el keystore CIFRADO de la wallet de cobro (Fase 7)
-#   upstreams.json    que proveedores externos usa este nodo (Fases 8 y 8.5)
-#   ledger            el gasto del mes (persiste)
+          <pre id="prep-storage"># The node prints the storage directory on startup. It holds:
+#   identity.json     the network seed (plaintext, by design)
+#   apikeys.json      issued credentials (persisted)
+#   wallet.json       the ENCRYPTED keystore for the Phase 7 payout wallet
+#   upstreams.json    which external providers this node uses (Phases 8 and 8.5)
+#   ledger            this month's spend (persisted)
 
-# Copiar la plantilla de upstreams al storage, y editarla ahi:
+# Copy the upstreams template into storage, and edit it there:
 Copy-Item upstreams.example.json "<storage>\upstreams.json"      # PowerShell
 cp upstreams.example.json "<storage>/upstreams.json"             # bash
 
-# La credencial NO va en ese archivo: va el NOMBRE de la variable de entorno
-# (campo apiKeyEnv), y el valor va en el .env. Es la razon por la que el
-# secreto no entra al manifiesto firmado que se anuncia a la red.</pre>
+# The credential does NOT go in that file: the environment variable NAME goes
+# there (the apiKeyEnv field), and the value goes in .env. That's why the
+# secret never ends up in the signed manifest announced to the network.</pre>
         </div>
         <div class="code">
           <div class="code-head">
-            <span>Máquina A · PowerShell</span>
-            <button class="copy" data-copy="#prep-ps">Copiar</button>
+            <span>Machine A · PowerShell</span>
+            <button class="copy" data-copy="#prep-ps">Copy</button>
           </div>
           <pre id="prep-ps">git clone https://github.com/gazzimon/qvac_node.git; cd qvac_node
-npm install                      # solo para scripts/ y las suites
-Get-NetTCPConnection -LocalPort 8787 -ErrorAction SilentlyContinue   # tiene que dar vacio
-Get-Process bare,pyrusllm -ErrorAction SilentlyContinue              # procesos viejos: matarlos
-Copy-Item .env.example .env      # y completar las claves que se vayan a usar</pre>
+npm install                      # only needed for scripts/ and the suites
+Get-NetTCPConnection -LocalPort 8787 -ErrorAction SilentlyContinue   # must come back empty
+Get-Process bare,pyrusllm -ErrorAction SilentlyContinue              # old processes: kill them
+Copy-Item .env.example .env      # and fill in the keys you'll be using</pre>
         </div>
         <div class="code">
           <div class="code-head">
-            <span>Máquina A · bash (macOS / Linux)</span>
-            <button class="copy" data-copy="#prep-sh">Copiar</button>
+            <span>Machine A · bash (macOS / Linux)</span>
+            <button class="copy" data-copy="#prep-sh">Copy</button>
           </div>
           <pre id="prep-sh">git clone https://github.com/gazzimon/qvac_node.git && cd qvac_node
 npm install
-lsof -i :8787 || echo "8787 libre"
-pgrep -fl "bare|pyrusllm" || echo "sin procesos viejos"
+lsof -i :8787 || echo "8787 free"
+pgrep -fl "bare|pyrusllm" || echo "no old processes"
 cp .env.example .env</pre>
         </div>
         <div class="warn">
-          El pase entero asume el puerto <code>8787</code>. Si hace falta otro, cambiarlo en
-          <em>todos</em> los comandos con <code>--port</code> y en las URLs, y anotarlo en el reporte.
+          The whole pass assumes port <code>8787</code>. If another one is needed, change it in
+          <em>every</em> command with <code>--port</code> and in the URLs, and note it in the report.
         </div>
       </section>
 
       <div id="tests"></div>
 
       <div class="actionbar">
-        <div class="status" id="status">Sin correr — 36 pruebas pendientes.</div>
+        <div class="status" id="status">Not run — 36 tests pending.</div>
         <div style="display:flex; gap:10px; flex-wrap:wrap">
-          <button class="btn ghost" id="btn-reset">Borrar todo</button>
-          <button class="btn" id="btn-report">Generar reporte</button>
+          <button class="btn ghost" id="btn-reset">Clear all</button>
+          <button class="btn" id="btn-report">Generate report</button>
         </div>
       </div>
 
       <footer class="end">
-        Protocolo completo, Fases 4 a 8.5. Fuera de alcance a proposito: la Fase 9
-        (recibos y liquidacion), y la 6.5 congelada, que arrastra B14
-        (<code>finish_reason: length</code> al recortar por el tope) y bloquea el
-        cierre de la 9.
+        Full protocol, Phases 4 to 8.5. Deliberately out of scope: Phase 9
+        (receipts and settlement), and the frozen 6.5, which carries B14
+        (<code>finish_reason: length</code> when trimmed by the cap) and blocks
+        closing out 9.
       </footer>
     </main>
   </div>
@@ -774,10 +775,10 @@ cp .env.example .env</pre>
 
 <dialog id="dlg">
   <div class="dlg-head">
-    <h3 style="font-size:18px">Reporte del pase</h3>
+    <h3 style="font-size:18px">Pass report</h3>
     <div style="display:flex; gap:10px">
-      <button class="btn" id="btn-copy-report">Copiar al portapapeles</button>
-      <button class="btn ghost" id="btn-close">Cerrar</button>
+      <button class="btn" id="btn-copy-report">Copy to clipboard</button>
+      <button class="btn ghost" id="btn-close">Close</button>
     </div>
   </div>
   <textarea id="report" spellcheck="false" readonly></textarea>
@@ -789,213 +790,213 @@ cp .env.example .env</pre>
   const TESTS = [
     {
       id: 'T01',
-      fase: 'Fase 4',
-      titulo: 'La instalación de una línea deja la app andando',
-      why: 'El claim del proyecto es que instalar es la demo: una línea, sin Node, sin npm, sin Pear, sin sudo ni UAC, y la app abre sola en el navegador.',
-      pre: 'Máquina A limpia (sin pyrusllm instalado). Si ya está, desinstalar borrando el binario de %LOCALAPPDATA% o ~/.local/bin.',
+      fase: 'Phase 4',
+      titulo: 'A one-line install leaves the app running',
+      why: 'The project\'s claim is that installing IS the demo: one line, no Node, no npm, no Pear, no sudo or UAC, and the app opens by itself in the browser.',
+      pre: 'Clean Machine A (no pyrusllm installed). If already installed, uninstall by deleting the binary from %LOCALAPPDATA% or ~/.local/bin.',
       cmds: [
-        { os: 'Máquina A · PowerShell', code: 'irm https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.ps1 | iex' },
-        { os: 'Máquina A · bash', code: 'curl -fsSL https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.sh | sh' }
+        { os: 'Machine A · PowerShell', code: 'irm https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.ps1 | iex' },
+        { os: 'Machine A · bash', code: 'curl -fsSL https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.sh | sh' }
       ],
       esperado: [
-        'El instalador detecta plataforma, baja el binario del release y verifica el checksum antes de instalar.',
-        'No pide sudo, ni UAC, ni contraseña. Instala en ~/.local/bin o %LOCALAPPDATA%.',
-        'Arranca solo y abre el navegador en http://localhost:8787.',
-        'La página que abre es el chat, con el nodo APAGADO y el botón "Launch local agent" visible.'
+        'The installer detects the platform, downloads the release binary, and verifies the checksum before installing.',
+        'It never asks for sudo, UAC, or a password. Installs to ~/.local/bin or %LOCALAPPDATA%.',
+        'Starts on its own and opens the browser at http://localhost:8787.',
+        'The page that opens is the chat, with the node OFF and the "Launch local agent" button visible.'
       ],
-      medir: 'Segundos desde que se pega el comando hasta que el navegador muestra el chat.',
-      nota: 'En Windows, SmartScreen avisa una vez: el binario no está firmado. Eso no es un FALLA, es esperado — anotarlo.'
+      medir: 'Seconds from pasting the command to the browser showing the chat.',
+      nota: 'On Windows, SmartScreen warns once: the binary isn\'t signed. That is not a FAIL, it\'s expected — note it.'
     },
     {
       id: 'T02',
-      fase: 'Fase 4',
-      titulo: 'La descarga directa verifica contra su .sha256',
-      why: 'Para quien no ejecuta un script bajado de internet, el camino alternativo es bajar el binario a mano. Si el checksum publicado no coincide con el archivo, ese camino no existe.',
-      pre: 'Ninguna. Se hace contra el release público.',
+      fase: 'Phase 4',
+      titulo: 'The direct download verifies against its .sha256',
+      why: 'For anyone unwilling to run a script downloaded from the internet, the alternative path is downloading the binary by hand. If the published checksum doesn\'t match the file, that path doesn\'t exist.',
+      pre: 'None. Runs against the public release.',
       cmds: [
-        { os: 'Máquina A · PowerShell', code: '$v = "pyrusllm-win32-x64.exe"\ncurl.exe -fL -o $v      "https://github.com/gazzimon/qvac_node/releases/latest/download/$v"\ncurl.exe -fL -o "$v.sha256" "https://github.com/gazzimon/qvac_node/releases/latest/download/$v.sha256"\n(Get-FileHash $v -Algorithm SHA256).Hash.ToLower()\nGet-Content "$v.sha256"' },
-        { os: 'Máquina A · bash', code: 'v=pyrusllm-darwin-arm64   # o pyrusllm-linux-x64\ncurl -fLO "https://github.com/gazzimon/qvac_node/releases/latest/download/$v"\ncurl -fLO "https://github.com/gazzimon/qvac_node/releases/latest/download/$v.sha256"\nshasum -a 256 "$v"\ncat "$v.sha256"' }
+        { os: 'Machine A · PowerShell', code: '$v = "pyrusllm-win32-x64.exe"\ncurl.exe -fL -o $v      "https://github.com/gazzimon/qvac_node/releases/latest/download/$v"\ncurl.exe -fL -o "$v.sha256" "https://github.com/gazzimon/qvac_node/releases/latest/download/$v.sha256"\n(Get-FileHash $v -Algorithm SHA256).Hash.ToLower()\nGet-Content "$v.sha256"' },
+        { os: 'Machine A · bash', code: 'v=pyrusllm-darwin-arm64   # or pyrusllm-linux-x64\ncurl -fLO "https://github.com/gazzimon/qvac_node/releases/latest/download/$v"\ncurl -fLO "https://github.com/gazzimon/qvac_node/releases/latest/download/$v.sha256"\nshasum -a 256 "$v"\ncat "$v.sha256"' }
       ],
       esperado: [
-        'Los dos archivos bajan con 200 (no un 404 de release sin assets).',
-        'El hash calculado coincide, carácter por carácter, con el del .sha256.',
-        'El tamaño del binario está en el orden de la tabla del README (~101 MB darwin-arm64, ~158 MB win32-x64, ~253 MB linux-x64).'
+        'Both files download with 200 (not a 404 from a release with no assets).',
+        'The computed hash matches the .sha256 one character for character.',
+        'The binary size is in line with the README table (~101 MB darwin-arm64, ~158 MB win32-x64, ~253 MB linux-x64).'
       ],
-      medir: 'Hash calculado y hash publicado, los dos pegados en el reporte.',
-      nota: 'En macOS, el binario bajado por navegador arranca en cuarentena: xattr -d com.apple.quarantine <archivo>.'
+      medir: 'Computed hash and published hash, both pasted into the report.',
+      nota: 'On macOS, a binary downloaded via browser starts quarantined: xattr -d com.apple.quarantine <file>.'
     },
     {
       id: 'T03',
-      fase: 'Fase 4',
-      titulo: 'El binario corre sin Node, sin npm y sin Pear',
-      why: 'Es el argumento de distribución entero: el motor de inferencia viaja adentro del binario. Si hace falta un runtime instalado, el claim se cae.',
-      pre: 'T01 hecho. Idealmente en una sesión de terminal donde node y npm no estén en el PATH.',
+      fase: 'Phase 4',
+      titulo: 'The binary runs with no Node, no npm, and no Pear',
+      why: 'This is the whole distribution argument: the inference engine travels inside the binary. If an installed runtime is required, the claim falls apart.',
+      pre: 'T01 done. Ideally in a terminal session where node and npm are not on the PATH.',
       cmds: [
-        { os: 'Máquina A · PowerShell', code: 'pyrusllm --version\nwhere.exe node; where.exe npm; where.exe pear   # anotar si estan o no\npyrusllm --no-open --port 8787' },
-        { os: 'Máquina A · bash', code: 'pyrusllm --version\ncommand -v node; command -v npm; command -v pear\npyrusllm --no-open --port 8787' }
+        { os: 'Machine A · PowerShell', code: 'pyrusllm --version\nwhere.exe node; where.exe npm; where.exe pear   # note whether they exist or not\npyrusllm --no-open --port 8787' },
+        { os: 'Machine A · bash', code: 'pyrusllm --version\ncommand -v node; command -v npm; command -v pear\npyrusllm --no-open --port 8787' }
       ],
       esperado: [
-        '--version imprime 0.11.0 (o la del release probado) y sale con código 0.',
-        'Con --no-open el proceso levanta la app y NO abre el navegador.',
-        'El log dice el puerto, el storage y el estado del updater ("updates: enabled (jitter 10000ms)").',
-        'http://localhost:8787 responde en otra terminal aunque node no exista en la máquina.'
+        '--version prints 0.11.0 (or whichever release is under test) and exits with code 0.',
+        'With --no-open the process starts the app and does NOT open the browser.',
+        'The log states the port, the storage location, and the updater status ("updates: enabled (jitter 10000ms)").',
+        'http://localhost:8787 responds from another terminal even though node doesn\'t exist on the machine.'
       ],
-      medir: 'Versión reportada y línea de log del updater.',
-      nota: 'Dejar este proceso corriendo: T06, T12 y T13 pegan contra él.'
+      medir: 'Reported version and the updater\'s log line.',
+      nota: 'Leave this process running: T06, T12, and T13 hit against it.'
     },
     {
       id: 'T04',
-      fase: 'Fase 4',
-      titulo: 'Inferencia local desde la terminal, sin abrir nada',
-      why: 'Es el camino más corto a un token real y el único que no depende de la red: si esto falla, todo lo que sigue mide otra cosa.',
-      pre: 'T01. La primera corrida baja los pesos del registry de QVAC y tarda; la segunda ya no.',
+      fase: 'Phase 4',
+      titulo: 'Local inference from the terminal, without opening anything',
+      why: 'It\'s the shortest path to a real token and the only one that doesn\'t depend on the network: if this fails, everything downstream is measuring something else.',
+      pre: 'T01. The first run downloads the weights from the QVAC registry and takes a while; the second run doesn\'t.',
       cmds: [
-        { os: 'Máquina A · las dos', code: 'pyrusllm prompt "Que es una red peer-to-peer?"\npyrusllm prompt "Contame un chiste corto" --quiet\npyrusllm prompt "Hola" --no-download        # falla limpio si no hay pesos en cache' }
+        { os: 'Machine A · both', code: 'pyrusllm prompt "Que es una red peer-to-peer?"\npyrusllm prompt "Contame un chiste corto" --quiet\npyrusllm prompt "Hola" --no-download        # fails cleanly if there are no cached weights' }
       ],
       esperado: [
-        'Sale texto generado, no una respuesta enlatada, y al final el diagnóstico con TTFT, tokens y tokens/s.',
-        '--quiet imprime SOLO la respuesta, sin diagnóstico.',
-        '--no-download, sin pesos en cache, falla con un mensaje claro en vez de bajar 1 GB.',
-        'El proceso termina solo y devuelve el prompt de la terminal (no queda colgado con el cursor titilando).'
+        'Generated text comes out, not a canned response, and at the end a diagnostic with TTFT, tokens, and tokens/s.',
+        '--quiet prints ONLY the response, with no diagnostic.',
+        '--no-download, with no cached weights, fails with a clear message instead of downloading 1 GB.',
+        'The process exits on its own and returns the terminal prompt (it doesn\'t hang with a blinking cursor).'
       ],
-      medir: 'TTFT y tokens/s de la segunda corrida (la primera incluye la descarga del modelo).',
-      nota: 'Si aparece "File descriptor could not be locked", hay otro proceso bare vivo usando el registry. No es un bug: matarlo y repetir.'
+      medir: 'TTFT and tokens/s from the second run (the first one includes the model download).',
+      nota: 'If "File descriptor could not be locked" shows up, another bare process is alive and using the registry. Not a bug: kill it and repeat.'
     },
     {
       id: 'T05',
-      fase: 'Fase 4',
-      titulo: 'D7 — cronometrar el swarm-join aparte del install',
-      why: 'Es el punto que el propio roadmap deja abierto en la Fase 4: sin separar los dos relojes no se sabe cuál de los dos se come el minuto.',
-      pre: 'Las dos máquinas prendidas y con la misma hora. Arrancar los dos comandos CON POCOS SEGUNDOS DE DIFERENCIA.',
+      fase: 'Phase 4',
+      titulo: 'D7 — time the swarm-join separately from the install',
+      why: 'This is the point the roadmap itself leaves open in Phase 4: without separating the two clocks, there\'s no way to know which one is eating the minute.',
+      pre: 'Both machines on and with the same clock. Start both commands WITHIN A FEW SECONDS OF EACH OTHER.',
       cmds: [
-        { os: 'Máquina A', code: 'pyrusllm peers --operator "Nodo A" --timeout 120 --expect 1' },
-        { os: 'Máquina B (al mismo tiempo)', code: 'pyrusllm peers --operator "Nodo B" --timeout 120 --expect 1' }
+        { os: 'Machine A', code: 'pyrusllm peers --operator "Nodo A" --timeout 120 --expect 1' },
+        { os: 'Machine B (at the same time)', code: 'pyrusllm peers --operator "Nodo B" --timeout 120 --expect 1' }
       ],
       esperado: [
-        'Las dos máquinas se descubren y cada una lista al par con su operador y su modelo.',
-        'Los dos procesos salen con código 0 (el --expect 1 se cumplió).',
-        'El tiempo hasta el primer par queda anotado por separado del tiempo de instalación.'
+        'The two machines discover each other and each lists the peer with its operator and model.',
+        'Both processes exit with code 0 (the --expect 1 was satisfied).',
+        'The time to the first peer is recorded separately from the install time.'
       ],
-      medir: 'Segundos hasta el primer par verificado, en cada máquina. El descubrimiento suele tardar ~17 s.',
-      nota: 'Cero pares casi nunca es la red: es falta de simultaneidad. Antes de dar FALLA, repetir con las dos ventanas solapadas y --timeout 120. Si aún así da cero, probar las dos en el hotspot del teléfono.'
+      medir: 'Seconds to the first verified peer, on each machine. Discovery usually takes ~17 s.',
+      nota: 'Zero peers is almost never the network: it\'s a lack of simultaneity. Before calling it a FAIL, retry with the two windows overlapped and --timeout 120. If it\'s still zero, try both on the phone\'s hotspot.'
     },
     {
       id: 'T06',
-      fase: 'Fase 4',
-      titulo: 'El gateway habla OpenAI de verdad, con y sin stream',
-      why: 'Todo el valor para el cliente es que un cliente OpenAI sin modificar le hable. Y los headers de procedencia tienen que ir en las DOS formas de respuesta: hubo un defecto donde solo aparecían con stream.',
-      pre: 'T03 corriendo. La key se pide una vez y se reusa en T07, T12 y T13.',
+      fase: 'Phase 4',
+      titulo: 'The gateway speaks real OpenAI, with and without streaming',
+      why: 'The entire value proposition for the client is that an unmodified OpenAI client can talk to it. And the provenance headers have to be present in BOTH response shapes: there was a defect where they only showed up with streaming.',
+      pre: 'T03 running. The key is requested once and reused in T07, T12, and T13.',
       cmds: [
-        { os: 'Máquina A · PowerShell', code: '$k = (curl.exe -s http://localhost:8787/v1/keys/panel | ConvertFrom-Json).key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"LLAMA_3_2_1B_INST_Q4_0\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}],\\"local\\":true}" `\n  http://localhost:8787/v1/chat/completions' },
-        { os: 'Máquina A · bash', code: 'k=$(curl -s http://localhost:8787/v1/keys/panel | python3 -c "import sys,json;print(json.load(sys.stdin)[\'key\'])")\ncurl -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" \\\n  -d \'{"model":"LLAMA_3_2_1B_INST_Q4_0","messages":[{"role":"user","content":"hola"}],"local":true}\' \\\n  http://localhost:8787/v1/chat/completions\n# el mismo pedido con "stream":true\n' }
+        { os: 'Machine A · PowerShell', code: '$k = (curl.exe -s http://localhost:8787/v1/keys/panel | ConvertFrom-Json).key\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"LLAMA_3_2_1B_INST_Q4_0\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}],\\"local\\":true}" `\n  http://localhost:8787/v1/chat/completions' },
+        { os: 'Machine A · bash', code: 'k=$(curl -s http://localhost:8787/v1/keys/panel | python3 -c "import sys,json;print(json.load(sys.stdin)[\'key\'])")\ncurl -s -H "Authorization: Bearer $k" http://localhost:8787/v1/models\ncurl -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" \\\n  -d \'{"model":"LLAMA_3_2_1B_INST_Q4_0","messages":[{"role":"user","content":"hola"}],"local":true}\' \\\n  http://localhost:8787/v1/chat/completions\n# the same request with "stream":true\n' }
       ],
       esperado: [
-        '/v1/models devuelve el formato OpenAI estricto: object "list", data[] con id, object "model", owned_by.',
-        'El modelo pedido tiene que ser un id REAL de /v1/models; si no, el error es el de modelo no encontrado (D5), y eso también se anota.',
-        'La respuesta sin stream trae los headers X-Pyrus-Operator, X-Pyrus-Kind y X-Pyrus-Model.',
-        'La respuesta con stream:true trae los mismos tres headers y llega como SSE.',
-        'El cuerpo NO tiene campos propios metidos adentro del formato de OpenAI.'
+        '/v1/models returns the strict OpenAI format: object "list", data[] with id, object "model", owned_by.',
+        'The requested model has to be a REAL id from /v1/models; otherwise the error is the model-not-found one (D5), and that gets noted too.',
+        'The non-streaming response carries the X-Pyrus-Operator, X-Pyrus-Kind, and X-Pyrus-Model headers.',
+        'The stream:true response carries the same three headers and arrives as SSE.',
+        'The body has NO custom fields mixed into the OpenAI format.'
       ],
-      medir: 'Los tres headers de las dos formas, pegados. Y el X-Pyrus-Kind (local / peer / upstream / mock).',
-      nota: 'Guardar la key: se usa en varios tests. Nunca pegarla en el reporte.'
+      medir: 'The three headers from both shapes, pasted in. And X-Pyrus-Kind (local / peer / upstream / mock).',
+      nota: 'Save the key: it\'s used across several tests. Never paste it into the report.'
     },
     {
       id: 'T07',
-      fase: 'Fase 4',
-      titulo: 'Archivos entre nodos por Hyperdrive',
-      why: 'send / fetch / files es la parte de persistencia que ya está cerrada, y es lo único que hoy mueve bytes que no son tokens. La UI no la expone: si el CLI no anda, no anda nada.',
-      pre: 'T05 verde (las dos máquinas se ven). Un archivo cualquiera en A, por ejemplo un PDF.',
+      fase: 'Phase 4',
+      titulo: 'Files between nodes over Hyperdrive',
+      why: 'send / fetch / files is the persistence piece that\'s already closed out, and it\'s the only thing today that moves bytes that aren\'t tokens. The UI doesn\'t expose it: if the CLI doesn\'t work, nothing works.',
+      pre: 'T05 green (both machines see each other). Any file on A, e.g. a PDF.',
       cmds: [
-        { os: 'Máquina A', code: 'pyrusllm send ./plano.pdf\n# copiar el link qvac:// que imprime\npyrusllm files' },
-        { os: 'Máquina B', code: 'pyrusllm files --link qvac://<clave> --timeout 60\npyrusllm fetch qvac://<clave>/plano.pdf --out ./descargas --timeout 120' }
+        { os: 'Machine A', code: 'pyrusllm send ./plano.pdf\n# copy the qvac:// link it prints\npyrusllm files' },
+        { os: 'Machine B', code: 'pyrusllm files --link qvac://<clave> --timeout 60\npyrusllm fetch qvac://<clave>/plano.pdf --out ./descargas --timeout 120' }
       ],
       esperado: [
-        'send imprime un link qvac:// y el archivo aparece en pyrusllm files de A.',
-        'B lista el drive remoto con --link y ve el mismo archivo.',
-        'fetch lo baja a ./descargas y el archivo abre bien (comparar tamaño y hash con el original).',
-        'El botón "Archivos" de la tarjeta del nodo, en /network, muestra lo mismo en modo solo lectura.'
+        'send prints a qvac:// link and the file shows up in A\'s pyrusllm files.',
+        'B lists the remote drive with --link and sees the same file.',
+        'fetch downloads it to ./descargas and the file opens fine (compare size and hash against the original).',
+        'The node card\'s "Files" button on /network shows the same thing in read-only mode.'
       ],
-      medir: 'Tamaño y SHA-256 en A y en B — tienen que ser idénticos.',
-      nota: 'La carga y la descarga no tienen UI: hoy es CLI, y eso es lo declarado.'
+      medir: 'Size and SHA-256 on A and on B — they have to be identical.',
+      nota: 'Upload and download have no UI yet: it\'s CLI-only today, and that\'s by design.'
     },
     {
       id: 'T08',
-      fase: 'Fase 4.5',
-      titulo: 'Un cliente OpenAI de terceros, sin tocar una línea',
-      why: 'Es la prueba de que el gateway habla el protocolo y no una imitación. Un agente externo apuntando su base_url a este nodo prueba lo que ningún test propio puede probar.',
-      pre: 'T06 verde. Anotar un modelId exacto de /v1/models — si no matchea, cae en D5 y no es culpa del cliente.',
+      fase: 'Phase 4.5',
+      titulo: 'A third-party OpenAI client, without touching a line',
+      why: 'This is the proof that the gateway speaks the protocol and not an imitation. An external agent pointing its base_url at this node tests what no test of our own can test.',
+      pre: 'T06 green. Note down an exact modelId from /v1/models — if it doesn\'t match, it falls into D5 and it\'s not the client\'s fault.',
       cmds: [
-        { os: 'Cliente Python (openai)', code: 'pip install openai\npython -c "from openai import OpenAI; c=OpenAI(base_url=\'http://localhost:8787/v1\', api_key=\'<key-de-T06>\'); r=c.chat.completions.create(model=\'<modelId exacto>\', messages=[{\'role\':\'user\',\'content\':\'decime una cosa sola\'}]); print(r.choices[0].message.content)"' },
+        { os: 'Python client (openai)', code: 'pip install openai\npython -c "from openai import OpenAI; c=OpenAI(base_url=\'http://localhost:8787/v1\', api_key=\'<key-de-T06>\'); r=c.chat.completions.create(model=\'<modelId exacto>\', messages=[{\'role\':\'user\',\'content\':\'decime una cosa sola\'}]); print(r.choices[0].message.content)"' },
         { os: 'Hermes Agent · ~/.hermes/config.yaml', code: 'model:\n  provider: custom\n  base_url: http://127.0.0.1:8787/v1\n  default: <modelId exacto que anuncia el nodo>' }
       ],
       esperado: [
-        'El SDK oficial de OpenAI recibe una respuesta válida sin ningún parche.',
-        'El nodo registra el request en /v1/routing-log con su motivo de ruteo.',
-        'Con un modelId inventado, el error es el mensaje claro de modelo no encontrado (D5), no un 500.'
+        'The official OpenAI SDK gets back a valid response with no patching at all.',
+        'The node logs the request in /v1/routing-log with its routing reason.',
+        'With a made-up modelId, the error is the clear model-not-found message (D5), not a 500.'
       ],
-      medir: 'Cliente usado y su versión, más la respuesta recibida.',
-      nota: 'Hermes es upside, no criterio: si su versión del día rompe, se marca NO APLICA y se sigue. Usar solo chat simple, sin tool calls.'
+      medir: 'Client used and its version, plus the response received.',
+      nota: 'Hermes is a bonus, not a criterion: if its build of the day breaks, mark it N/A and move on. Use plain chat only, no tool calls.'
     },
     {
       id: 'T09',
-      fase: 'Fase 5',
-      titulo: 'OTA en vivo: la copia instalada se actualiza sola',
-      why: 'El canal de distribución es la red P2P. Un update que hay que ir a buscar a mano no es OTA.',
-      pre: 'En B, pyrusllm instalado POR PEAR (pear install pear://…), corriendo y sin --no-updates. En A, pear con permiso de stage sobre el link.',
+      fase: 'Phase 5',
+      titulo: 'Live OTA: the installed copy updates itself',
+      why: 'The distribution channel is the P2P network. An update that has to be fetched by hand isn\'t OTA.',
+      pre: 'On B, pyrusllm installed VIA PEAR (pear install pear://…), running and without --no-updates. On A, pear with stage permission on the link.',
       cmds: [
-        { os: 'Máquina B (primero, y dejarlo abierto)', code: 'npm i -g pear\npear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny\npyrusllm --no-open        # se queda corriendo: aca se ve llegar el update' },
-        { os: 'Máquina A (publica la versión nueva)', code: 'npm run release          # o: pear stage pear://8f789f6h...\nnpm run seed             # dejar el seeder vivo mientras B actualiza' }
+        { os: 'Machine B (first, and leave it open)', code: 'npm i -g pear\npear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny\npyrusllm --no-open        # keeps running: this is where you watch the update arrive' },
+        { os: 'Machine A (publishes the new version)', code: 'npm run release          # or: pear stage pear://8f789f6h...\nnpm run seed             # keep the seeder alive while B updates' }
       ],
       esperado: [
-        'B imprime "[updater] bajando nueva version" sin que nadie toque nada.',
-        'Después imprime "[updater] update aplicado, reinicia para correr la ultima version".',
-        'Al reiniciar, pyrusllm --version en B dice la versión nueva.',
-        'La app de B siguió atendiendo durante la descarga: el update no la cortó.'
+        'B prints "[updater] bajando nueva version" with nobody touching anything.',
+        'Then it prints "[updater] update aplicado, reinicia para correr la ultima version".',
+        'After restarting, pyrusllm --version on B reports the new version.',
+        'B\'s app kept serving during the download: the update didn\'t interrupt it.'
       ],
-      medir: 'Segundos entre el stage en A y la línea "update aplicado" en B. La referencia es ~10 s.',
-      nota: 'Si no hay permiso de publicación sobre el link de Pear, esto es BLOQUEADO, no FALLA. Anotarlo así.'
+      medir: 'Seconds between the stage on A and the "update applied" line on B. The reference is ~10 s.',
+      nota: 'If there\'s no publish permission on the Pear link, this is BLOCKED, not FAIL. Note it as such.'
     },
     {
       id: 'T10',
-      fase: 'Fase 5',
-      titulo: 'D4 — matar un nodo a mitad de stream',
-      why: 'La regla es explícita: el primer token escrito cierra la puerta al reintento. Una respuesta a medias no se retoma en otra máquina, porque el cliente ya vio bytes.',
-      pre: 'A y B viéndose (T05). Fijar el nodo B desde el chat con "Use this node", o mandar node:"<id de B>" en el body.',
+      fase: 'Phase 5',
+      titulo: 'D4 — kill a node mid-stream',
+      why: 'The rule is explicit: the first token written closes the door on retrying. A half-finished response doesn\'t get picked up on another machine, because the client already saw bytes.',
+      pre: 'A and B seeing each other (T05). Pin node B from the chat with "Use this node", or send node:"<id de B>" in the body.',
       cmds: [
-        { os: 'Máquina A · disparar el stream', code: 'curl.exe -N -s -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId de B>\\",\\"node\\":\\"<id de B>\\",\\"stream\\":true,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"escribi 800 palabras sobre redes p2p\\"}]}" `\n  http://localhost:8787/v1/chat/completions' },
-        { os: 'Máquina B · a los 2 segundos', code: '# matar el proceso mientras el stream corre\nGet-Process pyrusllm | Stop-Process -Force     # PowerShell\npkill -f pyrusllm                              # bash' }
+        { os: 'Machine A · fire the stream', code: 'curl.exe -N -s -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId de B>\\",\\"node\\":\\"<id de B>\\",\\"stream\\":true,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"escribi 800 palabras sobre redes p2p\\"}]}" `\n  http://localhost:8787/v1/chat/completions' },
+        { os: 'Machine B · at the 2-second mark', code: '# kill the process while the stream is running\nGet-Process pyrusllm | Stop-Process -Force     # PowerShell\npkill -f pyrusllm                              # bash' }
       ],
       esperado: [
-        'El stream se corta con un error explícito para el cliente, no con un final silencioso que parece completo.',
-        'NO hay un reintento a mitad de respuesta en otra máquina: el texto no continúa con otro nodo.',
-        'El nodo desaparece de /v1/nodes (y de la tabla de /admin) porque el socket cayó — no porque venció un expiresAt.',
-        '/v1/routing-log registra el corte con su motivo.'
+        'The stream cuts off with an explicit error for the client, not a silent ending that looks complete.',
+        'There is NO mid-response retry on another machine: the text doesn\'t continue with a different node.',
+        'The node disappears from /v1/nodes (and from the /admin table) because the socket dropped — not because an expiresAt ran out.',
+        '/v1/routing-log logs the cutoff with its reason.'
       ],
-      medir: 'Cuántos tokens alcanzó a ver el cliente y qué error recibió.',
-      nota: 'Alternativa sin matar procesos: el botón "Tirar" de /admin, que pega contra POST /v1/nodes/<id>/kick. Es la misma prueba en la mitad de tiempo.'
+      medir: 'How many tokens the client got to see, and what error it received.',
+      nota: 'Alternative without killing processes: the "Tirar" button in /admin, which hits POST /v1/nodes/<id>/kick. Same test, half the time.'
     },
     {
       id: 'T11',
-      fase: 'Fase 5',
-      titulo: 'El reintento antes del primer byte, y el 429 tratado como "está lleno"',
-      why: 'Elegir un candidato no es casarse con él: mientras al cliente no le salió un byte, el gateway tiene que probar el siguiente. Y un 429 se lee como saturado, no como roto.',
-      pre: 'Al menos dos candidatos para el mismo modelo. Con serve --demo se consigue rápido: 1 nodo real + 3 mocks.',
+      fase: 'Phase 5',
+      titulo: 'The retry before the first byte, and 429 treated as "it\'s full"',
+      why: 'Picking a candidate isn\'t marrying it: as long as the client hasn\'t received a byte, the gateway has to try the next one. And a 429 reads as saturated, not broken.',
+      pre: 'At least two candidates for the same model. serve --demo gets you there fast: 1 real node + 3 mocks.',
       cmds: [
-        { os: 'Máquina A · levantar con candidatos', code: 'pyrusllm serve --swarm --demo --operator "Nodo A"' },
-        { os: 'Máquina A · tirar uno y pedir sin stream', code: '# tirar el candidato preferido desde /admin (boton "Tirar") o:\ncurl.exe -s -X POST -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes/<id>/kick\n# y ahora pedir SIN stream: el reintento sigue siendo legitimo\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' }
+        { os: 'Machine A · start with candidates', code: 'pyrusllm serve --swarm --demo --operator "Nodo A"' },
+        { os: 'Machine A · drop one and request without streaming', code: '# drop the preferred candidate from /admin (the "Tirar" button) or:\ncurl.exe -s -X POST -H "Authorization: Bearer $k" http://localhost:8787/v1/nodes/<id>/kick\n# and now request WITHOUT stream: the retry is still legitimate\ncurl.exe -s -i -H "Authorization: Bearer $k" -H "Content-Type: application/json" `\n  -d "{\\"model\\":\\"<modelId>\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"hola\\"}]}" `\n  http://localhost:8787/v1/chat/completions\ncurl.exe -s -H "Authorization: Bearer $k" http://localhost:8787/v1/routing-log' }
       ],
       esperado: [
-        'El request se sirve igual: el gateway recorrió la lista y usó el siguiente candidato.',
-        'Los headers de procedencia dicen que contestó OTRO nodo, no el que se tiró.',
-        '/v1/routing-log tiene una entrada con el motivo del salto — no "primero de N candidatos".',
-        'Los mocks de --demo quedan detrás de cualquier candidato real, siempre.'
+        'The request still gets served: the gateway walked the list and used the next candidate.',
+        'The provenance headers say ANOTHER node answered, not the one that got dropped.',
+        '/v1/routing-log has an entry with the reason for the jump — not "first of N candidates".',
+        '--demo\'s mocks always stay behind any real candidate.'
       ],
-      medir: 'La entrada del routing-log del salto, pegada entera.',
-      nota: 'Si el candidato caído devuelve 429 en vez de caerse, el trato tiene que ser el mismo: marcarlo saturado para que el request siguiente no se coma el mismo rechazo.'
+      medir: 'The routing-log entry for the jump, pasted in full.',
+      nota: 'If the dropped candidate returns 429 instead of dying outright, the treatment has to be the same: mark it saturated so the next request doesn\'t eat the same rejection.'
     },
     {
       id: 'T12',
-      fase: 'Fase 5',
+      fase: 'Phase 5',
       titulo: 'La credencial es obligatoria, y revocar revoca',
       why: 'La promesa es que no hay puerta trasera: hasta el panel del navegador pide su key y la manda como cualquier cliente. La única ruta sin gate es el bootstrap.',
       pre: 'T03 corriendo. Key de T06 a mano.',
@@ -1014,7 +1015,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T13',
-      fase: 'Fase 5',
+      fase: 'Phase 5',
       titulo: 'Sin agente lanzado no se llega a la red, y el pin es pin',
       why: 'Son dos negativas que tienen que ser explícitas: 503 con motivo cuando el agente está apagado, y 404 cuando la máquina fijada no está. Un reemplazo silencioso sería peor que el error.',
       pre: 'Arrancar A SIN --swarm (pyrusllm --no-open), o sea con el agente apagado, y sin haber tocado "Launch local agent".',
@@ -1034,7 +1035,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T14',
-      fase: 'Fase 5',
+      fase: 'Phase 5',
       titulo: 'Soak: diez vueltas seguidas, no la mejor',
       why: 'Los tres modos de falla que arruinan una demo (proceso que no termina, registry que timeoutea, install que se cuelga en 0 B/s) no se ven en una corrida sola.',
       pre: 'Repo clonado con npm install (Preparación). Nada más corriendo en 8787.',
@@ -1051,7 +1052,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T15',
-      fase: 'Fase 5',
+      fase: 'Phase 5',
       titulo: 'La auditoría dictamina que hubo inferencia real',
       why: 'Un panel con tokens moviéndose no prueba nada: cualquiera graba una animación. Lo que prueba es un archivo con TTFT, tokens y tok/s atribuidos a una clave pública.',
       pre: 'Haber corrido T04, T06 y T11 contra este gateway, para que el rastro tenga con qué dictaminar.',
@@ -1071,7 +1072,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T16',
-      fase: 'Fase 6',
+      fase: 'Phase 6',
       titulo: 'La suite entera en verde, tres corridas seguidas',
       why: 'Una corrida verde puede ser suerte de timing. Tres seguidas es lo que se entrega. La referencia declarada al cerrar la Fase 8 es 110 tests y 493 asserts.',
       pre: 'Repo con npm install. Sin gateway propio corriendo: la suite de integración levanta el suyo.',
@@ -1090,7 +1091,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T17',
-      fase: 'Fase 6',
+      fase: 'Phase 6',
       titulo: 'Lo simulado sigue diciendo que es simulado',
       why: 'Es un compromiso explícito del proyecto: nada de mocks silenciosos. Es fácil que la marca se pierda en un refactor, y ahí es donde deja de ser honesto.',
       pre: 'Un gateway con serve --demo y otro sin --demo, para comparar.',
@@ -1110,7 +1111,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T18',
-      fase: 'Fase 6',
+      fase: 'Phase 6',
       titulo: 'El README no promete nada que el sistema no haga',
       why: 'La sección "Qué es simulado" existe para que nadie descubra un límite solo. Si quedó desactualizada después de cerrar una fase, el documento pasa de ser honesto a ser una trampa.',
       pre: 'README.md a mano y el nodo corriendo, para contrastar cada afirmación.',
@@ -1129,7 +1130,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T19',
-      fase: 'Fase 6',
+      fase: 'Phase 6',
       titulo: 'Las cuatro vistas, los redirects y el canal de distribución',
       why: 'Es lo que ve un jurado o un usuario nuevo. Una página que rompe en consola arruina la demo aunque el backend esté impecable.',
       pre: 'Gateway corriendo con --swarm y, si se puede, un par visible.',
@@ -1149,7 +1150,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T20',
-      fase: 'Fase 6.5',
+      fase: 'Phase 6.5',
       titulo: 'El ledger trabaja en dos tiempos: reserva y liquidación',
       why: 'Antes del request no se sabe lo que va a costar. La reserva aparta la cota superior y la escribe a disco ANTES de que el request salga; un tope aplicado al facturar no es un tope, es un descuento.',
       pre: 'Un upstream con precio configurado y opt-in prendido (ver T33). Sin upstream todo vale cero y este test no mide nada.',
@@ -1169,7 +1170,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T21',
-      fase: 'Fase 6.5',
+      fase: 'Phase 6.5',
       titulo: 'El tope corta de verdad, y reiniciar no lo repone',
       why: 'Es la invariante del ledger: tope de USD 0,10, cien vueltas, y el gasto real nunca lo supera. Y si reiniciar el nodo repusiera el tope, el tope sería una sugerencia.',
       pre: 'Repo con npm install. El tope no se puede bajar desde afuera: se verifica con la suite, que es donde vive la invariante.',
@@ -1188,7 +1189,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T22',
-      fase: 'Fase 6.5',
+      fase: 'Phase 6.5',
       titulo: 'El gasto se imputa a la cuenta, no al nodo',
       why: 'Tener una key por cliente sirve para poder revocar de a uno; el reparto del mes sirve para saber a quién cobrarle. Si todo el consumo cae en una bolsa común, ninguna de las dos cosas funciona.',
       pre: 'Dos API keys emitidas con labels distintos (T12) y algo de consumo con cada una.',
@@ -1206,7 +1207,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T23',
-      fase: 'Fase 6.5',
+      fase: 'Phase 6.5',
       titulo: 'Micro-dólares enteros, y el redondeo va hacia arriba',
       why: 'Un tope acumulado en punto flotante deriva justo en el borde, que es el único lugar donde el número importa. Por eso el ledger cuenta enteros: 1 USD = 1.000.000 de micros.',
       pre: 'Repo con npm install.',
@@ -1225,7 +1226,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T24',
-      fase: 'Fase 6.6',
+      fase: 'Phase 6.6',
       titulo: 'La cuota gratuita: cuánta GPU regala este nodo y a quién',
       why: 'Es el contador que mira hacia afuera, y no se mide en dólares sino en tokens de salida. Se chequea ANTES del request y se registra DESPUÉS, con los tokens que se generaron de verdad.',
       pre: 'Un par consumiendo de este nodo (T05 y T06 con la máquina B pidiéndole a A).',
@@ -1246,7 +1247,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T25',
-      fase: 'Fase 6.6',
+      fase: 'Phase 6.6',
       titulo: 'La ventana es deslizante, y la cuota no persiste',
       why: 'Un corte a medianoche hace un pico a las 00:01 y castiga al que empezó 23:50, por eso son baldes por hora. Y que reiniciar reponga la cuota está declarado: si se descubre en producción, es una sorpresa.',
       pre: 'T24 con consumo registrado de al menos un par.',
@@ -1265,7 +1266,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T26',
-      fase: 'Fase 7',
+      fase: 'Phase 7',
       titulo: 'Crear la wallet de cobro y ver la dirección',
       why: 'La Fase 7 hace que el manifiesto diga la verdad sobre a quién pagarle. WDK no acepta la seed de red que el nodo ya tenía: exige mnemonic BIP-39, y no trae dónde guardarlo.',
       pre: 'PYRUS_WALLET_PASSPHRASE en el .env, larga y única. Máquina sin wallet previa.',
@@ -1285,7 +1286,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T27',
-      fase: 'Fase 7',
+      fase: 'Phase 7',
       titulo: 'D13 — la seed no está en claro en ningún lado',
       why: 'Es la mitad de D13 que sí existía: WDK exporta errores e interfaces, no custodia. El cifrado es Argon2id más secretbox de sodium, y lo que hay que probar es que no quedó nada legible.',
       pre: 'T26 hecho: wallet creada y las 24 palabras anotadas en papel.',
@@ -1305,7 +1306,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T28',
-      fase: 'Fase 7',
+      fase: 'Phase 7',
       titulo: 'El manifiesto firmado lleva la dirección, y la firma la ata',
       why: 'La propiedad que importa no es que la dirección viaje: es que no se pueda reenviar el manifiesto de otro con la wallet propia adentro. Cambiarle la wallet a un manifiesto firmado tiene que invalidarlo.',
       pre: 'T26 en las dos máquinas, cada una con SU propia wallet. Las dos con --swarm.',
@@ -1325,7 +1326,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T29',
-      fase: 'Fase 7',
+      fase: 'Phase 7',
       titulo: 'Las 24 palabras restauran la misma dirección en otra máquina',
       why: 'Un respaldo que no restaura no es un respaldo. Y es la única salida si se pierde el keystore, porque no hay custodia de terceros en el medio.',
       pre: 'T26 hecho en A, con las 24 palabras anotadas. Una máquina (o un storage) SIN wallet donde restaurar.',
@@ -1344,7 +1345,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T30',
-      fase: 'Fase 8',
+      fase: 'Phase 8',
       titulo: 'Con carga pareja gana el más barato, y el log dice los dos precios',
       why: 'Es el punto central del DoD de la Fase 8. Y el motivo tiene que afirmar un hecho, no repetir lo que el sort debería haber hecho: hubo un bug donde el log decía "más barato" y nombraba al más caro.',
       pre: 'Dos upstreams configurados con precios DISTINTOS para el mismo modelo (campo as), opt-in prendido, y presupuesto disponible.',
@@ -1363,7 +1364,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T31',
-      fase: 'Fase 8',
+      fase: 'Phase 8',
       titulo: 'El precio nunca le gana a "puede atender ahora"',
       why: 'Es dónde entra el precio, que era lo único discutible: paso 4, después de la carga y antes del histórico. La opción barata que está llena no es barata, y una respuesta que no llega no es más económica: es ninguna.',
       pre: 'T30 armado. Hace falta poder saturar al candidato barato — con /admin, o con dos requests concurrentes contra un nodo de capacidad 1.',
@@ -1382,7 +1383,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T32',
-      fase: 'Fase 8',
+      fase: 'Phase 8',
       titulo: 'El chat dice cuánto cuesta cada respuesta',
       why: 'Es el segundo punto del DoD. Y dice el TECHO, no lo que salió: en streaming los headers viajan antes del primer token, así que el costo real todavía no existe cuando hay que declararlo.',
       pre: 'T30 armado, para que haya un camino que cueste dinero de verdad.',
@@ -1402,7 +1403,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T33',
-      fase: 'Fase 8.5',
+      fase: 'Phase 8.5',
       titulo: 'El asistente externo entra como una fila más del registro',
       why: 'La tesis de la fase: sin una sola línea especial en el despacho. Si el externo necesitara un camino aparte, todo lo que se probó del ruteo no aplicaría a él.',
       pre: 'upstreams.json en el storage con al menos un proveedor, y su credencial en el .env.',
@@ -1422,7 +1423,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T34',
-      fase: 'Fase 8.5',
+      fase: 'Phase 8.5',
       titulo: 'Las tres condiciones para que el prompt salga de la máquina',
       why: 'Es el punto donde se acota la promesa de privacidad. Hacen falta tres cosas a la vez: opt-in prendido, que no haya capacidad de este lado, y presupuesto. Y local: true lo excluye siempre.',
       pre: 'T33 verde. Poder saturar o apagar los candidatos locales para dejar sin capacidad a la red.',
@@ -1443,7 +1444,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T35',
-      fase: 'Fase 8.5',
+      fase: 'Phase 8.5',
       titulo: 'B3 — un proveedor que se cuelga no deja el request colgado',
       why: 'Lo que sigue corriendo del otro lado son dólares de la cuenta del operador. Y un proveedor que se cuelga sin cerrar el socket dejaba la reserva comprometida para siempre.',
       pre: 'T33 verde. Se verifica contra la suite, que tiene un proveedor falso que se cuelga a propósito.',
@@ -1464,7 +1465,7 @@ cp .env.example .env</pre>
     },
     {
       id: 'T36',
-      fase: 'Fase 8.5',
+      fase: 'Phase 8.5',
       titulo: 'Los secretos no viajan, ni a otro proveedor ni a la respuesta',
       why: 'Son tres agujeros distintos que se cerraron juntos: una credencial que podía viajar al proveedor equivocado, una ruta de lectura sin gate, y un tope de salida que un archivo de config podía pisar.',
       pre: 'T33 verde, con al menos dos proveedores distintos configurados.',
@@ -1486,12 +1487,12 @@ cp .env.example .env</pre>
 
   const KEY = 'pyrusllm-qa-completo-v1';
   const VERDICTS = [
-    { v: 'pass', label: 'Pasa' },
-    { v: 'fail', label: 'Falla' },
-    { v: 'block', label: 'Bloqueado' },
-    { v: 'na', label: 'No aplica' }
+    { v: 'pass', label: 'Pass' },
+    { v: 'fail', label: 'Fail' },
+    { v: 'block', label: 'Blocked' },
+    { v: 'na', label: 'N/A' }
   ];
-  const NOMBRE = { pass: 'PASA', fail: 'FALLA', block: 'BLOQUEADO', na: 'NO APLICA' };
+  const NOMBRE = { pass: 'PASS', fail: 'FAIL', block: 'BLOCKED', na: 'N/A' };
 
   let state = {};
   try {
@@ -1505,7 +1506,7 @@ cp .env.example .env</pre>
     try {
       localStorage.setItem(KEY, JSON.stringify(state));
     } catch (e) {
-      /* modo privado o storage bloqueado: la pagina sigue funcionando sin persistir */
+      /* private mode or blocked storage: the page keeps working without persisting */
     }
   }
 
@@ -1539,7 +1540,7 @@ cp .env.example .env</pre>
         esc(t.fase) +
         '</span></div>';
       html += '<p class="why">' + esc(t.why) + '</p>';
-      html += '<div class="field"><h4>Precondición</h4><p class="pre-line">' + esc(t.pre) + '</p></div>';
+      html += '<div class="field"><h4>Precondition</h4><p class="pre-line">' + esc(t.pre) + '</p></div>';
 
       t.cmds.forEach((c, i) => {
         const cid = t.id + '-c' + i;
@@ -1548,17 +1549,17 @@ cp .env.example .env</pre>
           esc(c.os) +
           '</span><button class="copy" data-copy="#' +
           cid +
-          '">Copiar</button></div><pre id="' +
+          '">Copy</button></div><pre id="' +
           cid +
           '">' +
           esc(c.code) +
           '</pre></div>';
       });
 
-      html += '<div class="field"><h4>Resultado esperado</h4><ul>';
+      html += '<div class="field"><h4>Expected result</h4><ul>';
       t.esperado.forEach((e) => (html += '<li>' + esc(e) + '</li>'));
       html += '</ul></div>';
-      html += '<div class="field"><h4>Qué medir</h4><p>' + esc(t.medir) + '</p></div>';
+      html += '<div class="field"><h4>What to measure</h4><p>' + esc(t.medir) + '</p></div>';
       if (t.nota) html += '<div class="warn">' + esc(t.nota) + '</div>';
 
       html += '<div class="verdict"><div class="segs">';
@@ -1578,7 +1579,7 @@ cp .env.example .env</pre>
       html +=
         '<textarea class="notes" data-id="' +
         t.id +
-        '" placeholder="Salida real, números medidos, desvíos del comando…">' +
+        '" placeholder="Real output, measured numbers, deviations from the command…">' +
         esc(st.n || '') +
         '</textarea>';
       html += '</article>';
@@ -1604,15 +1605,15 @@ cp .env.example .env</pre>
 
   function descFase(f) {
     const d = {
-      'Fase 4': 'El install es la demo: una línea, sin dependencias previas, y de ahí a un token real.',
-      'Fase 4.5': 'Un cliente de terceros elige esta red sin que nadie toque su código.',
-      'Fase 5': 'OTA en vivo y endurecimiento: qué hace el sistema cuando algo se cae en el peor momento.',
-      'Fase 6': 'Submission y pitch: la suite, los mocks que siguen declarados y el README que no promete de más.',
-      'Fase 6.5': 'El ledger: reserva write-ahead, tope que corta y reparto por cuenta, en micro-dólares enteros.',
-      'Fase 6.6': 'La cuota gratuita, del lado del proveedor: cuánta GPU regala este nodo y a qué par.',
-      'Fase 7': 'El manifiesto deja de mentir sobre a dónde se le paga a este nodo. No cobra: declara.',
-      'Fase 8': 'El precio entra al ruteo —después de la carga, antes del histórico— y sale al chat.',
-      'Fase 8.5': 'El asistente externo como un candidato más, con tres condiciones y ninguna línea especial.'
+      'Phase 4': 'The install is the demo: one line, no prior dependencies, straight to a real token.',
+      'Phase 4.5': 'A third-party client chooses this network without anyone touching its code.',
+      'Phase 5': 'Live OTA and hardening: what the system does when something breaks at the worst possible time.',
+      'Phase 6': 'Submission and pitch: the suite, the mocks that are still declared, and a README that doesn\'t overpromise.',
+      'Phase 6.5': 'The ledger: write-ahead reserve, a cap that cuts off, and per-account split, in whole micro-dollars.',
+      'Phase 6.6': 'The free quota, from the provider side: how much GPU this node gives away, and to which peer.',
+      'Phase 7': 'The manifest stops lying about where this node gets paid. It doesn\'t charge: it declares.',
+      'Phase 8': 'Price enters routing — after load, before history — and reaches the chat.',
+      'Phase 8.5': 'The external assistant as just another candidate, with three conditions and no special-cased line.'
     };
     return d[f] || '';
   }
@@ -1639,10 +1640,10 @@ cp .env.example .env</pre>
     const st = document.getElementById('status');
     st.textContent =
       todo === total
-        ? 'Sin correr — ' + total + ' pruebas pendientes.'
+        ? 'Not run — ' + total + ' tests pending.'
         : todo === 0
-          ? 'Pase completo: ' + c.pass + ' pasan, ' + c.fail + ' fallan, ' + c.block + ' bloqueadas, ' + c.na + ' no aplican.'
-          : todo + ' pendientes de ' + total + ' — ' + c.pass + ' pasan, ' + c.fail + ' fallan.';
+          ? 'Pass complete: ' + c.pass + ' pass, ' + c.fail + ' fail, ' + c.block + ' blocked, ' + c.na + ' N/A.'
+          : todo + ' pending of ' + total + ' — ' + c.pass + ' pass, ' + c.fail + ' fail.';
   }
 
   document.addEventListener('change', (ev) => {
@@ -1678,10 +1679,10 @@ cp .env.example .env</pre>
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(texto).then(
         () => toast(ok),
-        () => toast('No se pudo copiar — seleccioná el texto a mano')
+        () => toast('Could not copy — select the text by hand')
       );
     } else {
-      toast('No se pudo copiar — seleccioná el texto a mano');
+      toast('Could not copy — select the text by hand');
     }
   }
 
@@ -1689,13 +1690,13 @@ cp .env.example .env</pre>
     const b = ev.target.closest('button.copy');
     if (!b) return;
     const el = document.querySelector(b.dataset.copy);
-    if (el) copiar(el.textContent, 'Copiado');
+    if (el) copiar(el.textContent, 'Copied');
   });
 
   function reporte() {
     const hoy = new Date().toISOString().slice(0, 10);
-    let out = '# Protocolo QA PyrusLLM — Fases 4 a 8.5\n\n';
-    out += 'Fecha: ' + hoy + '\nOperador: \nMáquina A (SO / versión): \nMáquina B (SO / versión): \nRed usada: \n\n';
+    let out = '# PyrusLLM QA Protocol — Phases 4 to 8.5\n\n';
+    out += 'Date: ' + hoy + '\nOperator: \nMachine A (OS / version): \nMachine B (OS / version): \nNetwork used: \n\n';
 
     const c = { pass: 0, fail: 0, block: 0, na: 0, todo: 0 };
     TESTS.forEach((t) => {
@@ -1704,23 +1705,23 @@ cp .env.example .env</pre>
       else c.todo++;
     });
     out +=
-      '## Resumen\n\n| Pasa | Falla | Bloqueado | No aplica | Sin correr |\n| --- | --- | --- | --- | --- |\n| ' +
+      '## Summary\n\n| Pass | Fail | Blocked | N/A | Not run |\n| --- | --- | --- | --- | --- |\n| ' +
       c.pass + ' | ' + c.fail + ' | ' + c.block + ' | ' + c.na + ' | ' + c.todo + ' |\n\n';
 
-    out += '## Resultados\n\n';
+    out += '## Results\n\n';
     TESTS.forEach((t) => {
       const st = state[t.id] || {};
       out += '### ' + t.id + ' — ' + t.titulo + '  (' + t.fase + ')\n';
-      out += '**Veredicto:** ' + (st.v ? NOMBRE[st.v] : 'SIN CORRER') + '\n\n';
-      out += '**A medir:** ' + t.medir + '\n\n';
-      out += '**Notas y salida:**\n' + (st.n ? st.n : '_(vacío)_') + '\n\n';
+      out += '**Verdict:** ' + (st.v ? NOMBRE[st.v] : 'NOT RUN') + '\n\n';
+      out += '**To measure:** ' + t.medir + '\n\n';
+      out += '**Notes and output:**\n' + (st.n ? st.n : '_(empty)_') + '\n\n';
     });
 
     const fallas = TESTS.filter((t) => (state[t.id] || {}).v === 'fail');
-    out += '## Fallas para revisar\n\n';
+    out += '## Failures to review\n\n';
     out += fallas.length
       ? fallas.map((t) => '- ' + t.id + ' — ' + t.titulo).join('\n') + '\n'
-      : 'Ninguna.\n';
+      : 'None.\n';
     return out;
   }
 
@@ -1734,11 +1735,11 @@ cp .env.example .env</pre>
   document.getElementById('btn-close').addEventListener('click', () => dlg.close());
 
   document.getElementById('btn-copy-report').addEventListener('click', () => {
-    copiar(document.getElementById('report').value, 'Reporte copiado');
+    copiar(document.getElementById('report').value, 'Report copied');
   });
 
   document.getElementById('btn-reset').addEventListener('click', () => {
-    if (!confirm('Borra todos los veredictos y notas de esta máquina. ¿Seguir?')) return;
+    if (!confirm('This clears all verdicts and notes on this machine. Continue?')) return;
     state = {};
     save();
     render();
@@ -1747,14 +1748,14 @@ cp .env.example .env</pre>
   render();
 </script>
 <script>
-  /* Solo en el archivo suelto: descargar el reporte y avisar si el navegador
-     no puede guardar el avance (Safari bloquea localStorage en file://). */
+  /* Standalone-file only: download the report and warn if the browser
+     can't save progress (Safari blocks localStorage on file://). */
   (function () {
     var head = document.querySelector('.dlg-head > div');
     if (head) {
       var b = document.createElement('button');
       b.className = 'btn ghost';
-      b.textContent = 'Descargar .md';
+      b.textContent = 'Download .md';
       b.addEventListener('click', function () {
         var txt = document.getElementById('report').value;
         var url = URL.createObjectURL(new Blob([txt], { type: 'text/markdown;charset=utf-8' }));
@@ -1782,8 +1783,8 @@ cp .env.example .env</pre>
         'background:var(--block-soft);color:var(--ink);border-bottom:1px solid var(--block);' +
         'padding:10px 22px;font-size:14.5px;text-align:center';
       aviso.textContent =
-        'Este navegador no guarda el avance en un archivo abierto desde el disco: ' +
-        'genera y descarga el reporte antes de cerrar la pestana.';
+        'This browser does not save progress for a file opened from disk: ' +
+        'generate and download the report before closing the tab.';
       document.body.insertBefore(aviso, document.body.firstChild);
     }
   })();

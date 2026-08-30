@@ -1,72 +1,74 @@
 #!/usr/bin/env node
 'use strict'
 
-// Le agrega a `@noble/hashes` una condición `bare` en su export `./crypto`.
+// Adds a `bare` condition to `@noble/hashes`'s `./crypto` export.
 //
 // -----------------------------------------------------------------------------
-// POR QUE HACE FALTA
+// WHY IT'S NEEDED
 //
-// `bare-pack` --el que arma el binario standalone-- resuelve el grafo de módulos
-// con estas condiciones (bare-module-traverse/lib/resolve/bare.js):
+// `bare-pack` — the one that builds the standalone binary — resolves the
+// module graph with these conditions (bare-module-traverse/lib/resolve/bare.js):
 //
 //     ['bare', 'node', <platform>, <arch>]
 //
-// Incluye `node` a propósito: casi todo el ecosistema publica código compatible
-// con Node, y Bare lo es en su mayor parte. Pero `@noble/hashes@1.x` usa esa
-// condición justamente para elegir la variante que NO sirve:
+// It includes `node` on purpose: almost the whole ecosystem publishes code
+// compatible with Node, and Bare is mostly compatible with that too. But
+// `@noble/hashes@1.x` uses that exact condition to pick the variant that does
+// NOT work:
 //
 //     "./crypto": {
-//       "node":   { "import": "./esm/cryptoNode.js" },   <- importa node:crypto
-//       "import": "./esm/crypto.js"                      <- WebCrypto, sí sirve
+//       "node":   { "import": "./esm/cryptoNode.js" },   <- imports node:crypto
+//       "import": "./esm/crypto.js"                      <- WebCrypto, this works
 //     }
 //
-// y `node:crypto` no existe bajo Bare. Resultado: el binario no compila.
+// and `node:crypto` doesn't exist under Bare. Result: the binary doesn't compile.
 //
 //     MODULE_NOT_FOUND: node:crypto
-//       desde @noble/hashes/esm/cryptoNode.js
+//       from @noble/hashes/esm/cryptoNode.js
 //
-// Y no es un problema de x402: la cadena arranca en `qvac/wallet.mjs`, que
-// importa `@scure/bip39` -> `@noble/hashes/utils.js` -> `@noble/hashes/crypto`.
-// Está roto desde la Fase 7; no se vio antes porque `npm test` corre desde
-// fuente, donde el runtime de Bare resuelve distinto que el packer.
-//
-// -----------------------------------------------------------------------------
-// POR QUE ASI Y NO DE OTRA FORMA
-//
-// `bare` se evalúa ANTES que `node`, así que alcanza con declararla. El parche
-// es UNA clave en un mapa de exports: no toca una línea de código criptográfico.
-//
-// Lo demás se probó y no sirve:
-//
-//   - forzar `@noble/hashes@2.x` con overrides: la 2.x no tiene el export
-//     condicional, pero sacó los subpaths sin extensión y rompe a viem, ethers
-//     y curves con `PACKAGE_PATH_NOT_EXPORTED: './sha3'`;
-//   - `bare-pack --imports` es el lever correcto, pero `bare-build` llama a
-//     `pack()` con opciones literales y no lo reenvía (bare-build 1.0.4, que es
-//     la última);
-//   - `--builtins` no ayuda: la lista del packer no tiene ningún `node:`.
-//
-// El arreglo de verdad es upstream --que `bare-build` reenvíe opciones al
-// packer, o que `@noble/hashes` declare la condición-- y esto se saca el día que
-// pase.
+// And it's not an x402 problem: the chain starts at `qvac/wallet.mjs`, which
+// imports `@scure/bip39` -> `@noble/hashes/utils.js` -> `@noble/hashes/crypto`.
+// It's been broken since Phase 7; it went unnoticed because `npm test` runs
+// from source, where Bare's runtime resolves differently than the packer.
 //
 // -----------------------------------------------------------------------------
-// FALLA RUIDOSO
+// WHY THIS WAY AND NOT ANOTHER
 //
-// Si el mapa de exports cambia de forma, este script CORTA con exit 1 en vez de
-// parchar a ciegas: un parche que se aplica mal sobre una librería de cripto es
-// peor que uno que no se aplica. El build se rompería igual, pero acá el error
-// dice qué pasó.
+// `bare` is evaluated BEFORE `node`, so declaring it is enough. The patch is
+// ONE key in an exports map: it doesn't touch a single line of cryptographic
+// code.
+//
+// Everything else was tried and doesn't work:
+//
+//   - forcing `@noble/hashes@2.x` with overrides: 2.x doesn't have the
+//     conditional export, but it dropped the extensionless subpaths and
+//     breaks viem, ethers and curves with `PACKAGE_PATH_NOT_EXPORTED: './sha3'`;
+//   - `bare-pack --imports` is the right lever, but `bare-build` calls
+//     `pack()` with literal options and doesn't forward it (bare-build 1.0.4,
+//     which is the latest);
+//   - `--builtins` doesn't help: the packer's list has no `node:` entries at all.
+//
+// The real fix is upstream — either `bare-build` forwarding options to the
+// packer, or `@noble/hashes` declaring the condition itself — and this gets
+// removed the day that happens.
+//
+// -----------------------------------------------------------------------------
+// FAILS LOUDLY
+//
+// If the exports map's shape changes, this script BAILS with exit 1 instead
+// of patching blindly: a patch applied wrong on top of a crypto library is
+// worse than one that doesn't apply at all. The build would break either way,
+// but here the error says what happened.
 
 const fs = require('fs')
 const path = require('path')
 
 const raiz = path.resolve(__dirname, '..', 'node_modules')
 
-// Todas las copias: el árbol tiene una por dependencia que la pinea distinto
-// (viem, ox, ethers, curves, bip32, wdk...), y el packer puede llegar a
-// cualquiera. Parchar sólo la de la raíz deja el build roto según cómo npm haya
-// acomodado el árbol ese día.
+// All the copies: the tree has one per dependency that pins it differently
+// (viem, ox, ethers, curves, bip32, wdk...), and the packer can end up
+// reaching any of them. Patching only the one at the root leaves the build
+// broken depending on how npm happened to arrange the tree that day.
 function copias(dir, encontradas = []) {
   let entradas
   try {
@@ -102,12 +104,12 @@ for (const dir of copias(raiz)) {
   try {
     pkg = JSON.parse(fs.readFileSync(archivo, 'utf8'))
   } catch (err) {
-    problemas.push(`${archivo}: ilegible (${err.message})`)
+    problemas.push(`${archivo}: unreadable (${err.message})`)
     continue
   }
 
   const crypto = pkg.exports && pkg.exports['./crypto']
-  // La 2.x no tiene este export y no necesita nada. No es un error.
+  // 2.x doesn't have this export and doesn't need anything. Not an error.
   if (!crypto || typeof crypto !== 'object') continue
   if (crypto.bare) {
     yaEstaban++
@@ -115,37 +117,37 @@ for (const dir of copias(raiz)) {
   }
   if (!crypto.node) continue
 
-  // La rama que NO es de node es la que sirve bajo Bare. Se toma del propio
-  // mapa en vez de escribirla acá: si upstream renombra el archivo, esto sigue
-  // apuntando a donde tiene que apuntar.
+  // The branch that ISN'T node's is the one that works under Bare. It's taken
+  // from the map itself instead of hardcoded here: if upstream renames the
+  // file, this keeps pointing wherever it needs to point.
   const seguro = {}
   if (typeof crypto.import === 'string') seguro.import = crypto.import
   if (typeof crypto.default === 'string') seguro.default = crypto.default
 
   if (!seguro.import && !seguro.default) {
     problemas.push(
-      `${dir}: el export "./crypto" no tiene una rama sin condicion \`node\` de donde sacar el archivo. ` +
-        `Forma encontrada: ${JSON.stringify(crypto)}`
+      `${dir}: the "./crypto" export has no branch without a \`node\` condition to pull the file from. ` +
+        `Shape found: ${JSON.stringify(crypto)}`
     )
     continue
   }
 
-  // `bare` PRIMERO: el orden del objeto es el orden en que se evaluan las
-  // condiciones, y la gracia es ganarle a `node`.
+  // `bare` FIRST: the object's order is the order conditions get evaluated
+  // in, and the whole point is beating `node`.
   pkg.exports['./crypto'] = { bare: seguro, ...crypto }
   fs.writeFileSync(archivo, JSON.stringify(pkg, null, 2) + '\n')
   parchadas++
 }
 
 if (problemas.length) {
-  console.error('[parche-noble] la forma del package.json cambio y no se parcha a ciegas:')
+  console.error('[parche-noble] the package.json shape changed and this will not patch blindly:')
   for (const p of problemas) console.error('  ' + p)
-  console.error('[parche-noble] ver scripts/parche-noble-bare.js')
+  console.error('[parche-noble] see scripts/parche-noble-bare.js')
   process.exit(1)
 }
 
 if (parchadas > 0) {
-  console.log(`[parche-noble] condicion \`bare\` agregada a ${parchadas} copia(s) de @noble/hashes`)
+  console.log(`[parche-noble] \`bare\` condition added to ${parchadas} copy/copies of @noble/hashes`)
 } else if (yaEstaban > 0) {
-  console.log(`[parche-noble] ${yaEstaban} copia(s) ya parchadas`)
+  console.log(`[parche-noble] ${yaEstaban} copy/copies already patched`)
 }

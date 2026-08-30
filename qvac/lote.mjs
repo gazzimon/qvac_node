@@ -1,44 +1,44 @@
-// Fase 10 — recibos y lote.
+// Phase 10 — receipts and batching.
 //
 // -----------------------------------------------------------------------------
-// QUE ES UN RECIBO, Y POR QUE LA FIRMA EIP-3009 YA LO ES
+// WHAT A RECEIPT IS, AND WHY THE EIP-3009 SIGNATURE ALREADY IS ONE
 //
-// La Fase 9 verifica un pago sincrónico, sirve, y liquida DESPUES (D12). Un
-// recibo acá es exactamente ese pago verificado con el settlement DIFERIDO: la
-// autorización EIP-3009 que el cliente firmó es una orden de transferencia
-// off-chain que no obliga a liquidar en el momento. Guardarla y liquidarla más
-// tarde —de a muchas— es el mismo flujo de la Fase 9, no un mecanismo nuevo.
+// Phase 9 verifies a synchronous payment, serves, and settles LATER (D12). A
+// receipt here is exactly that verified payment with DEFERRED settlement: the
+// EIP-3009 authorization the client signed is an off-chain transfer order
+// that doesn't require settling on the spot. Saving it and settling later
+// —in bulk— is the same Phase 9 flow, not a new mechanism.
 //
-// Esto es lo que mata la Fase 6: con liquidación on-chain diferida no hace falta
-// un ledger multi-escritor propio. El ledger de verdad es la cadena.
-//
-// -----------------------------------------------------------------------------
-// EL LOTE: UNA RED, UNA WALLET
-//
-// Un lote agrupa recibos que van al MISMO `payTo` en la MISMA red, porque eso es
-// lo que se puede liquidar recorriendo `x402.liquidar()` una vez por entrada
-// contra un solo facilitator. Mezclar redes o destinos en un lote sería un
-// artefacto que no se puede procesar de una sola forma.
-//
-// El lote va firmado con la WALLET (no con la clave de red), mismo criterio que
-// `atestacion.mjs` y que `manifest-v0.json:84`: la Ed25519 dice "este nodo es
-// este nodo", la wallet dice "a esta dirección le pagan". Un lote es una
-// afirmación sobre cobros, así que pertenece a la segunda.
+// This is what kills Phase 6: with deferred on-chain settlement there's no
+// need for a homegrown multi-writer ledger. The real ledger is the chain.
 //
 // -----------------------------------------------------------------------------
-// LOS BYTES QUE SE FIRMAN
+// THE BATCH: ONE NETWORK, ONE WALLET
 //
-// JCS (RFC 8785) del lote SIN `signature`, con la MISMA función de
-// canonicalización que el manifiesto y la atestación — la única forma de que no
-// puedan divergir al firmar y al verificar. Encima, un personal_sign EIP-191 con
-// la clave de la wallet (`account.sign` de WDK), que se recupera con
-// `recoverMessageAddress`. No es EIP-712: acá no hay un dominio de contrato, hay
-// un documento canónico.
+// A batch groups receipts that go to the SAME `payTo` on the SAME network,
+// because that's what can be settled by walking `x402.liquidar()` once per
+// entry against a single facilitator. Mixing networks or destinations in a
+// batch would be an artifact that can't be processed in one single way.
 //
-// La clave de idempotencia de cada recibo es el `nonce` de la autorización
-// EIP-3009 (D20): el mismo nonce liquidado dos veces cobra UNA sola vez, del
-// lado del token. Por eso el acumulador se indexa por nonce y `marcarLiquidados`
-// habla en nonces.
+// The batch is signed with the WALLET (not with the network key), same
+// criterion as `atestacion.mjs` and `manifest-v0.json:84`: Ed25519 says "this
+// node is this node", the wallet says "this address gets paid". A batch is a
+// claim about charges, so it belongs to the second.
+//
+// -----------------------------------------------------------------------------
+// THE BYTES THAT GET SIGNED
+//
+// JCS (RFC 8785) of the batch WITHOUT `signature`, with the SAME
+// canonicalization function as the manifest and the attestation — the only
+// way they can't diverge between signing and verifying. On top of that, a
+// personal_sign EIP-191 with the wallet key (`account.sign` from WDK),
+// recovered with `recoverMessageAddress`. Not EIP-712: there's no contract
+// domain here, there's a canonical document.
+//
+// Each receipt's idempotency key is the `nonce` of the EIP-3009 authorization
+// (D20): the same nonce settled twice only charges ONCE, on the token's side.
+// That's why the accumulator is indexed by nonce and `marcarLiquidados` talks
+// in nonces.
 
 import fs from 'bare-fs'
 import path from 'bare-path'
@@ -46,24 +46,24 @@ import { canonicalize } from './manifest.mjs'
 import { hashDe } from './atestacion.mjs'
 import * as x402 from './x402.mjs'
 
-// Sube cuando cambie la FORMA del recibo o del lote. Un verificador de otra
-// versión no tiene que adivinar si le falta un campo o si el que lee significa
-// otra cosa.
+// Bumps when the SHAPE of the receipt or the batch changes. A verifier on
+// another version doesn't have to guess whether a field is missing or means
+// something else.
 export const VERSION = 1
 
 // -----------------------------------------------------------------------------
-// El recibo
+// The receipt
 // -----------------------------------------------------------------------------
 
 const es0x = (s) => typeof s === 'string' && /^0x[0-9a-fA-F]+$/.test(s)
 
-// Un pago verificado con el settlement diferido. El orden en que se escriben las
-// claves acá no significa nada: JCS las ordena.
+// A verified payment with deferred settlement. The order the fields are
+// written in here doesn't mean anything: JCS sorts them.
 //
-// `requirements` es la entrada de `accepts[]` TAL CUAL se ofreció en el 402
-// (`x402.entradaAccepts`). Se guarda entera porque es contra ESOS números que
-// hay que liquidar: recalcularla al liquidar es liquidar contra otro monto que
-// el que el cliente firmó.
+// `requirements` is the `accepts[]` entry EXACTLY as offered in the 402
+// (`x402.entradaAccepts`). Saved whole because it's against THOSE numbers
+// that settlement has to happen: recomputing it at settlement time would mean
+// settling against a different amount than the one the client signed.
 export function construirRecibo({
   requestId,
   ts = Date.now(),
@@ -81,35 +81,35 @@ export function construirRecibo({
   atestacion = null,
   liquidacion = null
 }) {
-  if (!requestId) throw new Error('lote: el recibo no tiene requestId')
-  if (!network) throw new Error('lote: el recibo no tiene network (CAIP-2)')
-  if (!es0x(payTo)) throw new Error('lote: el recibo no tiene un payTo EVM')
+  if (!requestId) throw new Error('lote: the receipt has no requestId')
+  if (!network) throw new Error('lote: the receipt has no network (CAIP-2)')
+  if (!es0x(payTo)) throw new Error('lote: the receipt has no EVM payTo')
   if (!authorization || typeof authorization !== 'object') {
-    throw new Error('lote: el recibo no tiene la autorizacion EIP-3009')
+    throw new Error('lote: the receipt has no EIP-3009 authorization')
   }
-  if (!authorization.nonce) throw new Error('lote: la autorizacion no tiene nonce')
-  if (!es0x(signature)) throw new Error('lote: el recibo no tiene una firma EIP-3009')
+  if (!authorization.nonce) throw new Error('lote: the authorization has no nonce')
+  if (!es0x(signature)) throw new Error('lote: the receipt has no EIP-3009 signature')
 
-  // El monto que efectivamente se transfiere es el `value` de la autorización
-  // (pagar de más es del pagador). Si no vino, el mínimo que se pidió.
+  // The amount actually transferred is the authorization's `value` (paying
+  // more is on the payer). If it wasn't given, the minimum that was asked for.
   const bruto = amount != null ? amount : requirements && requirements.amount
   let monto
   try {
     monto = BigInt(bruto).toString()
   } catch {
-    throw new Error(`lote: el monto del recibo no es un entero: ${bruto}`)
+    throw new Error(`lote: the receipt's amount is not an integer: ${bruto}`)
   }
 
   return {
     v: VERSION,
     requestId,
     ts,
-    // Nombre corto (para agrupar y loguear) y CAIP-2 (lo que se firma).
+    // Short name (for grouping and logging) and CAIP-2 (what gets signed).
     red: red || null,
     network,
     asset: asset || (requirements && requirements.asset) || null,
-    // El dominio EIP-712 con el que se firmó la autorización. Sin esto un
-    // tercero no puede recuperar al firmante del recibo.
+    // The EIP-712 domain the authorization was signed with. Without this a
+    // third party can't recover the receipt's signer.
     assetName: assetName || (requirements && requirements.extra && requirements.extra.name) || null,
     assetVersion:
       assetVersion || (requirements && requirements.extra && requirements.extra.version) || null,
@@ -120,23 +120,24 @@ export function construirRecibo({
     authorization,
     signature,
     requirements,
-    // La atestación de D24, firmada con la wallet de quien sirvió. Puede faltar
-    // (par, sin firmante): entonces el recibo prueba el pago y no el trabajo.
+    // The D24 attestation, signed with the wallet of whoever served it. May
+    // be missing (peer, no signer available): then the receipt proves the
+    // payment and not the work.
     attestation: atestacion || null,
-    // El resultado de la liquidación inmediata de la Fase 9, si la hubo. `null`
-    // o `{ success:false }` es un recibo que todavía se debe: es lo que
-    // `liquidarLote` reintenta.
+    // The result of Phase 9's immediate settlement, if there was one. `null`
+    // or `{ success:false }` is a receipt that's still owed: that's what
+    // `liquidarLote` retries.
     liquidacion: liquidacion || null
   }
 }
 
-// La clave con la que el recibo se deduplica y se marca liquidado.
+// The key a receipt is deduplicated and marked settled by.
 export function claveDe(recibo) {
   return recibo && recibo.nonce
 }
 
 // -----------------------------------------------------------------------------
-// El lote
+// The batch
 // -----------------------------------------------------------------------------
 
 function mismoDestino(recibos) {
@@ -144,10 +145,12 @@ function mismoDestino(recibos) {
   const payTo = String(recibos[0].payTo).toLowerCase()
   for (const r of recibos) {
     if (r.network !== red) {
+      // NOTE: kept in Spanish — test/index.js:3005 asserts on the exact regex
+      // /red/ against this exception's message.
       throw new Error(`lote: un recibo es de la red ${r.network} y el lote es de la red ${red}`)
     }
     if (String(r.payTo).toLowerCase() !== payTo) {
-      throw new Error('lote: un recibo paga a otra wallet que el resto del lote')
+      throw new Error('lote: a receipt pays a different wallet than the rest of the batch')
     }
   }
 }
@@ -158,22 +161,24 @@ function sumar(recibos) {
   return total.toString()
 }
 
-// El lote SIN firmar. Se separa de `firmarLote` para que los tests puedan mirar
-// la forma sin necesitar una wallet.
+// The batch UNSIGNED. Kept separate from `firmarLote` so tests can look at
+// the shape without needing a wallet.
 export function construirLote({ recibos, ts = Date.now() }) {
   if (!Array.isArray(recibos) || recibos.length === 0) {
+    // NOTE: kept in Spanish — test/index.js:3016 asserts on the exact regex
+    // /no hay recibos/ against this exception's message.
     throw new Error('lote: no hay recibos que agrupar')
   }
 
-  // De-dup por nonce: el mismo recibo dos veces es uno. Dos recibos DISTINTOS
-  // con el mismo nonce es un error de programa —el nonce es la clave de
-  // idempotencia— y se corta en vez de elegir uno.
+  // De-dup by nonce: the same receipt twice is one. Two DIFFERENT receipts
+  // with the same nonce is a program error —the nonce is the idempotency
+  // key— and this cuts it off instead of picking one.
   const porNonce = new Map()
   for (const r of recibos) {
     const k = claveDe(r)
     const previo = porNonce.get(k)
     if (previo && canonicalize(previo) !== canonicalize(r)) {
-      throw new Error(`lote: dos recibos distintos con el mismo nonce ${k}`)
+      throw new Error(`lote: two different receipts with the same nonce ${k}`)
     }
     porNonce.set(k, r)
   }
@@ -190,31 +195,32 @@ export function construirLote({ recibos, ts = Date.now() }) {
     count: unicos.length,
     totalAmount: sumar(unicos),
     nonces,
-    // En el orden de `nonces` para que dos lotes con los mismos recibos armados
-    // en distinto orden canonicalicen igual.
+    // In `nonces` order so two batches built from the same receipts in a
+    // different order canonicalize the same.
     recibos: nonces.map((n) => porNonce.get(n))
   }
 }
 
-// Los bytes que se firman: el lote canonicalizado SIN `signature`. Misma función
-// al firmar y al verificar.
+// The bytes that get signed: the canonicalized batch WITHOUT `signature`.
+// Same function when signing and verifying.
 function bytesFirmados(lote) {
   const { signature, ...resto } = lote // eslint-disable-line no-unused-vars
   return canonicalize(resto)
 }
 
-// Un identificador estable del lote (hash del contenido sin firma). Para logs y
-// para que dos puntas hablen del mismo lote sin mandarlo entero.
+// A stable identifier for the batch (hash of the unsigned content). For logs
+// and so two ends can talk about the same batch without sending the whole
+// thing.
 export function idDeLote(lote) {
   return hashDe(bytesFirmados(lote))
 }
 
-// Firma con la wallet. `firmarMensaje` es la función que inyecta bin.mjs y que
-// envuelve `account.sign` de WDK: acá no entra ninguna seed.
+// Signs with the wallet. `firmarMensaje` is the function bin.mjs injects,
+// wrapping WDK's `account.sign`: no seed ever enters here.
 //
-// No tira si la firma falla: devuelve null y que el llamador decida. Un lote sin
-// firmar NO se emite — un artefacto que parece una prueba y no lo es es peor que
-// uno ausente.
+// Doesn't throw if the signature fails: returns null and leaves it to the
+// caller. An unsigned batch is NOT emitted — an artifact that looks like
+// proof and isn't is worse than none at all.
 export async function firmarLote(lote, firmarMensaje) {
   if (typeof firmarMensaje !== 'function') return null
   try {
@@ -222,31 +228,32 @@ export async function firmarLote(lote, firmarMensaje) {
     if (typeof signature !== 'string' || !signature.startsWith('0x')) return null
     return { ...lote, signature }
   } catch (err) {
-    console.error(`[lote] no se pudo firmar: ${(err && err.message) || err}`)
+    console.error(`[lote] could not sign: ${(err && err.message) || err}`)
     return null
   }
 }
 
-// Verifica el lote entero: la firma de la wallet sobre el contenido, la
-// homogeneidad de red/destino, el total, y —recibo por recibo— que la
-// autorización EIP-3009 recupere a quien dice pagar.
+// Verifies the whole batch: the wallet's signature over the content, the
+// network/destination homogeneity, the total, and —receipt by receipt— that
+// the EIP-3009 authorization recovers to whoever it claims is paying.
 //
-// Devuelve `{ ok, reason, firmante, recibosMal }` y no un booleano: hay que
-// poder loguear POR QUE se descartó.
+// Returns `{ ok, reason, firmante, recibosMal }` and not a boolean: needs to
+// be able to log WHY it was rejected.
 export async function verificarLote(lote) {
-  if (!lote || typeof lote !== 'object') return { ok: false, reason: 'el lote no es un objeto' }
-  if (lote.v !== VERSION) return { ok: false, reason: `version ${lote.v} desconocida` }
+  if (!lote || typeof lote !== 'object') return { ok: false, reason: 'the batch is not an object' }
+  if (lote.v !== VERSION) return { ok: false, reason: `unknown version ${lote.v}` }
   if (typeof lote.signature !== 'string' || !lote.signature.startsWith('0x')) {
-    return { ok: false, reason: 'falta la firma del lote o no es una firma EVM' }
+    return { ok: false, reason: 'missing batch signature or not an EVM signature' }
   }
   if (!Array.isArray(lote.recibos) || lote.recibos.length === 0) {
-    return { ok: false, reason: 'el lote no tiene recibos' }
+    return { ok: false, reason: 'the batch has no receipts' }
   }
 
-  // ANTES de `import('viem')`: `cargar()` instala el polyfill de TextEncoder que
-  // viem usa al evaluarse. Sin esto, un `verificar-lote` suelto —sin nadie que
-  // haya cargado WDK antes en el proceso— muere con un ReferenceError que no
-  // menciona viem. Ver el encabezado de x402.mjs.
+  // BEFORE `import('viem')`: `cargar()` installs the TextEncoder polyfill
+  // that viem uses when it gets evaluated. Without this, a standalone
+  // `verificar-lote` —with nobody having loaded WDK earlier in the process—
+  // dies with a ReferenceError that says nothing about viem. See the header
+  // of x402.mjs.
   const { evm } = await x402.cargar()
   const viem = await import('viem')
 
@@ -259,7 +266,7 @@ export async function verificarLote(lote) {
   } catch (err) {
     return {
       ok: false,
-      reason: `no se pudo recuperar al firmante del lote: ${(err && err.message) || err}`
+      reason: `could not recover the batch signer: ${(err && err.message) || err}`
     }
   }
 
@@ -270,13 +277,15 @@ export async function verificarLote(lote) {
   }
 
   if (sumar(lote.recibos) !== String(lote.totalAmount)) {
+    // NOTE: kept mentioning "totalAmount" on purpose — test/index.js:3051
+    // asserts on the regex /suma|totalAmount/ against this reason.
     return { ok: false, reason: 'el totalAmount no es la suma de los recibos', firmante }
   }
   if (lote.count !== lote.recibos.length) {
-    return { ok: false, reason: 'el count no coincide con la cantidad de recibos', firmante }
+    return { ok: false, reason: 'count does not match the number of receipts', firmante }
   }
 
-  // `authorizationTypes` sale del paquete, no se copia acá.
+  // `authorizationTypes` comes from the package, it isn't copied here.
   const recibosMal = []
   for (const r of lote.recibos) {
     const motivo = await verificarAutorizacion(r, viem, evm)
@@ -286,22 +295,22 @@ export async function verificarLote(lote) {
   return {
     ok: recibosMal.length === 0,
     reason:
-      recibosMal.length === 0 ? null : `${recibosMal.length} recibo(s) con la autorizacion mal`,
+      recibosMal.length === 0 ? null : `${recibosMal.length} receipt(s) with a bad authorization`,
     firmante,
     recibosMal
   }
 }
 
-// Que la firma EIP-3009 del recibo recupere a `authorization.from`. Es el mismo
-// `recoverTypedDataAddress` que `x402.verificarPago` hace en vivo, contra el
-// dominio EIP-712 que el recibo guarda.
+// That the receipt's EIP-3009 signature recovers to `authorization.from`.
+// It's the same `recoverTypedDataAddress` that `x402.verificarPago` does
+// live, against the EIP-712 domain the receipt stores.
 async function verificarAutorizacion(recibo, viem, evm) {
   const a = recibo.authorization
-  if (!a || !recibo.signature) return 'no trae authorization y signature'
-  if (!recibo.assetName || !recibo.asset) return 'no trae el dominio EIP-712 (assetName/asset)'
+  if (!a || !recibo.signature) return 'missing authorization and signature'
+  if (!recibo.assetName || !recibo.asset) return 'missing the EIP-712 domain (assetName/asset)'
 
   const chainId = Number(String(recibo.network).split(':')[1])
-  if (!Number.isFinite(chainId)) return `network sin chainId: ${recibo.network}`
+  if (!Number.isFinite(chainId)) return `network with no chainId: ${recibo.network}`
 
   let firmante
   try {
@@ -325,32 +334,39 @@ async function verificarAutorizacion(recibo, viem, evm) {
       signature: recibo.signature
     })
   } catch (err) {
-    return `no se pudo recuperar al firmante: ${(err && err.message) || err}`
+    return `could not recover the signer: ${(err && err.message) || err}`
   }
 
   if (firmante.toLowerCase() !== String(a.from || '').toLowerCase()) {
-    return `la firma es de ${firmante} y la autorizacion dice pagar desde ${a.from}`
+    return `the signature is from ${firmante} and the authorization claims to pay from ${a.from}`
   }
   if (String(a.to || '').toLowerCase() !== String(recibo.payTo || '').toLowerCase()) {
-    return 'la autorizacion paga a otra direccion que el payTo del recibo'
+    return 'the authorization pays a different address than the receipt\'s payTo'
   }
   return null
 }
 
 // -----------------------------------------------------------------------------
-// La liquidación diferida
+// Deferred settlement
 // -----------------------------------------------------------------------------
 
-// Cómo se clasifica cada resultado de `x402.liquidar()` al procesar un lote.
-// Con D9 cobrando un tope fijo casi no importaba; acá SÍ, porque el lote liquida
-// solo y estos motivos piden acciones incompatibles (ver 0-quinquies, punto 1
-// de la revisión del Bloque 0):
+// How each `x402.liquidar()` result gets classified when processing a batch.
+// With D9 charging a fixed cap it barely mattered; here it DOES, because the
+// batch settles on its own and these reasons call for incompatible actions
+// (see 0-quinquies, point 1 of the Block 0 review):
 //
-//   liquidado     éxito, o `nonce_already_used` — que es un reintento ya
-//                 cobrado del lado del token: idempotente, se da por bueno.
-//   saldo         `insufficient_balance` — es del otro lado, no se reintenta.
-//   firma         `invalid_signature` — no es contabilidad, es reputación.
-//   reintentable  cualquier otra cosa: se deja en el lote para la próxima.
+//   liquidado     success, or `nonce_already_used` — a retry that's already
+//                 charged on the token's side: idempotent, counted as good.
+//   saldo         `insufficient_balance` — that's on the other side, not
+//                 retried.
+//   firma         `invalid_signature` — this isn't accounting, it's
+//                 reputation.
+//   reintentable  anything else: left in the batch for next time.
+//
+// NOTE: the four return values below ('liquidado', 'saldo', 'firma',
+// 'reintentable') are enum-like classification values consumed
+// programmatically — test/index.js:3136 asserts on the exact value 'saldo' —
+// so they're kept in Spanish rather than translated.
 function clasificar(res) {
   if (res && res.success) return 'liquidado'
   const motivo = String((res && (res.errorReason || res.errorMessage)) || '').toLowerCase()
@@ -360,16 +376,17 @@ function clasificar(res) {
   return 'reintentable'
 }
 
-// Recorre el lote llamando a `liquidar` una vez por recibo. `liquidar` es
-// `x402.liquidar` (inyectada para no acoplar este módulo al stack que corre bajo
-// Bare, igual que `atestacion.firmar` recibe la función que firma).
+// Walks the batch calling `liquidar` once per receipt. `liquidar` is
+// `x402.liquidar` (injected so this module doesn't couple to the stack
+// running under Bare, same as `atestacion.firmar` receives the signing
+// function).
 //
-// NO toca el acumulador: devuelve qué nonces quedaron liquidados y el llamador
-// decide con `marcarLiquidados`. Así un corte en el medio no deja el acumulador
-// en un estado a medias que nadie sabe leer.
+// Does NOT touch the accumulator: returns which nonces ended up settled and
+// the caller decides via `marcarLiquidados`. That way a crash in the middle
+// doesn't leave the accumulator in a half-done state nobody knows how to read.
 export async function liquidarLote({ lote, liquidar }) {
-  if (!lote || !Array.isArray(lote.recibos)) throw new Error('lote: no hay recibos que liquidar')
-  if (typeof liquidar !== 'function') throw new Error('lote: falta la funcion liquidar')
+  if (!lote || !Array.isArray(lote.recibos)) throw new Error('lote: no receipts to settle')
+  if (typeof liquidar !== 'function') throw new Error('lote: missing the liquidar function')
 
   const liquidados = []
   const fallidos = []
@@ -405,41 +422,42 @@ export async function liquidarLote({ lote, liquidar }) {
 }
 
 // -----------------------------------------------------------------------------
-// El acumulador (memoria del proceso, no un ledger)
+// The accumulator (process memory, not a ledger)
 // -----------------------------------------------------------------------------
 
-// Igual que el Map `recibos` del gateway: esto NO es el ledger —el ledger es la
-// cadena— sino la serie de recibos que este nodo todavía puede juntar en un
-// lote. Se poda al agregar, no con un timer.
+// Same as the gateway's `recibos` Map: this is NOT the ledger —the ledger is
+// the chain— but the series of receipts this node can still gather into a
+// batch. Pruned on insert, not on a timer.
 const MAX_PENDIENTES = 500
 const _pend = new Map() // nonce -> recibo
 
 // -----------------------------------------------------------------------------
-// Persistencia del acumulador (FASE 10)
+// Accumulator persistence (PHASE 10)
 // -----------------------------------------------------------------------------
 //
-// `_pend` es memoria del proceso, y hasta acá un corte entre "servido/verificado"
-// y "liquidado" regalaba el trabajo: la autorización EIP-3009 estaba firmada y en
-// ningún disco. Se espeja a un JSONL —una línea JSON por recibo— con el MISMO
-// patrón de escritura atómica que `apikeys.mjs` y `budget.mjs`: temporal y
-// `rename` encima, porque un `writeFileSync` cortado a la mitad deja un archivo
-// que no parsea y perder este es perder cobros firmados.
+// `_pend` is process memory, and until now a crash between "served/verified"
+// and "settled" gave away the work for free: the EIP-3009 authorization was
+// signed and on no disk anywhere. It's mirrored to a JSONL —one JSON line per
+// receipt— with the SAME atomic-write pattern as `apikeys.mjs` and
+// `budget.mjs`: temp file and `rename` on top, because a `writeFileSync` cut
+// in half leaves a file that doesn't parse, and losing this means losing
+// signed charges.
 //
-// El archivo vive en el dir PERSISTENTE (no en `budgetDir`, que bajo `bare` es
-// temp —D30.1—): lo abre `bin.mjs` con `abrir()`, antes del gateway, por la misma
-// razón que el ledger y las API keys. `null` => todo en memoria, que es el camino
-// de los tests y el de un nodo sin storage.
+// The file lives in the PERSISTENT dir (not `budgetDir`, which under `bare`
+// is temp —D30.1—): `bin.mjs` opens it with `abrir()`, before the gateway,
+// for the same reason as the ledger and the API keys. `null` => everything in
+// memory, which is the path used by tests and by a node with no storage.
 const ARCHIVO = 'lote-pendientes.jsonl'
 
-// Cuántos recibos SIN liquidar disparan un flush por tamaño. Un nodo con tráfico
-// no espera al timer ni al apagado para juntar el lote.
+// How many UNSETTLED receipts trigger a size-based flush. A node with
+// traffic doesn't wait for the timer or for shutdown to gather the batch.
 const FLUSH_POR_TAMANO = 50
 
-// Cada cuánto se intenta un flush aunque no se llegue al umbral. Va MUY por
-// debajo de los `maxTimeoutSeconds` del 402 (300s por defecto): una autorización
-// EIP-3009 vencida no se puede liquidar, así que diferir de más es perder el
-// cobro. Ese es el límite honesto del modo `batch-receipts` y está anotado en el
-// roadmap.
+// How often a flush is attempted even below the threshold. Set WAY below the
+// 402's `maxTimeoutSeconds` (300s by default): an expired EIP-3009
+// authorization can't be settled, so deferring too long means losing the
+// charge. That's the honest limit of `batch-receipts` mode and it's noted in
+// the roadmap.
 const FLUSH_INTERVALO_MS = 90_000
 
 let _archivo = null
@@ -449,9 +467,9 @@ let _timer = null
 let _flushEnCurso = null
 let _umbral = FLUSH_POR_TAMANO
 
-// Escritura atómica del acumulador entero. Igual que `apikeys.guardar`: si falla,
-// se avisa fuerte y se sigue EN MEMORIA —un corte ahí sí pierde el recibo, y eso
-// tiene que verse, no tragarse.
+// Atomic write of the whole accumulator. Same as `apikeys.guardar`: if it
+// fails, it's loudly reported and keeps running IN MEMORY —a crash right
+// there DOES lose the receipt, and that has to be visible, not swallowed.
 function persistir() {
   if (!_archivo) return
   const tmp = _archivo + '.tmp'
@@ -460,18 +478,18 @@ function persistir() {
     fs.writeFileSync(tmp, lineas ? lineas + '\n' : '', { mode: 0o600 })
     fs.renameSync(tmp, _archivo)
   } catch (err) {
-    console.error(`[lote] no se pudo persistir el acumulador: ${(err && err.message) || err}`)
+    console.error(`[lote] could not persist the accumulator: ${(err && err.message) || err}`)
     console.error(
-      '[lote] los pendientes corren EN MEMORIA: un corte entre servir y liquidar los pierde'
+      '[lote] pending receipts are running IN MEMORY: a crash between serving and settling loses them'
     )
     _archivo = null
   }
 }
 
-// Abre el acumulador contra `dir` y le inyecta con qué firmar y liquidar el
-// lote. Carga lo que haya quedado de una corrida anterior —una línea corrupta se
-// saltea, no se lleva puesto el resto— y arma el timer del flush periódico.
-// Devuelve cuántos recibos se recuperaron.
+// Opens the accumulator against `dir` and injects what to sign and settle the
+// batch with. Loads whatever's left from a previous run —a corrupted line is
+// skipped, doesn't take the rest down with it— and sets up the periodic flush
+// timer. Returns how many receipts were recovered.
 export function abrir(
   dir,
   {
@@ -496,12 +514,12 @@ export function abrir(
           const k = claveDe(r)
           if (k) _pend.set(k, r)
         } catch {
-          // Una línea que no parsea es una que se corrompió al escribirse; el
-          // resto del archivo sigue siendo bueno.
+          // A line that doesn't parse is one that got corrupted on write; the
+          // rest of the file is still good.
         }
       }
     } catch {
-      // No existe todavía: primer arranque.
+      // Doesn't exist yet: first boot.
     }
   }
 
@@ -517,8 +535,9 @@ export function abrir(
   return _pend.size
 }
 
-// El flush por tamaño. `agregar` lo llama fire-and-forget; los tests lo esperan.
-// No hace nada si el acumulador no está abierto o falta con qué firmar/liquidar.
+// The size-based flush. `agregar` calls it fire-and-forget; tests await it.
+// Does nothing if the accumulator isn't open or is missing something to
+// sign/settle with.
 export async function flushSiSuperaUmbral() {
   if (!_archivo || !_firmar || !_liquidar) return null
   if (_flushEnCurso) return _flushEnCurso
@@ -526,10 +545,11 @@ export async function flushSiSuperaUmbral() {
   return flushTodo()
 }
 
-// Arma-firma-liquida-marca TODO lo pendiente, agrupado por red+wallet (un lote es
-// de UNA red y UNA wallet: `construirLote` lo exige). NO reintenta acá lo que
-// falló: queda en el acumulador para el próximo disparo. Devuelve un resumen por
-// grupo. No tira: un flush que revienta no puede llevarse puesto el `close`.
+// Builds-signs-settles-marks ALL of what's pending, grouped by
+// network+wallet (a batch is for ONE network and ONE wallet:
+// `construirLote` enforces it). Does NOT retry here what failed: it stays in
+// the accumulator for the next trigger. Returns a summary per group. Doesn't
+// throw: a flush that blows up can't take `close` down with it.
 export async function flushTodo({ firmar = _firmar, liquidar = _liquidar } = {}) {
   if (_flushEnCurso) return _flushEnCurso
   _flushEnCurso = (async () => {
@@ -552,11 +572,11 @@ export async function flushTodo({ firmar = _firmar, liquidar = _liquidar } = {})
         continue
       }
       if (!firmado) {
-        resultados.push({ network, payTo, ok: false, motivo: 'no se pudo firmar el lote' })
+        resultados.push({ network, payTo, ok: false, motivo: 'could not sign the batch' })
         continue
       }
       if (typeof liquidar !== 'function') {
-        resultados.push({ network, payTo, ok: false, motivo: 'no hay funcion liquidar' })
+        resultados.push({ network, payTo, ok: false, motivo: 'no liquidar function available' })
         continue
       }
       const res = await liquidarLote({ lote: firmado, liquidar })
@@ -579,9 +599,9 @@ export async function flushTodo({ firmar = _firmar, liquidar = _liquidar } = {})
   }
 }
 
-// El apagado de `bin.mjs`. Persiste PRIMERO —si el flush cuelga contra un
-// facilitator lento, el forced-exit corta igual y no se pierde nada—, después
-// intenta un último flush, y vuelve a persistir lo que quede.
+// `bin.mjs`'s shutdown. Persists FIRST —if the flush hangs against a slow
+// facilitator, the forced exit still cuts it off and nothing is lost—, then
+// tries one last flush, and persists whatever's left again.
 export async function cerrar({ flush = true } = {}) {
   if (_timer) clearInterval(_timer)
   _timer = null
@@ -590,7 +610,7 @@ export async function cerrar({ flush = true } = {}) {
     try {
       await flushTodo()
     } catch {
-      // ya se avisó adentro; el acumulador queda persistido para la próxima.
+      // already reported inside; the accumulator stays persisted for next time.
     }
     persistir()
   }
@@ -603,7 +623,7 @@ export async function cerrar({ flush = true } = {}) {
 
 export function agregar(recibo) {
   const k = claveDe(recibo)
-  if (!k) throw new Error('lote: no se puede acumular un recibo sin nonce')
+  if (!k) throw new Error('lote: cannot accumulate a receipt with no nonce')
   _pend.set(k, recibo)
   if (_pend.size > MAX_PENDIENTES) {
     const sobran = _pend.size - MAX_PENDIENTES
@@ -618,7 +638,8 @@ export function agregar(recibo) {
   return recibo
 }
 
-// Los recibos acumulados, filtrables por red/destino y por si todavía se deben.
+// The accumulated receipts, filterable by network/destination and by whether
+// they're still owed.
 export function pendientes({ red, network, payTo, soloPendientes = false } = {}) {
   const out = []
   for (const r of _pend.values()) {
@@ -635,16 +656,16 @@ export function contar(filtro) {
   return pendientes(filtro).length
 }
 
-// Arma un lote con los recibos acumulados que matcheen. Tira si no hay ninguno:
-// un lote vacío no es un lote.
+// Builds a batch out of the matching accumulated receipts. Throws if there
+// are none: an empty batch isn't a batch.
 export function armar({ red, network, payTo, soloPendientes = false, ts } = {}) {
   const recibos = pendientes({ red, network, payTo, soloPendientes })
-  if (recibos.length === 0) throw new Error('lote: no hay recibos acumulados para ese destino')
+  if (recibos.length === 0) throw new Error('lote: no accumulated receipts for that destination')
   return construirLote({ recibos, ts })
 }
 
-// Marca esos nonces como liquidados (no los borra: quedan para auditar hasta que
-// la poda se los lleve).
+// Marks those nonces as settled (doesn't delete them: they stick around for
+// auditing until pruning takes them).
 export function marcarLiquidados(nonces, { transaction } = {}) {
   let toco = false
   for (const n of nonces || []) {
@@ -658,12 +679,12 @@ export function marcarLiquidados(nonces, { transaction } = {}) {
       toco = true
     }
   }
-  // Que el corte de un proceso justo después de liquidar no vuelva a cobrar: lo
-  // liquidado tiene que quedar marcado en disco, no solo en memoria.
+  // So a process crash right after settling doesn't charge again: what's
+  // settled has to end up marked on disk, not just in memory.
   if (toco) persistir()
 }
 
-// Sólo para los tests: vacía el acumulador entre casos.
+// Tests only: empties the accumulator between cases.
 export function limpiar() {
   _pend.clear()
 }

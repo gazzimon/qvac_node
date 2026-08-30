@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Recalcula todos los numeros de docs/EVALUACION-ECONOMICA.md a partir de los
-supuestos declarados ahi. Cambiar un valor aca y correr el script reproduce
-la tabla correspondiente -- ningun numero del documento esta escrito a mano
-sin este script atras.
+Recalculates every number in docs/EVALUACION-ECONOMICA.md from the
+assumptions declared there. Changing a value here and running the script
+reproduces the corresponding table -- no number in the document is
+hand-written without this script behind it.
 
-Uso: python scripts/eval-economica.py
+Usage: python scripts/eval-economica.py
 """
 
 def npv(rate_m, flows):
@@ -13,7 +13,7 @@ def npv(rate_m, flows):
 
 
 def irr(flows, lo=1e-6, hi=1.0):
-    # busqueda binaria: npv(r) es monotona decreciente en r para estos flujos
+    # binary search: npv(r) is monotonically decreasing in r for these flows
     for _ in range(200):
         mid = (lo + hi) / 2
         if npv(mid, flows) > 0:
@@ -33,7 +33,7 @@ ARS_KWH = 135.0
 LUZ = KWH_MES * ARS_KWH / FX
 
 print("=" * 70)
-print("MODELO A -- OPERADOR DEL NODO (ahorro)")
+print("MODEL A -- NODE OPERATOR (savings)")
 print("=" * 70)
 
 CAPEX_OPERADOR = 1650.0
@@ -43,9 +43,9 @@ AHORRO_BRUTO = FACTURA_ACTUAL - FACTURA_NUEVA
 NETO_OPERADOR = AHORRO_BRUTO - LUZ
 
 print(f"CAPEX                  : USD {CAPEX_OPERADOR:,.2f}")
-print(f"Ahorro bruto            : USD {AHORRO_BRUTO:,.2f} /mes")
-print(f"Costo electrico         : USD {LUZ:,.2f} /mes")
-print(f"Beneficio neto          : USD {NETO_OPERADOR:,.2f} /mes")
+print(f"Gross savings           : USD {AHORRO_BRUTO:,.2f} /mo")
+print(f"Electricity cost         : USD {LUZ:,.2f} /mo")
+print(f"Net benefit              : USD {NETO_OPERADOR:,.2f} /mo")
 
 flows = [-CAPEX_OPERADOR] + [NETO_OPERADOR] * H
 pb = CAPEX_OPERADOR / NETO_OPERADOR
@@ -54,17 +54,17 @@ tir_m = irr(flows)
 tir_a = (1 + tir_m) ** 12 - 1
 total = NETO_OPERADOR * H
 
-print(f"Payback                 : {pb:.1f} meses ({pb / 12:.2f} anios)")
-print(f"Beneficio neto {H}m      : USD {total - CAPEX_OPERADOR:,.0f}")
-print(f"ROI simple {H}m          : {(total - CAPEX_OPERADOR) / CAPEX_OPERADOR * 100:,.0f}%")
-print(f"VAN @{TASA_ANUAL*100:.0f}%              : USD {van:,.0f}")
-print(f"TIR anualizada          : {tir_a * 100:,.0f}%")
+print(f"Payback                 : {pb:.1f} months ({pb / 12:.2f} years)")
+print(f"Net benefit {H}m         : USD {total - CAPEX_OPERADOR:,.0f}")
+print(f"Simple ROI {H}m          : {(total - CAPEX_OPERADOR) / CAPEX_OPERADOR * 100:,.0f}%")
+print(f"NPV @{TASA_ANUAL*100:.0f}%              : USD {van:,.0f}")
+print(f"Annualized IRR          : {tir_a * 100:,.0f}%")
 
 print()
-print("Sensibilidad -- payback en meses")
-print("  factura actual ->    50     75    100    150    200")
+print("Sensitivity -- payback in months")
+print("  current bill ->      50     75    100    150    200")
 for nuevo in (10, 20, 30):
-    fila = f"  plan nuevo USD {nuevo:>3} "
+    fila = f"  new plan USD {nuevo:>3}   "
     for viejo in (50, 75, 100, 150, 200):
         neto = (viejo - nuevo) - LUZ
         fila += f"{CAPEX_OPERADOR / neto:>7.1f}" if neto > 0 else "    n/a"

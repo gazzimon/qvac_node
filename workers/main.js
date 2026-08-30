@@ -1,13 +1,13 @@
-// Worker del updater OTA de QVAC-Node.
+// QVAC-Node's OTA updater worker.
 //
-// Es un fork de `hello-pear-worker` (https://github.com/holepunchto/hello-pear-worker),
-// que antes se usaba tal cual con un `require`. Se trajo al repo por tres
-// cambios que no se pueden hacer desde afuera del paquete; estan marcados
-// abajo con "CAMBIO".
+// A fork of `hello-pear-worker` (https://github.com/holepunchto/hello-pear-worker),
+// which used to be pulled in as-is via a `require`. It was brought into the
+// repo for three changes that can't be made from outside the package; they
+// are marked below with "CHANGE".
 //
-// Corre en un worker thread propio, separado del hilo que atiende al usuario:
-// el updater descarga decenas de MB y escribe un binario a disco, y eso no
-// puede competir con el streaming de tokens de `serve`/`gateway`.
+// Runs in its own worker thread, separate from the thread serving the user:
+// the updater downloads tens of MB and writes a binary to disk, and that
+// can't compete with `serve`/`gateway`'s token streaming.
 
 const PearRuntime = require('pear-runtime')
 const Hyperswarm = require('hyperswarm')
@@ -18,18 +18,19 @@ const path = require('bare-path')
 const dir = require('bare-storage')
 const { isBareKit } = require('which-runtime')
 
-// En mobile el argv del worker no trae ni el ejecutable ni el entrypoint.
+// On mobile the worker's argv carries neither the executable nor the entrypoint.
 const argv = (index) => Bare.argv[index + (isBareKit ? 0 : 2)]
 
-// CAMBIO 4 — ventana de jitter configurable.
+// CHANGE 4 — configurable jitter window.
 //
-// pear-runtime-updater agenda el update en un punto ALEATORIO de una ventana
-// que por default es de una hora, y solo lo aplica al instante si la version
-// nueva aparece dentro de los primeros 60s de vida del proceso. Pasado ese
-// minuto, publicar una version no se ve. Ese default protege a una flota
-// grande de actualizarse toda junta; acá el OTA en vivo es el pitch.
-// `opts.delay` solo se respeta si es un entero: cualquier otra cosa cae al
-// default de una hora en silencio, asi que se valida antes de pasarlo.
+// pear-runtime-updater schedules the update at a RANDOM point within a
+// window that defaults to one hour, and only applies it instantly if the new
+// version shows up within the process's first 60s of life. Past that minute,
+// publishing a version isn't visible. That default protects a large fleet
+// from updating all at once; here, live OTA is the whole pitch.
+// `opts.delay` is only honored if it's an integer: anything else silently
+// falls back to the one-hour default, so it's validated before being passed
+// along.
 const delay = Number(argv(6))
 
 const updaterConfig = {
@@ -47,17 +48,19 @@ const store = new Corestore(path.join(updaterConfig.dir, 'pear-runtime', 'corest
 const swarm = new Hyperswarm()
 const pear = new PearRuntime({ ...updaterConfig, swarm, store })
 
-// CAMBIO 1 — el nodo instalado tambien SIRVE, no solo descarga.
+// CHANGE 1 — the installed node also SERVES, not just downloads.
 //
-// El upstream une al swarm con `server: false`, que convierte a cada copia
-// instalada en pura sanguijuela: baja updates y no le sirve a nadie. Con eso,
-// la unica fuente del binario en toda la red es el `pear seed` de la maquina
-// que publica — un punto unico de falla, y ademas la negacion del pitch del
-// proyecto ("la red distribuye su propio cliente por la red": con server:false
-// no distribuye la red, distribuye una sola maquina).
+// Upstream joins the swarm with `server: false`, which turns every installed
+// copy into a pure leecher: it pulls updates and serves nobody. That leaves
+// the machine's own `pear seed` as the only source of the binary on the
+// whole network — a single point of failure, and also the negation of the
+// project's own pitch ("the network distributes its own client across the
+// network": with server:false the network doesn't distribute it, one single
+// machine does).
 //
-// Con server:true cada nodo reseedea los bloques que ya tiene. El default de
-// Hyperswarm es justamente server:true; esto vuelve al default a proposito.
+// With server:true every node reseeds the blocks it already has.
+// Hyperswarm's default is precisely server:true; this restores that default
+// on purpose.
 if (updaterConfig.updates !== false) {
   swarm.on('connection', (connection) => store.replicate(connection))
   swarm.join(pear.updater.drive.core.discoveryKey, {
@@ -72,13 +75,13 @@ pear.updater.on('updating', () => pipe.write('updating'))
 pear.updater.on('updated', () => pipe.write('updated'))
 pear.on('minver-required', () => pipe.write('minver-required'))
 
-// CAMBIO 2 — reenviar el progreso de descarga.
+// CHANGE 2 — forward the download progress.
 //
-// `pear-runtime-updater` emite `updating-progress` con bytes, velocidad,
-// porcentaje y cantidad de peers, pero el upstream nunca lo escribe al pipe,
-// asi que el proceso principal no puede mostrar nada. Sin esto, entre
-// "bajando" y "descarga completa" hay ~10 segundos de pantalla muerta, que
-// son justo los que el jurado mira durante la demo del OTA.
+// `pear-runtime-updater` emits `updating-progress` with bytes, speed,
+// percentage and peer count, but upstream never writes it to the pipe, so
+// the main process has nothing to show. Without this, there are ~10 seconds
+// of dead screen between "downloading" and "download complete" — exactly
+// the moment the judges are watching during the OTA demo.
 pear.updater.on('updating-progress', (stats) => {
   if (!stats || !stats.download) return
   pipe.write(
@@ -92,11 +95,11 @@ pear.updater.on('updating-progress', (stats) => {
   )
 })
 
-// CAMBIO 3 — los errores del updater llegan al proceso principal.
+// CHANGE 3 — updater errors reach the main process.
 //
-// El upstream hace `pear.updater.on('error', console.error)`: el error queda
-// en el worker y el `app.on('error')` del proceso principal nunca se entera.
-// Un OTA que falla termina viendose igual que un OTA que no arranco.
+// Upstream does `pear.updater.on('error', console.error)`: the error stays
+// in the worker and the main process's `app.on('error')` never finds out.
+// A failed OTA ends up looking exactly like an OTA that never started.
 pear.updater.on('error', (err) => {
   pipe.write('updater-error:' + (err && err.message ? err.message : String(err)))
 })

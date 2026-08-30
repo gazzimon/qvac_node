@@ -1,23 +1,23 @@
-// Entrypoint de Pear para el SDK de QVAC.
+// Pear entrypoint for the QVAC SDK.
 //
-// `@qvac/sdk` trae un pre-hook `pear-pre` que genera este archivo solo, a
-// partir de qvac.config.{json,mjs}. `@qvac/bare-sdk` NO: sigue el modelo de
-// ensamblado explicito, asi que las apps Pear que lo usan tienen que escribir
-// el entry a mano. Es un requisito puntual del README de bare-sdk (seccion
-// "Pear pre-hook"), y por eso el archivo tiene este nombre exacto y esta
-// declarado en `pear.stage.entrypoints` del package.json.
+// `@qvac/sdk` ships a `pear-pre` pre-hook that generates this file by itself,
+// from qvac.config.{json,mjs}. `@qvac/bare-sdk` does NOT: it follows the
+// explicit-assembly model, so Pear apps that use it have to write the entry
+// by hand. It's a specific requirement from bare-sdk's README (the "Pear
+// pre-hook" section), and that's why the file has this exact name and is
+// declared in `pear.stage.entrypoints` in package.json.
 //
-// CUANDO APLICA: solo en el camino "app Pear desde el fuente" —`pear run`,
-// `pear dev`, o un stage del codigo fuente en vez de los binarios—, donde Pear
-// arma el bundle a partir de los entrypoints declarados y necesita ver el
-// plugin y su addon en el grafo.
+// WHEN IT APPLIES: only on the "Pear app from source" path —`pear run`,
+// `pear dev`, or a stage of the source code instead of the binaries—, where
+// Pear builds the bundle from the declared entrypoints and needs to see the
+// plugin and its addon in the graph.
 //
-// CUANDO NO: el release de QVAC-Node NO pasa por aca. Publicamos binarios
-// standalone compilados con `bare-build` desde `bin.mjs`, y `pear stage`
-// sube `./build` (solo `by-arch/`). En ese camino, quien mete el addon en el
-// binario es bare-pack recorriendo el grafo de `bin.mjs`. Este archivo existe
-// para que el camino desde el fuente tambien funcione, y para no quedar fuera
-// de contrato con bare-sdk.
+// WHEN IT DOESN'T: the QVAC-Node release does NOT go through here. We publish
+// standalone binaries compiled with `bare-build` from `bin.mjs`, and
+// `pear stage` uploads `./build` (only `by-arch/`). On that path, the one
+// that puts the addon into the binary is bare-pack walking `bin.mjs`'s graph.
+// This file exists so the from-source path also works, and so we don't fall
+// out of contract with bare-sdk.
 
 import './global-process.mjs'
 import { registerPlugin } from '@qvac/bare-sdk/plugins'

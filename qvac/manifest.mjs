@@ -1,34 +1,36 @@
-// Manifiesto del nodo: que modelos sirve, a que precio, y la firma que prueba
-// que lo dijo el dueno de esa clave. Fase 2-a del ROADMAP.
+// Node manifest: what models it serves, at what price, and the signature that
+// proves the owner of that key said so. ROADMAP Phase 2-a.
 //
-// No toca la red ni el disco: entra un objeto, sale un objeto. Todo lo que
-// hace se puede testear sin dos maquinas (ver test/index.js), que es
-// justamente por que esta pieza va primero.
+// Doesn't touch the network or disk: an object goes in, an object comes out.
+// Everything it does can be tested without two machines (see test/index.js),
+// which is exactly why this piece comes first.
 //
-// FIRMA: Ed25519 sobre la forma canonica JCS (RFC 8785) del manifiesto sin el
-// campo `signature`. JCS y no `JSON.stringify` a secas porque el orden de las
-// claves de un objeto de JS no es estable entre implementaciones ni entre
-// versiones: dos nodos que serialicen el MISMO manifiesto en distinto orden
-// producen bytes distintos, y la firma del otro no verifica nunca. Con JCS los
-// bytes son una funcion del contenido, no del orden en que se armo el objeto.
+// SIGNATURE: Ed25519 over the canonical JCS form (RFC 8785) of the manifest
+// without the `signature` field. JCS instead of plain `JSON.stringify` because
+// the key order of a JS object isn't stable across implementations or
+// versions: two nodes serializing the SAME manifest in a different order
+// produce different bytes, and the other one's signature never verifies. With
+// JCS the bytes are a function of the content, not of the order the object
+// was built in.
 
 import crypto from 'hypercore-crypto'
 
 export const SCHEMA_VERSION = 0
-// 0.2.0: el transporte pasa de FramedStream a un canal Protomux, se agrega
-// `files:announce`, y `directory` deja de ser un mock. El schemaVersion NO
-// cambia -- la forma del manifiesto es la misma, lo que cambio es el protocolo
-// que lo transporta y el contenido de un campo que antes era relleno.
+// 0.2.0: the transport moves from FramedStream to a Protomux channel,
+// `files:announce` is added, and `directory` stops being a mock. schemaVersion
+// does NOT change -- the shape of the manifest is the same, what changed is
+// the protocol that carries it and the content of a field that used to be
+// filler.
 export const PROTOCOL_VERSION = '0.2.0'
 
 // ---------------------------------------------------------------------------
 // JCS — RFC 8785
 // ---------------------------------------------------------------------------
 
-// Serializacion canonica: claves ordenadas, sin espacios, numeros en la forma
-// de ECMAScript. `JSON.stringify` de un primitivo ya cumple el RFC para
-// strings y numeros finitos; lo que el RFC agrega es el orden de las claves y
-// la prohibicion de NaN/Infinity, que es lo que se implementa aca.
+// Canonical serialization: sorted keys, no spaces, numbers in ECMAScript
+// form. `JSON.stringify` of a primitive already satisfies the RFC for
+// strings and finite numbers; what the RFC adds is the key order and the
+// ban on NaN/Infinity, which is what's implemented here.
 export function canonicalize(value) {
   if (value === null) return 'null'
 
@@ -37,11 +39,11 @@ export function canonicalize(value) {
   if (t === 'boolean') return value ? 'true' : 'false'
 
   if (t === 'number') {
-    // JSON no tiene como representar estos, y `JSON.stringify` los convierte
-    // en `null` en silencio: un manifiesto con un precio NaN se firmaria como
-    // si el precio fuera null y verificaria perfecto. Mejor cortar.
+    // JSON has no way to represent these, and `JSON.stringify` silently turns
+    // them into `null`: a manifest with a NaN price would be signed as if the
+    // price were null and would verify just fine. Better to bail out.
     if (!Number.isFinite(value)) {
-      throw new Error(`JCS: numero no finito (${value}), no se puede canonicalizar`)
+      throw new Error(`JCS: non-finite number (${value}), cannot canonicalize`)
     }
     return JSON.stringify(value)
   }
@@ -53,25 +55,25 @@ export function canonicalize(value) {
   }
 
   if (t === 'object') {
-    // El RFC ordena por las unidades de codigo UTF-16 de la clave, que es
-    // exactamente lo que hace el `sort()` por default de JS sobre strings.
+    // The RFC sorts by the UTF-16 code units of the key, which is exactly
+    // what JS's default `sort()` does on strings.
     const keys = Object.keys(value)
-      .filter((k) => value[k] !== undefined) // `undefined` no existe en JSON
+      .filter((k) => value[k] !== undefined) // `undefined` doesn't exist in JSON
       .sort()
     return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalize(value[k])).join(',') + '}'
   }
 
-  throw new Error(`JCS: tipo no serializable (${t})`)
+  throw new Error(`JCS: non-serializable type (${t})`)
 }
 
 // ---------------------------------------------------------------------------
 // Identidad
 // ---------------------------------------------------------------------------
 
-// La identidad del nodo ES su par de claves del swarm: el mismo `publicKey`
-// que aparece en el manifiesto es el que Hyperswarm anuncia. Sin eso, la firma
-// probaria "alguien con esta clave escribio esto" pero no "el peer con el que
-// estoy hablando escribio esto" (ver la nota de verifyManifest).
+// The node's identity IS its swarm keypair: the same `publicKey` that shows
+// up in the manifest is the one Hyperswarm announces. Without that, the
+// signature would prove "someone with this key wrote this" but not "the peer
+// I'm talking to wrote this" (see the note on verifyManifest).
 export function createIdentity(seed) {
   return crypto.keyPair(seed)
 }
@@ -84,37 +86,39 @@ function isHex(s, bytes) {
 // Armado
 // ---------------------------------------------------------------------------
 
-// El `economic` DEJO DE SER UN MOCK cuando el nodo tiene wallet (Fase 7).
+// `economic` STOPPED BEING A MOCK once the node has a wallet (Phase 7).
 //
-// Hasta la Fase 7 este bloque era un valor fijo con la direccion cero, marcado
-// con `_mock` aca, en el README y en el propio manifiesto. Ahora, cuando el
-// nodo abre su wallet, lo que se firma es la direccion de cobro REAL que
-// devolvio WDK -- la arma `wallet.economicDe()`, que ademas es quien sabe de
-// chains y de settlement (D15).
+// Up through Phase 7 this block was a fixed value with the zero address,
+// flagged with `_mock` here, in the README, and in the manifest itself. Now,
+// once the node opens its wallet, what gets signed is the REAL payout address
+// that WDK returned -- built by `wallet.economicDe()`, which is also the one
+// that knows about chains and settlement (D15).
 //
-// El mock QUEDA, y no por comodidad: hay caminos legitimos sin wallet y tienen
-// que poder anunciarse igual. Un nodo que solo consume, uno que todavia no
-// creo su wallet, `peers` sin storage, y los tests del manifiesto, que no
-// tienen por que cargar el stack de una wallet para probar una firma.
+// The mock STAYS, and not for convenience: there are legitimate paths without
+// a wallet that still need to be able to announce themselves. A node that
+// only consumes, one that hasn't created its wallet yet, `peers` without
+// storage, and the manifest tests, which have no reason to load a wallet
+// stack just to test a signature.
 //
-// Lo que NO puede pasar es que los dos casos se vean iguales. Por eso el mock
-// sigue marcado: si alguien abre el manifiesto y ve una wallet con plata
-// aparentemente real sin ninguna aclaracion, la lectura es peor que si el campo
-// directamente no estuviera.
+// What CANNOT happen is the two cases looking the same. That's why the mock
+// stays flagged: if someone opens the manifest and sees a wallet with
+// apparently real money and no disclaimer, that reading is worse than if the
+// field simply weren't there.
 const ECONOMIC_MOCK = {
-  _mock: 'SIN WALLET — este nodo no declaro direccion de cobro. Ver ROADMAP Fase 7.',
+  _mock: 'NO WALLET — this node has not declared a payout address. See ROADMAP Phase 7.',
   walletAddress: '0x0000000000000000000000000000000000000000',
   chains: ['ethereum-sepolia'],
   settlement: 'batch-receipts'
 }
 
-// Se valida la forma antes de firmarla, por lo mismo que `directorySection`: un
-// `economic` mal armado FIRMADO es peor que ninguno. Un consumidor lo verifica
-// bien, le manda la plata a lo que diga, y el error aparece cuando ya se pago.
+// Its shape is validated before signing, for the same reason as
+// `directorySection`: a badly built `economic` that's SIGNED is worse than
+// none at all. A consumer verifies it fine, sends money to whatever it says,
+// and the error shows up after the payment already happened.
 //
-// El pattern es el del schema congelado (manifest-v0.json:84) y admite las dos
-// familias que soporta el stack: EVM y Tron. Se chequea aca igual que alla
-// porque este es el ultimo punto antes de la firma.
+// The pattern comes from the frozen schema (manifest-v0.json:84) and supports
+// the two families the stack handles: EVM and Tron. It's checked here the
+// same as there because this is the last point before the signature.
 function economicSection(economic) {
   if (!economic) return ECONOMIC_MOCK
 
@@ -122,83 +126,85 @@ function economicSection(economic) {
   const evm = /^0x[a-fA-F0-9]{40}$/.test(String(walletAddress || ''))
   const tron = /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(walletAddress || ''))
   if (!evm && !tron) {
-    throw new Error('buildManifest: economic.walletAddress no es una direccion EVM ni Tron')
+    throw new Error('buildManifest: economic.walletAddress is neither an EVM nor a Tron address')
   }
-  // La direccion cero pasa el pattern y no es una direccion: es el valor que
-  // tenia el mock. Firmarla seria mandar a pagar a un pozo.
+  // The zero address passes the pattern and isn't a real address: it's the
+  // value the mock used. Signing it would mean sending payment into a pit.
   if (/^0x0{40}$/.test(String(walletAddress))) {
-    throw new Error('buildManifest: economic.walletAddress es la direccion cero')
+    throw new Error('buildManifest: economic.walletAddress is the zero address')
   }
   if (!Array.isArray(chains) || chains.length === 0) {
-    throw new Error('buildManifest: economic.chains necesita al menos una red')
+    throw new Error('buildManifest: economic.chains needs at least one network')
   }
   for (const c of chains) {
     if (typeof c !== 'string' || !/^[a-z0-9-]{3,40}$/.test(c)) {
-      throw new Error('buildManifest: economic.chains tiene un identificador invalido: ' + c)
+      throw new Error('buildManifest: economic.chains has an invalid identifier: ' + c)
     }
   }
   if (!['prepaid-balance', 'batch-receipts', 'onchain-per-job'].includes(settlement)) {
-    throw new Error('buildManifest: economic.settlement no es uno de los del schema')
+    throw new Error('buildManifest: economic.settlement is not one of the schema values')
   }
 
   return { walletAddress, chains: [...chains], settlement }
 }
 
-// El directorio DEJO de ser un mock cuando el nodo abre su Hyperbee: la clave
-// que se firma aca es la que el par usa para replicarlo (ver directory.mjs).
-// El mock queda para los caminos que no montan almacenamiento -- `peers` sin
-// storage, y los tests del manifiesto, que no tienen por que abrir un disco.
+// The directory STOPPED being a mock once the node opens its Hyperbee: the
+// key signed here is the one the peer uses to replicate it (see
+// directory.mjs). The mock stays for the paths that don't mount storage --
+// `peers` without storage, and the manifest tests, which have no reason to
+// open a disk.
 const DIRECTORY_MOCK = {
-  _mock: 'NO IMPLEMENTADO — valores fijos para validar el schema. Ver ROADMAP D2.',
+  _mock: 'NOT IMPLEMENTED — fixed values to validate the schema. See ROADMAP D2.',
   writerPublicKey: '00'.repeat(32),
   discoveryKey: '00'.repeat(32),
   sequence: 0
 }
 
-// Se valida la forma antes de firmarla. Un descriptor mal armado firmado es
-// peor que ninguno: el par lo verifica bien, intenta replicar una clave que no
-// existe, y el error aparece a tres saltos de donde se origino.
+// Its shape is validated before signing. A badly built descriptor that's
+// signed is worse than none: the peer verifies it fine, tries to replicate a
+// key that doesn't exist, and the error shows up three hops from where it
+// originated.
 function directorySection(directory) {
   if (!directory) return DIRECTORY_MOCK
 
   const { writerPublicKey, discoveryKey, sequence } = directory
   if (!isHex(writerPublicKey, 32) || !isHex(discoveryKey, 32)) {
-    throw new Error('buildManifest: el directorio necesita claves hex de 32 bytes')
+    throw new Error('buildManifest: the directory needs 32-byte hex keys')
   }
   if (!Number.isInteger(sequence) || sequence < 0) {
-    throw new Error('buildManifest: directory.sequence tiene que ser un entero >= 0')
+    throw new Error('buildManifest: directory.sequence must be an integer >= 0')
   }
 
   return { writerPublicKey, discoveryKey, sequence }
 }
 
-// Un manifiesto SIN firmar. `signManifest` es el unico que le agrega
-// `signature`, para que no exista un camino en el que un manifiesto se arme y
-// se mande sin pasar por la firma.
+// An UNSIGNED manifest. `signManifest` is the only place that adds
+// `signature`, so there's no path where a manifest gets built and sent
+// without going through the signature.
 export function buildManifest({
   publicKey,
   models = [],
-  operator = 'Nodo QVAC',
+  operator = 'QVAC Node',
   tags = [],
   region = 'sa-east',
   directory = null,
-  // La direccion de cobro de ESTE nodo, o null si todavia no tiene wallet.
-  // La arma wallet.economicDe(); aca solo se valida y se firma.
+  // The payout address for THIS node, or null if it doesn't have a wallet yet.
+  // Built by wallet.economicDe(); here it's only validated and signed.
   economic = null,
   ttlMs = 24 * 60 * 60 * 1000,
   now = Date.now()
 }) {
   const hex = Buffer.isBuffer(publicKey) ? publicKey.toString('hex') : publicKey
   if (!isHex(hex, 32)) {
-    throw new Error('buildManifest: publicKey tiene que ser 32 bytes (hex de 64 chars)')
+    throw new Error('buildManifest: publicKey must be 32 bytes (64-char hex)')
   }
   if (!Array.isArray(models) || models.length === 0) {
-    throw new Error('buildManifest: hace falta al menos un modelo')
+    throw new Error('buildManifest: at least one model is required')
   }
 
   for (const m of models) {
     if (!m || typeof m.modelId !== 'string' || m.modelId === '') {
-      throw new Error('buildManifest: cada modelo necesita un modelId')
+      throw new Error('buildManifest: every model needs a modelId')
     }
   }
 
@@ -209,10 +215,10 @@ export function buildManifest({
     expiresAt: now + ttlMs,
     node: {
       hyperswarmPublicKey: hex,
-      // D1 decidio que el transporte es FramedStream sobre la conexion de
-      // Hyperswarm, NO HTTP: no hay baseUrl al que apuntar. El campo queda por
-      // compatibilidad de schema con `openaiCompatible: false` para que nadie
-      // intente pegarle a un puerto que no existe en la otra maquina.
+      // D1 decided the transport is FramedStream over the Hyperswarm
+      // connection, NOT HTTP: there's no baseUrl to point at. The field stays
+      // for schema compatibility with `openaiCompatible: false` so nobody
+      // tries to hit a port that doesn't exist on the other machine.
       endpoint: { baseUrl: '', openaiCompatible: false },
       region
     },
@@ -243,11 +249,12 @@ export function buildManifest({
 }
 
 // ---------------------------------------------------------------------------
-// Firma y verificacion
+// Signing and verification
 // ---------------------------------------------------------------------------
 
-// Los bytes que se firman: el manifiesto canonicalizado SIN `signature`. Se
-// usa la misma funcion al firmar y al verificar, para que no puedan divergir.
+// The bytes that get signed: the canonicalized manifest WITHOUT `signature`.
+// The same function is used when signing and when verifying, so they can't
+// diverge.
 function signedBytes(manifest) {
   const { signature, ...rest } = manifest // eslint-disable-line no-unused-vars
   return Buffer.from(canonicalize(rest), 'utf8')
@@ -258,31 +265,32 @@ export function signManifest(manifest, secretKey) {
   return { ...manifest, signature: sig.toString('hex') }
 }
 
-// Devuelve `{ ok, reason }` en vez de tirar o devolver un booleano pelado: en
-// el camino del swarm hay que poder LOGUEAR por que se descarto el manifiesto
-// de un peer, y "false" no se puede debuggear a las 3 de la manana.
+// Returns `{ ok, reason }` instead of throwing or returning a bare boolean:
+// on the swarm path we need to be able to LOG why a peer's manifest was
+// discarded, and "false" can't be debugged at 3am.
 //
-// `expectedPublicKey` NO es opcional en la practica, aunque el argumento lo
-// sea. La firma solo prueba que quien tiene la privada de
-// `node.hyperswarmPublicKey` armo el manifiesto — y esa clave la elige el
-// propio manifiesto. Sin atarla a la clave real de la conexion, cualquiera
-// puede armar un manifiesto con SU clave, firmarlo bien, y anunciarse como el
-// nodo que quiera: la firma verifica perfecto y no prueba nada util. Quien
-// llama desde el swarm tiene que pasar la clave del peer que le dio el socket.
+// `expectedPublicKey` is NOT optional in practice, even though the argument
+// is. The signature only proves that whoever has the private key for
+// `node.hyperswarmPublicKey` built the manifest — and that key is chosen by
+// the manifest itself. Without tying it to the real key of the connection,
+// anyone could build a manifest with THEIR key, sign it correctly, and
+// announce themselves as whatever node they want: the signature verifies
+// perfectly and proves nothing useful. Whoever calls this from the swarm has
+// to pass the key of the peer that gave it the socket.
 export function verifyManifest(manifest, { expectedPublicKey = null, now = Date.now() } = {}) {
   if (!manifest || typeof manifest !== 'object') {
-    return { ok: false, reason: 'el manifiesto no es un objeto' }
+    return { ok: false, reason: 'the manifest is not an object' }
   }
   if (manifest.schemaVersion !== SCHEMA_VERSION) {
-    return { ok: false, reason: `schemaVersion ${manifest.schemaVersion} desconocida` }
+    return { ok: false, reason: `unknown schemaVersion ${manifest.schemaVersion}` }
   }
   if (!isHex(manifest.signature, 64)) {
-    return { ok: false, reason: 'falta la firma o no es hex de 64 bytes' }
+    return { ok: false, reason: 'missing signature or not 64-byte hex' }
   }
 
   const pk = manifest.node && manifest.node.hyperswarmPublicKey
   if (!isHex(pk, 32)) {
-    return { ok: false, reason: 'node.hyperswarmPublicKey ausente o mal formada' }
+    return { ok: false, reason: 'node.hyperswarmPublicKey missing or malformed' }
   }
 
   if (expectedPublicKey) {
@@ -292,13 +300,13 @@ export function verifyManifest(manifest, { expectedPublicKey = null, now = Date.
     if (expected !== pk) {
       return {
         ok: false,
-        reason: `el manifiesto dice ser de ${pk.slice(0, 8)}… pero la conexion es de ${expected.slice(0, 8)}…`
+        reason: `the manifest claims to be from ${pk.slice(0, 8)}… but the connection is from ${expected.slice(0, 8)}…`
       }
     }
   }
 
   if (!Array.isArray(manifest.models) || manifest.models.length === 0) {
-    return { ok: false, reason: 'el manifiesto no anuncia ningun modelo' }
+    return { ok: false, reason: 'the manifest does not announce any model' }
   }
 
   let ok = false
@@ -309,15 +317,15 @@ export function verifyManifest(manifest, { expectedPublicKey = null, now = Date.
       Buffer.from(pk, 'hex')
     )
   } catch (err) {
-    return { ok: false, reason: `no se pudo verificar la firma: ${(err && err.message) || err}` }
+    return { ok: false, reason: `could not verify the signature: ${(err && err.message) || err}` }
   }
 
-  if (!ok) return { ok: false, reason: 'la firma no corresponde al contenido' }
+  if (!ok) return { ok: false, reason: 'the signature does not match the content' }
 
-  // La expiracion se REPORTA pero no invalida por si sola: D3 decidio que un
-  // candidato vive o muere por el estado del socket, no por un timestamp. Se
-  // devuelve para poder loguearlo sin que el reloj desincronizado de una
-  // laptop tire abajo un nodo que esta perfectamente vivo.
+  // The expiration is REPORTED but doesn't invalidate on its own: D3 decided a
+  // candidate lives or dies by the socket's state, not by a timestamp. It's
+  // returned so it can be logged without a laptop's out-of-sync clock taking
+  // down a node that's perfectly alive.
   const expired = Number.isFinite(manifest.expiresAt) && manifest.expiresAt < now
 
   return { ok: true, reason: null, expired, publicKey: pk }

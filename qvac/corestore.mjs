@@ -1,15 +1,15 @@
-// El Corestore del nodo: UN solo almacen de hypercores para todo el proceso.
+// The node's Corestore: a SINGLE hypercore store for the whole process.
 //
-// Todo lo que persiste o replica (el directorio Hyperbee, el Hyperdrive de
-// archivos, y lo que venga despues) sale de aca. No es una comodidad: el
-// almacen toma un lock de RocksDB sobre su directorio, y dos Corestore
-// apuntando al mismo path fallan al abrir el segundo. Un unico punto de
-// apertura hace que ese error no pueda existir.
+// Everything that persists or replicates (the Hyperbee directory, the file
+// Hyperdrive, and whatever comes after) comes out of here. It's not a nicety:
+// the store takes a RocksDB lock on its directory, and two Corestores pointing
+// at the same path fail when the second one tries to open. A single opening
+// point makes that error impossible.
 //
-// Ademas, un solo store significa una sola replicacion por socket: cuando
-// `swarm.mjs` hace `store.replicate(socket)`, ese unico stream sirve el
-// directorio Y los drives, multiplexados por Protomux junto al canal de chat.
-// Ver la nota de channel.mjs sobre por que el orden de apertura importa.
+// Also, a single store means a single replication per socket: when
+// `swarm.mjs` does `store.replicate(socket)`, that one stream serves the
+// directory AND the drives, multiplexed by Protomux alongside the chat
+// channel. See the note in channel.mjs about why opening order matters.
 
 import Corestore from 'corestore'
 import path from 'bare-path'
@@ -21,16 +21,16 @@ export function corestoreDir(dir) {
   return path.join(dir, 'corestore')
 }
 
-// Idempotente Y segura contra concurrencia: dos llamadas simultaneas antes de
-// que la primera termine de abrir tienen que devolver el MISMO store, no dos.
-// Con `await` de por medio, un `if (store)` solo no alcanza.
+// Idempotent AND safe against concurrency: two simultaneous calls before the
+// first finishes opening have to return the SAME store, not two. With an
+// `await` in the middle, a plain `if (store)` isn't enough.
 export async function openStore(dir) {
   if (store) return store
   if (opening) return opening
 
-  // La promesa se guarda en `opening` ANTES del primer await: si se guardara
-  // despues, dos llamadas concurrentes construirian dos Corestore sobre el
-  // mismo path y la segunda moriria contra el lock de RocksDB.
+  // The promise is saved in `opening` BEFORE the first await: if it were
+  // saved after, two concurrent calls would build two Corestores on the same
+  // path and the second would die against the RocksDB lock.
   opening = (async () => {
     const s = new Corestore(corestoreDir(dir))
     try {
@@ -47,7 +47,7 @@ export async function openStore(dir) {
   return await opening
 }
 
-// Para los caminos que ya saben que esta abierto (no hace falta await).
+// For paths that already know it's open (no await needed).
 export function getStore() {
   return store
 }

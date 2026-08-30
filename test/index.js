@@ -1,17 +1,17 @@
-// Tests de QVAC-Node. Corren con `npm test` (brittle sobre bare).
+// QVAC-Node tests. Run with `npm test` (brittle over bare).
 //
-// Cubren las dos piezas que no necesitan red ni modelo cargado: la traduccion
-// del request de OpenAI (gateway) y la firma del manifiesto (Fase 2-a). Todo
-// lo que necesite dos maquinas se verifica con docs/RUNBOOK-2-MAQUINAS.md, no
-// desde aca.
+// They cover the two pieces that need neither network nor a loaded model: the
+// translation of the OpenAI request (gateway) and the manifest signature
+// (Phase 2-a). Anything that needs two machines is verified with
+// docs/RUNBOOK-2-MAQUINAS.md, not from here.
 
 const test = require('brittle')
 
 // ---------------------------------------------------------------------------
-// Gateway: forma del request de OpenAI
+// Gateway: shape of the OpenAI request
 // ---------------------------------------------------------------------------
 
-test('normalizeRequest acepta la forma de OpenAI', async (t) => {
+test('normalizeRequest accepts the OpenAI shape', async (t) => {
   const { normalizeRequest } = await import('../qvac/gateway.mjs')
 
   const norm = normalizeRequest({
@@ -23,7 +23,7 @@ test('normalizeRequest acepta la forma de OpenAI', async (t) => {
     stream: true
   })
 
-  t.absent(norm.error, 'un request valido de OpenAI no da error')
+  t.absent(norm.error, 'a valid OpenAI request gives no error')
   t.is(norm.model, 'llama1b')
   t.is(norm.stream, true)
   t.alike(
@@ -32,15 +32,15 @@ test('normalizeRequest acepta la forma de OpenAI', async (t) => {
       { role: 'system', content: 'sos conciso' },
       { role: 'user', content: 'hola' }
     ],
-    'los messages pasan intactos: son el history que recibe el motor'
+    'messages pass through intact: they are the history the engine receives'
   )
 })
 
-test('normalizeRequest aplana content como array de partes de texto', async (t) => {
+test('normalizeRequest flattens content as an array of text parts', async (t) => {
   const { normalizeRequest } = await import('../qvac/gateway.mjs')
 
-  // Hay clientes que mandan siempre el array de partes, aunque solo lleven
-  // texto. Cortar con error ahi los dejaria afuera sin motivo.
+  // Some clients always send the array of parts, even when it's only text.
+  // Cutting with an error there would leave them out for no reason.
   const norm = normalizeRequest({
     model: 'llama1b',
     messages: [
@@ -58,34 +58,34 @@ test('normalizeRequest aplana content como array de partes de texto', async (t) 
   t.is(norm.messages[0].content, 'hola mundo')
 })
 
-test('normalizeRequest: stream default es false, como en OpenAI', async (t) => {
+test('normalizeRequest: stream default is false, like in OpenAI', async (t) => {
   const { normalizeRequest } = await import('../qvac/gateway.mjs')
 
-  // Sin este caso el gateway defaulteaba a stream:true: un cliente que omite
-  // el campo -lo que hace cualquier ejemplo de la doc de OpenAI- recibia SSE
-  // donde esperaba un json unico, y su parser fallaba sin explicacion.
+  // Without this case the gateway defaulted to stream:true: a client that
+  // omits the field -which any example in the OpenAI docs does- got SSE where
+  // it expected a single json, and its parser failed with no explanation.
   const omitido = normalizeRequest({
     model: 'llama1b',
     messages: [{ role: 'user', content: 'hola' }]
   })
-  t.is(omitido.stream, false, 'sin el campo stream, no se streamea')
+  t.is(omitido.stream, false, 'without the stream field, there is no streaming')
 
   const explicito = normalizeRequest({
     model: 'llama1b',
     messages: [{ role: 'user', content: 'hola' }],
     stream: false
   })
-  t.is(explicito.stream, false, 'stream:false se respeta')
+  t.is(explicito.stream, false, 'stream:false is respected')
 
   const streaming = normalizeRequest({
     model: 'llama1b',
     messages: [{ role: 'user', content: 'hola' }],
     stream: true
   })
-  t.is(streaming.stream, true, 'stream:true se respeta')
+  t.is(streaming.stream, true, 'stream:true is respected')
 })
 
-test('normalizeRequest acepta la forma corta propia', async (t) => {
+test('normalizeRequest accepts our own short form', async (t) => {
   const { normalizeRequest } = await import('../qvac/gateway.mjs')
 
   const norm = normalizeRequest({ modelId: 'facturas-ar', prompt: 'leeme esta factura' })
@@ -95,33 +95,33 @@ test('normalizeRequest acepta la forma corta propia', async (t) => {
   t.alike(norm.messages, [{ role: 'user', content: 'leeme esta factura' }])
 })
 
-// Casos negativos: cada uno tiene que dar un mensaje que diga QUE falta, no un
-// 500 ni un cuelgue. Es lo que separa "el cliente esta mal configurado" de
-// "el gateway se rompio".
-test('normalizeRequest rechaza requests invalidos con un motivo', async (t) => {
+// Negative cases: each one has to give a message saying WHAT is missing, not a
+// 500 or a hang. That's what separates "the client is misconfigured" from
+// "the gateway broke".
+test('normalizeRequest rejects invalid requests with a reason', async (t) => {
   const { normalizeRequest } = await import('../qvac/gateway.mjs')
 
-  t.ok(normalizeRequest({}).error, 'un body vacio no pasa')
-  t.ok(normalizeRequest({ messages: [] }).error, 'sin model no pasa')
-  t.ok(normalizeRequest({ model: 'llama1b' }).error, 'sin messages no pasa')
-  t.ok(normalizeRequest({ model: 'llama1b', messages: [] }).error, 'messages vacio no pasa')
+  t.ok(normalizeRequest({}).error, 'an empty body does not pass')
+  t.ok(normalizeRequest({ messages: [] }).error, 'without model does not pass')
+  t.ok(normalizeRequest({ model: 'llama1b' }).error, 'without messages does not pass')
+  t.ok(normalizeRequest({ model: 'llama1b', messages: [] }).error, 'empty messages does not pass')
   t.ok(
     normalizeRequest({ model: 'llama1b', messages: [{ content: 'hola' }] }).error,
-    'un mensaje sin role no pasa'
+    'a message without role does not pass'
   )
   t.ok(
     normalizeRequest({ model: 'llama1b', messages: [{ role: 'user', content: 42 }] }).error,
-    'content que no es texto no pasa'
+    'content that is not text does not pass'
   )
-  t.ok(normalizeRequest({ modelId: 'facturas-ar' }).error, 'la forma corta sin prompt no pasa')
+  t.ok(normalizeRequest({ modelId: 'facturas-ar' }).error, 'the short form without prompt does not pass')
   t.ok(
     normalizeRequest({ modelId: 'facturas-ar', prompt: '   ' }).error,
-    'un prompt en blanco no pasa'
+    'a blank prompt does not pass'
   )
 })
 
 // ---------------------------------------------------------------------------
-// Manifiesto firmado (Fase 2-a)
+// Signed manifest (Phase 2-a)
 // ---------------------------------------------------------------------------
 
 const MODELS = [{ modelId: 'llama1b', displayName: 'Llama 3.2 1B', maxConcurrentRequests: 3 }]
@@ -130,45 +130,45 @@ async function manifestMod() {
   return import('../qvac/manifest.mjs')
 }
 
-test('JCS ordena las claves y no depende del orden de armado', async (t) => {
+test('JCS orders keys and does not depend on the assembly order', async (t) => {
   const { canonicalize } = await manifestMod()
 
-  // Es LA propiedad de la que depende toda la firma: dos objetos con el mismo
-  // contenido armado en distinto orden tienen que dar los mismos bytes.
+  // This is THE property the whole signature depends on: two objects with the
+  // same content assembled in a different order have to give the same bytes.
   const a = { b: 1, a: 2, c: { z: 3, y: 4 } }
   const b = { c: { y: 4, z: 3 }, a: 2, b: 1 }
-  t.is(canonicalize(a), canonicalize(b), 'mismo contenido, mismos bytes')
-  t.is(canonicalize(a), '{"a":2,"b":1,"c":{"y":4,"z":3}}', 'claves ordenadas, sin espacios')
+  t.is(canonicalize(a), canonicalize(b), 'same content, same bytes')
+  t.is(canonicalize(a), '{"a":2,"b":1,"c":{"y":4,"z":3}}', 'ordered keys, no spaces')
 
   t.is(canonicalize([3, 'a', null, true]), '[3,"a",null,true]')
-  t.is(canonicalize({ a: undefined, b: 1 }), '{"b":1}', 'undefined no existe en JSON')
+  t.is(canonicalize({ a: undefined, b: 1 }), '{"b":1}', 'undefined does not exist in JSON')
 
-  // JSON.stringify convierte NaN en null en silencio: un precio NaN se
-  // firmaria como null y verificaria perfecto.
-  t.exception(() => canonicalize({ precio: NaN }), /no finito/, 'NaN corta, no pasa como null')
+  // JSON.stringify silently turns NaN into null: a NaN price would sign as
+  // null and verify perfectly.
+  t.exception(() => canonicalize({ precio: NaN }), /no finito/, 'NaN cuts, does not pass as null')
   t.exception(() => canonicalize({ x: Infinity }), /no finito/)
 })
 
-test('un manifiesto firmado verifica contra su propia clave', async (t) => {
+test('a signed manifest verifies against its own key', async (t) => {
   const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
 
   const id = createIdentity()
   const manifest = buildManifest({ publicKey: id.publicKey, models: MODELS, operator: 'Nodo A' })
 
-  t.absent(manifest.signature, 'buildManifest no firma: eso es tarea de signManifest')
+  t.absent(manifest.signature, 'buildManifest does not sign: that is signManifest\'s job')
 
   const signed = signManifest(manifest, id.secretKey)
-  t.ok(signed.signature, 'signManifest agrega la firma')
+  t.ok(signed.signature, 'signManifest adds the signature')
 
   const res = verifyManifest(signed, { expectedPublicKey: id.publicKey })
-  t.ok(res.ok, 'verifica contra la clave de la conexion')
+  t.ok(res.ok, 'verifies against the connection key')
   t.is(res.reason, null)
-  t.absent(res.expired, 'recien emitido, no vencido')
+  t.absent(res.expired, 'just issued, not expired')
 })
 
-// Los casos negativos son el punto de esta pieza. Un verificador que solo se
-// probo con manifiestos validos no prueba nada: lo que importa es que RECHACE.
-test('un manifiesto manipulado no verifica', async (t) => {
+// The negative cases are the whole point of this piece. A verifier only
+// tested with valid manifests proves nothing: what matters is that it REJECTS.
+test('a tampered manifest does not verify', async (t) => {
   const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
 
   const id = createIdentity()
@@ -177,62 +177,63 @@ test('un manifiesto manipulado no verifica', async (t) => {
     id.secretKey
   )
 
-  // Cambiar el precio despues de firmar es el ataque obvio del marketplace.
+  // Changing the price after signing is the marketplace's obvious attack.
   const conPrecioCambiado = JSON.parse(JSON.stringify(signed))
   conPrecioCambiado.models[0].pricing = [{ unit: 'per_request', amount: '1', currency: 'QVAC' }]
-  t.absent(verifyManifest(conPrecioCambiado).ok, 'tocar el precio invalida la firma')
+  t.absent(verifyManifest(conPrecioCambiado).ok, 'touching the price invalidates the signature')
 
   const conModeloAgregado = JSON.parse(JSON.stringify(signed))
   conModeloAgregado.models.push({ modelId: 'gpt-4o-gratis' })
-  t.absent(verifyManifest(conModeloAgregado).ok, 'agregar un modelo invalida la firma')
+  t.absent(verifyManifest(conModeloAgregado).ok, 'adding a model invalidates the signature')
 
   const conOperadorCambiado = JSON.parse(JSON.stringify(signed))
   conOperadorCambiado.metadata.operator = 'Otro'
-  t.absent(verifyManifest(conOperadorCambiado).ok, 'tocar el operador invalida la firma')
+  t.absent(verifyManifest(conOperadorCambiado).ok, 'touching the operator invalidates the signature')
 
   const sinFirma = { ...signed, signature: undefined }
-  t.absent(verifyManifest(sinFirma).ok, 'sin firma no pasa')
+  t.absent(verifyManifest(sinFirma).ok, 'no signature does not pass')
 
   const firmaBasura = { ...signed, signature: 'ff'.repeat(64) }
-  t.absent(verifyManifest(firmaBasura).ok, 'una firma inventada no pasa')
+  t.absent(verifyManifest(firmaBasura).ok, 'a made-up signature does not pass')
 
-  t.absent(verifyManifest(null).ok, 'null no pasa')
-  t.absent(verifyManifest({}).ok, 'un objeto vacio no pasa')
+  t.absent(verifyManifest(null).ok, 'null does not pass')
+  t.absent(verifyManifest({}).ok, 'an empty object does not pass')
 
-  // Cada rechazo tiene que explicar POR QUE: en el swarm esto se loguea, y
-  // "false" no se puede debuggear a las 3 de la manana.
-  t.ok(verifyManifest(conPrecioCambiado).reason, 'el rechazo trae motivo')
+  // Every rejection has to explain WHY: this gets logged in the swarm, and
+  // "false" cannot be debugged at 3am.
+  t.ok(verifyManifest(conPrecioCambiado).reason, 'the rejection carries a reason')
 })
 
-test('la firma sola no prueba identidad: hay que atarla a la clave de la conexion', async (t) => {
+test('the signature alone does not prove identity: it has to be tied to the connection key', async (t) => {
   const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
 
   const victima = createIdentity()
   const atacante = createIdentity()
 
-  // El atacante arma un manifiesto con SU clave y lo firma bien. La firma es
-  // valida -- prueba que el tiene su propia privada, nada mas.
+  // The attacker builds a manifest with THEIR key and signs it correctly. The
+  // signature is valid -- it only proves they have their own private key.
   const suyo = signManifest(
     buildManifest({ publicKey: atacante.publicKey, models: MODELS, operator: 'Nodo trucho' }),
     atacante.secretKey
   )
-  t.ok(verifyManifest(suyo).ok, 'firma valida: sin expectedPublicKey esto pasa')
+  t.ok(verifyManifest(suyo).ok, 'valid signature: without expectedPublicKey this passes')
 
-  // Atado a la clave real del peer, se cae. Es la unica razon por la que el
-  // parametro existe.
+  // Tied to the peer's real key, it falls apart. That's the only reason the
+  // parameter exists.
   const res = verifyManifest(suyo, { expectedPublicKey: victima.publicKey })
-  t.absent(res.ok, 'no puede hacerse pasar por otro nodo')
-  t.ok(/pero la conexion es de/.test(res.reason), 'el motivo dice que las claves no coinciden')
+  t.absent(res.ok, 'cannot pass itself off as another node')
+  t.ok(/pero la conexion es de/.test(res.reason), 'the reason says the keys do not match')
 
-  // Y firmar con la clave de otro tampoco: no tiene la privada de la victima.
+  // And signing with someone else's key doesn't work either: it doesn't have
+  // the victim's private key.
   const robado = signManifest(
     buildManifest({ publicKey: victima.publicKey, models: MODELS }),
     atacante.secretKey
   )
-  t.absent(verifyManifest(robado).ok, 'no puede firmar por una clave que no tiene')
+  t.absent(verifyManifest(robado).ok, 'cannot sign for a key it does not have')
 })
 
-test('buildManifest rechaza entradas invalidas y marca los mocks', async (t) => {
+test('buildManifest rejects invalid inputs and marks mocks', async (t) => {
   const { createIdentity, buildManifest } = await manifestMod()
   const id = createIdentity()
 
@@ -243,30 +244,30 @@ test('buildManifest rechaza entradas invalidas y marca los mocks', async (t) => 
     /modelId/
   )
 
-  // D2 exige que el mock quede marcado donde se pueda VER. Si alguien lo
-  // "limpia" en un refactor de ultimo momento, este test lo caza.
+  // D2 requires that the mock be marked somewhere it can be SEEN. If someone
+  // "cleans it up" in a last-minute refactor, this test catches it.
   //
-  // Desde la Fase 7 el de `economic` ya no significa "no implementado" sino
-  // "este nodo no declaro direccion de cobro", que es un estado legitimo: un
-  // nodo que solo consume, o uno que todavia no creo su wallet. Lo que no puede
-  // pasar es que ese caso se vea igual que uno con wallet de verdad.
+  // Since Phase 7, the one on `economic` no longer means "not implemented" but
+  // "this node did not declare a payout address", which is a legitimate state:
+  // a node that only consumes, or one that hasn't created its wallet yet. What
+  // can't happen is that case looking the same as one with a real wallet.
   const m = buildManifest({ publicKey: id.publicKey, models: MODELS })
-  t.ok(m.economic._mock, 'sin wallet, economic esta marcado como mock')
-  t.ok(m.directory._mock, 'directory esta marcado como mock')
-  t.is(m.node.endpoint.openaiCompatible, false, 'D1: no hay baseUrl P2P al que apuntar')
+  t.ok(m.economic._mock, 'without a wallet, economic is marked as a mock')
+  t.ok(m.directory._mock, 'directory is marked as a mock')
+  t.is(m.node.endpoint.openaiCompatible, false, 'D1: no P2P baseUrl to point at')
 })
 
 // ---------------------------------------------------------------------------
-// FASE 7 — la wallet de cobro, y el `economic` que deja de ser mock
+// PHASE 7 — the payout wallet, and `economic` stops being a mock
 //
-// Son DOS claves distintas y esa es toda la fase: `identity.mjs` guarda la de
-// RED, en claro, y con eso el nodo firma; `wallet.mjs` guarda la de COBRO,
-// cifrada (D13), y es lo que el manifiesto declara. El manifiesto firmado es lo
-// que ata una a la otra.
+// There are TWO distinct keys and that's the whole phase: `identity.mjs`
+// holds the NETWORK one, in the clear, and the node signs with it;
+// `wallet.mjs` holds the PAYOUT one, encrypted (D13), and it's what the
+// manifest declares. The signed manifest is what ties one to the other.
 //
-// Lo que estos tests protegen no es que "ande": es que no se pueda firmar una
-// direccion que el nodo no controla, en ninguno de los caminos por los que eso
-// podria pasar.
+// What these tests protect isn't that it "works": it's that no one can sign an
+// address the node doesn't control, through none of the paths where that
+// could happen.
 // ---------------------------------------------------------------------------
 
 function dirWalletTmp() {
@@ -288,91 +289,93 @@ function dirWalletTmp() {
   }
 }
 
-test('la seed de la wallet no queda en claro, y la passphrase equivocada no abre', async (t) => {
+test('the wallet seed does not end up in the clear, and the wrong passphrase does not open it', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
   const fs = await import('bare-fs')
   const path = await import('bare-path')
   const tmp = dirWalletTmp()
 
-  t.is(wallet.existe(tmp.dir), false, 'un nodo sin wallet es el caso normal, no un error')
+  t.is(wallet.existe(tmp.dir), false, 'a node without a wallet is the normal case, not an error')
 
   const creada = await wallet.crear(tmp.dir, 'la-passphrase-buena')
-  t.ok(/^0x[a-fA-F0-9]{40}$/.test(creada.address), 'la direccion matchea el pattern del schema')
-  t.is(creada.frase.split(' ').length, 24, 'la frase de respaldo son 24 palabras')
+  t.ok(/^0x[a-fA-F0-9]{40}$/.test(creada.address), 'the address matches the schema pattern')
+  t.is(creada.frase.split(' ').length, 24, 'the backup phrase is 24 words')
 
-  // D13: en disco no puede quedar NADA legible. Ni la frase ni la direccion --
-  // guardar la direccion dejaria que alguien sin la passphrase leyera igual a
-  // donde cobra este nodo, y eso solo lo tiene que decir el manifiesto firmado.
+  // D13: NOTHING readable can be left on disk. Not the phrase, not the
+  // address -- saving the address would let someone without the passphrase
+  // read where this node collects payment anyway, and only the signed
+  // manifest is allowed to say that.
   const crudo = fs.default.readFileSync(path.default.join(tmp.dir, 'wallet.json'), 'utf8')
   const palabras = creada.frase.split(' ')
 
-  t.absent(crudo.includes(creada.frase), 'la frase entera no esta en el archivo')
-  t.absent(crudo.includes(creada.address), 'la direccion tampoco se guarda')
+  t.absent(crudo.includes(creada.frase), 'the full phrase is not in the file')
+  t.absent(crudo.includes(creada.address), 'the address isn\'t saved either')
 
-  // Las palabras se buscan en los BYTES del cifrado, no en el texto hex del
-  // archivo, y la diferencia no es cosmetica: la primera version buscaba cada
-  // palabra dentro del hex, y OCHO palabras de BIP-39 son enteramente
-  // hexadecimales -- add, beef, dad, decade, face, fade, fee, feed --, asi que
-  // aparecian por coincidencia. El test fallaba ~1 de cada 3 corridas
-  // comprobando una coincidencia de letras en vez de una propiedad de
-  // seguridad, y en el archivo mas sensible del proyecto.
+  // The words are searched for in the encrypted BYTES, not in the file's hex
+  // text, and the difference isn't cosmetic: the first version searched for
+  // each word inside the hex, and EIGHT BIP-39 words are entirely
+  // hexadecimal -- add, beef, dad, decade, face, fade, fee, feed --, so they
+  // showed up by coincidence. The test failed ~1 in 3 runs checking for a
+  // letter coincidence instead of a security property, and in the project's
+  // most sensitive file.
   const sobre = JSON.parse(crudo)
   const bytes = Buffer.from(sobre.sealed, 'hex').toString('utf8')
   for (const palabra of palabras) {
-    t.absent(bytes.includes(palabra), 'la palabra "' + palabra + '" no esta en el cifrado')
+    t.absent(bytes.includes(palabra), 'the word "' + palabra + '" is not in the ciphertext')
   }
 
-  // Y ningun par de palabras contiguas en el archivo crudo: una fuga real deja
-  // palabras SEGUIDAS, y dos seguidas ya no salen por casualidad.
+  // And no pair of contiguous words in the raw file: a real leak leaves
+  // CONSECUTIVE words, and two in a row no longer show up by chance.
   for (let i = 0; i < palabras.length - 1; i++) {
     const par = palabras[i] + ' ' + palabras[i + 1]
-    t.absent(crudo.includes(par), 'ningun par contiguo: "' + par + '"')
+    t.absent(crudo.includes(par), 'no contiguous pair: "' + par + '"')
   }
 
-  // Fallar CERRADO. Si abriera con basura derivaria otra direccion, y el nodo
-  // anunciaria en un manifiesto firmado una wallet que no controla -- o sea
-  // mandaria a pagar a una direccion de la que nadie tiene la clave.
+  // Fail CLOSED. If it opened with garbage it would derive a different
+  // address, and the node would announce a wallet it doesn't control in a
+  // signed manifest -- i.e. it would send payments to an address nobody has
+  // the key for.
   await t.exception(
     () => wallet.abrir(tmp.dir, 'la-passphrase-equivocada'),
     /no abre el keystore/,
-    'la passphrase equivocada falla, no devuelve otra direccion'
+    'the wrong passphrase fails, it does not return a different address'
   )
   await t.exception(() => wallet.abrir(tmp.dir, null), /falta la passphrase/)
 
   const abierta = await wallet.abrir(tmp.dir, 'la-passphrase-buena')
-  t.is(abierta.address, creada.address, 'con la passphrase correcta vuelve LA MISMA direccion')
+  t.is(abierta.address, creada.address, 'with the correct passphrase it returns THE SAME address')
 
   tmp.limpiar()
 })
 
-test('la frase de respaldo restaura la misma direccion en otra maquina', async (t) => {
+test('the backup phrase restores the same address on another machine', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
   const uno = dirWalletTmp()
   const otro = dirWalletTmp()
 
   const original = await wallet.crear(uno.dir, 'passphrase-de-la-maquina-vieja')
 
-  // Otra maquina, otra passphrase, MISMA frase. Es lo que hace que mostrar las
-  // 24 palabras una vez sirva de algo: sin esto, perder el keystore seria
-  // perder la wallet aunque el operador las tenga anotadas.
+  // Different machine, different passphrase, SAME phrase. This is what makes
+  // showing the 24 words once worthwhile: without this, losing the keystore
+  // would mean losing the wallet even if the operator wrote them down.
   const restaurada = await wallet.crear(otro.dir, 'otra-passphrase-distinta', {
     frase: original.frase
   })
-  t.is(restaurada.address, original.address, 'la misma frase da la misma direccion de cobro')
-  t.ok(restaurada.restaurada, 'y se sabe que fue una restauracion, no una wallet nueva')
+  t.is(restaurada.address, original.address, 'the same phrase gives the same payout address')
+  t.ok(restaurada.restaurada, 'and it is known this was a restore, not a new wallet')
 
-  // En un directorio LIMPIO: si se reusara `otro.dir`, saltaria primero "ya hay
-  // una wallet" y este assert pasaria por el motivo equivocado.
+  // In a CLEAN directory: if `otro.dir` were reused, "there's already a
+  // wallet" would fire first and this assert would pass for the wrong reason.
   const limpio = dirWalletTmp()
   await t.exception(
     () => wallet.crear(limpio.dir, 'x', { frase: 'esto no es un mnemonic bip39 valido' }),
     /BIP-39/,
-    'una frase que no valida no entra: seria una wallet que nadie puede restaurar'
+    'a phrase that does not validate does not get in: it would be a wallet nobody could restore'
   )
   await t.exception(
     () => wallet.crear(otro.dir, 'x'),
     /ya hay una wallet/,
-    'y no se pisa una wallet existente'
+    'and an existing wallet is not overwritten'
   )
 
   uno.limpiar()
@@ -380,7 +383,7 @@ test('la frase de respaldo restaura la misma direccion en otra maquina', async (
   limpio.limpiar()
 })
 
-test('dos nodos con wallet anuncian direcciones distintas, y la firma las ata', async (t) => {
+test('two nodes with wallets announce different addresses, and the signature ties them', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
   const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
   const a = dirWalletTmp()
@@ -388,7 +391,7 @@ test('dos nodos con wallet anuncian direcciones distintas, y la firma las ata', 
 
   const walletA = await wallet.crear(a.dir, 'pass-a')
   const walletB = await wallet.crear(b.dir, 'pass-b')
-  t.not(walletA.address, walletB.address, 'dos nodos no cobran en la misma direccion')
+  t.not(walletA.address, walletB.address, 'two nodes don\'t collect payment at the same address')
 
   const idA = createIdentity()
   const manifiesto = signManifest(
@@ -400,27 +403,27 @@ test('dos nodos con wallet anuncian direcciones distintas, y la firma las ata', 
     idA.secretKey
   )
 
-  t.absent(manifiesto.economic._mock, 'con wallet, el _mock se va')
+  t.absent(manifiesto.economic._mock, 'with a wallet, the _mock goes away')
   t.is(manifiesto.economic.walletAddress, walletA.address)
   t.alike(manifiesto.economic.chains, ['plasma', 'stable'], 'D15: plasma default, stable fallback')
   t.is(manifiesto.economic.settlement, 'batch-receipts')
 
-  t.ok(verifyManifest(manifiesto, { expectedPublicKey: idA.publicKey }).ok, 'un par lo verifica')
+  t.ok(verifyManifest(manifiesto, { expectedPublicKey: idA.publicKey }).ok, 'a peer verifies it')
 
-  // ESTO es lo que ata la identidad de red con la de cobro: cambiarle la
-  // direccion al manifiesto firmado tiene que romper la firma. Sin esta
-  // propiedad, cualquiera podria reenviar el manifiesto de otro nodo con su
-  // propia wallet adentro y cobrar el trabajo ajeno.
+  // THIS is what ties the network identity to the payout one: changing the
+  // address on a signed manifest has to break the signature. Without this
+  // property, anyone could relay another node's manifest with their own
+  // wallet inside and collect payment for someone else's work.
   const manoseado = JSON.parse(JSON.stringify(manifiesto))
   manoseado.economic.walletAddress = walletB.address
   const r = verifyManifest(manoseado, { expectedPublicKey: idA.publicKey })
-  t.is(r.ok, false, 'cambiarle la wallet a un manifiesto firmado lo invalida')
+  t.is(r.ok, false, 'changing the wallet on a signed manifest invalidates it')
 
   a.limpiar()
   b.limpiar()
 })
 
-test('un economic invalido no se firma: firmarlo es mandar a pagar a cualquier lado', async (t) => {
+test('an invalid economic block does not get signed: signing it would send payment anywhere', async (t) => {
   const { createIdentity, buildManifest } = await manifestMod()
   const id = createIdentity()
   const base = { publicKey: id.publicKey, models: MODELS }
@@ -430,8 +433,8 @@ test('un economic invalido no se firma: firmarlo es mandar a pagar a cualquier l
     settlement: 'batch-receipts'
   }
 
-  // La direccion cero PASA el pattern del schema y no es una direccion: es
-  // justo el valor que tenia el mock. Firmarla seria mandar la plata a un pozo.
+  // The zero address PASSES the schema pattern and is not an address: it's
+  // exactly the value the mock had. Signing it would send the money into a pit.
   t.exception(
     () => buildManifest({ ...base, economic: { ...ok, walletAddress: '0x' + '0'.repeat(40) } }),
     /direccion cero/
@@ -444,14 +447,14 @@ test('un economic invalido no se firma: firmarlo es mandar a pagar a cualquier l
   t.exception(
     () => buildManifest({ ...base, economic: { ...ok, chains: ['Plasma Mainnet'] } }),
     /identificador invalido/,
-    'el kebab-case del schema se chequea antes de firmar, no despues'
+    'the schema\'s kebab-case is checked before signing, not after'
   )
   t.exception(
     () => buildManifest({ ...base, economic: { ...ok, settlement: 'a-mano' } }),
     /settlement/
   )
 
-  // Y una direccion Tron valida SI entra: el schema admite las dos familias.
+  // And a valid Tron address DOES get in: the schema admits both families.
   const tron = buildManifest({
     ...base,
     economic: { ...ok, walletAddress: 'T' + 'J'.repeat(33) }
@@ -460,50 +463,53 @@ test('un economic invalido no se firma: firmarlo es mandar a pagar a cualquier l
 })
 
 // ---------------------------------------------------------------------------
-// El manifiesto contra SU PROPIO schema congelado
+// The manifest against ITS OWN frozen schema
 //
-// El DoD de la Fase 7 pide que el manifiesto valide contra manifest-v0.json sin
-// tocar el schema, y hasta ahora eso no lo comprobaba NADIE: `grep manifest-v0`
-// sobre el arbol devuelve comentarios y nada mas. El schema era un documento,
-// no un chequeo, y por eso lo de abajo estuvo roto sin que se notara.
+// Phase 7's DoD asks that the manifest validate against manifest-v0.json
+// without touching the schema, and until now NOBODY checked that: `grep
+// manifest-v0` over the tree returns comments and nothing else. The schema
+// was a document, not a check, and that's why the below was broken without
+// anyone noticing.
 //
-// Las restricciones se leen DEL archivo, no se copian aca: un test que repite a
-// mano lo que dice el schema deja de proteger el dia que el schema cambie.
+// The constraints are read FROM the file, not copied here: a test that
+// repeats by hand what the schema says stops protecting anything the day the
+// schema changes.
 // ---------------------------------------------------------------------------
 
-// Validador minimo, solo de lo que este schema usa. No es un JSON-Schema
-// completo y no pretende serlo: hay cero dependencias de validacion en el arbol
-// y sumar una para esto seria pagar caro un chequeo de veinte lineas.
+// Minimal validator, only for what this schema uses. It's not a complete
+// JSON-Schema and doesn't aim to be: there are zero validation dependencies in
+// the tree and adding one for this would be an expensive price for a
+// twenty-line check.
 function violacionesDe(bloque, esquema) {
   const malas = []
   for (const req of esquema.required || []) {
-    if (!(req in bloque)) malas.push('falta el required "' + req + '"')
+    if (!(req in bloque)) malas.push('missing required "' + req + '"')
   }
   if (esquema.additionalProperties === false) {
     for (const k of Object.keys(bloque)) {
-      if (!(k in esquema.properties)) malas.push('propiedad extra: "' + k + '"')
+      if (!(k in esquema.properties)) malas.push('extra property: "' + k + '"')
     }
   }
   for (const [k, v] of Object.entries(bloque)) {
     const def = esquema.properties[k]
     if (!def) continue
     if (def.pattern && !new RegExp(def.pattern).test(String(v))) {
-      malas.push(k + ' no matchea el pattern')
+      malas.push(k + ' does not match the pattern')
     }
-    if (def.enum && !def.enum.includes(v)) malas.push(k + ' fuera del enum')
+    if (def.enum && !def.enum.includes(v)) malas.push(k + ' outside the enum')
     if (def.type === 'array') {
-      if (!Array.isArray(v)) malas.push(k + ' no es un array')
+      if (!Array.isArray(v)) malas.push(k + ' is not an array')
       else {
-        if (def.minItems && v.length < def.minItems) malas.push(k + ': menos de ' + def.minItems)
-        if (def.maxItems && v.length > def.maxItems) malas.push(k + ': mas de ' + def.maxItems)
+        if (def.minItems && v.length < def.minItems) malas.push(k + ': fewer than ' + def.minItems)
+        if (def.maxItems && v.length > def.maxItems) malas.push(k + ': more than ' + def.maxItems)
         for (const item of v) {
           const i = def.items || {}
           if (i.pattern && !new RegExp(i.pattern).test(String(item)))
-            malas.push(k + ': item invalido "' + item + '"')
+            malas.push(k + ': invalid item "' + item + '"')
           if (i.minLength && String(item).length < i.minLength)
-            malas.push(k + ': item corto "' + item + '"')
+            malas.push(k + ': short item "' + item + '"')
           if (i.maxLength && String(item).length > i.maxLength)
-            malas.push(k + ': item largo "' + item + '"')
+            malas.push(k + ': long item "' + item + '"')
         }
       }
     }
@@ -511,7 +517,7 @@ function violacionesDe(bloque, esquema) {
   return malas
 }
 
-test('el economic con wallet valida contra el schema congelado, sin tocarlo', async (t) => {
+test('the economic block with a wallet validates against the frozen schema, untouched', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
   const { createIdentity, buildManifest } = await manifestMod()
   const fs = await import('bare-fs')
@@ -531,36 +537,37 @@ test('el economic con wallet valida contra el schema congelado, sin tocarlo', as
   t.alike(
     violacionesDe(conWallet.economic, esquemaEconomic),
     [],
-    'el bloque economic real valida contra manifest-v0.json'
+    'the real economic block validates against manifest-v0.json'
   )
-  t.is(conWallet.schemaVersion, schema.properties.schemaVersion.const, 'sin subir schemaVersion')
+  t.is(conWallet.schemaVersion, schema.properties.schemaVersion.const, 'without bumping schemaVersion')
 
-  // Y el mock NO valida, que es un problema viejo y conocido: D2 pide marcar el
-  // mock donde se vea, `economic` declara additionalProperties:false, y las dos
-  // reglas chocan. Se fija ACA para que el dia que alguien lo arregle -- o lo
-  // rompa mas -- el test lo diga, en vez de que siga sin mirarlo nadie.
+  // And the mock does NOT validate, which is an old, known problem: D2 asks
+  // for the mock to be marked wherever it's visible, `economic` declares
+  // additionalProperties:false, and the two rules collide. It's pinned HERE so
+  // that the day someone fixes it -- or breaks it further -- the test says so,
+  // instead of nobody looking at it.
   //
-  // `directory` tiene exactamente el mismo choque y viene de antes de la Fase 7.
+  // `directory` has the exact same clash and it predates this phase.
   const sinWallet = buildManifest({ publicKey: id.publicKey, models: MODELS })
   t.alike(
     violacionesDe(sinWallet.economic, esquemaEconomic),
-    ['propiedad extra: "_mock"'],
-    'sin wallet la UNICA violacion es la marca de mock (B19), y ninguna otra'
+    ['extra property: "_mock"'],
+    'without a wallet the ONLY violation is the mock marker (B19), and no other'
   )
   t.alike(
     violacionesDe(sinWallet.directory, schema.properties.directory),
-    ['propiedad extra: "_mock"'],
-    'y al directorio le pasa lo mismo desde antes de esta fase'
+    ['extra property: "_mock"'],
+    'and directory has the same issue since before this phase'
   )
 
   tmp.limpiar()
 })
 
 // ---------------------------------------------------------------------------
-// Manifiesto: el directorio deja de ser mock cuando hay un Hyperbee detras
+// Manifest: directory stops being a mock when there's a Hyperbee behind it
 // ---------------------------------------------------------------------------
 
-test('buildManifest firma el directorio real cuando se le pasa uno', async (t) => {
+test('buildManifest signs the real directory when given one', async (t) => {
   const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
   const id = createIdentity()
 
@@ -575,14 +582,14 @@ test('buildManifest firma el directorio real cuando se le pasa uno', async (t) =
     id.secretKey
   )
 
-  t.absent(m.directory._mock, 'sin la marca de mock: el directorio es real')
+  t.absent(m.directory._mock, 'no mock marker: the directory is real')
   t.is(m.directory.writerPublicKey, directory.writerPublicKey)
   t.is(m.directory.sequence, 7)
-  t.ok(verifyManifest(m, { expectedPublicKey: id.publicKey }).ok, 'la firma cubre el directorio')
+  t.ok(verifyManifest(m, { expectedPublicKey: id.publicKey }).ok, 'the signature covers the directory')
 
-  // Un descriptor mal armado tiene que morir ANTES de firmarse: un manifiesto
-  // firmado con una clave que no existe manda al par a replicar la nada, y el
-  // error aparece a tres saltos de donde se origino.
+  // A badly built descriptor has to die BEFORE it gets signed: a manifest
+  // signed with a key that doesn't exist sends the peer off to replicate
+  // nothing, and the error shows up three hops from where it originated.
   t.exception(
     () =>
       buildManifest({
@@ -603,7 +610,7 @@ test('buildManifest firma el directorio real cuando se le pasa uno', async (t) =
   )
 })
 
-test('cambiar el directorio firmado invalida la firma', async (t) => {
+test('changing the signed directory invalidates the signature', async (t) => {
   const { createIdentity, buildManifest, signManifest, verifyManifest } = await manifestMod()
   const id = createIdentity()
 
@@ -616,17 +623,17 @@ test('cambiar el directorio firmado invalida la firma', async (t) => {
     id.secretKey
   )
 
-  // Apuntar el directorio de otro nodo a un Hyperbee propio seria poder
-  // reescribirle el marketplace entero a quien confie en ese manifiesto.
+  // Pointing another node's directory at your own Hyperbee would let you
+  // rewrite the entire marketplace for anyone who trusts that manifest.
   const alterado = { ...m, directory: { ...m.directory, writerPublicKey: 'ff'.repeat(32) } }
   t.absent(verifyManifest(alterado, { expectedPublicKey: id.publicKey }).ok)
 })
 
 // ---------------------------------------------------------------------------
-// Links de archivos (qvac://)
+// File links (qvac://)
 // ---------------------------------------------------------------------------
 
-test('los links qvac:// van y vuelven sin perder nada', async (t) => {
+test('qvac:// links round-trip without losing anything', async (t) => {
   const { formatLink, parseLink, drivePath } = await import('../qvac/files.mjs')
   const clave = '3f'.repeat(32)
 
@@ -637,20 +644,21 @@ test('los links qvac:// van y vuelven sin perder nada', async (t) => {
   t.is(vuelta.keyHex, clave)
   t.is(vuelta.path, '/planos/casa.pdf')
 
-  // Sin ruta se asume la raiz: sirve para listar el drive entero.
+  // Without a path the root is assumed: useful for listing the whole drive.
   t.is(parseLink('qvac://' + clave).path, '/')
 
   t.exception(() => parseLink('http://ejemplo.com/x.pdf'), /empieza con qvac/)
   t.exception(() => parseLink('qvac://cortito/x.pdf'), /hex de 32 bytes/)
 
-  // En Windows path.join mete backslashes. Sin normalizar, el archivo se sube
-  // con backslashes en el nombre y del otro lado no lo encuentra nadie.
+  // On Windows path.join inserts backslashes. Without normalizing, the file
+  // gets uploaded with backslashes in the name and nobody can find it on the
+  // other end.
   t.is(drivePath('planos\\casa.pdf'), '/planos/casa.pdf')
   t.is(drivePath('//planos//casa.pdf'), '/planos/casa.pdf')
 })
 
 // ---------------------------------------------------------------------------
-// Directorio Hyperbee + la barrera que lo separa del ruteo
+// Hyperbee directory + the barrier that separates it from routing
 // ---------------------------------------------------------------------------
 
 async function directorioTemporal() {
@@ -660,9 +668,10 @@ async function directorioTemporal() {
   const path = require('bare-path')
   const { Directory } = await import('../qvac/directory.mjs')
 
-  // No se usa mkdtempSync: en Windows bare-fs devuelve una ruta extendida
-  // y RocksDB le concatena "db/LOG" con barra normal, que despues de ese
-  // prefijo es ilegal. El codigo real no pasa por mkdtemp. Ver NOTES.md.
+  // mkdtempSync is not used: on Windows bare-fs returns an extended path
+  // and RocksDB concatenates "db/LOG" onto it with a normal slash, which
+  // is illegal past that prefix. The real code doesn't go through mkdtemp.
+  // See NOTES.md.
   const dir = path.join(
     os.tmpdir(),
     'qvac-test-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -697,7 +706,7 @@ function manifiestoDe(operator, modelIds) {
   }
 }
 
-test('el directorio guarda pares y los indexa por modelo', async (t) => {
+test('the directory stores peers and indexes them by model', async (t) => {
   const { directory, close } = await directorioTemporal()
   const A = 'aa'.repeat(32)
   const B = 'bb'.repeat(32)
@@ -707,26 +716,27 @@ test('el directorio guarda pares y los indexa por modelo', async (t) => {
   await directory.flush()
 
   const pares = await directory.knownPeers()
-  t.is(pares.length, 2, 'los dos pares quedaron guardados')
+  t.is(pares.length, 2, 'both peers stayed saved')
 
-  // El indice secundario por modelo es lo que evita recorrer todos los pares
-  // para contestar "quien sirve llama1b".
+  // The secondary index by model is what avoids walking every peer to answer
+  // "who serves llama1b".
   const proveedores = await directory.providersOf('llama1b')
   t.is(proveedores.length, 2)
   t.alike(proveedores.map((p) => p.operator).sort(), ['ArqNode', 'FiscalNode'])
   t.is((await directory.providersOf('facturas-ar')).length, 1)
 
-  // Reanunciar con MENOS modelos no puede dejar fantasmas del anuncio anterior.
+  // Re-announcing with FEWER models can't leave ghosts from the previous
+  // announcement.
   await directory.recordManifest(A, manifiestoDe('FiscalNode', ['facturas-ar']))
   await directory.flush()
   const soloB = await directory.providersOf('llama1b')
-  t.is(soloB.length, 1, 'el modelo que el par dejo de servir no sigue indexado')
+  t.is(soloB.length, 1, 'the model the peer stopped serving is no longer indexed')
   t.is(soloB[0].operator, 'ArqNode')
 
   await close()
 })
 
-test('el directorio acumula estadisticas y log podable', async (t) => {
+test('the directory accumulates stats and a prunable log', async (t) => {
   const { directory, close } = await directorioTemporal()
   const A = 'aa'.repeat(32)
 
@@ -736,7 +746,7 @@ test('el directorio acumula estadisticas y log podable', async (t) => {
 
   const s = await directory.stats(A)
   t.is(s.requests, 2)
-  t.is(s.errors, 1, 'los errores se cuentan aparte: es la base de la reputacion')
+  t.is(s.errors, 1, 'errors are counted separately: it is the basis of reputation')
   t.is(s.tokens, 50)
 
   const ahora = Date.now()
@@ -746,16 +756,16 @@ test('el directorio acumula estadisticas y log podable', async (t) => {
 
   const log = await directory.recentLog(10)
   t.is(log.length, 2)
-  t.is(log[0].que, 'nuevo', 'el log sale del mas nuevo al mas viejo')
+  t.is(log[0].que, 'nuevo', 'the log comes out newest to oldest')
 
   const podadas = await directory.pruneLog({ now: ahora })
-  t.is(podadas, 1, 'la entrada de hace 30 dias se poda')
+  t.is(podadas, 1, 'the 30-day-old entry gets pruned')
   t.is((await directory.recentLog(10)).length, 1)
 
   await close()
 })
 
-test('un par del directorio NO puede volverse candidato de ruteo', async (t) => {
+test('a directory peer can NOT become a routing candidate', async (t) => {
   const { directory, close } = await directorioTemporal()
   const store = await import('../qvac/store.mjs')
   const A = 'aa'.repeat(32)
@@ -765,25 +775,25 @@ test('un par del directorio NO puede volverse candidato de ruteo', async (t) => 
 
   store.attachDirectory(directory)
   const n = await store.hydrateFromDirectory()
-  t.is(n, 1, 'el par del bee entra a la grilla')
+  t.is(n, 1, 'the bee\'s peer enters the grid')
 
   const filas = store.listNodes().filter((f) => f.modelId === 'llama1b')
   t.is(filas.length, 1)
-  t.is(filas[0].kind, 'known', 'entra como conocido, no como par conectado')
+  t.is(filas[0].kind, 'known', 'enters as known, not as a connected peer')
   t.is(filas[0].status, 'offline')
 
-  // LA invariante: un manifiesto replicado prueba que alguien dijo algo, no
-  // que ese alguien este vivo. D3 no puede tener excepciones ni por accidente.
-  t.is(store.findAllByModelId('llama1b').length, 0, 'no es candidato de ruteo')
+  // THE invariant: a replicated manifest proves someone said something, not
+  // that they're alive. D3 can't have exceptions, not even by accident.
+  t.is(store.findAllByModelId('llama1b').length, 0, 'is not a routing candidate')
 
-  // Cuando se conecta de verdad SI lo es.
+  // When it actually connects, it IS one.
   store.upsertFromManifest(A, manifiestoDe('FiscalNode', ['llama1b']))
-  t.is(store.findAllByModelId('llama1b').length, 1, 'con socket vivo pasa a candidato')
+  t.is(store.findAllByModelId('llama1b').length, 1, 'with a live socket it becomes a candidate')
 
-  // Y al caerse la conexion vuelve a ser conocido: deja de rutear en el acto,
-  // pero no desaparece del panel.
+  // And when the connection drops it goes back to known: it stops routing
+  // instantly, but doesn't disappear from the panel.
   store.removeByPeer(A)
-  t.is(store.findAllByModelId('llama1b').length, 0, 'deja de ser candidato al instante')
+  t.is(store.findAllByModelId('llama1b').length, 0, 'stops being a candidate instantly')
   t.is(store.listNodes().filter((f) => f.modelId === 'llama1b')[0].status, 'offline')
 
   store.attachDirectory(null)
@@ -791,66 +801,66 @@ test('un par del directorio NO puede volverse candidato de ruteo', async (t) => 
 })
 
 // ---------------------------------------------------------------------------
-// Fase 6.5 — costos (qvac/costs.mjs)
+// Phase 6.5 — costs (qvac/costs.mjs)
 // ---------------------------------------------------------------------------
 
-test('estimar acota por arriba y real cobra lo generado', async (t) => {
+test('estimate caps from above and real charges what was generated', async (t) => {
   const costs = await import('../qvac/costs.mjs')
 
-  // El turno tipico del ROADMAP: 2000 de entrada, 500 de salida, Sonnet 5 a
-  // precio estandar. 2000 * 3 + 500 * 15 = 6000 + 7500 = 13500 micros.
+  // The typical turn from the ROADMAP: 2000 input, 500 output, Sonnet 5 at
+  // standard price. 2000 * 3 + 500 * 15 = 6000 + 7500 = 13500 micros.
   const usado = costs.real({
     model: 'claude-sonnet-5',
     promptTokens: 2000,
     completionTokens: 500
   })
-  t.is(usado, 13500, 'USD 0,0135 por turno, el numero que calibra el tope')
+  t.is(usado, 13500, 'USD 0.0135 per turn, the number that calibrates the cap')
 
-  // La estimacion asume que se generan TODOS los maxTokens. Tiene que ser
-  // mayor o igual al costo real del mismo request: si no, la reserva se queda
-  // corta y el tope se pasa.
+  // The estimate assumes ALL of maxTokens gets generated. It has to be
+  // greater than or equal to the real cost of the same request: otherwise the
+  // reserve falls short and the cap gets exceeded.
   const estimado = costs.estimar({
     model: 'claude-sonnet-5',
     promptTokens: 2000,
     maxTokens: 4096
   })
-  t.ok(estimado >= usado, 'la estimacion nunca queda por debajo del costo real')
+  t.ok(estimado >= usado, 'the estimate never falls below the real cost')
   t.is(estimado, 6000 + Math.ceil((4096 * 15_000_000) / 1_000_000))
 })
 
-test('lo que no esta en la tabla de precios sale cero', async (t) => {
+test('what is not in the price table comes out zero', async (t) => {
   const costs = await import('../qvac/costs.mjs')
 
-  // La inferencia local y la de un par de la red no cuestan dolares. Este
-  // camino existe para que el contador tenga UNA sola entrada para todos los
-  // targets, en vez de un `if` en el gateway.
+  // Local inference and a network peer's inference don't cost dollars. This
+  // path exists so the counter has ONE single entry for all targets, instead
+  // of an `if` in the gateway.
   t.is(costs.real({ model: 'llama1b', promptTokens: 9999, completionTokens: 9999 }), 0)
   t.absent(costs.conocido('llama1b'))
   t.ok(costs.conocido('claude-sonnet-5'))
 })
 
-test('los montos son enteros y redondean hacia arriba', async (t) => {
+test('amounts are integers and round up', async (t) => {
   const costs = await import('../qvac/costs.mjs')
 
-  // Un token de entrada de Sonnet 5 sale 3 micros exactos; uno de Haiku, 1.
-  // Lo que importa del caso chico es que NO devuelva 0: truncar hacia abajo
-  // acumula gasto que el contador no ve.
+  // An input token from Sonnet 5 costs exactly 3 micros; one from Haiku, 1.
+  // What matters in the small case is that it does NOT return 0: truncating
+  // downward accumulates spend the counter never sees.
   const unToken = costs.real({ model: 'claude-haiku-4-5', promptTokens: 1, completionTokens: 0 })
-  t.is(unToken, 1, 'un token no puede costar cero')
-  t.ok(Number.isInteger(unToken), 'los montos son enteros, nunca floats')
+  t.is(unToken, 1, 'a token cannot cost zero')
+  t.ok(Number.isInteger(unToken), 'amounts are integers, never floats')
 
-  // usdAMicros redondea al reves -- hacia abajo -- porque un tope nunca se
-  // agranda por un redondeo.
+  // usdAMicros rounds the other way -- downward -- because a cap never grows
+  // from a rounding.
   t.is(costs.usdAMicros(20), 20_000_000)
   t.is(costs.usdAMicros(0.1), 100_000)
-  t.is(costs.usdAMicros(-5), 0, 'un tope negativo es cero, no una deuda')
+  t.is(costs.usdAMicros(-5), 0, 'a negative cap is zero, not a debt')
 })
 
 // ---------------------------------------------------------------------------
-// Fase 6.5 — presupuesto (qvac/budget.mjs)
+// Phase 6.5 — budget (qvac/budget.mjs)
 // ---------------------------------------------------------------------------
 
-test('la reserva aparta la cota superior y la liquidacion devuelve el resto', async (t) => {
+test('the reserve sets aside the upper bound and settling returns the rest', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   const costs = await import('../qvac/costs.mjs')
   budget.reset()
@@ -861,31 +871,32 @@ test('la reserva aparta la cota superior y la liquidacion devuelve el resto', as
     maxTokens: 4096
   })
   const r = budget.reserve('ana', estimado)
-  t.ok(r.ok, 'entra en el tope de USD 20')
+  t.ok(r.ok, 'fits within the USD 20 cap')
 
-  // Mientras el request esta en vuelo el saldo esta comprometido: no es gasto
-  // todavia, pero tampoco esta disponible para otro request.
+  // While the request is in flight the balance is committed: it isn't spend
+  // yet, but it isn't available for another request either.
   const enVuelo = budget.usage('ana')
-  t.is(enVuelo.spent, 0, 'no se gasto nada todavia')
-  t.is(enVuelo.reserved, estimado, 'pero esta apartado')
+  t.is(enVuelo.spent, 0, 'nothing spent yet')
+  t.is(enVuelo.reserved, estimado, 'but it is set aside')
   t.is(enVuelo.remaining, budget.TOPE_DEFAULT_MICROS - estimado)
 
-  // El modelo genero 500 tokens, no los 4096 del tope. La diferencia vuelve.
+  // The model generated 500 tokens, not the 4096 of the cap. The difference
+  // comes back.
   const real = costs.real({ model: 'claude-sonnet-5', promptTokens: 2000, completionTokens: 500 })
-  t.is(budget.settle(r.id, real), 13500, 'se cobra lo que costo de verdad')
+  t.is(budget.settle(r.id, real), 13500, 'charges what it really cost')
 
   const cerrado = budget.usage('ana')
   t.is(cerrado.spent, 13500)
-  t.is(cerrado.reserved, 0, 'la reserva se libero')
-  t.is(cerrado.remaining, budget.TOPE_DEFAULT_MICROS - 13500, 'el sobrante volvio al saldo')
+  t.is(cerrado.reserved, 0, 'the reserve was released')
+  t.is(cerrado.remaining, budget.TOPE_DEFAULT_MICROS - 13500, 'the leftover went back to the balance')
 })
 
-test('EL TOPE CORTA: el gasto real nunca supera el declarado', async (t) => {
+test('THE CAP CUTS: real spend never exceeds the declared amount', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   const costs = await import('../qvac/costs.mjs')
   budget.reset()
 
-  // El DoD de la Fase 6.5: tope de USD 0,10 y se consume hasta agotarlo.
+  // Phase 6.5's DoD: a USD 0.10 cap, consumed until exhausted.
   const TOPE = costs.usdAMicros(0.1)
   budget.setCap('ana', TOPE)
 
@@ -897,8 +908,8 @@ test('EL TOPE CORTA: el gasto real nunca supera el declarado', async (t) => {
 
   let aceptados = 0
   let rechazado = null
-  // Mas vueltas de las que el tope puede pagar, para que el corte tenga que
-  // ocurrir dentro del loop y no por quedarse sin iteraciones.
+  // More rounds than the cap can pay for, so the cutoff has to happen inside
+  // the loop and not from running out of iterations.
   for (let i = 0; i < 100; i++) {
     const r = budget.reserve('ana', porTurno)
     if (!r.ok) {
@@ -909,30 +920,30 @@ test('EL TOPE CORTA: el gasto real nunca supera el declarado', async (t) => {
     budget.settle(r.id, porTurno)
   }
 
-  t.ok(rechazado, 'en algun momento corta')
+  t.ok(rechazado, 'it cuts off at some point')
   t.is(rechazado.reason, 'presupuesto agotado')
-  t.ok(aceptados > 0, 'y antes de cortar dejo trabajar')
+  t.ok(aceptados > 0, 'and it let work happen before cutting off')
 
   const fin = budget.usage('ana')
-  t.ok(fin.spent <= TOPE, 'LA INVARIANTE: el gasto nunca supera el tope')
-  t.ok(fin.remaining < porTurno, 'y lo que queda no alcanza para otro turno')
+  t.ok(fin.spent <= TOPE, 'THE INVARIANT: spend never exceeds the cap')
+  t.ok(fin.remaining < porTurno, 'and what is left isn\'t enough for another turn')
 })
 
-test('costo cero no toca el ledger', async (t) => {
+test('zero cost does not touch the ledger', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   budget.reset()
-  budget.setCap('ana', 0) // sin un peso de presupuesto
+  budget.setCap('ana', 0) // not a cent of budget
 
-  // Inferencia local: gratis. Tiene que pasar igual, con el tope en cero. Es
-  // la degradacion de la Fase 6.5 -- se corta la red y el externo, no el
-  // producto.
+  // Local inference: free. Has to pass regardless, with the cap at zero. This
+  // is Phase 6.5's degradation -- the network and the external path get cut,
+  // not the product.
   const r = budget.reserve('ana', 0)
-  t.ok(r.ok, 'lo gratis nunca se rechaza, ni con el tope agotado')
-  t.is(r.id, null, 'y no abre una reserva que despues haya que liquidar')
+  t.ok(r.ok, 'free is never rejected, not even with the cap exhausted')
+  t.is(r.id, null, 'and it does not open a reserve that would later need settling')
   t.is(budget.usage('ana').spent, 0)
 })
 
-test('dos requests en vuelo no gastan los mismos dolares', async (t) => {
+test('two requests in flight do not spend the same dollars', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   budget.reset()
   budget.setCap('ana', 1000)
@@ -940,28 +951,28 @@ test('dos requests en vuelo no gastan los mismos dolares', async (t) => {
   const a = budget.reserve('ana', 600)
   const b = budget.reserve('ana', 600)
 
-  t.ok(a.ok, 'el primero entra')
-  t.absent(b.ok, 'el segundo NO: los 600 del primero ya estan comprometidos')
+  t.ok(a.ok, 'the first fits')
+  t.absent(b.ok, 'the second does NOT: the first one\'s 600 is already committed')
   t.is(b.remaining, 400)
 
-  // Al liquidar barato el primero, el segundo ya entra.
+  // When the first settles cheap, the second fits now.
   budget.settle(a.id, 100)
-  t.ok(budget.reserve('ana', 600).ok, 'con el saldo devuelto vuelve a haber lugar')
+  t.ok(budget.reserve('ana', 600).ok, 'with the balance returned there is room again')
 })
 
-test('settle nunca cobra mas de lo reservado', async (t) => {
+test('settle never charges more than what was reserved', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   budget.reset()
 
   const r = budget.reserve('ana', 1000)
-  // El real salio mas caro que la cota superior: la estimacion fallo. El error
-  // no lo paga el usuario -- cobrar de mas seria pasarse del tope por la
-  // ventana de atras.
-  t.is(budget.settle(r.id, 5000), 1000, 'se cobra lo reservado, no lo real')
+  // The real cost came out higher than the upper bound: the estimate was
+  // wrong. The user doesn't pay for the error -- charging more would mean
+  // exceeding the cap through the back window.
+  t.is(budget.settle(r.id, 5000), 1000, 'charges what was reserved, not the real cost')
   t.is(budget.usage('ana').spent, 1000)
 })
 
-test('el mes rota: el gasto vuelve a cero, el tope sobrevive, el cerrado queda', async (t) => {
+test('the month rolls over: spend goes back to zero, the cap survives, the closed one stays', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   const ENERO = Date.UTC(2026, 0, 15)
   const FEBRERO = Date.UTC(2026, 1, 2)
@@ -974,17 +985,18 @@ test('el mes rota: el gasto vuelve a cero, el tope sobrevive, el cerrado queda',
 
   const feb = budget.usage('ana', { now: FEBRERO })
   t.is(feb.period, '2026-02')
-  t.is(feb.spent, 0, 'el gasto arranca de cero')
-  t.is(feb.cap, 500_000, 'el tope NO se resetea: es mensual, no de un solo mes')
+  t.is(feb.spent, 0, 'spend starts from zero')
+  t.is(feb.cap, 500_000, 'the cap does NOT reset: it is monthly, not a one-month thing')
 
-  // Y enero sigue disponible para facturarlo, que es todo el punto de guardarlo.
+  // And January is still available to bill it, which is the whole point of
+  // saving it.
   const cierre = budget.report({ period: '2026-01', now: FEBRERO })
-  t.ok(cierre.found, 'el mes cerrado se puede leer despues')
+  t.ok(cierre.found, 'the closed month can be read later')
   t.is(cierre.total, 300_000)
   t.is(cierre.accounts[0].account, 'ana')
 })
 
-test('el reparto acumula durante el mes, no se calcula al cierre', async (t) => {
+test('the breakdown accumulates during the month, it is not computed at close', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   budget.reset()
 
@@ -1000,30 +1012,31 @@ test('el reparto acumula durante el mes, no se calcula al cierre', async (t) => 
   const rep = budget.report()
   t.is(rep.total, 20000)
   t.is(rep.accounts.length, 2)
-  t.is(rep.accounts[0].account, 'beto', 'ordenado por consumo')
+  t.is(rep.accounts[0].account, 'beto', 'ordered by spend')
   t.is(rep.accounts[0].spent, 12000)
-  t.is(rep.accounts[1].spent, 8000, 'ana suma sus dos requests')
+  t.is(rep.accounts[1].spent, 8000, 'ana sums her two requests')
 })
 
-test('local:true sobrevive a normalizeRequest en la forma estandar de OpenAI', async (t) => {
+test('local:true survives normalizeRequest in the standard OpenAI shape', async (t) => {
   const { normalizeRequest } = await import('../qvac/gateway.mjs')
 
-  // Regresion. La forma corta propia devolvia `local` y la estandar no, asi
-  // que el toggle "local only" del chat -- que manda la estandar -- llegaba
-  // como undefined y handleChat nunca filtraba los pares. El candado de la
-  // pantalla no cerraba nada.
+  // Regression. Our own short form returned `local` and the standard one
+  // didn't, so the chat's "local only" toggle -- which sends the standard
+  // form -- arrived as undefined and handleChat never filtered peers. The
+  // screen's lock closed nothing.
   const estandar = normalizeRequest({
     model: 'llama1b',
     messages: [{ role: 'user', content: 'hola' }],
     local: true
   })
-  t.is(estandar.local, true, 'la forma estandar conserva local')
+  t.is(estandar.local, true, 'the standard form preserves local')
 
   const corta = normalizeRequest({ modelId: 'llama1b', prompt: 'hola', local: true })
-  t.is(corta.local, true, 'la forma corta tambien, como ya hacia')
+  t.is(corta.local, true, 'the short form too, as it already did')
 
-  // Y sin el campo sigue siendo false, no undefined: el filtro compara por
-  // verdad, pero el contrato del normalizador es devolver un booleano.
+  // And without the field it is still false, not undefined: the filter
+  // compares by truthiness, but the normalizer's contract is to return a
+  // boolean.
   const sinFlag = normalizeRequest({
     model: 'llama1b',
     messages: [{ role: 'user', content: 'hola' }]
@@ -1032,30 +1045,30 @@ test('local:true sobrevive a normalizeRequest en la forma estandar de OpenAI', a
 })
 
 // ---------------------------------------------------------------------------
-// Fase 6.6 — cuota gratuita del proveedor (qvac/quota.mjs)
+// Phase 6.6 — provider's free quota (qvac/quota.mjs)
 // ---------------------------------------------------------------------------
 
-test('la cuota corta al agotarse y dice cuando se repone', async (t) => {
+test('quota cuts off when exhausted and says when it replenishes', async (t) => {
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
 
   const PAR = 'aa'.repeat(32)
   const T0 = Date.UTC(2026, 7, 25, 10, 0, 0)
 
-  t.ok(quota.check(PAR, { now: T0 }).ok, 'un par nuevo entra')
+  t.ok(quota.check(PAR, { now: T0 }).ok, 'a new peer gets in')
   t.is(quota.restante(PAR, { now: T0 }), 100_000)
 
   quota.registrar(PAR, 100_000, { now: T0 })
 
   const cortado = quota.check(PAR, { now: T0 })
-  t.absent(cortado.ok, 'agotada la cuota, corta')
+  t.absent(cortado.ok, 'quota exhausted, cuts off')
   t.is(cortado.remaining, 0)
-  // El dato accionable: sin esto el consumidor sabe que no puede, pero no
-  // cuando podria.
-  t.ok(cortado.resetsInMs > 0, 'dice en cuanto se repone')
+  // The actionable data: without this the consumer knows it can't, but not
+  // when it could.
+  t.ok(cortado.resetsInMs > 0, 'says how long until it replenishes')
 })
 
-test('la ventana es deslizante: se repone sola con las horas', async (t) => {
+test('the window is a sliding one: it replenishes on its own as hours pass', async (t) => {
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
 
@@ -1063,25 +1076,25 @@ test('la ventana es deslizante: se repone sola con las horas', async (t) => {
   const T0 = Date.UTC(2026, 7, 25, 10, 0, 0)
   const hora = (n) => T0 + n * 60 * 60 * 1000
 
-  // Se gasta la cuota entera repartida en dos horas distintas.
+  // Spends the whole quota split across two different hours.
   quota.registrar(PAR, 60_000, { now: hora(0) })
   quota.registrar(PAR, 40_000, { now: hora(1) })
-  t.absent(quota.check(PAR, { now: hora(2) }).ok, 'agotada')
+  t.absent(quota.check(PAR, { now: hora(2) }).ok, 'exhausted')
 
-  // A las 24 horas exactas el balde de la hora 0 sale de la ventana y vuelven
-  // sus 60.000; los 40.000 de la hora 1 siguen adentro. Esto es lo que hace
-  // que la cuota se reponga de a poco y no haya un pico a medianoche.
+  // At exactly 24 hours, hour 0's bucket leaves the window and its 60,000
+  // comes back; hour 1's 40,000 stays in. This is what makes the quota
+  // replenish gradually instead of spiking at midnight.
   //
-  // El borde importa y es facil equivocarse: un balde vale mientras
-  // `hora > ahora - ventana`. A las 24 h eso deja afuera al balde 0 y adentro
-  // al 1; a las 25 h ya salieron los dos.
-  t.is(quota.usado(PAR, { now: hora(24) }), 40_000, 'la hora mas vieja salio de la ventana')
-  t.ok(quota.check(PAR, { now: hora(24) }).ok, 'y se puede volver a pedir')
+  // The edge matters and it's easy to get wrong: a bucket counts while
+  // `hora > ahora - ventana`. At 24h that leaves bucket 0 out and bucket 1 in;
+  // at 25h both are already out.
+  t.is(quota.usado(PAR, { now: hora(24) }), 40_000, 'the oldest hour left the window')
+  t.ok(quota.check(PAR, { now: hora(24) }).ok, 'and it is possible to request again')
 
-  t.is(quota.usado(PAR, { now: hora(25) }), 0, 'una hora mas y la ventana se vacio entera')
+  t.is(quota.usado(PAR, { now: hora(25) }), 0, 'one more hour and the window emptied entirely')
 })
 
-test('cada par tiene su propia cuota', async (t) => {
+test('each peer has its own quota', async (t) => {
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
 
@@ -1091,18 +1104,18 @@ test('cada par tiene su propia cuota', async (t) => {
 
   quota.registrar(A, 100_000, { now: T0 })
 
-  t.absent(quota.check(A, { now: T0 }).ok, 'A se quedo sin cuota')
-  t.ok(quota.check(B, { now: T0 }).ok, 'y B no se entera')
+  t.absent(quota.check(A, { now: T0 }).ok, 'A ran out of quota')
+  t.ok(quota.check(B, { now: T0 }).ok, 'and B doesn\'t know about it')
   t.is(quota.restante(B, { now: T0 }), 100_000)
 
-  // El panel del proveedor ve las dos filas, ordenadas por consumo.
+  // The provider's panel sees both rows, ordered by consumption.
   const filas = quota.listar({ now: T0 })
-  t.is(filas.length, 1, 'B no aparece porque no consumio nada')
+  t.is(filas.length, 1, 'B does not show up because it consumed nothing')
   t.is(filas[0].peerKey, A)
   t.is(filas[0].used, 100_000)
 })
 
-test('la cuota es configurable y el registro ignora basura', async (t) => {
+test('the quota is configurable and registering ignores garbage', async (t) => {
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
 
@@ -1112,21 +1125,21 @@ test('la cuota es configurable y el registro ignora basura', async (t) => {
   quota.configurar({ tokens: 500, horas: 1 })
   t.is(quota.config().tokens, 500)
 
-  t.is(quota.registrar(PAR, -20, { now: T0 }), 0, 'un negativo no descuenta cuota ajena')
-  t.is(quota.registrar(PAR, 'ocho', { now: T0 }), 0, 'ni un string cuenta')
+  t.is(quota.registrar(PAR, -20, { now: T0 }), 0, 'a negative does not discount someone else\'s quota')
+  t.is(quota.registrar(PAR, 'ocho', { now: T0 }), 0, 'nor does a string count')
   t.is(quota.usado(PAR, { now: T0 }), 0)
 
   quota.registrar(PAR, 500, { now: T0 })
-  t.absent(quota.check(PAR, { now: T0 }).ok, 'con la cuota chica corta antes')
+  t.absent(quota.check(PAR, { now: T0 }).ok, 'with the small quota it cuts off sooner')
   quota.reset()
 })
 
 // ---------------------------------------------------------------------------
-// Fase 8 / D6 — elegir candidato por carga (qvac/routing.mjs)
+// Phase 8 / D6 — choosing a candidate by load (qvac/routing.mjs)
 // ---------------------------------------------------------------------------
 
-// Un candidato como lo devuelve store.findAllByModelId, con lo minimo que mira
-// el ruteo.
+// A candidate as store.findAllByModelId returns it, with the minimum that
+// routing looks at.
 function cand(id, kind, activeRequests, maxConcurrentRequests, extra = {}) {
   return {
     id,
@@ -1141,31 +1154,31 @@ function cand(id, kind, activeRequests, maxConcurrentRequests, extra = {}) {
   }
 }
 
-// random fijo: con todos los jitter iguales el sort de V8 es estable, asi que
-// el orden de entrada sobrevive a los empates y el test es determinista.
+// fixed random: with all jitters equal, V8's sort is stable, so the input
+// order survives ties and the test is deterministic.
 const SIN_AZAR = () => 0.5
 
-test('D6: entre dos pares gana el que tiene menos carga', async (t) => {
+test('D6: between two peers, the one with less load wins', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const cargado = cand('cargado', 'peer', 9, 10) // 90%
   const libre = cand('libre', 'peer', 1, 10) // 10%
 
-  // Se lo pasa en el orden "malo" a proposito: antes ganaba el primero de la
-  // lista y esto habria pasado igual sin mirar la carga.
+  // Passed in the "bad" order on purpose: before, the first one in the list
+  // won, and this would have passed the same way without looking at load.
   const r = pickCandidate([cargado, libre], { random: SIN_AZAR })
 
-  t.is(r.node.id, 'libre', 'elige el descargado, no el primero de la lista')
+  t.is(r.node.id, 'libre', 'picks the unloaded one, not the first in the list')
   t.is(r.decision.loadPct, 10)
-  t.ok(r.reason.includes('menor carga'), 'y el motivo lo dice: ' + r.reason)
+  t.ok(r.reason.includes('menor carga'), 'and the reason says so: ' + r.reason)
   t.alike(
     r.orden.map((n) => n.id),
     ['libre', 'cargado'],
-    'el reintento tambien va ordenado'
+    'the retry order is also ordered'
   )
 })
 
-test('D6: un candidato saturado queda ultimo, no afuera', async (t) => {
+test('D6: a saturated candidate ends up last, not out', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const lleno = cand('lleno', 'peer', 3, 3)
@@ -1173,53 +1186,54 @@ test('D6: un candidato saturado queda ultimo, no afuera', async (t) => {
 
   const r = pickCandidate([lleno, libre], { random: SIN_AZAR })
 
-  t.is(r.node.id, 'libre', 'gana el que puede atender aunque sea el local')
-  // Sigue en la lista: si el libre falla antes del primer token, D4 reintenta,
-  // y un par lleno es mejor candidato que ninguno.
-  t.is(r.orden.length, 2, 'el saturado sigue disponible para el reintento')
+  t.is(r.node.id, 'libre', 'the one that can serve wins, even if it is the local one')
+  // Still in the list: if the free one fails before the first token, D4
+  // retries, and a full peer is a better candidate than none.
+  t.is(r.orden.length, 2, 'the saturated one is still available for the retry')
   t.is(r.orden[1].id, 'lleno')
 })
 
-test('D6: con todos saturados no se inventa un ganador, se dice', async (t) => {
+test('D6: with everyone saturated, no winner gets invented, it gets said', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const r = pickCandidate([cand('a', 'peer', 3, 3), cand('b', 'peer', 5, 5)], {
     random: SIN_AZAR
   })
 
-  t.ok(r.node, 'igual devuelve uno: rechazar de entrada seria peor que intentar')
-  t.ok(r.reason.includes('saturados'), 'pero el motivo no finge una decision: ' + r.reason)
+  t.ok(r.node, 'still returns one: rejecting outright would be worse than trying')
+  t.ok(r.reason.includes('saturados'), 'but the reason does not fake a decision: ' + r.reason)
 })
 
-test('D6: con carga pareja se conserva el orden del modo --demo', async (t) => {
+test('D6: with even load, the order from --demo mode is preserved', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
-  // Una red ociosa: todos en 0. Es el caso normal, no el raro.
+  // An idle network: everyone at 0. This is the normal case, not the rare one.
   const local = cand('local', 'real', 0, 3)
   const par = cand('par', 'peer', 0, 3)
 
   const r = pickCandidate([local, par], { random: SIN_AZAR })
 
-  // La preferencia por el par es de demo (store.mjs:453-461) y sobrevive como
-  // desempate: sin esto, `--demo --swarm` deja de ejercitar el camino P2P.
-  t.is(r.node.id, 'par', 'empatados en carga, el par sigue primero')
+  // The preference for the peer is from demo mode (store.mjs:453-461) and
+  // survives as a tiebreaker: without this, `--demo --swarm` stops exercising
+  // the P2P path.
+  t.is(r.node.id, 'par', 'tied on load, the peer still goes first')
 })
 
-test('D6: un mock nunca le gana a un candidato real', async (t) => {
+test('D6: a mock never beats a real candidate', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
-  // El mock fluctua al azar (store.startFluctuation) y puede quedar en 0
-  // mientras el par real esta a la mitad. Su carga es teatro: compararla
-  // contra carga real es comparar un numero con una ficcion.
+  // The mock fluctuates randomly (store.startFluctuation) and can land at 0
+  // while the real peer is at half. Its load is theater: comparing it against
+  // real load is comparing a number to fiction.
   const mock = cand('mock', 'mock', 0, 4)
   const par = cand('par', 'peer', 2, 4)
 
   const r = pickCandidate([mock, par], { random: SIN_AZAR })
 
-  t.is(r.node.id, 'par', 'el mock queda atras aunque marque menos carga')
+  t.is(r.node.id, 'par', 'the mock stays behind even if it shows less load')
 })
 
-test('D6: el historico desempata cuando la carga empata', async (t) => {
+test('D6: history breaks the tie when load is equal', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const bueno = cand('bueno', 'peer', 1, 10)
@@ -1232,28 +1246,29 @@ test('D6: el historico desempata cuando la carga empata', async (t) => {
 
   const r = pickCandidate([malo, bueno], { statsFor, random: SIN_AZAR })
 
-  t.is(r.node.id, 'bueno', 'menos errores gana, aunque sea mas lento')
+  t.is(r.node.id, 'bueno', 'fewer errors wins, even if slower')
   t.ok(r.reason.includes('errores'), r.reason)
 })
 
 // ---------------------------------------------------------------------------
-// FASE 8 — el precio entra al ruteo
+// PHASE 8 — price enters routing
 //
-// La mitad que faltaba de la fase. Lo que estos tests fijan no es "el barato
-// gana": es DONDE gana, que es lo unico discutible. Detras de la carga, porque
-// la opcion barata que esta llena no es barata; delante de la latencia y del
-// desempate por tipo, porque ese ultimo es "preferencia del modo demo, ya no
-// criterio" y venia decidiendo cosas de plata por accidente.
+// The half of the phase that was missing. What these tests pin down isn't
+// "the cheap one wins": it's WHERE it wins, which is the only debatable part.
+// Behind load, because the cheap option that's full isn't cheap; ahead of
+// latency and of the type-based tiebreaker, because that last one was "demo
+// mode preference, no longer a criterion" and had been deciding money matters
+// by accident.
 // ---------------------------------------------------------------------------
 
-// Precio por candidato en micro-dolares, como se lo pasa el gateway: ya atado
-// al request. Un par y el motor local dan cero, que hoy es la verdad y no un
-// placeholder -- el pago P2P es la Fase 9.
+// Price per candidate in micro-dollars, as the gateway passes it: already
+// tied to the request. A peer and the local engine give zero, which today is
+// the truth and not a placeholder -- P2P payment is Phase 9.
 function precioFijo(tabla) {
   return (n) => tabla[n.id] || 0
 }
 
-test('FASE 8: con carga pareja gana el mas barato, y el log dice los dos precios', async (t) => {
+test('PHASE 8: with even load the cheapest wins, and the log states both prices', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const caro = cand('caro', 'upstream', 0, 4)
@@ -1266,17 +1281,17 @@ test('FASE 8: con carga pareja gana el mas barato, y el log dice los dos precios
 
   t.is(r.node.id, 'barato')
   t.ok(r.reason.includes('mas barato'), r.reason)
-  // Los DOS numeros: sin el del segundo, "el mas barato" no se audita contra
-  // nada -- es la misma exigencia que el DoD le hace al motivo de la carga.
-  t.ok(r.reason.includes('0.0009') && r.reason.includes('0.005'), 'nombra ambos: ' + r.reason)
+  // Both numbers: without the second one, "the cheaper one" can't be audited
+  // against anything -- the same requirement the DoD makes for the load reason.
+  t.ok(r.reason.includes('0.0009') && r.reason.includes('0.005'), 'names both: ' + r.reason)
 })
 
-test('FASE 8: el precio NO le gana a "puede atender ahora"', async (t) => {
+test('PHASE 8: price does NOT beat "can serve right now"', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
-  // El gratis esta al 90%; el que cobra, vacio. Gana igual el gratis: mandar
-  // el request al caro porque el barato esta cargado seria cambiar dolares por
-  // latencia sin que nadie lo pidiera.
+  // The free one is at 90%; the paid one, empty. The free one still wins:
+  // sending the request to the expensive one because the cheap one is loaded
+  // would be trading dollars for latency without anyone asking for it.
   const gratisCargado = cand('gratis', 'peer', 9, 10)
   const caroLibre = cand('caro', 'upstream', 0, 10)
 
@@ -1284,43 +1299,44 @@ test('FASE 8: el precio NO le gana a "puede atender ahora"', async (t) => {
     precioDe: precioFijo({ caro: 5000 }),
     random: SIN_AZAR
   })
-  t.is(conLugar.node.id, 'caro', 'con MENOS carga gana el caro: la carga va primero')
+  t.is(conLugar.node.id, 'caro', 'with LESS load the expensive one wins: load goes first')
 
-  // Y al reves: lleno de verdad, el caro pasa al frente aunque cueste.
+  // And the other way around: really full, the expensive one moves to the
+  // front even though it costs.
   const gratisLleno = cand('gratis', 'peer', 10, 10)
   const r = pickCandidate([gratisLleno, caroLibre], {
     precioDe: precioFijo({ caro: 5000 }),
     random: SIN_AZAR
   })
-  t.is(r.node.id, 'caro', 'un candidato saturado no es barato: es ninguno')
+  t.is(r.node.id, 'caro', 'a saturated candidate is not cheap: it is none')
 })
 
-test('FASE 8: gratis le gana a pago por PRECIO, no por el tipo de nodo', async (t) => {
+test('PHASE 8: free beats paid by PRICE, not by node type', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
-  // Es el comportamiento que la Fase 8.5 ya daba por bueno ("con las dos
-  // puertas abiertas contesta la de casa"), pero lo producia el desempate por
-  // `kind` del paso 7. Con el precio, el motivo deja de ser un accidente.
-  const local = cand('local', 'upstream', 0, 4) // motor propio: no cuesta
-  const tercero = cand('tercero', 'upstream', 0, 4) // API que cobra
+  // This is the behavior Phase 8.5 already considered correct ("with both
+  // doors open, the home one answers"), but it was produced by step 7's
+  // `kind` tiebreaker. With price, the reason stops being an accident.
+  const local = cand('local', 'upstream', 0, 4) // our own engine: costs nothing
+  const tercero = cand('tercero', 'upstream', 0, 4) // API that charges
 
   const r = pickCandidate([tercero, local], {
     precioDe: precioFijo({ tercero: 2500 }),
     random: SIN_AZAR
   })
-  t.is(r.node.id, 'local', 'mismo kind, misma carga: decide el precio')
-  t.ok(r.reason.includes('mas barato'), 'y el motivo lo dice: ' + r.reason)
-  t.ok(r.reason.includes('gratis'), 'el cero se escribe "gratis", no "USD 0.0000": ' + r.reason)
+  t.is(r.node.id, 'local', 'same kind, same load: price decides')
+  t.ok(r.reason.includes('mas barato'), 'and the reason says so: ' + r.reason)
+  t.ok(r.reason.includes('gratis'), 'zero is written as "gratis", not "USD 0.0000": ' + r.reason)
 })
 
-test('FASE 8: el precio se compara ANTES que la latencia y los errores', async (t) => {
+test('PHASE 8: price is compared BEFORE latency and errors', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const barato = cand('barato', 'upstream', 0, 4)
   const caro = cand('caro', 'upstream', 0, 4)
 
-  // El caro tiene mejor historia en las dos dimensiones. Pierde igual: con
-  // carga pareja el DoD dice que gana el mas barato.
+  // The expensive one has a better history on both dimensions. It still
+  // loses: with even load the DoD says the cheaper one wins.
   const statsFor = (n) =>
     n.id === 'caro'
       ? { requests: 10, errors: 0, lastMs: 100 }
@@ -1333,38 +1349,39 @@ test('FASE 8: el precio se compara ANTES que la latencia y los errores', async (
   })
   t.is(r.node.id, 'barato')
 
-  // Y con precios IGUALES vuelven a mandar ellos, que es lo que hace que meter
-  // el precio no rompa el desempate entre pares -- donde todos valen cero.
+  // And with EQUAL prices they go back to deciding, which is what makes
+  // adding price not break the tiebreaker between peers -- where everyone is
+  // worth zero.
   const conEmpate = pickCandidate([caro, barato], {
     statsFor,
     precioDe: precioFijo({ caro: 900, barato: 900 }),
     random: SIN_AZAR
   })
-  t.is(conEmpate.node.id, 'caro', 'empatados en precio, decide el historico')
+  t.is(conEmpate.node.id, 'caro', 'tied on price, history decides')
   t.ok(conEmpate.reason.includes('errores'), conEmpate.reason)
 })
 
-test('FASE 8: sin precioDe el ruteo se comporta igual que antes', async (t) => {
+test('PHASE 8: without precioDe, routing behaves the same as before', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
-  // Todo el resto de la suite llama a pickCandidate sin `precioDe`, y tiene que
-  // seguir andando: el precio es un criterio nuevo, no un requisito nuevo.
+  // The rest of the suite calls pickCandidate without `precioDe`, and it has
+  // to keep working: price is a new criterion, not a new requirement.
   const cargado = cand('cargado', 'peer', 9, 10)
   const libre = cand('libre', 'peer', 1, 10)
   const r = pickCandidate([cargado, libre], { random: SIN_AZAR })
-  t.is(r.node.id, 'libre', 'sigue mandando la carga')
+  t.is(r.node.id, 'libre', 'still goes by load')
 
-  // Y un precioDe que explota no puede tumbar el ruteo, igual que el historico.
+  // And a precioDe that blows up can't take down routing, same as history.
   const roto = pickCandidate([cargado, libre], {
     precioDe: () => {
       throw new Error('costs exploto')
     },
     random: SIN_AZAR
   })
-  t.is(roto.node.id, 'libre', 'se rutea igual, sin el criterio de precio')
+  t.is(roto.node.id, 'libre', 'still routes the same, without the price criterion')
 })
 
-test('D6: un historico roto no puede tumbar el ruteo', async (t) => {
+test('D6: broken history cannot take down routing', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const statsFor = () => {
@@ -1372,29 +1389,29 @@ test('D6: un historico roto no puede tumbar el ruteo', async (t) => {
   }
 
   const r = pickCandidate([cand('a', 'peer', 0, 3)], { statsFor, random: SIN_AZAR })
-  t.is(r.node.id, 'a', 'se rutea igual, sin el desempate historico')
+  t.is(r.node.id, 'a', 'routes the same, without the history tiebreaker')
 })
 
-test('pin: fijar una maquina la elige, y si no esta NO cae a otra', async (t) => {
+test('pin: pinning a machine selects it, and if it is not there it does NOT fall back to another', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const a = cand('a', 'peer', 0, 3)
   const b = cand('b', 'peer', 0, 3)
 
   const fijado = pickCandidate([a, b], { pin: 'b', random: SIN_AZAR })
-  t.is(fijado.node.id, 'b', 'respeta la maquina elegida')
+  t.is(fijado.node.id, 'b', 'respects the chosen machine')
   t.is(fijado.decision.pin, true)
-  t.is(fijado.orden.length, 1, 'sin alternativas: pin es pin')
+  t.is(fijado.orden.length, 1, 'no alternatives: a pin is a pin')
 
-  // El nodo elegido se fue de la red entre que se pinto el selector y se mando
-  // el prompt. Contestar con OTRA maquina sin avisar vaciaria de sentido a la
-  // funcion: el que fija una maquina quiere esa.
+  // The chosen node left the network between the selector being drawn and the
+  // prompt being sent. Answering with ANOTHER machine without warning would
+  // empty the function of meaning: whoever pins a machine wants that one.
   const ausente = pickCandidate([a, b], { pin: 'fantasma', random: SIN_AZAR })
-  t.absent(ausente.node, 'no elige un reemplazo')
+  t.absent(ausente.node, 'does not pick a replacement')
   t.ok(ausente.reason.includes('fantasma'), ausente.reason)
 })
 
-test('pin: una maquina fijada y saturada se devuelve, con el aviso', async (t) => {
+test('pin: a pinned and saturated machine is returned, with the notice', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const lleno = cand('lleno', 'peer', 3, 3)
@@ -1408,12 +1425,12 @@ test('pin: una maquina fijada y saturada se devuelve, con el aviso', async (t) =
   t.ok(r.reason.includes('saturado'), r.reason)
 })
 
-test('S5: markSaturated deja al par lleno hasta el proximo node:status', async (t) => {
+test('S5: markSaturated keeps the peer full until the next node:status', async (t) => {
   const store = await import('../qvac/store.mjs')
   const { estaSaturado } = await import('../qvac/routing.mjs')
 
-  // Un modelId propio de este test: el registro es estado de modulo y lo
-  // comparten todos los tests del archivo.
+  // A modelId of this test's own: the registry is module-level state and it
+  // is shared by every test in the file.
   store.registerLocal({
     modelId: 'test-saturacion',
     displayName: 'T',
@@ -1422,21 +1439,21 @@ test('S5: markSaturated deja al par lleno hasta el proximo node:status', async (
   })
   const fila = store.listNodes().find((n) => n.modelId === 'test-saturacion')
 
-  t.absent(estaSaturado(fila), 'arranca con lugar')
+  t.absent(estaSaturado(fila), 'starts with room')
 
   store.markSaturated(fila.id)
   t.ok(
     estaSaturado(store.getNode(fila.id)),
-    'tras un at_capacity queda lleno sin esperar los 2s del status'
+    'after an at_capacity it is full without waiting for the status\'s 2s'
   )
 
-  // Y no hay marca que recordar ni que expirar: el proximo node:status escribe
-  // activeRequests sin mirar lo que habia (store.mjs:374-386), asi que la
-  // verdad del par pisa esto solo.
+  // And there's no flag to remember or expire: the next node:status writes
+  // activeRequests without looking at what was there (store.mjs:374-386), so
+  // the peer's real truth overwrites this on its own.
   store.kick(fila.id)
 })
 
-test('normalizeRequest acepta fijar la maquina, no solo el modelo', async (t) => {
+test('normalizeRequest accepts pinning the machine, not just the model', async (t) => {
   const { normalizeRequest } = await import('../qvac/gateway.mjs')
 
   const conPin = normalizeRequest({
@@ -1444,34 +1461,35 @@ test('normalizeRequest acepta fijar la maquina, no solo el modelo', async (t) =>
     messages: [{ role: 'user', content: 'hola' }],
     node: 'abc123:llama1b'
   })
-  t.is(conPin.pin, 'abc123:llama1b', 'el id del nodo llega hasta el ruteo')
+  t.is(conPin.pin, 'abc123:llama1b', 'the node id makes it all the way to routing')
 
-  // Sin el campo es null y no undefined: el contrato del normalizador es
-  // devolver algo comparable, igual que con `local`.
+  // Without the field it is null, not undefined: the normalizer's contract is
+  // to return something comparable, same as with `local`.
   const sinPin = normalizeRequest({
     model: 'llama1b',
     messages: [{ role: 'user', content: 'hola' }]
   })
   t.is(sinPin.pin, null)
 
-  // Un string vacio o de espacios es "no elegi ninguna", no una maquina
-  // llamada "". Sin esto el ruteo buscaria un nodo con id vacio y daria 404.
+  // An empty or whitespace string means "I didn't choose one", not a machine
+  // named "". Without this, routing would look for a node with an empty id
+  // and give a 404.
   t.is(
     normalizeRequest({ model: 'l', messages: [{ role: 'user', content: 'h' }], node: '   ' }).pin,
     null
   )
 
-  // Y la forma corta propia tambien, como con local.
+  // And our own short form too, same as with local.
   t.is(normalizeRequest({ modelId: 'llama1b', prompt: 'hola', node: 'x:y' }).pin, 'x:y')
 })
 
 // ---------------------------------------------------------------------------
-// Fase 6.6 / D23 — la cuota gratuita enganchada al provider (qvac/quota.mjs)
+// Phase 6.6 / D23 — the free quota hooked into the provider (qvac/quota.mjs)
 // ---------------------------------------------------------------------------
 
-// Un Provider con un motor falso: no carga pesos, no toca el registry, y
-// genera exactamente los tokens que se le piden. Sin esto no hay forma de
-// probar el descuento de cuota sin 807 MB y una GPU.
+// A Provider with a fake engine: it doesn't load weights, doesn't touch the
+// registry, and generates exactly the tokens it's asked for. Without this
+// there's no way to test the quota discount without 807 MB and a GPU.
 async function providerDePrueba(tokensPorRespuesta = 5) {
   const { Provider } = await import('../qvac/provider.mjs')
   const engine = {
@@ -1489,7 +1507,7 @@ async function providerDePrueba(tokensPorRespuesta = 5) {
   })
 }
 
-// Junta lo que el provider le contesta al par.
+// Collects what the provider answers to the peer.
 function capturar() {
   const vistos = []
   return { vistos, send: (m) => vistos.push(m) }
@@ -1511,7 +1529,7 @@ async function pedir(provider, peer, requestId) {
   return cap.vistos
 }
 
-test('la cuota se descuenta con los tokens servidos de verdad', async (t) => {
+test('the quota is discounted by tokens really served', async (t) => {
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
   quota.configurar({ tokens: 12 })
@@ -1519,8 +1537,8 @@ test('la cuota se descuenta con los tokens servidos de verdad', async (t) => {
   const provider = await providerDePrueba(5)
 
   const primera = await pedir(provider, PEER, 'r1')
-  t.is(primera[0].type, 'chat:accepted', 'con cuota entra')
-  t.is(quota.usado(PEER.key), 5, 'descuenta lo generado, no lo pedido')
+  t.is(primera[0].type, 'chat:accepted', 'with quota available, it goes through')
+  t.is(quota.usado(PEER.key), 5, 'discounts what was generated, not what was requested')
 
   await pedir(provider, PEER, 'r2')
   t.is(quota.usado(PEER.key), 10)
@@ -1528,7 +1546,7 @@ test('la cuota se descuenta con los tokens servidos de verdad', async (t) => {
   quota.reset()
 })
 
-test('agotada la cuota se rechaza ANTES de gastar la GPU', async (t) => {
+test('with quota exhausted, it rejects BEFORE spending the GPU', async (t) => {
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
   quota.configurar({ tokens: 4 })
@@ -1536,22 +1554,22 @@ test('agotada la cuota se rechaza ANTES de gastar la GPU', async (t) => {
   const provider = await providerDePrueba(5)
 
   await pedir(provider, PEER, 'r1')
-  t.is(quota.usado(PEER.key), 5, 'el primero se sirve entero aunque se pase')
+  t.is(quota.usado(PEER.key), 5, 'the first one is served in full even if it overshoots')
 
-  // El desborde de UN request se acepta a proposito (ver quota.mjs): cortar
-  // una generacion por la mitad se ve como un bug y regala igual la GPU ya
-  // gastada. Lo que no puede pasar es que entre el siguiente.
+  // The overflow of ONE request is accepted on purpose (see quota.mjs):
+  // cutting a generation in half looks like a bug and still gives away the
+  // GPU already spent. What can't happen is the next one getting in.
   const segunda = await pedir(provider, PEER, 'r2')
 
-  t.is(segunda[0].type, 'chat:error', 'el segundo no entra')
+  t.is(segunda[0].type, 'chat:error', 'the second one does not go through')
   t.is(segunda[0].code, 'quota_exceeded')
-  t.is(segunda.length, 1, 'ni un solo chunk: no se gasto GPU')
-  t.ok(segunda[0].resetsInMs > 0, 'y dice en cuanto se repone: ' + segunda[0].resetsInMs)
+  t.is(segunda.length, 1, 'not a single chunk: no GPU was spent')
+  t.ok(segunda[0].resetsInMs > 0, 'and it says how long until it replenishes: ' + segunda[0].resetsInMs)
 
   quota.reset()
 })
 
-test('la cuota es por par: agotar la de uno no toca la del otro', async (t) => {
+test('the quota is per peer: exhausting one does not touch the other', async (t) => {
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
   quota.configurar({ tokens: 3 })
@@ -1561,17 +1579,18 @@ test('la cuota es por par: agotar la de uno no toca la del otro', async (t) => {
 
   await pedir(provider, PEER, 'r1')
   const suyo = await pedir(provider, PEER, 'r2')
-  t.is(suyo[0].code, 'quota_exceeded', 'el primero se quedo sin cuota')
+  t.is(suyo[0].code, 'quota_exceeded', 'the first one ran out of quota')
 
-  // La clave del par la establece la conexion de Hyperswarm, no el contenido
-  // del mensaje: por eso el proveedor puede contar por par sin creerle a nadie.
+  // The peer's key is established by the Hyperswarm connection, not by the
+  // message content: that's why the provider can count per peer without
+  // trusting anyone.
   const ajeno = await pedir(provider, otro, 'r3')
-  t.is(ajeno[0].type, 'chat:accepted', 'el otro par tiene la suya intacta')
+  t.is(ajeno[0].type, 'chat:accepted', 'the other peer has theirs untouched')
 
   quota.reset()
 })
 
-test('un request que falla cargando el modelo no gasta cuota', async (t) => {
+test('a request that fails loading the model does not spend quota', async (t) => {
   const quota = await import('../qvac/quota.mjs')
   const { Provider } = await import('../qvac/provider.mjs')
   quota.reset()
@@ -1579,7 +1598,7 @@ test('un request que falla cargando el modelo no gasta cuota', async (t) => {
   const provider = new Provider({
     engineLoader: async () => ({
       resolveModel: async () => {
-        throw new Error('el registry no contesta')
+        throw new Error('the registry is not responding')
       }
     }),
     models: [{ modelId: 'llama1b', maxConcurrentRequests: 3 }]
@@ -1587,23 +1606,24 @@ test('un request que falla cargando el modelo no gasta cuota', async (t) => {
 
   const vistos = await pedir(provider, PEER, 'r1')
   t.is(vistos[vistos.length - 1].code, 'inference_failed')
-  // La cuota mide GPU entregada, no intentos: cobrarle al par un modelo que
-  // nunca cargo seria cobrarle por nuestro problema.
-  t.is(quota.usado(PEER.key), 0, 'no se le descuenta nada')
+  // The quota measures GPU delivered, not attempts: charging the peer for a
+  // model that never loaded would be charging them for our problem.
+  t.is(quota.usado(PEER.key), 0, 'nothing is discounted from them')
 
   quota.reset()
 })
 
 // ---------------------------------------------------------------------------
-// Fase 8.5 — el asistente externo como un candidato mas
+// Phase 8.5 — the external assistant as one more candidate
 //
-// Todo lo de aca corre SIN tocar la API de NVIDIA: se prueba la config, el
-// precio y las tres condiciones de elegibilidad de D19, que es donde estan las
-// decisiones. Que el SSE del proveedor se parsee bien se verifica contra el
-// proveedor de verdad, no con un mock que confirme lo que ya creemos.
+// Everything here runs WITHOUT touching NVIDIA's API: the config, the price,
+// and D19's three eligibility conditions are tested, which is where the
+// decisions live. Whether the provider's SSE parses correctly is verified
+// against the real provider, not with a mock that confirms what we already
+// believe.
 // ---------------------------------------------------------------------------
 
-test('la config de upstreams se lee entera: modelos, precio y tope de salida', async (t) => {
+test('the upstreams config is read in full: models, price, and output cap', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   const ups = upstream.cargarDesde({
@@ -1626,13 +1646,13 @@ test('la config de upstreams se lee entera: modelos, precio y tope de salida', a
   })
 
   t.is(ups.length, 1)
-  t.is(ups[0].id, 'nim:nvidia/nemotron-3.5-lightning-30b-a3b', 'el id lleva proveedor y modelo')
-  t.is(ups[0].baseUrl, 'https://integrate.api.nvidia.com/v1', 'la barra final se saca')
+  t.is(ups[0].id, 'nim:nvidia/nemotron-3.5-lightning-30b-a3b', 'the id carries provider and model')
+  t.is(ups[0].baseUrl, 'https://integrate.api.nvidia.com/v1', 'the trailing slash is removed')
   t.is(ups[0].maxTokens, 512)
-  t.alike(ups[0].precio, { entrada: 200_000, salida: 600_000 }, 'USD por 1M -> micros enteros')
+  t.alike(ups[0].precio, { entrada: 200_000, salida: 600_000 }, 'USD per 1M -> integer micros')
 })
 
-test('un upstream sin tope de salida igual tiene uno: la reserva lo necesita', async (t) => {
+test('an upstream without an output cap still has one: the reserve needs it', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   const ups = upstream.cargarDesde({
@@ -1646,24 +1666,24 @@ test('un upstream sin tope de salida igual tiene uno: la reserva lo necesita', a
     ]
   })
 
-  t.ok(ups[0].maxTokens > 0, 'sin maxTokens la cota superior del gasto daria cero')
-  t.is(ups[0].precio, null, 'sin pricePerMTok no se inventa un precio')
+  t.ok(ups[0].maxTokens > 0, 'without maxTokens the spend\'s upper bound would be zero')
+  t.is(ups[0].precio, null, 'without pricePerMTok no price gets invented')
 })
 
 // ---------------------------------------------------------------------------
-// Los dos relojes del camino externo (B3), y el numero del primero (B16)
+// The external path's two clocks (B3), and the first one's number (B16)
 //
-// Son lo unico que impide que un request al externo quede abierto para siempre
-// y, con el, la reserva de presupuesto que lo autorizo. No tenian ningun test:
-// el de B3 prueba que el reloj DISPARA, con 300ms puestos a mano desde la
-// config, y por eso no habria visto que el default estaba mal calibrado.
+// They're the only thing preventing an external request from staying open
+// forever, and with it the budget reserve that authorized it. They had no
+// test at all: B3's test proves the clock FIRES, with 300ms set by hand from
+// the config, and so it wouldn't have caught the default being miscalibrated.
 //
-// El numero cambio a 180s porque los 60s anteriores quedaron dos segundos por
-// encima de lo medido -- 58s al primer byte contra NVIDIA el 2026-08-26 -- y
-// los requests estaban por cortarse solos por lentos, no por colgados.
+// The number changed to 180s because the previous 60s was two seconds above
+// what was measured -- 58s to the first byte against NVIDIA on 2026-08-26 --
+// and requests were about to cut themselves off for being slow, not hung.
 // ---------------------------------------------------------------------------
 
-test('un upstream sin relojes declarados igual los tiene, y no en cero', async (t) => {
+test('an upstream without declared clocks still has them, and not at zero', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   const ups = upstream.cargarDesde({
@@ -1674,9 +1694,9 @@ test('un upstream sin relojes declarados igual los tiene, y no en cero', async (
         apiKeyEnv: 'X_KEY',
         models: [
           { modelId: 'porDefecto' },
-          // Los tres modos de escribirlo mal: cero, negativo y basura. Ninguno
-          // puede terminar en un timeout de cero, que dispararia antes de
-          // empezar y dejaria al externo inservible en vez de protegido.
+          // The three ways to get it wrong: zero, negative, and garbage. None
+          // of them can end up with a zero timeout, which would fire before
+          // starting and leave the external path unusable instead of protected.
           { modelId: 'enCero', timeoutPrimerChunkMs: 0, timeoutIdleMs: 0 },
           { modelId: 'negativo', timeoutPrimerChunkMs: -5000, timeoutIdleMs: -1 },
           { modelId: 'basura', timeoutPrimerChunkMs: 'rapido', timeoutIdleMs: null }
@@ -1686,18 +1706,18 @@ test('un upstream sin relojes declarados igual los tiene, y no en cero', async (
   })
 
   for (const u of ups) {
-    t.ok(u.timeoutPrimerChunkMs > 0, u.model + ': el reloj del primer byte existe')
-    t.ok(u.timeoutIdleMs > 0, u.model + ': el reloj del silencio existe')
+    t.ok(u.timeoutPrimerChunkMs > 0, u.model + ': the first-byte clock exists')
+    t.ok(u.timeoutIdleMs > 0, u.model + ': the silence clock exists')
   }
 
-  // El default, fijado a proposito: si alguien lo vuelve a bajar, que sea una
-  // decision y no un descuido. 58s medidos contra NVIDIA el 2026-08-26 es lo
-  // que descarta cualquier numero cerca de 60.
-  t.is(ups[0].timeoutPrimerChunkMs, 180000, 'tres minutos hasta el primer byte')
-  t.is(ups[0].timeoutIdleMs, 30000, 'y treinta segundos de silencio entre tokens')
+  // The default, pinned on purpose: if someone lowers it again, let it be a
+  // decision and not an oversight. 58s measured against NVIDIA on 2026-08-26
+  // is what rules out any number near 60.
+  t.is(ups[0].timeoutPrimerChunkMs, 180000, 'three minutes until the first byte')
+  t.is(ups[0].timeoutIdleMs, 30000, 'and thirty seconds of silence between tokens')
 
-  // Lo que SI se respeta es un valor valido: un modelo con latencia conocida se
-  // acomoda desde la config sin tocar el codigo.
+  // What IS respected is a valid value: a model with known latency can be
+  // tuned from the config without touching the code.
   const propio = upstream.cargarDesde({
     upstreams: [
       {
@@ -1708,44 +1728,44 @@ test('un upstream sin relojes declarados igual los tiene, y no en cero', async (
       }
     ]
   })
-  t.is(propio[0].timeoutPrimerChunkMs, 300, 'un valor valido gana, y por eso el test de B3 anda')
+  t.is(propio[0].timeoutPrimerChunkMs, 300, 'a valid value wins, and that\'s why B3\'s test works')
   t.is(propio[0].timeoutIdleMs, 250)
 })
 
-test('el opt-in ausente, roto o a medias significa NO', async (t) => {
+test('opt-in that is absent, broken, or partial means NO', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   t.is(upstream.optInDe(null), false)
   t.is(upstream.optInDe({}), false)
-  t.is(upstream.optInDe({ optIn: 'true' }), false, 'el string no alcanza: tiene que ser booleano')
+  t.is(upstream.optInDe({ optIn: 'true' }), false, 'the string is not enough: it has to be boolean')
   t.is(upstream.optInDe({ optIn: true }), true)
-  t.is(upstream.brokerDe({}), false, 'revender tampoco pasa por omision')
+  t.is(upstream.brokerDe({}), false, 'reselling doesn\'t pass by omission either')
 })
 
-test('el precio de un modelo externo entra al contador y estima como los demas', async (t) => {
+test('an external model\'s price enters the counter and estimates like the rest', async (t) => {
   const costs = await import('../qvac/costs.mjs')
   costs.olvidarPreciosExternos()
 
-  t.is(costs.conocido('nvidia/nemotron'), false, 'antes de registrarlo no cuesta nada')
+  t.is(costs.conocido('nvidia/nemotron'), false, 'before registering it, it costs nothing')
 
   t.is(costs.registrarPrecio('nvidia/nemotron', { entrada: 200_000, salida: 600_000 }), true)
   t.is(costs.conocido('nvidia/nemotron'), true)
 
-  // 1000 de entrada a 0.20/1M + 1024 de salida a 0.60/1M
+  // 1000 input at 0.20/1M + 1024 output at 0.60/1M
   const estimado = costs.estimar({
     model: 'nvidia/nemotron',
     promptTokens: 1000,
     maxTokens: 1024
   })
-  t.is(estimado, 200 + 615, 'redondea hacia arriba, como el resto de costs.mjs')
+  t.is(estimado, 200 + 615, 'rounds up, like the rest of costs.mjs')
 
-  t.is(costs.registrarPrecio('otro', { entrada: 0, salida: 0 }), false, 'gratis no es un precio')
+  t.is(costs.registrarPrecio('otro', { entrada: 0, salida: 0 }), false, 'free is not a price')
   t.is(costs.conocido('otro'), false)
 
   costs.olvidarPreciosExternos()
 })
 
-test('D19: el externo no compite mientras alguien de la red tenga lugar', async (t) => {
+test('D19: the external one does not compete while someone on the network has room', async (t) => {
   const { pickCandidate } = await import('../qvac/routing.mjs')
 
   const local = {
@@ -1763,17 +1783,17 @@ test('D19: el externo no compite mientras alguien de la red tenga lugar', async 
     operator: 'NVIDIA NIM (externo)'
   }
 
-  // Sin el filtro de elegibilidad, el externo GANA: su carga es 0 y la del
-  // local 66%. Ese es justamente el motivo por el que la condicion se aplica
-  // como filtro antes de puntuar y no como un `if` despues.
+  // Without the eligibility filter, the external one WINS: its load is 0 and
+  // the local one's is 66%. That is exactly why the condition is applied as a
+  // filter before scoring and not as an `if` afterward.
   const sinFiltro = pickCandidate([local, externo])
-  t.is(sinFiltro.node.id, 'upstream:nim', 'por carga sola, el externo se lleva todo')
+  t.is(sinFiltro.node.id, 'upstream:nim', 'by load alone, the external one takes everything')
 
   const conFiltro = pickCandidate([local])
-  t.is(conFiltro.node.id, 'local:llama1b', 'filtrado antes de puntuar, contesta la maquina')
+  t.is(conFiltro.node.id, 'local:llama1b', 'filtered before scoring, the machine answers')
 })
 
-test('una fila de upstream se registra, se lista y no infla la capacidad anunciada', async (t) => {
+test('an upstream row registers, lists, and does not inflate announced capacity', async (t) => {
   const store = await import('../qvac/store.mjs')
   store.seed()
 
@@ -1796,24 +1816,24 @@ test('una fila de upstream se registra, se lista y no infla la capacidad anuncia
 
   t.is(id, 'upstream:nim:nemotron')
   const fila = store.listNodes().find((n) => n.id === id)
-  t.is(fila.kind, 'upstream', 'entra al registro como una fila mas')
+  t.is(fila.kind, 'upstream', 'enters the registry as one more row')
   t.is(fila.status, 'online')
 
-  // Lo que este nodo le anuncia a la red es lo que ESTE nodo puede servir. Un
-  // upstream es capacidad de un tercero: sumarla seria anunciar 7 slots
-  // teniendo 3, la clase de mentira que el manifiesto firmado existe para
-  // evitar.
-  t.is(store.localLoad().maxConcurrentRequests, antes, 'la capacidad local no cambia')
+  // What this node announces to the network is what THIS node can serve. An
+  // upstream is a third party's capacity: adding it in would mean announcing
+  // 7 slots while having 3, the kind of lie the signed manifest exists to
+  // prevent.
+  t.is(store.localLoad().maxConcurrentRequests, antes, 'local capacity does not change')
 
   store.clearUpstreams()
   t.absent(
     store.listNodes().find((n) => n.kind === 'upstream'),
-    'al releer la config no quedan filas viejas'
+    'no old rows are left after re-reading the config'
   )
   store.seed()
 })
 
-test('un upstream sin credencial se registra offline: no puede ser candidato', async (t) => {
+test('an upstream without a credential registers offline: it can not be a candidate', async (t) => {
   const store = await import('../qvac/store.mjs')
   store.seed()
 
@@ -1826,11 +1846,11 @@ test('un upstream sin credencial se registra offline: no puede ser candidato', a
   })
 
   const fila = store.listNodes().find((n) => n.kind === 'upstream')
-  t.is(fila.status, 'offline', 'se ve en el panel con lo que le falta')
+  t.is(fila.status, 'offline', 'it shows in the panel with what it is missing')
   t.is(
     store.findAllByModelId('nvidia/nemotron').length,
     0,
-    'pero findAllByModelId no lo ofrece: filtra por online'
+    'but findAllByModelId does not offer it: it filters by online'
   )
 
   store.clearUpstreams()
@@ -1838,23 +1858,24 @@ test('un upstream sin credencial se registra offline: no puede ser candidato', a
 })
 
 // ---------------------------------------------------------------------------
-// B1 — el tope tiene que sobrevivir a un reinicio
+// B1 — the cap has to survive a restart
 //
-// El ledger le imputa el gasto a la cuenta, y la cuenta ES la API key. Con el
-// registro de keys en memoria ese id no volvia despues de un reinicio: el
-// cliente pedia una key nueva y arrancaba con el tope entero otra vez. El
-// mecanismo de corte funcionaba perfecto y era, igual, evitable apagando y
-// prendiendo.
+// The ledger charges the spend to the account, and the account IS the API
+// key. With the key registry in memory, that id did not come back after a
+// restart: the client requested a new key and started over with the full cap
+// again. The cutoff mechanism worked perfectly and was, still, avoidable by
+// turning it off and on.
 //
-// Por eso el criterio de cierre de la Fase 6.5 dice "agotar, REINICIAR, y
-// seguir cortado": sin el reinicio en el medio, el test pasa con el bug puesto.
+// That's why Phase 6.5's closing criterion says "exhaust it, RESTART, and it
+// stays cut off": without the restart in between, the test passes with the
+// bug still in place.
 // ---------------------------------------------------------------------------
 
 function dirTemporalPelado() {
   const fs = require('bare-fs')
   const os = require('bare-os')
   const path = require('bare-path')
-  // Mismo criterio que directorioTemporal(): nada de mkdtempSync en Windows.
+  // Same criterion as directorioTemporal(): no mkdtempSync on Windows.
   const dir = path.join(
     os.tmpdir(),
     'qvac-keys-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -1870,7 +1891,7 @@ function dirTemporalPelado() {
   }
 }
 
-test('la api key sobrevive al reinicio: sin eso la cuenta del ledger no existe', async (t) => {
+test('the api key survives a restart: without that, the ledger account does not exist', async (t) => {
   const apikeys = await import('../qvac/apikeys.mjs')
   const tmp = dirTemporalPelado()
 
@@ -1878,17 +1899,17 @@ test('la api key sobrevive al reinicio: sin eso la cuenta del ledger no existe',
   const emitida = apikeys.createKey({ label: 'bot de telegram' })
   apikeys.close()
 
-  // El "reinicio": el Map se vacia y se vuelve a leer del disco.
+  // The "restart": the Map gets emptied and read back from disk.
   apikeys.reset()
   apikeys.open(null)
-  t.is(apikeys.verifyKey(emitida.key), null, 'sin el archivo, la key no existe (es el bug)')
+  t.is(apikeys.verifyKey(emitida.key), null, 'without the file, the key does not exist (that is the bug)')
 
   const cargadas = apikeys.open(tmp.dir)
   t.is(cargadas, 1)
 
   const reconocida = apikeys.verifyKey(emitida.key)
-  t.ok(reconocida, 'la MISMA key sigue sirviendo despues del reinicio')
-  t.is(reconocida.id, emitida.id, 'y sobre todo: el MISMO id, que es la cuenta del ledger')
+  t.ok(reconocida, 'the SAME key still works after the restart')
+  t.is(reconocida.id, emitida.id, 'and above all: the SAME id, which is the ledger account')
   t.is(reconocida.label, 'bot de telegram')
 
   apikeys.close()
@@ -1897,77 +1918,78 @@ test('la api key sobrevive al reinicio: sin eso la cuenta del ledger no existe',
 })
 
 // ---------------------------------------------------------------------------
-// B13 — el tope que acota la FACTURA, no a un cliente
+// B13 — the cap that bounds the BILL, not a client
 //
-// El tope por cuenta está bien como granularidad: se quiere poder cortarle a un
-// bot sin cortarle a otro. Pero no acotaba nada de lo que se paga — la factura
-// del proveedor externo es UNA SOLA, contra la única credencial del operador.
-// Con N keys emitidas el techo real eran N × USD 20 de plata de verdad, y las
-// keys se emiten solas: una por nodo al apretar "Conectar".
+// The per-account cap is fine as a granularity: it's desirable to be able to
+// cut off one bot without cutting off another. But it didn't bound anything
+// that actually gets paid — the external provider's bill is ONE SINGLE bill,
+// against the operator's one and only credential. With N keys issued, the
+// real ceiling was N × USD 20 of real money, and keys get issued on their
+// own: one per node when hitting "Connect".
 //
-// Ahora hay dos topes y un request pasa sólo si entra en LOS DOS.
+// Now there are two caps and a request only passes if it fits in BOTH.
 // ---------------------------------------------------------------------------
 
-test('B13: tres keys no son tres topes; el del nodo las acota a todas', async (t) => {
+test('B13: three keys are not three caps; the node\'s cap bounds all of them', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   budget.reset()
 
-  // Cada key con su propio tope holgado. Antes de B13, esto era USD 30 de techo
-  // real contra una factura que es una sola.
+  // Each key with its own generous cap. Before B13, this meant a real ceiling
+  // of USD 30 against a bill that is only one.
   const keys = ['bot-telegram', 'open-webui', 'terminal']
   for (const k of keys) budget.setCap(k, budget.usdAMicros ? budget.usdAMicros(10) : 10_000_000)
-  budget.setNodeCap(12_000_000) // USD 12 para toda la maquina
+  budget.setNodeCap(12_000_000) // USD 12 for the whole machine
 
   t.is(budget.nodeCap(), 12_000_000)
 
-  // Dos clientes gastan USD 5 cada uno: entran en su tope y en el del nodo.
+  // Two clients spend USD 5 each: they fit within their cap and the node's.
   for (const k of keys.slice(0, 2)) {
     const r = budget.reserve(k, 5_000_000)
-    t.ok(r.ok, k + ' entra: le sobra a su cuenta y al nodo')
+    t.ok(r.ok, k + ' gets in: there\'s room in its account and in the node\'s')
     budget.settle(r.id, 5_000_000)
   }
 
   const agregado = budget.nodeUsage()
-  t.is(agregado.spent, 10_000_000, 'el nodo lleva la suma de todas las cuentas')
-  t.is(agregado.remaining, 2_000_000, 'y le quedan USD 2, no USD 10')
+  t.is(agregado.spent, 10_000_000, 'the node carries the sum of all accounts')
+  t.is(agregado.remaining, 2_000_000, 'and it has USD 2 left, not USD 10')
 
-  // El tercero tiene USD 10 propios sin tocar. Igual NO pasa: la maquina ya no
-  // los tiene. Esto es B13 entero.
+  // The third one has its own untouched USD 10. It still does NOT pass: the
+  // machine no longer has that much. This is all of B13.
   const tercero = budget.reserve('terminal', 5_000_000)
-  t.is(tercero.ok, false, 'su cuenta le alcanza, la factura del nodo no')
+  t.is(tercero.ok, false, 'its account can afford it, the node\'s bill cannot')
   t.is(
     tercero.scope,
     'nodo',
-    'y se dice CUAL tope se agoto: bajarle el tope a una key no arregla esto'
+    'and it says WHICH cap ran out: lowering one key\'s cap does not fix this'
   )
-  t.is(budget.usage('terminal').spent, 0, 'sin haber gastado un peso de lo suyo')
+  t.is(budget.usage('terminal').spent, 0, 'without having spent a cent of its own')
 
-  // Lo que sí entra en lo que queda, pasa.
+  // What DOES fit in what's left, passes.
   const chico = budget.reserve('terminal', 1_500_000)
-  t.ok(chico.ok, 'el tope del nodo no bloquea: acota')
+  t.ok(chico.ok, 'the node\'s cap does not block: it bounds')
   budget.settle(chico.id, 1_500_000)
 
   budget.reset()
 })
 
-test('B13: el tope de cuenta sigue cortando aunque al nodo le sobre', async (t) => {
+test('B13: the account cap still cuts off even when the node has plenty left', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   budget.reset()
 
-  // La otra dirección, y es la que hace que las keys sigan sirviendo para algo:
-  // un cliente acotado no puede gastarse el saldo de la máquina entera.
+  // The other direction, and it's what keeps the keys useful for anything: a
+  // bounded client can not spend the whole machine's balance.
   budget.setNodeCap(20_000_000)
-  budget.setCap('bot-ruidoso', 1_000_000) // USD 1 para este
+  budget.setCap('bot-ruidoso', 1_000_000) // USD 1 for this one
 
   const r = budget.reserve('bot-ruidoso', 2_000_000)
-  t.is(r.ok, false, 'su tope corta primero')
-  t.is(r.scope, 'cuenta', 'y el motivo apunta a la cuenta, no al nodo')
-  t.ok(budget.nodeUsage().remaining > 10_000_000, 'al nodo le sobraba de sobra')
+  t.is(r.ok, false, 'its cap cuts off first')
+  t.is(r.scope, 'cuenta', 'and the reason points at the account, not the node')
+  t.ok(budget.nodeUsage().remaining > 10_000_000, 'the node had plenty to spare')
 
   budget.reset()
 })
 
-test('B13: el tope del nodo sobrevive al reinicio, y un ledger viejo no queda sin techo', async (t) => {
+test('B13: the node\'s cap survives a restart, and an old ledger does not end up without a ceiling', async (t) => {
   const budget = await import('../qvac/budget.mjs')
   const fs = await import('bare-fs')
   const path = await import('bare-path')
@@ -1980,13 +2002,13 @@ test('B13: el tope del nodo sobrevive al reinicio, y un ledger viejo no queda si
   budget.close()
 
   budget.open(tmp.dir)
-  t.is(budget.nodeCap(), 3_000_000, 'el tope del nodo persiste')
-  t.is(budget.nodeUsage().spent, 1_000_000, 'y el gasto agregado tambien')
+  t.is(budget.nodeCap(), 3_000_000, 'the node\'s cap persists')
+  t.is(budget.nodeUsage().spent, 1_000_000, 'and the aggregate spend too')
   budget.close()
 
-  // Un budget.json escrito ANTES de B13 no tiene el campo. No puede significar
-  // "sin tope": un archivo viejo dejaria a la maquina gastando sin techo, que
-  // es justo el bug que esto cierra.
+  // A budget.json written BEFORE B13 does not have the field. It can't mean
+  // "no cap": an old file would leave the machine spending with no ceiling,
+  // which is exactly the bug this closes.
   const ruta = path.default.join(tmp.dir, 'budget.json')
   const crudo = JSON.parse(fs.default.readFileSync(ruta, 'utf8'))
   delete crudo.nodeCap
@@ -1996,7 +2018,7 @@ test('B13: el tope del nodo sobrevive al reinicio, y un ledger viejo no queda si
   t.is(
     budget.nodeCap(),
     budget.TOPE_NODO_DEFAULT_MICROS,
-    'un ledger sin el campo toma el default, no infinito'
+    'a ledger without the field takes the default, not infinity'
   )
   budget.close()
 
@@ -2004,14 +2026,14 @@ test('B13: el tope del nodo sobrevive al reinicio, y un ledger viejo no queda si
   tmp.limpiar()
 })
 
-test('agotado el tope, reiniciar el nodo NO lo repone', async (t) => {
+test('with the cap exhausted, restarting the node does NOT replenish it', async (t) => {
   const apikeys = await import('../qvac/apikeys.mjs')
   const budget = await import('../qvac/budget.mjs')
   const costs = await import('../qvac/costs.mjs')
   const tmp = dirTemporalPelado()
 
-  // Un tope chico y un precio real, para que el gasto sea de verdad y no una
-  // cuenta de cero como la del camino local.
+  // A small cap and a real price, so the spend is real and not a zero
+  // account like the local path's.
   costs.olvidarPreciosExternos()
   costs.registrarPrecio('externo-de-prueba', { entrada: 1_000_000, salida: 2_000_000 })
 
@@ -2021,7 +2043,7 @@ test('agotado el tope, reiniciar el nodo NO lo repone', async (t) => {
   const key = apikeys.createKey({ label: 'cliente' })
   budget.setCap(key.id, costs.usdAMicros(0.1))
 
-  // Se gasta hasta que el ledger corta.
+  // Spends until the ledger cuts off.
   const porRequest = costs.estimar({
     model: 'externo-de-prueba',
     promptTokens: 1000,
@@ -2036,12 +2058,12 @@ test('agotado el tope, reiniciar el nodo NO lo repone', async (t) => {
     }
     budget.settle(r.id, porRequest)
   }
-  t.ok(cortado, 'el tope corta antes de las 100 vueltas')
+  t.ok(cortado, 'the cap cuts off before the 100 rounds')
 
   const gastado = budget.usage(key.id).spent
   t.ok(gastado > 0)
 
-  // EL REINICIO. Es el paso que faltaba en el DoD original.
+  // THE RESTART. This is the step missing from the original DoD.
   apikeys.close()
   budget.close()
   apikeys.reset()
@@ -2065,16 +2087,16 @@ test('agotado el tope, reiniciar el nodo NO lo repone', async (t) => {
 })
 
 // ---------------------------------------------------------------------------
-// Un motor propio detras de HTTP, y varias puertas al mismo modelo
+// An engine of our own behind HTTP, and several doors to the same model
 //
-// Dos piezas que entran juntas porque resuelven el mismo problema: el motor
-// embebido solo carga modelos del registry de QVAC (engine.mjs resuelve
-// registry://), asi que servir pesos abiertos -- un GGUF de HuggingFace --
-// significa levantarlos aparte y pedirselos por HTTP. Eso los vuelve un
-// upstream por la forma, sin volverlos un tercero por el fondo.
+// Two pieces that go in together because they solve the same problem: the
+// embedded engine only loads models from the QVAC registry (engine.mjs
+// resolves registry://), so serving open weights -- a GGUF from HuggingFace --
+// means standing them up separately and asking for them over HTTP. That makes
+// them an upstream in shape, without making them a third party in substance.
 // ---------------------------------------------------------------------------
 
-test('un upstream local no necesita credencial ni precio', async (t) => {
+test('a local upstream needs no credential and no price', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   const ups = upstream.cargarDesde({
@@ -2089,13 +2111,13 @@ test('un upstream local no necesita credencial ni precio', async (t) => {
     ]
   })
 
-  t.is(ups.length, 1, 'sin apiKeyEnv entra igual: es el unico que no lo necesita')
+  t.is(ups.length, 1, 'without apiKeyEnv it still gets in: it is the only one that does not need it')
   t.is(ups[0].esLocal, true)
-  t.ok(ups[0].disponible(), 'disponible sin ninguna variable de entorno puesta')
-  t.is(ups[0].precio, null, 'y sin precio, porque no cuesta dolares')
+  t.ok(ups[0].disponible(), 'available with no environment variable set')
+  t.is(ups[0].precio, null, 'and no price, because it does not cost dollars')
 })
 
-test('un upstream REMOTO sin apiKeyEnv se descarta: no podria autenticarse', async (t) => {
+test('a REMOTE upstream without apiKeyEnv gets discarded: it could not authenticate', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   const ups = upstream.cargarDesde({
@@ -2108,10 +2130,10 @@ test('un upstream REMOTO sin apiKeyEnv se descarta: no podria autenticarse', asy
     ]
   })
 
-  t.is(ups.length, 0, 'el fallo sale al cargar la config, no en el primer prompt')
+  t.is(ups.length, 0, 'the failure comes out at config load, not on the first prompt')
 })
 
-test('tres puertas al mismo modelo se anuncian con UN solo nombre', async (t) => {
+test('three doors to the same model announce under ONE single name', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   const ups = upstream.cargarDesde({
@@ -2139,8 +2161,8 @@ test('tres puertas al mismo modelo se anuncian con UN solo nombre', async (t) =>
 
   t.is(ups.length, 3)
 
-  // Lo que viaja en el body sigue siendo el nombre DE CADA PROVEEDOR: mandarle
-  // a NVIDIA el slug de OpenRouter da 404.
+  // What travels in the body is still the name EACH PROVIDER uses: sending
+  // NVIDIA the OpenRouter slug gives a 404.
   t.alike(
     ups.map((u) => u.model),
     [
@@ -2148,18 +2170,18 @@ test('tres puertas al mismo modelo se anuncian con UN solo nombre', async (t) =>
       'nvidia/nemotron-3.5-lightning',
       'nemotron-3.5-lightning-30b-a3b'
     ],
-    'cada uno conserva como lo llama su proveedor'
+    'each one keeps what its provider calls it'
   )
 
-  // Y lo que entra al catalogo es uno solo: es lo que los hace competir.
+  // And only one gets into the catalog: that's what makes them compete.
   t.alike(
     ups.map((u) => u.anunciadoComo),
     ['nemotron', 'nemotron', 'nemotron'],
-    'una sola fila del marketplace para las tres puertas'
+    'a single marketplace row for the three doors'
   )
 })
 
-test('sin "as", el nombre anunciado es el del proveedor (nada cambia)', async (t) => {
+test('without "as", the announced name is the provider\'s (nothing changes)', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   const ups = upstream.cargarDesde({
@@ -2173,10 +2195,10 @@ test('sin "as", el nombre anunciado es el del proveedor (nada cambia)', async (t
     ]
   })
 
-  t.is(ups[0].anunciadoComo, 'proveedor/modelo', 'el default no rompe lo que ya andaba')
+  t.is(ups[0].anunciadoComo, 'proveedor/modelo', 'the default does not break what already worked')
 })
 
-test('los headers de la config no pueden pisar la credencial', async (t) => {
+test('config headers cannot stomp on the credential', async (t) => {
   const upstream = await import('../qvac/upstream.mjs')
 
   const ups = upstream.cargarDesde({
@@ -2195,27 +2217,27 @@ test('los headers de la config no pueden pisar la credencial', async (t) => {
     ]
   })
 
-  // Los nombres se normalizan a MINUSCULA al entrar (B11). Los de HTTP no
-  // distinguen mayusculas pero un objeto de JavaScript si, y esa diferencia
-  // era el agujero: un `authorization` en minuscula en la config no colisionaba
-  // con el `Authorization` que escribe el codigo, sobrevivian los dos y salian
-  // concatenados -- la credencial de un proveedor viajando al endpoint de otro.
+  // Names get normalized to LOWERCASE on the way in (B11). HTTP headers are
+  // case-insensitive but a JavaScript object is not, and that mismatch was
+  // the hole: a lowercase `authorization` in the config did not collide with
+  // the `Authorization` the code writes, both survived and went out
+  // concatenated -- one provider's credential travelling to another's endpoint.
   t.is(
     ups[0].extraHeaders['http-referer'],
     'https://ejemplo.test',
-    'los headers de atribucion del proveedor llegan, con el nombre normalizado'
+    'the provider\'s attribution headers get through, with the name normalized'
   )
-  t.absent(ups[0].extraHeaders['HTTP-Referer'], 'y ya no queda la version sin normalizar')
+  t.absent(ups[0].extraHeaders['HTTP-Referer'], 'and the un-normalized version is gone')
 
-  // El armado real vive en un metodo privado; se ejercita por su efecto: con
-  // credencial gana la credencial, sin credencial no queda un Authorization
-  // escrito a mano en un archivo de config.
+  // The actual assembly lives in a private method; it's exercised by its
+  // effect: with a credential, the credential wins; without one, there is no
+  // Authorization hand-written into a config file.
   const env = (await import('bare-env')).default
   env.X_KEY = 'la-buena'
   t.is(ups[0].apiKey, 'la-buena')
 })
 
-test('una fila de upstream local se marca como local en el registro', async (t) => {
+test('a local upstream row gets marked local in the registry', async (t) => {
   const store = await import('../qvac/store.mjs')
   store.seed()
 
@@ -2228,10 +2250,11 @@ test('una fila de upstream local se marca como local en el registro', async (t) 
   })
 
   const fila = store.listNodes().find((n) => n.kind === 'upstream')
-  t.is(fila.local, true, 'el panel necesita esto para no etiquetarlo "external API"')
+  t.is(fila.local, true, 'the panel needs this so it does not label it "external API"')
 
-  // Sigue sin sumar a la capacidad ANUNCIADA a la red: este proceso no puede
-  // servirselo a un par (provider.mjs despacha al motor embebido, no a HTTP).
+  // It still doesn't add to the capacity ANNOUNCED to the network: this
+  // process cannot serve it to a peer (provider.mjs dispatches to the
+  // embedded engine, not to HTTP).
   const antes = store.localLoad().maxConcurrentRequests
   t.is(antes, store.localLoad().maxConcurrentRequests)
   t.absent(
@@ -2239,7 +2262,7 @@ test('una fila de upstream local se marca como local en el registro', async (t) 
       .listNodes()
       .filter((n) => n.kind === 'real')
       .some((n) => n.modelId === 'nemotron'),
-    'no se disfraza de motor embebido'
+    'does not pass itself off as the embedded engine'
   )
 
   store.clearUpstreams()
@@ -2247,15 +2270,15 @@ test('una fila de upstream local se marca como local en el registro', async (t) 
 })
 
 // ---------------------------------------------------------------------------
-// El .env
+// The .env
 //
-// La config de upstreams guarda el NOMBRE de la variable, nunca el secreto. Eso
-// deja la credencial afuera del repo, pero le deja al operador el problema de
-// ponerla en el entorno -- y `bare-env` no lee ningun archivo, es un proxy
-// sobre el entorno del sistema operativo. De ahi este parser.
+// The upstream config stores the variable's NAME, never the secret. That
+// keeps the credential out of the repo, but leaves the operator the job of
+// putting it in the environment -- and `bare-env` doesn't read any file, it's
+// a proxy over the operating system's environment. Hence this parser.
 // ---------------------------------------------------------------------------
 
-test('el .env tolera lo que la gente escribe de verdad', async (t) => {
+test('the .env tolerates what people actually write', async (t) => {
   const { parsear } = await import('../qvac/dotenv.mjs')
 
   const v = parsear(
@@ -2263,11 +2286,11 @@ test('el .env tolera lo que la gente escribe de verdad', async (t) => {
       '# un comentario',
       '',
       'SIMPLE=valor',
-      // Con espacios alrededor del `=`. Asi estaba escrito el .env que motivo
-      // todo esto: un parser estricto habria creado una variable llamada
-      // "CON_ESPACIOS " que no coincide con ninguna que se busque.
+      // With spaces around the `=`. That's how the .env that prompted all
+      // this was written: a strict parser would have created a variable
+      // named "CON_ESPACIOS " that matches nothing that gets looked up.
       'CON_ESPACIOS = otro-valor',
-      // Lo que sale de copiar una linea de la documentacion.
+      // What comes out of copying a line from the documentation.
       'export EXPORTADA=tercero',
       'COMILLAS="entre comillas"',
       "SIMPLES='tambien'",
@@ -2277,23 +2300,23 @@ test('el .env tolera lo que la gente escribe de verdad', async (t) => {
   )
 
   t.is(v.SIMPLE, 'valor')
-  t.is(v.CON_ESPACIOS, 'otro-valor', 'el nombre se recorta: si no, no coincide con nada')
+  t.is(v.CON_ESPACIOS, 'otro-valor', 'the name gets trimmed: otherwise it matches nothing')
   t.is(v.EXPORTADA, 'tercero')
-  t.is(v.COMILLAS, 'entre comillas', 'las comillas delimitan, no son parte del valor')
+  t.is(v.COMILLAS, 'entre comillas', 'quotes delimit, they are not part of the value')
   t.is(v.SIMPLES, 'tambien')
   t.is(v.VACIA, '')
-  t.absent('basura' in v, 'una linea sin `=` no define nada')
+  t.absent('basura' in v, 'a line without `=` defines nothing')
 })
 
-test('una comilla suelta es parte del valor, no un delimitador', async (t) => {
+test('a lone quote is part of the value, not a delimiter', async (t) => {
   const { parsear } = await import('../qvac/dotenv.mjs')
 
   const v = parsear(['ABIERTA="sin cerrar', 'RARA=xy"z'].join('\n'))
-  t.is(v.ABIERTA, '"sin cerrar', 'solo se sacan si abren Y cierran')
-  t.is(v.RARA, 'xy"z', 'una credencial puede tener cualquier cosa adentro')
+  t.is(v.ABIERTA, '"sin cerrar', 'they only get stripped if they open AND close')
+  t.is(v.RARA, 'xy"z', 'a credential can have anything inside it')
 })
 
-test('el .env NO pisa una variable que ya esta en el entorno', async (t) => {
+test('the .env does NOT stomp on a variable already in the environment', async (t) => {
   const { cargar } = await import('../qvac/dotenv.mjs')
   const env = (await import('bare-env')).default
   const fs = await import('bare-fs')
@@ -2312,41 +2335,42 @@ test('el .env NO pisa una variable que ya esta en el entorno', async (t) => {
 
   const r = await cargar(dir)
 
-  // Un .env es el default del proyecto, no una orden: quien exporta algo a
-  // mano -- en su terminal, en un CI, en un systemd unit -- esta diciendo algo
-  // mas especifico, y eso gana.
-  t.is(env.PYRUS_YA_ESTABA, 'del-entorno', 'lo que ya estaba no se toca')
-  t.is(env.PYRUS_NUEVA, 'del-archivo', 'lo que faltaba se carga')
+  // A .env is the project's default, not an order: whoever exports something
+  // by hand -- in their terminal, in a CI, in a systemd unit -- is saying
+  // something more specific, and that wins.
+  t.is(env.PYRUS_YA_ESTABA, 'del-entorno', 'what was already there does not get touched')
+  t.is(env.PYRUS_NUEVA, 'del-archivo', 'what was missing gets loaded')
   t.alike(r.cargadas, ['PYRUS_NUEVA'])
-  t.alike(r.yaEstaban, ['PYRUS_YA_ESTABA'], 'y se sabe cual se respeto')
+  t.alike(r.yaEstaban, ['PYRUS_YA_ESTABA'], 'and it is known which one was respected')
 
   fs.default.rmSync(dir, { recursive: true, force: true })
 })
 
-test('sin .env no pasa nada: es el caso normal', async (t) => {
+test('with no .env nothing happens: that is the normal case', async (t) => {
   const { cargar } = await import('../qvac/dotenv.mjs')
   const os = await import('bare-os')
   const path = await import('bare-path')
 
   const r = await cargar(path.default.join(os.default.tmpdir(), 'pyrus-no-existe-' + Date.now()))
-  t.alike(r.cargadas, [], 'la mayoria de los nodos no habla con ninguna API externa')
+  t.alike(r.cargadas, [], 'most nodes do not talk to any external API')
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 — que el stack de x402 cargue, y que cargue POR EL MOTIVO ESCRITO
+// PHASE 9 — that the x402 stack loads, and loads FOR THE DOCUMENTED REASON
 //
-// `@x402/evm` no importa bajo Bare por su cuenta: llega a `@noble/hashes/crypto`,
-// que bajo la condicion `node` resuelve a un archivo que importa `node:crypto`.
-// Con WDK importado antes, funciona -- y el mecanismo NO esta diagnosticado.
+// `@x402/evm` does not import under Bare on its own: it reaches
+// `@noble/hashes/crypto`, which under the `node` condition resolves to a file
+// that imports `node:crypto`. With WDK imported beforehand, it works -- and
+// the mechanism is NOT diagnosed.
 //
-// Eso es incomodo en el camino que maneja pagos, asi que hay dos cosas que lo
-// vigilan: el paso 5 del spike de D11, y este test.
+// That's uncomfortable on the path that handles payments, so two things
+// watch it: step 5 of D11's spike, and this test.
 //
-// La prueba se hace en un PROCESO LIMPIO a proposito. Adentro de la suite, para
-// cuando esto corra, ya hay media docena de modulos cargados -- entre ellos
-// wallet.mjs, que importa WDK -- asi que un `await import('../qvac/x402.mjs')`
-// aca pasaria SIEMPRE, incluso con el import de WDK borrado del modulo. Seria
-// otro verde que no significa lo que dice.
+// The test runs in a CLEAN PROCESS on purpose. Inside the suite, by the time
+// this runs, half a dozen modules are already loaded -- among them
+// wallet.mjs, which imports WDK -- so an `await import('../qvac/x402.mjs')`
+// here would ALWAYS pass, even with the WDK import deleted from the module.
+// It would be another green that doesn't mean what it says.
 // ---------------------------------------------------------------------------
 
 function bareLimpio(codigo) {
@@ -2355,78 +2379,80 @@ function bareLimpio(codigo) {
   return ((r.stdout || '') + (r.stderr || '')).trim()
 }
 
-test('FASE 9: x402.mjs carga el stack en un proceso limpio', async (t) => {
+test('PHASE 9: x402.mjs loads the stack in a clean process', async (t) => {
   const salida = bareLimpio(
     "import('./qvac/x402.mjs').then(m => m.cargar()).then(s =>" +
       " console.log('OK ' + s.core.x402Version + ' ' + Object.keys(s.evm).length))" +
       ".catch(e => console.log('FALL ' + e.message))"
   )
-  t.ok(salida.startsWith('OK'), 'carga sin nada precargado: ' + salida.slice(0, 120))
-  t.ok(salida.includes('OK 2'), 'x402Version 2, que es el protocolo que se implementa')
+  t.ok(salida.startsWith('OK'), 'loads with nothing preloaded: ' + salida.slice(0, 120))
+  t.ok(salida.includes('OK 2'), 'x402Version 2, which is the protocol being implemented')
 })
 
-test('FASE 9: y sin el import de WDK NO cargaria, que es por lo que esta', async (t) => {
-  // La contracara. Si esto empezara a pasar, el import de WDK dejo de hacer
-  // falta -- y habria que sacarlo con su comentario, no dejarlo "por las
-  // dudas". Si falla al reves, alguien lo borro y este test dice por que dolio.
+test('PHASE 9: and without the WDK import it would NOT load, which is why it is there', async (t) => {
+  // The counter-check. If this started passing, the WDK import stopped being
+  // necessary -- and it should come out along with its comment, not be left
+  // "just in case". If it fails the other way, someone deleted it and this
+  // test says why it hurt.
   const salida = bareLimpio(
     "import('@x402/evm').then(m => console.log('OK ' + Object.keys(m).length))" +
       ".catch(e => console.log('FALL ' + e.message))"
   )
-  // No se busca el prefijo 'FALL': el error lo tira Bare antes de que el
-  // .catch() del import llegue a existir. Lo que importa es que NO diga OK y
-  // que la causa siga siendo la diagnosticada.
+  // It doesn't look for the 'FALL' prefix: the error is thrown by Bare before
+  // the import's .catch() gets to exist. What matters is that it does NOT say
+  // OK and that the cause is still the diagnosed one.
   //
-  // La causa CAMBIO una vez, y este assert lo cazo: era `node:crypto` (el
-  // packer eligiendo la variante de node en @noble/hashes) hasta que ese
-  // problema se arreglo en scripts/parche-noble-bare.js. Lo que queda es el
-  // polyfill: viem usa TextEncoder y Bare no lo trae como global; WDK lo
-  // instala al cargarse.
-  t.absent(salida.startsWith('OK'), 'importado solo no carga')
+  // The cause CHANGED once, and this assert caught it: it was `node:crypto`
+  // (the packer picking the node variant in @noble/hashes) until that
+  // problem was fixed in scripts/parche-noble-bare.js. What's left is the
+  // polyfill: viem uses TextEncoder and Bare does not bring it as a global;
+  // WDK installs it when it loads.
+  t.absent(salida.startsWith('OK'), 'imported alone, it does not load')
   t.ok(
     salida.includes('TextEncoder'),
-    'y es por el global que falta, no por otra cosa: ' + salida.slice(0, 110)
+    'and it is because of the missing global, not something else: ' + salida.slice(0, 110)
   )
 })
 
-test('FASE 9: Plasma no se cobra sin que alguien verifique su contrato', async (t) => {
+test('PHASE 9: Plasma is not charged without someone confirming its contract', async (t) => {
   const x402 = await import('../qvac/x402.mjs')
   const env = (await import('bare-env')).default
 
-  // D15 puso Plasma de default, pero x402 no la trae: getDefaultAsset tira
-  // "No default asset configured". La direccion del contrato la declaramos
-  // nosotros, y es plata real -- asi que sin confirmacion explicita no se usa.
+  // D15 made Plasma the default, but x402 does not ship it: getDefaultAsset
+  // throws "No default asset configured". We declare the contract address
+  // ourselves, and it's real money -- so without explicit confirmation it is
+  // not used.
   delete env[x402.VAR_PLASMA_OK]
-  t.is(await x402.activoDe('plasma'), null, 'sin confirmar, Plasma queda afuera')
+  t.is(await x402.activoDe('plasma'), null, 'unconfirmed, Plasma stays out')
 
   const stable = await x402.activoDe('stable')
-  t.ok(stable, 'Stable si, y su direccion sale de x402, no de una constante nuestra')
+  t.ok(stable, 'Stable does, and its address comes from x402, not from a constant of ours')
   t.is(stable.network, 'eip155:988')
   t.is(stable.symbol, 'USDT0')
   t.is(stable.decimals, 6)
 
-  t.alike(await x402.redesDisponibles(), ['stable'], 'hoy se puede cobrar en una sola')
+  t.alike(await x402.redesDisponibles(), ['stable'], 'today only one can be charged in')
 
   env[x402.VAR_PLASMA_OK] = '1'
   const plasma = await x402.activoDe('plasma')
-  t.ok(plasma, 'con la confirmacion del operador, entra')
+  t.ok(plasma, 'with the operator\'s confirmation, it gets in')
   t.is(plasma.network, 'eip155:9745')
-  t.alike(await x402.redesDisponibles(), ['plasma', 'stable'], 'y va primero, como dice D15')
+  t.alike(await x402.redesDisponibles(), ['plasma', 'stable'], 'and it goes first, as D15 says')
 
   delete env[x402.VAR_PLASMA_OK]
 })
 
 // ---------------------------------------------------------------------------
-// EL ROL CLIENTE — este nodo pagandole a otro (qvac/x402-cliente.mjs)
+// THE CLIENT ROLE — this node paying another (qvac/x402-cliente.mjs)
 //
-// El espejo de las Fase 9/10 del lado servidor. La prueba fuerte es de
-// SIMETRIA: lo que `crearPago` firma, `verificarPago` del otro modulo lo tiene
-// que aceptar. Todo offline -- Stable la conoce @x402/evm de fabrica y la
-// recuperacion de firma es cripto pura, sin cadena -- por la misma razon que el
-// resto de x402 se prueba sin fondear: la mitad que importa es sincronica.
+// The mirror of Phases 9/10 on the server side. The strong test is one of
+// SYMMETRY: what `crearPago` signs, `verificarPago` from the other module has
+// to accept. All offline -- @x402/evm knows Stable out of the box and
+// signature recovery is pure crypto, no chain -- for the same reason the rest
+// of x402 is tested without funding: the half that matters is synchronous.
 //
-// La wallet es la frase publica de prueba que usa toda la suite y NUNCA se
-// fondea. La firma es real; la plata no existe.
+// The wallet is the public test phrase the whole suite uses and it is NEVER
+// funded. The signature is real; the money doesn't exist.
 // ---------------------------------------------------------------------------
 
 async function firmanteDePrueba() {
@@ -2438,7 +2464,7 @@ async function firmanteDePrueba() {
   return { address: await cuenta.getAddress(), signTypedData: (td) => cuenta.signTypedData(td) }
 }
 
-test('x402-cliente: lo que el cliente firma, el servidor lo acepta (simetria)', async (t) => {
+test('x402-cliente: what the client signs, the server accepts (symmetry)', async (t) => {
   const x402 = await import('../qvac/x402.mjs')
   const cli = await import('../qvac/x402-cliente.mjs')
 
@@ -2446,7 +2472,7 @@ test('x402-cliente: lo que el cliente firma, el servidor lo acepta (simetria)', 
   const payTo = '0x' + '11'.repeat(20)
   const micros = 100
 
-  // El 402 que armaria el gateway para este cobro.
+  // The 402 the gateway would build for this charge.
   const entrada = x402.entradaAccepts({
     payTo,
     activo,
@@ -2466,21 +2492,21 @@ test('x402-cliente: lo que el cliente firma, el servidor lo acepta (simetria)', 
 
   t.is(pago.sobre.scheme, 'exact')
   t.is(pago.sobre.network, 'eip155:988')
-  t.is(pago.autorizacion.to.toLowerCase(), payTo, 'la autorizacion paga a quien pidio el 402')
+  t.is(pago.autorizacion.to.toLowerCase(), payTo, 'the authorization pays whoever asked for the 402')
   t.is(pago.autorizacion.from.toLowerCase(), firmante.address.toLowerCase())
 
-  // LA prueba: el header que produjo el cliente entra crudo en verificarPago.
+  // THE test: the header the client produced goes raw into verificarPago.
   const verif = await x402.verificarPago(pago.cabecera, { payTo, activo, micros, red: 'stable' })
-  t.ok(verif.ok, 'verificarPago lo acepta: ' + (verif.motivo || ''))
+  t.ok(verif.ok, 'verificarPago accepts it: ' + (verif.motivo || ''))
   t.is(
     String(verif.payer || '').toLowerCase(),
     firmante.address.toLowerCase(),
-    'y el pagador es quien firmo'
+    'and the payer is whoever signed'
   )
-  t.is(verif.nonce, pago.autorizacion.nonce, 'el nonce de idempotencia viaja intacto')
+  t.is(verif.nonce, pago.autorizacion.nonce, 'the idempotency nonce travels intact')
 })
 
-test('x402-cliente: no firma por encima del techo', async (t) => {
+test('x402-cliente: does not sign above the cap', async (t) => {
   const x402 = await import('../qvac/x402.mjs')
   const cli = await import('../qvac/x402-cliente.mjs')
 
@@ -2498,15 +2524,15 @@ test('x402-cliente: no firma por encima del techo', async (t) => {
   await t.exception(
     cli.crearPago({ entrada, firmante, x402Version: 2, techoUnidades: 50n }),
     /techo/,
-    'la entrada pide 100 y el techo es 50: se corta antes de firmar'
+    'the entrada asks for 100 and the cap is 50: it cuts off before signing'
   )
 
-  // Y con el techo justo, sí.
+  // And with the cap exactly matching, it does.
   const ok = await cli.crearPago({ entrada, firmante, x402Version: 2, techoUnidades: 100n })
-  t.ok(ok.cabecera, 'techo == monto: pasa')
+  t.ok(ok.cabecera, 'cap == amount: passes')
 })
 
-test('x402-cliente: elegirEntrada respeta la preferencia de D15 y el techo', async (t) => {
+test('x402-cliente: elegirEntrada respects D15\'s preference and the cap', async (t) => {
   const cli = await import('../qvac/x402-cliente.mjs')
 
   const desafio = {
@@ -2528,10 +2554,10 @@ test('x402-cliente: elegirEntrada respeta la preferencia de D15 y el techo', asy
   }
 
   const a = cli.elegirEntrada(desafio, { techoUnidades: 1000n })
-  t.is(a.entrada.network, 'eip155:9745', 'Plasma antes que Stable, como dice D15')
+  t.is(a.entrada.network, 'eip155:9745', 'Plasma before Stable, as D15 says')
 
   const b = cli.elegirEntrada(desafio, { techoUnidades: 40n })
-  t.absent(b.entrada, 'todas sobre el techo -> ninguna')
+  t.absent(b.entrada, 'all above the cap -> none')
   t.ok(/techo/.test(b.motivo), b.motivo)
 
   const c = cli.elegirEntrada(
@@ -2543,11 +2569,11 @@ test('x402-cliente: elegirEntrada respeta la preferencia de D15 y el techo', asy
     },
     { techoUnidades: 1000n }
   )
-  t.absent(c.entrada, 'una red fuera de la preferencia no se paga')
+  t.absent(c.entrada, 'a network outside the preference does not get paid')
   t.ok(/reconocemos/.test(c.motivo), c.motivo)
 })
 
-test('x402-cliente: pedirConPago hace el baile 402 y reintenta UNA vez', async (t) => {
+test('x402-cliente: pedirConPago does the 402 dance and retries ONCE', async (t) => {
   const x402 = await import('../qvac/x402.mjs')
   const cli = await import('../qvac/x402-cliente.mjs')
 
@@ -2583,23 +2609,23 @@ test('x402-cliente: pedirConPago hace el baile 402 y reintenta UNA vez', async (
     { firmante, techoMicros: 1000, fetchImpl: fetchFalso }
   )
 
-  t.ok(out.pagado, 'pago: ' + (out.motivo || ''))
+  t.ok(out.pagado, 'payment: ' + (out.motivo || ''))
   t.is(out.res.status, 200)
-  t.is(llamadas.length, 2, 'un request, un 402, un reintento -- y basta, sin loop')
-  t.absent(llamadas[0].opts.headers['x-payment'], 'el primer intento va sin pago')
-  t.ok(llamadas[1].opts.headers['x-payment'], 'el reintento lleva el X-PAYMENT firmado')
+  t.is(llamadas.length, 2, 'one request, one 402, one retry -- and that\'s it, no loop')
+  t.absent(llamadas[0].opts.headers['x-payment'], 'the first attempt goes out unpaid')
+  t.ok(llamadas[1].opts.headers['x-payment'], 'the retry carries the signed X-PAYMENT')
 
-  // Y lo que mando el reintento tiene que verificar del lado servidor.
+  // And what the retry sent has to verify on the server side.
   const verif = await x402.verificarPago(llamadas[1].opts.headers['x-payment'], {
     payTo,
     activo,
     micros: 100,
     red: 'stable'
   })
-  t.ok(verif.ok, 'el header del reintento lo acepta verificarPago: ' + (verif.motivo || ''))
+  t.ok(verif.ok, 'verificarPago accepts the retry\'s header: ' + (verif.motivo || ''))
 })
 
-test('x402-cliente: sin 402 no paga, y sin techo no arranca', async (t) => {
+test('x402-cliente: no 402 means no payment, and no cap means it does not start', async (t) => {
   const cli = await import('../qvac/x402-cliente.mjs')
   const firmante = await firmanteDePrueba()
   const fetch200 = async () => ({
@@ -2613,26 +2639,26 @@ test('x402-cliente: sin 402 no paga, y sin techo no arranca', async (t) => {
     {},
     { firmante, techoMicros: 100, fetchImpl: fetch200 }
   )
-  t.absent(out.pagado, 'un 200 no dispara pago')
+  t.absent(out.pagado, 'a 200 does not trigger a payment')
   t.is(out.res.status, 200)
 
   await t.exception(
     cli.pedirConPago('http://x', {}, { firmante, fetchImpl: fetch200 }),
     /techo/,
-    'un pagador sin techo no arranca -- regla de la Fase 11'
+    'a payer without a cap does not start -- Phase 11 rule'
   )
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 / D24 — la atestacion del proveedor
+// PHASE 9 / D24 — the provider's attestation
 //
-// El recibo de x402 prueba que alguien PAGO. Esto es el otro lado: el artefacto
-// donde el que sirvio se compromete con lo que entrego. Los tests de aca prueban
-// las propiedades del artefacto AISLADO; que el gateway lo emita en los tres
-// casos de corte de D27 esta en test/integracion.js.
+// The x402 receipt proves someone PAID. This is the other side: the artifact
+// where whoever served commits to what they delivered. The tests here test
+// the ISOLATED artifact's properties; that the gateway emits it in D27's
+// three cutoff cases is in test/integracion.js.
 //
-// La wallet es la misma frase publica de prueba que usa el resto de la suite y
-// que NUNCA se fondea. La firma es real; la plata no existe.
+// The wallet is the same public test phrase the rest of the suite uses and
+// that is NEVER funded. The signature is real; the money doesn't exist.
 // ---------------------------------------------------------------------------
 
 const FRASE_DE_PRUEBA = 'test test test test test test test test test test test junk'
@@ -2668,143 +2694,145 @@ async function atestacionDePrueba(address, pisar = {}) {
   })
 }
 
-test('D24: la atestacion se firma con la wallet y verifica contra su contenido', async (t) => {
+test('D24: the attestation gets signed with the wallet and verifies against its content', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   const w = await walletDePrueba()
 
   const firmada = await at.firmar(await atestacionDePrueba(w.address), w.firmar)
-  t.ok(firmada, 'se firmo')
-  t.ok(firmada.signature.startsWith('0x'), 'con una firma EVM: ' + firmada.signature.slice(0, 12))
-  t.is(firmada.providerPubkey, w.address, 'y dice ser de la direccion que efectivamente firmo')
+  t.ok(firmada, 'signed')
+  t.ok(firmada.signature.startsWith('0x'), 'with an EVM signature: ' + firmada.signature.slice(0, 12))
+  t.is(firmada.providerPubkey, w.address, 'and it claims to be from the address that actually signed')
 
   const v = await at.verificar(firmada)
-  t.ok(v.ok, 'verifica: ' + (v.reason || ''))
+  t.ok(v.ok, 'verifies: ' + (v.reason || ''))
   t.is(v.firmante.toLowerCase(), w.address.toLowerCase())
 })
 
-test('D24: cambiar UN campo despues de firmar invalida la atestacion', async (t) => {
+test('D24: changing ONE field after signing invalidates the attestation', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   const w = await walletDePrueba()
   const firmada = await at.firmar(await atestacionDePrueba(w.address), w.firmar)
 
-  // El campo que importa es `outputHash`, porque es el que cierra el agujero:
-  // el ataque de D24 no es reportar de mas -- el gateway ya cuenta por su
-  // cuenta -- sino inflar el conteo del OTRO troceando el stream. El hash es
-  // sobre el texto completo y el texto no depende del troceo, asi que quien
-  // quiera sostener un conteo inflado tiene que tocar este campo. Y no puede.
+  // The field that matters is `outputHash`, because it's the one that closes
+  // the hole: D24's attack isn't over-reporting -- the gateway already counts
+  // on its own -- it's inflating the OTHER side's count by chopping up the
+  // stream. The hash is over the full text and the text doesn't depend on how
+  // it was chopped, so anyone wanting to sustain an inflated count has to
+  // touch this field. And they can't.
   const otroTexto = { ...firmada, outputHash: at.hashDe('otra respuesta') }
   const v1 = await at.verificar(otroTexto)
-  t.absent(v1.ok, 'un outputHash cambiado no verifica')
+  t.absent(v1.ok, 'a changed outputHash does not verify')
   t.ok(String(v1.reason).indexOf('dice ser de') !== -1, v1.reason)
 
-  // Y lo mismo con los tokens, que es lo que la Fase 10 va a querer liquidar.
+  // And the same with the tokens, which is what Phase 10 will want to settle.
   const masTokens = { ...firmada, tokensDecode: 9999 }
-  t.absent((await at.verificar(masTokens)).ok, 'tampoco un tokensDecode inflado')
+  t.absent((await at.verificar(masTokens)).ok, 'nor an inflated tokensDecode')
 
-  // Un campo AGREGADO tambien: la canonicalizacion JCS es sobre el objeto
-  // entero menos `signature`, no sobre una lista de campos que alguien tenga
-  // que acordarse de mantener.
+  // An ADDED field too: JCS canonicalization is over the whole object minus
+  // `signature`, not over a list of fields someone has to remember to keep
+  // updated.
   const conExtra = { ...firmada, extra: 'lo que sea' }
-  t.absent((await at.verificar(conExtra)).ok, 'ni un campo que no estaba')
+  t.absent((await at.verificar(conExtra)).ok, 'nor a field that wasn\'t there')
 })
 
-test('D24: firmar con TU wallet no te deja atestiguar como OTRO nodo', async (t) => {
+test('D24: signing with YOUR wallet does not let you attest as ANOTHER node', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   const w = await walletDePrueba()
 
-  // El ataque: armar una atestacion que dice ser del nodo de al lado y firmarla
-  // con la propia. La firma valida perfecto -- es una firma de verdad -- y no
-  // prueba nada util si no se la ata a quien dice haber servido. Es el mismo
-  // razonamiento que `verifyManifest` con `expectedPublicKey`.
+  // The attack: build an attestation that claims to be the neighboring
+  // node's and sign it with your own. The signature validates perfectly --
+  // it's a real signature -- and proves nothing useful unless it's tied to
+  // who claims to have served. Same reasoning as `verifyManifest` with
+  // `expectedPublicKey`.
   const ajena = await atestacionDePrueba('0x' + 'cd'.repeat(20))
   const firmada = await at.firmar(ajena, w.firmar)
 
   const v = await at.verificar(firmada)
-  t.absent(v.ok, 'no verifica aunque la firma sea buena')
-  t.ok(String(v.reason).indexOf(w.address) !== -1, 'y dice quien firmo de verdad: ' + v.reason)
+  t.absent(v.ok, 'does not verify even with a good signature')
+  t.ok(String(v.reason).indexOf(w.address) !== -1, 'and says who really signed: ' + v.reason)
 })
 
-test('D24: el orden en que se arma el objeto no cambia la firma', async (t) => {
+test('D24: the order the object is built in does not change the signature', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   const w = await walletDePrueba()
 
   const a = await at.firmar(await atestacionDePrueba(w.address), w.firmar)
 
-  // El mismo contenido con las claves insertadas al reves. JCS las ordena, asi
-  // que los bytes firmados son una funcion del CONTENIDO y no del orden en que
-  // se armo el objeto -- que es todo el motivo por el que se canonicaliza.
+  // The same content with the keys inserted in reverse. JCS orders them, so
+  // the signed bytes are a function of the CONTENT and not the order the
+  // object was built in -- which is the whole reason for canonicalizing.
   const alReves = {}
   for (const k of Object.keys(a).reverse()) alReves[k] = a[k]
 
   t.absent(
     Object.keys(alReves).join() === Object.keys(a).join(),
-    'el objeto de prueba realmente tiene otro orden'
+    'the test object really does have a different order'
   )
-  t.ok((await at.verificar(alReves)).ok, 'y verifica igual')
+  t.ok((await at.verificar(alReves)).ok, 'and it verifies just the same')
 })
 
-test('D24: sin firmante no sale una atestacion sin firmar', async (t) => {
+test('D24: without a signer, no unsigned attestation comes out', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   const base = await atestacionDePrueba('0x' + 'ab'.repeat(20))
 
-  // Un artefacto que parece una prueba y no lo es es peor que uno ausente. La
-  // ausencia se ve; una atestacion sin firma se lee como una atestacion.
-  t.is(await at.firmar(base, null), null, 'sin firmante no hay artefacto')
+  // An artifact that looks like proof and isn't is worse than an absent one.
+  // Absence is visible; an unsigned attestation reads as an attestation.
+  t.is(await at.firmar(base, null), null, 'without a signer there is no artifact')
   t.is(
     await at.firmar(base, () => 'no-es-una-firma'),
     null,
-    'ni con un firmante que devuelve cualquier cosa'
+    'nor with a signer that returns whatever'
   )
   t.is(
     await at.firmar(base, () => {
       throw new Error('la wallet se cayo')
     }),
     null,
-    'ni cuando la wallet tira'
+    'nor when the wallet throws'
   )
 })
 
-test('D24: el hash dice con que se computo', async (t) => {
+test('D24: the hash says what it was computed with', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
 
-  // Un `promptHash: "3a5f…"` suelto no lo puede recomputar un tercero: hay que
-  // saber con que algoritmo. Va pegado al valor y no en un campo aparte para que
-  // no se puedan desincronizar.
+  // A bare `promptHash: "3a5f…"` cannot be recomputed by a third party: you
+  // need to know which algorithm. It travels stuck to the value and not in a
+  // separate field so the two cannot get out of sync.
   const h = at.hashDe('hola')
   t.ok(h.startsWith('blake2b-256:'), h)
-  t.is(h.split(':')[1].length, 64, '32 bytes en hex')
-  t.is(at.hashDe('hola'), h, 'determinista')
-  t.absent(at.hashDe('holaa') === h, 'y sensible a un caracter')
+  t.is(h.split(':')[1].length, 64, '32 bytes in hex')
+  t.is(at.hashDe('hola'), h, 'deterministic')
+  t.absent(at.hashDe('holaa') === h, 'and sensitive to one character')
 
-  // El del prompt es sobre los mensajes canonicalizados: el proveedor recibio la
-  // conversacion entera, no el ultimo turno, y es eso lo que el cliente puede
-  // recomputar de su lado.
+  // The prompt one is over the canonicalized messages: the provider received
+  // the whole conversation, not the last turn, and that's what the client
+  // can recompute on its side.
   const msgs = [{ role: 'user', content: 'hola' }]
   t.is(at.hashDeMensajes(msgs), at.hashDeMensajes([{ content: 'hola', role: 'user' }]))
   t.absent(at.hashDeMensajes(msgs) === at.hashDe('hola'))
 })
 
-test('D24/D26: la cuantizacion sale del nombre del modelo, y dice unknown cuando no', async (t) => {
+test('D24/D26: quantization comes from the model name, and says unknown when it doesn\'t', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
 
-  // Los nombres del registry de QVAC la llevan adentro, asi que no hay que
-  // tocar el schema congelado del manifiesto (D2) para declararla. Los de abajo
-  // son los del catalogo real, no inventados.
+  // The QVAC registry's names carry it inside, so there's no need to touch
+  // the manifest's frozen schema (D2) to declare it. The ones below are from
+  // the real catalog, not made up.
   t.is(at.cuantizacionDe('Qwen3-4B-Q4_K_M'), 'Q4_K_M')
   t.is(at.cuantizacionDe('llama_3.2_1b_intruct_tool_calling_v2.Q4_K'), 'Q4_K')
   t.is(at.cuantizacionDe('smollm2-360m-instruct-q8_0'), 'Q8_0')
   t.is(at.cuantizacionDe('Qwen3-1.7B-Q4_0'), 'Q4_0')
 
-  // D26: esto es una DECLARACION derivada de otra declaracion. Cuando el nombre
-  // no dice nada, decir 'unknown' es mas honesto que suponer F16 -- no hay forma
-  // black-box publicada de medirlo, asi que inventar un default seria afirmar
-  // algo que nadie verifico.
+  // D26: this is a DECLARATION derived from another declaration. When the
+  // name says nothing, saying 'unknown' is more honest than assuming F16 --
+  // there's no published black-box way to measure it, so making up a default
+  // would be asserting something nobody verified.
   t.is(at.cuantizacionDe('gpt-4o-mini'), 'unknown')
   t.is(at.cuantizacionDe(''), 'unknown')
   t.is(at.cuantizacionDe(null), 'unknown')
 })
 
-test('D24: este nodo NO atestigua lo que sirvio otro', async (t) => {
+test('D24: this node does NOT attest to what another one served', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   const yo = { kind: 'real', modelId: 'llama1b' }
   const dir = '0x' + 'ab'.repeat(20)
@@ -2812,43 +2840,44 @@ test('D24: este nodo NO atestigua lo que sirvio otro', async (t) => {
   t.is(
     at.porQueNoSeFirma({ node: yo, walletAddress: dir, tieneFirmante: true }),
     null,
-    'lo que corrio en esta maquina, si'
+    'what ran on this machine, yes'
   )
 
-  // El caso que importa. D24 pide que atestigue EL PROVEEDOR, y cuando contesto
-  // un par el proveedor no somos nosotros: no corrimos el modelo, y ademas el
-  // payTo del 402 apunto a SU wallet (D10), no a la nuestra. Firmar aca una
-  // atestacion sobre trabajo ajeno seria un artefacto que parece una prueba y no
-  // lo es. La del par la firma el, por Protomux, y eso es la Fase 10.
+  // The case that matters. D24 requires that THE PROVIDER attest, and when a
+  // peer answers, the provider isn't us: we didn't run the model, and on top
+  // of that the 402's payTo pointed at THEIR wallet (D10), not ours. Signing
+  // an attestation here over someone else's work would be an artifact that
+  // looks like proof and isn't. The peer's own gets signed by them, over
+  // Protomux, and that's Phase 10.
   const delPar = at.porQueNoSeFirma({
     node: { kind: 'peer', modelId: 'llama1b' },
     walletAddress: dir,
     tieneFirmante: true
   })
-  t.ok(delPar, 'lo que sirvio un par, NO')
-  t.ok(delPar.indexOf('Fase 10') !== -1, 'y dice de quien es y cuando llega: ' + delPar)
+  t.ok(delPar, 'what a peer served, NO')
+  t.ok(delPar.indexOf('Fase 10') !== -1, 'and it says whose it is and when it arrives: ' + delPar)
 
-  // Los otros dos motivos, para que la ausencia siempre sea legible.
+  // The other two reasons, so absence is always legible.
   t.ok(at.porQueNoSeFirma({ node: yo, walletAddress: null, tieneFirmante: true }))
   t.ok(at.porQueNoSeFirma({ node: yo, walletAddress: dir, tieneFirmante: false }))
   t.ok(at.porQueNoSeFirma({ node: null, walletAddress: dir, tieneFirmante: true }))
 })
 
 // ---------------------------------------------------------------------------
-// FASE 10 — recibo y lote
+// PHASE 10 — receipt and batch
 //
-// El recibo de x402 de la Fase 9 prueba que ALGUIEN PAGO. Esto es lo que la
-// Fase 10 hace con esa prueba: la guarda y la liquida DIFERIDA, de a muchas.
-// El insight que lo hace barato es que la firma EIP-3009 ya ES el recibo -- una
-// orden de transferencia off-chain que no obliga a liquidar en el momento.
+// Phase 9's x402 receipt proves SOMEONE PAID. This is what Phase 10 does with
+// that proof: it stores it and settles it DEFERRED, in bulk. The insight that
+// makes it cheap is that the EIP-3009 signature already IS the receipt -- an
+// off-chain transfer order that does not force settling on the spot.
 //
-// Los tests de aca prueban el artefacto AISLADO: la forma del recibo, que el
-// lote sea de una sola red y una sola wallet, y que la firma de la wallet sobre
-// el lote y las firmas EIP-3009 de adentro se verifiquen. Que el gateway lo
-// acumule esta en test/integracion.js.
+// The tests here test the ISOLATED artifact: the receipt's shape, that the
+// batch is for a single network and a single wallet, and that the wallet's
+// signature over the batch and the EIP-3009 signatures inside it verify. That
+// the gateway accumulates it is in test/integracion.js.
 //
-// La wallet es la misma frase publica de prueba que el resto de la suite y que
-// NUNCA se fondea. Las firmas son reales; la plata no existe.
+// The wallet is the same public test phrase as the rest of the suite and
+// that is NEVER funded. The signatures are real; the money doesn't exist.
 // ---------------------------------------------------------------------------
 
 async function cuentaDePrueba() {
@@ -2919,7 +2948,7 @@ async function reciboDePrueba(cuenta, i = 0, pisar = {}) {
   })
 }
 
-test('FASE 10: un recibo sin lo esencial no se construye, y dice que le falta', async (t) => {
+test('PHASE 10: a receipt missing the essentials does not get built, and says what is missing', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const base = {
     requestId: 'chatcmpl-1',
@@ -2934,31 +2963,31 @@ test('FASE 10: un recibo sin lo esencial no se construye, y dice que le falta', 
     signature: '0x' + '11'.repeat(65),
     amount: '1000'
   }
-  t.execution(() => lote.construirRecibo(base), 'con lo esencial, se construye')
+  t.execution(() => lote.construirRecibo(base), 'with the essentials, it gets built')
 
   t.exception(
     () => lote.construirRecibo({ ...base, requestId: null }),
     /requestId/,
-    'sin requestId'
+    'without requestId'
   )
-  t.exception(() => lote.construirRecibo({ ...base, payTo: 'no-evm' }), /payTo/, 'sin payTo EVM')
+  t.exception(() => lote.construirRecibo({ ...base, payTo: 'no-evm' }), /payTo/, 'without an EVM payTo')
   t.exception(
     () => lote.construirRecibo({ ...base, authorization: { from: 'x', to: 'y', value: '1' } }),
     /nonce/,
-    'sin nonce en la autorizacion'
+    'without a nonce in the authorization'
   )
   t.exception(
     () => lote.construirRecibo({ ...base, signature: 'no-0x' }),
     /firma/,
-    'sin firma EIP-3009'
+    'without an EIP-3009 signature'
   )
 
-  // La clave de idempotencia ES el nonce de la autorizacion (D20).
+  // The idempotency key IS the authorization's nonce (D20).
   const r = lote.construirRecibo(base)
-  t.is(lote.claveDe(r), base.authorization.nonce, 'la clave del recibo es el nonce EIP-3009')
+  t.is(lote.claveDe(r), base.authorization.nonce, 'the receipt\'s key is the EIP-3009 nonce')
 })
 
-test('FASE 10: un lote es de UNA red y UNA wallet, y el total es la suma', async (t) => {
+test('PHASE 10: a batch is for ONE network and ONE wallet, and the total is the sum', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const mk = (pisar) =>
     lote.construirRecibo({

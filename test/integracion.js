@@ -1,41 +1,44 @@
-// Tests de INTEGRACION: levantan el gateway de verdad y le hablan por HTTP.
+// INTEGRATION tests: they bring up the real gateway and talk to it over HTTP.
 //
-// Existen porque test/index.js prueba cada modulo aislado -- costs sin budget,
-// routing sin store, quota sin provider -- y lo que se rompe al juntar dos
-// ramas casi nunca es un modulo: es el cable entre dos.
+// They exist because test/index.js tests each module in isolation -- costs
+// without budget, routing without store, quota without provider -- and what
+// breaks when two branches meet is almost never a module: it's the cable
+// between two of them.
 //
-// Todo corre en UN proceso y sin red: `createGateway` bindea 127.0.0.1 y el
-// cliente es el mismo bare-http1 que usa el servidor. Lo que necesita dos
-// maquinas sigue estando en docs/RUNBOOK-2-MAQUINAS.md, no aca.
+// Everything runs in ONE process and without network: `createGateway` binds
+// 127.0.0.1 and the client is the same bare-http1 the server uses. What needs
+// two machines still lives in docs/RUNBOOK-2-MAQUINAS.md, not here.
 
 const test = require('brittle')
 const http = require('bare-http1')
 
-// Puertos altos y propios para no chocar con un nodo que el desarrollador tenga
-// abierto en 8787 mientras corre los tests.
+// High ports of our own so we don't clash with a node the developer might have
+// open on 8787 while the tests run.
 //
-// SE ELIGEN POR CORRIDA, y no es un gusto: esta suite abre cuatro listeners y
-// los cuatro quedan en TIME_WAIT cuando el proceso termina. En Windows eso
-// impide volver a bindearlos por hasta dos minutos, asi que DOS CORRIDAS
-// SEGUIDAS morian con "el puerto 8899 ya esta en uso".
+// THEY'RE CHOSEN PER RUN, and that's not a preference: this suite opens four
+// listeners and all four sit in TIME_WAIT when the process exits. On Windows
+// that blocks rebinding them for up to two minutes, so TWO RUNS IN A ROW would
+// die with "port 8899 already in use".
 //
-// Y morian de la peor forma: `createGateway` hace `Bare.exit(1)` en EADDRINUSE
-// -- que es lo correcto para el producto, porque el operador tiene que
-// enterarse --, asi que el proceso se iba ANTES de la primera linea de TAP. Una
-// corrida sin una sola linea de salida no se distingue de una corrida verde
-// mirando el exit code, y `npm run bug-puesto` -- que encadena una corrida por
-// arreglo -- la leia como "nadie vigila este arreglo". Se vio: tres entradas de
-// la Fase 9 salieron NO ROMPIO con el bug puesto y el test rompiendo de verdad.
+// And they died in the worst possible way: `createGateway` does `Bare.exit(1)`
+// on EADDRINUSE -- which is correct for the product, because the operator has
+// to find out -- so the process would leave BEFORE the first line of TAP. A
+// run with not a single line of output is indistinguishable from a green run
+// if you only look at the exit code, and `npm run bug-puesto` -- which chains
+// one run per planted bug -- read it as "nobody is watching this bug". It
+// happened: three entries from Phase 9 came out as NOT-CAUGHT with the bug
+// planted and the test genuinely failing.
 //
-// El arnes ahora distingue ese caso (ver `corrio()` en scripts/bug-puesto.js).
-// Esto es la otra mitad: que no vuelva a pasar. Se prueba un bloque de puertos
-// y se usa el primero que este libre entero, que es determinista -- rotar al
-// azar solo hace el choque menos frecuente, no imposible.
-// El bloque se reserva CONTIGUO y no solo en los offsets que se usan hoy: los
-// tests del facilitator abren puertos DERIVADOS (`PUERTO_FACILITATOR_REAL + 1`,
-// `+ 2`), y un offset que nadie comprobo es un puerto que puede estar ocupado
-// por cualquier otra cosa de la maquina. Eso vuelve como el fallo mas caro de
-// esta suite: la corrida que muere antes de escribir una linea de TAP.
+// The harness now tells that case apart (see `corrio()` in
+// scripts/bug-puesto.js). This is the other half: making sure it doesn't
+// happen again. A block of ports gets probed and the first one that's fully
+// free gets used, which is deterministic -- rotating at random only makes the
+// collision less frequent, not impossible.
+// The block is reserved CONTIGUOUSLY and not just at the offsets used today:
+// the facilitator tests open DERIVED ports (`PUERTO_FACILITATOR_REAL + 1`,
+// `+ 2`), and an offset nobody checked is a port that could be taken by
+// anything else on the machine. That comes back as this suite's most
+// expensive failure: the run that dies before writing a single line of TAP.
 const OFFSETS = [4, 5, 6, 7, 8, 9]
 
 const PUERTOS_DESDE = 8800
@@ -48,14 +51,14 @@ function puertoLibre(p) {
   return new Promise((resolve) => {
     const s = http.createServer(() => {})
     s.on('error', () => resolve(false))
-    // Un listener que nunca acepto una conexion no deja TIME_WAIT al cerrarse,
-    // asi que si esta sonda bindea, el servidor de verdad tambien.
+    // A listener that never accepted a connection doesn't leave TIME_WAIT
+    // behind when it closes, so if this probe binds, the real server will too.
     s.listen(p, '127.0.0.1', () => s.close(() => resolve(true)))
   })
 }
 
-// Reserva el bloque entero de una: los cuatro listeners tienen que caer juntos,
-// porque cada test los referencia por su offset.
+// Reserves the whole block in one go: the four listeners have to land
+// together, because each test references them by its offset.
 async function elegirPuertos() {
   for (let base = PUERTOS_DESDE; base <= PUERTOS_HASTA; base += 10) {
     const libres = []
@@ -70,7 +73,7 @@ async function elegirPuertos() {
     }
   }
   throw new Error(
-    'no hay un bloque de puertos libre entre ' + PUERTOS_DESDE + ' y ' + PUERTOS_HASTA
+    'no free block of ports between ' + PUERTOS_DESDE + ' and ' + PUERTOS_HASTA
   )
 }
 
@@ -97,7 +100,7 @@ function pedir(metodo, ruta, opts) {
         try {
           json = JSON.parse(data)
         } catch (e) {
-          /* HTML o SSE */
+          /* HTML or SSE */
         }
         resolve({ status: res.statusCode, headers: res.headers, body: data, json })
       })
@@ -112,20 +115,20 @@ function esperar(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-// El gateway se levanta UNA vez para toda la suite: arrancarlo por test haria
-// que cada uno pelee por el puerto con el anterior que todavia esta cerrando.
+// The gateway is brought up ONCE for the whole suite: starting it per test
+// would make each one fight over the port with the previous one still closing.
 let server = null
 let KEY = null
 
-test('arranca el gateway y entrega la key del panel', async (t) => {
+test('brings up the gateway and hands out the panel key', async (t) => {
   const { createGateway } = await import('../qvac/gateway.mjs')
 
-  // Antes de bindear: ver la nota de PUERTOS_DESDE. Sin esto, la segunda
-  // corrida seguida se muere sin escribir una linea de TAP.
+  // Before binding: see the note on PUERTOS_DESDE. Without this, the second
+  // run in a row dies without writing a single line of TAP.
   await elegirPuertos()
   server = createGateway({ port: PORT, demo: true })
 
-  // listen es asincrono: se espera al primer request que conteste.
+  // listen is asynchronous: we wait for the first request that answers.
   for (let i = 0; i < 50 && !KEY; i++) {
     try {
       const r = await pedir('GET', '/v1/keys/panel')
@@ -135,44 +138,44 @@ test('arranca el gateway y entrega la key del panel', async (t) => {
     }
   }
 
-  t.ok(KEY, 'el bootstrap de la key no pide key: sin eso no habria primer acceso')
-  t.ok(KEY.startsWith('qvac_sk_'), 'con el prefijo que pone apikeys.mjs')
+  t.ok(KEY, 'the key bootstrap does not require a key: without this there would be no first access')
+  t.ok(KEY.startsWith('qvac_sk_'), 'with the prefix that apikeys.mjs sets')
 })
 
-test('la sonda de puertos distingue ocupado de libre', async (t) => {
-  // Lo que vigila esta prueba no es una funcionalidad del producto: es lo que
-  // hace que ESTA SUITE pueda correr dos veces seguidas. Ver la nota de
-  // PUERTOS_DESDE arriba -- el modo de falla es que el proceso se muera antes de
-  // la primera linea de TAP, y una corrida sin salida no se distingue de una
-  // verde mirando el exit code.
+test('the port probe tells busy apart from free', async (t) => {
+  // What this test watches is not a product feature: it's what lets THIS
+  // SUITE run twice in a row. See the note on PUERTOS_DESDE above -- the
+  // failure mode is the process dying before the first line of TAP, and a run
+  // with no output is indistinguishable from a green one if you only look at
+  // the exit code.
   //
-  // Si `puertoLibre` dijera que si siempre, `elegirPuertos` entregaria un bloque
-  // ocupado y el gateway haria `Bare.exit(1)` -- o sea, la falla volveria
-  // exactamente como estaba y sin ruido. Por eso se prueba la sonda, que es la
-  // pieza que puede mentir en silencio.
+  // If `puertoLibre` always said yes, `elegirPuertos` would hand back a busy
+  // block and the gateway would do `Bare.exit(1)` -- meaning the failure would
+  // come back exactly as it was, silently. That's why the probe itself gets
+  // tested: it's the piece that can lie without making noise.
   const ocupado = await new Promise((resolve) => {
     const s = http.createServer(() => {})
     s.listen(0, '127.0.0.1', () => resolve(s))
   })
   const puerto = ocupado.address().port
 
-  t.absent(await puertoLibre(puerto), 'un puerto con un listener encima NO esta libre')
+  t.absent(await puertoLibre(puerto), 'a port with a listener on it is NOT free')
 
   await new Promise((resolve) => ocupado.close(resolve))
-  t.ok(await puertoLibre(puerto), 'y cerrado vuelve a estarlo')
+  t.ok(await puertoLibre(puerto), 'and once closed it is again')
 
-  // Y que el bloque que se eligio sea coherente: los cuatro listeners tienen que
-  // caer juntos, porque cada test los referencia por su offset y un bloque
-  // mezclado apuntaria la mitad de la suite a un puerto de otra corrida.
+  // And that the chosen block is coherent: the four listeners have to land
+  // together, because each test references them by its offset and a mixed
+  // block would point half the suite at a port from another run.
   const base = PORT - 9
-  t.is(PUERTO_EXTERNO, base + 8, 'el proveedor externo, en el mismo bloque')
-  t.is(PUERTO_FACILITATOR, base + 7, 'el facilitator falso tambien')
-  t.is(PUERTO_FACILITATOR_REAL, base + 4, 'y el self-hosted de D30.4')
-  t.ok(base >= PUERTOS_DESDE && base <= PUERTOS_HASTA, 'dentro del rango declarado')
+  t.is(PUERTO_EXTERNO, base + 8, 'the external provider, in the same block')
+  t.is(PUERTO_FACILITATOR, base + 7, 'the fake facilitator too')
+  t.is(PUERTO_FACILITATOR_REAL, base + 4, 'and the D30.4 self-hosted one')
+  t.ok(base >= PUERTOS_DESDE && base <= PUERTOS_HASTA, 'within the declared range')
 
-  // Y los puertos DERIVADOS tambien tienen que caer adentro del bloque. Los dos
-  // tests del facilitator abren `+ 1` y `+ 2` sobre PUERTO_FACILITATOR_REAL: si
-  // el bloque no los reserva, son puertos que nadie comprobo.
+  // And the DERIVED ports also have to land inside the block. The two
+  // facilitator tests open `+ 1` and `+ 2` on top of PUERTO_FACILITATOR_REAL:
+  // if the block doesn't reserve them, they're ports nobody checked.
   for (const derivado of [
     PUERTO_FACILITATOR_REAL,
     PUERTO_FACILITATOR_REAL + 1,
@@ -180,22 +183,23 @@ test('la sonda de puertos distingue ocupado de libre', async (t) => {
   ]) {
     t.ok(
       OFFSETS.indexOf(derivado - base) !== -1,
-      'el puerto ' + derivado + ' (offset ' + (derivado - base) + ') esta reservado'
+      'port ' + derivado + ' (offset ' + (derivado - base) + ') is reserved'
     )
   }
 })
 
 // ---------------------------------------------------------------------------
-// Que las superficies de las fases 6.5, 6.6 y 8 respondan A LA VEZ. Cada una
-// entro por un commit distinto y esto es lo que ninguna prueba sola.
+// That the surfaces from phases 6.5, 6.6, and 8 answer AT THE SAME TIME. Each
+// one came in through a different commit, and this is what no single test
+// covers.
 // ---------------------------------------------------------------------------
 
-test('las rutas de las tres fases conviven en el mismo proceso', async (t) => {
+test('the routes from the three phases coexist in the same process', async (t) => {
   const rutas = [
-    ['/v1/models', 'catalogo OpenAI'],
+    ['/v1/models', 'OpenAI catalog'],
     ['/v1/nodes', 'marketplace'],
-    ['/v1/routing-log', 'rastro de ruteo (fase 8)'],
-    ['/v1/quota', 'cuota gratuita (fase 6.6)']
+    ['/v1/routing-log', 'routing trail (phase 8)'],
+    ['/v1/quota', 'free quota (phase 6.6)']
   ]
   for (const par of rutas) {
     const r = await pedir('GET', par[0], { key: KEY })
@@ -203,22 +207,22 @@ test('las rutas de las tres fases conviven en el mismo proceso', async (t) => {
   }
 })
 
-test('los cuatro paneles siguen renderizando', async (t) => {
+test('all four panels still render', async (t) => {
   const rutas = ['/', '/node', '/network', '/admin']
   for (const ruta of rutas) {
     const r = await pedir('GET', ruta)
     t.is(r.status, 200, ruta + ' -> 200')
-    t.ok(r.body.indexOf('<') !== -1, ruta + ' devuelve HTML')
+    t.ok(r.body.indexOf('<') !== -1, ruta + ' returns HTML')
   }
 })
 
 // ---------------------------------------------------------------------------
-// El cable que mas importa: un chat tiene que dejar rastro en el ruteo Y en el
-// ledger a la vez. Son dos modulos que entraron por commits distintos y que
-// nunca se ejercitaron juntos.
+// The cable that matters most: a chat has to leave a trail in the routing log
+// AND settle in the ledger at the same time. They're two modules that came in
+// through different commits and were never exercised together.
 // ---------------------------------------------------------------------------
 
-test('un chat deja rastro de ruteo y liquida el presupuesto', async (t) => {
+test('a chat leaves a routing trail and settles the budget', async (t) => {
   const antes = await pedir('GET', '/v1/quota', { key: KEY })
 
   const chat = await pedir('POST', '/v1/chat/completions', {
@@ -226,111 +230,112 @@ test('un chat deja rastro de ruteo y liquida el presupuesto', async (t) => {
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   })
   t.is(chat.status, 200)
-  t.ok(chat.json.choices[0].message.content.length > 0, 'contesto algo')
+  t.ok(chat.json.choices[0].message.content.length > 0, 'answered something')
 
-  // Fase 8: la decision quedo escrita, con el motivo.
+  // Phase 8: the decision got written down, with the reason.
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entradas = Array.isArray(log.json) ? log.json : log.json.log || log.json.entries
   const ultima = entradas[0]
-  t.ok(ultima.reason, 'el log dice POR QUE se eligio: ' + ultima.reason)
-  t.ok(ultima.decision, 'y con que carga lo decidio')
-  t.is(ultima.decision.elegido, ultima.nodeId, 'la decision apunta al nodo que contesto')
+  t.ok(ultima.reason, 'the log says WHY it was chosen: ' + ultima.reason)
+  t.ok(ultima.decision, 'and with what load it decided')
+  t.is(ultima.decision.elegido, ultima.nodeId, 'the decision points at the node that answered')
 
-  // Fase 6.5: el ledger liquido este request. Un mock cuesta cero y eso es la
-  // verdad, no un relleno -- pero el CAMPO tiene que estar, o el rastro de la
-  // fase 8.5 arranca con un agujero en las entradas viejas.
-  t.is(typeof ultima.costMicros, 'number', 'el costo quedo registrado')
+  // Phase 6.5: the ledger settled this request. A mock costs zero and that is
+  // the truth, not padding -- but the FIELD has to be there, or the phase
+  // 8.5 trail starts with a hole in the old entries.
+  t.is(typeof ultima.costMicros, 'number', 'the cost got recorded')
 
-  // Fase 6.6: la cuota mide lo que este nodo le REGALA A PARES. Un chat propio
-  // no consume cuota de nadie, y confundir las dos cosas seria cobrarle al
-  // dueno de la maquina por usar su propia maquina.
+  // Phase 6.6: the quota measures what this node GIVES AWAY TO PEERS. A chat
+  // of your own doesn't consume anyone's quota, and confusing the two would
+  // mean charging the machine's owner for using their own machine.
   const despues = await pedir('GET', '/v1/quota', { key: KEY })
   t.is(
     despues.json.given_tokens,
     antes.json.given_tokens,
-    'un chat propio no descuenta cuota de par'
+    'a chat of your own does not deduct peer quota'
   )
 })
 
 // ---------------------------------------------------------------------------
-// Las puertas. Cada una se agrego en un commit distinto y ninguna prueba
-// unitaria verifica que sigan cerradas cuando conviven.
+// The gates. Each one was added in a different commit and no unit test
+// verifies they stay closed when they all coexist.
 // ---------------------------------------------------------------------------
 
-test('las rutas que gastan o mutan siguen pidiendo la key', async (t) => {
+test('routes that spend or mutate still require the key', async (t) => {
   const chat = await pedir('POST', '/v1/chat/completions', {
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   })
-  t.is(chat.status, 401, 'chat sin key -> 401')
+  t.is(chat.status, 401, 'chat without a key -> 401')
 
   const conKeyMala = await pedir('POST', '/v1/chat/completions', {
     key: 'qvac_sk_inventada',
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   })
-  t.is(conKeyMala.status, 401, 'una key que no existe tampoco pasa')
+  t.is(conKeyMala.status, 401, 'a key that does not exist does not pass either')
 
-  // Sin swarm esta ruta corta con 503 antes de mirar la key. El 401 se
-  // verifica con `serve --swarm` (S3 de NOTES-SATURACION.md); aca lo que
-  // importa es que un anonimo NO logre editar el manifiesto.
+  // Without a swarm this route short-circuits with 503 before even looking at
+  // the key. The 401 is verified with `serve --swarm` (S3 of
+  // NOTES-SATURACION.md); what matters here is that an anonymous caller
+  // cannot edit the manifest.
   const manifiesto = await pedir('POST', '/v1/swarm/manifest', {
     body: { maxConcurrentRequests: 99 }
   })
   t.ok(
     manifiesto.status === 401 || manifiesto.status === 503,
-    'el manifiesto no se edita anonimo (status ' + manifiesto.status + ')'
+    'the manifest is not edited anonymously (status ' + manifiesto.status + ')'
   )
 })
 
 // ---------------------------------------------------------------------------
-// B12 — las rutas que solo LEEN tambien cuentan
+// B12 — the routes that only READ also count
 //
-// B7 le puso credencial a GET /v1/upstream porque, sin secretos y todo, decia
-// quien es el proveedor, que modelos se le pagan y si hay cuenta del otro lado.
-// El razonamiento era correcto y estaba incompleto: /v1/nodes devuelve el mismo
-// `operator` y ademas el `pricing`, y /v1/routing-log devuelve `costMicros`
-// -- el gasto en dolares, request por request -- que es MAS de lo que /v1/upstream
-// llega a decir. Cerrar una de las tres puertas y dejar dos abiertas no protege
-// nada.
+// B7 put a credential on GET /v1/upstream because, secrets aside, it said who
+// the provider is, which models get paid for, and whether there's an account
+// on the other end. The reasoning was correct and it was incomplete:
+// /v1/nodes returns the same `operator` plus the `pricing`, and
+// /v1/routing-log returns `costMicros` -- the spend in dollars, request by
+// request -- which is MORE than /v1/upstream ever says. Closing one of the
+// three doors and leaving two open protects nothing.
 //
-// La tercera, /v1/models, NO se cierra: es el catalogo del protocolo de OpenAI
-// y un cliente tiene que poder leerlo antes de tener key. Se le saca el dato en
-// vez de la puerta.
+// The third, /v1/models, does NOT get closed: it's the OpenAI protocol
+// catalog and a client has to be able to read it before having a key. The
+// data gets pulled out instead of the door.
 // ---------------------------------------------------------------------------
 
-test('las rutas que solo leen plata o proveedor tambien piden la key', async (t) => {
+test('routes that only read money or provider also require the key', async (t) => {
   const nodos = await pedir('GET', '/v1/nodes')
-  t.is(nodos.status, 401, 'el marketplace dice operador y precio: no es publico')
+  t.is(nodos.status, 401, 'the marketplace says operator and price: it is not public')
 
   const log = await pedir('GET', '/v1/routing-log')
-  t.is(log.status, 401, 'y el rastro dice cuanto se gasto, que es peor')
+  t.is(log.status, 401, 'and the trail says how much was spent, which is worse')
 
   const conKeyMala = await pedir('GET', '/v1/routing-log', { key: 'qvac_sk_inventada' })
-  t.is(conKeyMala.status, 401, 'una key que no existe tampoco pasa')
+  t.is(conKeyMala.status, 401, 'a key that does not exist does not pass either')
 
-  // La contracara: con credencial siguen contestando lo de siempre. Un gate que
-  // rompe al panel no es un gate, es una regresion.
+  // The other side: with a credential it still answers as usual. A gate that
+  // breaks the panel is not a gate, it's a regression.
   const conKey = await pedir('GET', '/v1/nodes', { key: KEY })
-  t.is(conKey.status, 200, 'con key sigue siendo el mismo marketplace')
-  t.ok(Array.isArray(conKey.json.nodes), 'y con la misma forma')
+  t.is(conKey.status, 200, 'with a key it is still the same marketplace')
+  t.ok(Array.isArray(conKey.json.nodes), 'and in the same shape')
 })
 
-test('/v1/models sigue abierto pero ya no dice quien es el proveedor', async (t) => {
+test('/v1/models stays open but no longer names the provider', async (t) => {
   const r = await pedir('GET', '/v1/models')
-  t.is(r.status, 200, 'un cliente OpenAI descubre el catalogo antes de tener key')
+  t.is(r.status, 200, 'an OpenAI client discovers the catalog before having a key')
   t.ok(r.json.data.length > 0)
 
-  // `owned_by` decia "Proveedor de prueba (externo)" y con eso cualquiera que
-  // llegara al puerto sabia contra que API paga este nodo.
+  // `owned_by` used to say "Proveedor de prueba (externo)" and with that
+  // anyone who reached the port knew which API this node pays.
   const delatores = r.json.data.filter((m) => m.owned_by !== 'pyrusllm')
-  t.is(delatores.length, 0, 'ninguna fila nombra al operador: ' + JSON.stringify(delatores))
+  t.is(delatores.length, 0, 'no row names the operator: ' + JSON.stringify(delatores))
 })
 
 // ---------------------------------------------------------------------------
-// Las dos extensiones propias del request. `local` es vieja y `node` entro en
-// la fase 8: lo que se prueba es que no se pisen.
+// The two request extensions of our own. `local` is old and `node` came in
+// with phase 8: what's tested is that they don't step on each other.
 // ---------------------------------------------------------------------------
 
-test('el pin de maquina convive con local:true', async (t) => {
+test('the machine pin coexists with local:true', async (t) => {
   const nodos = await pedir('GET', '/v1/nodes', { key: KEY })
   const mock = nodos.json.nodes.filter((n) => n.modelId === 'facturas-ar')[0]
 
@@ -342,7 +347,7 @@ test('el pin de maquina convive con local:true', async (t) => {
       node: mock.id
     }
   })
-  t.is(fijado.status, 200, 'fijar una maquina que existe contesta')
+  t.is(fijado.status, 200, 'pinning a machine that exists answers')
 
   const fantasma = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
@@ -352,11 +357,11 @@ test('el pin de maquina convive con local:true', async (t) => {
       node: 'no-existe'
     }
   })
-  t.is(fantasma.status, 404, 'y una que no existe NO cae a otra maquina')
+  t.is(fantasma.status, 404, 'and one that does not exist does NOT fall back to another machine')
   t.is(fantasma.json.error.code, 'node_not_found')
 
-  // local:true sobre un modelo que solo sirve un mock local sigue siendo
-  // valido: el filtro saca pares, no mocks de esta misma maquina.
+  // local:true on a model only served by a local mock is still valid: the
+  // filter removes peers, not mocks on this same machine.
   const soloLocal = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: {
@@ -365,25 +370,25 @@ test('el pin de maquina convive con local:true', async (t) => {
       local: true
     }
   })
-  t.is(soloLocal.status, 200, 'local:true no rompe el request')
+  t.is(soloLocal.status, 200, 'local:true does not break the request')
 })
 
-test('los headers de procedencia dicen que maquina contesto', async (t) => {
+test('provenance headers say which machine answered', async (t) => {
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: 'traductor-en-es', messages: [{ role: 'user', content: 'hola' }] }
   })
   t.is(r.status, 200)
-  t.ok(r.headers['x-pyrus-operator'], 'X-Pyrus-Operator presente')
-  t.ok(r.headers['x-pyrus-kind'], 'X-Pyrus-Kind presente: ' + r.headers['x-pyrus-kind'])
+  t.ok(r.headers['x-pyrus-operator'], 'X-Pyrus-Operator present')
+  t.ok(r.headers['x-pyrus-kind'], 'X-Pyrus-Kind present: ' + r.headers['x-pyrus-kind'])
 })
 
 // ---------------------------------------------------------------------------
-// D5: nunca un cuelgue silencioso. Es la invariante mas vieja del gateway y la
-// que mas facil se rompe cuando alguien agrega una rama de ruteo nueva.
+// D5: never a silent hang. It's the gateway's oldest invariant and the one
+// most easily broken when someone adds a new routing branch.
 // ---------------------------------------------------------------------------
 
-test('un modelo que nadie sirve da 404 y dice cuales SI hay', async (t) => {
+test('a model nobody serves gives 404 and says which ones DO exist', async (t) => {
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: 'modelo-que-no-existe', messages: [{ role: 'user', content: 'h' }] }
@@ -392,101 +397,105 @@ test('un modelo que nadie sirve da 404 y dice cuales SI hay', async (t) => {
   t.is(r.json.error.code, 'model_not_found')
   t.ok(
     r.json.error.message.indexOf('disponibles') !== -1,
-    'el error es accionable: ' + r.json.error.message.slice(0, 70)
+    'the error is actionable: ' + r.json.error.message.slice(0, 70)
   )
 })
 
-// El JS del chat vive dentro de un template literal, asi que una comilla
-// invertida suelta en un comentario rompe la pagina entera sin que ningun test
-// unitario se entere. Esto lo agarra: si la pagina no parsea, no renderiza.
-test('el selector del chat ofrece los tres modos', async (t) => {
+// The chat's JS lives inside a template literal, so a stray backtick in a
+// comment breaks the whole page without any unit test noticing. This catches
+// it: if the page doesn't parse, it doesn't render.
+test('the chat selector offers all three modes', async (t) => {
   const r = await pedir('GET', '/')
   t.is(r.status, 200)
-  t.ok(r.body.indexOf('this machine only') !== -1, 'modo 1: solo esta maquina')
-  t.ok(r.body.indexOf('Auto - best available node') !== -1, 'modo 2: el mejor disponible')
-  t.ok(r.body.indexOf('Specific node') !== -1, 'modo 3: una maquina concreta')
-  t.ok(r.body.indexOf('localonly') === -1, 'el checkbox se absorbio en el modo 1')
-  // Una opcion por MAQUINA, no por modelo: es lo que hacia imposible elegir
-  // entre dos pares sirviendo el mismo modelId.
-  t.ok(r.body.indexOf('function fijables') !== -1, 'la lista ya no deduplica por modelId')
+  t.ok(r.body.indexOf('this machine only') !== -1, 'mode 1: this machine only')
+  t.ok(r.body.indexOf('Auto - best available node') !== -1, 'mode 2: the best one available')
+  t.ok(r.body.indexOf('Specific node') !== -1, 'mode 3: one specific machine')
+  t.ok(r.body.indexOf('localonly') === -1, 'the checkbox got absorbed into mode 1')
+  // One option per MACHINE, not per model: this is what used to make it
+  // impossible to choose between two peers serving the same modelId.
+  t.ok(r.body.indexOf('function fijables') !== -1, 'the list no longer deduplicates by modelId')
 })
 
 // ---------------------------------------------------------------------------
-// FASE 8.5 — el asistente externo, de punta a punta
+// PHASE 8.5 — the external assistant, end to end
 //
-// El "proveedor externo" es un servidor de verdad levantado aca al lado, que
-// habla el mismo SSE que la API de NVIDIA. No es un mock del cliente: el
-// codigo bajo prueba abre un socket, manda el JSON, parsea los chunks y lee el
-// `usage`. Lo unico que no se ejercita contra el proveedor real es la latencia.
+// The "external provider" is a real server brought up right here alongside,
+// that speaks the same SSE the NVIDIA API does. It's not a client mock: the
+// code under test opens a socket, sends the JSON, parses the chunks and reads
+// the `usage`. The only thing not exercised against the real provider is
+// latency.
 //
-// Pegarle a integrate.api.nvidia.com desde el test seria pagar dolares por
-// correr `npm test` y dejar la suite atada a la red y a una credencial.
+// Hitting integrate.api.nvidia.com from the test would mean paying dollars to
+// run `npm test` and tying the suite to the network and to a credential.
 // ---------------------------------------------------------------------------
 
 let PUERTO_EXTERNO = 8898
 let servidorExterno = null
 let ultimoPedidoExterno = null
 
-// B11: lo que importa no es el objeto que arma el cliente sino lo que LLEGA al
-// otro lado. Un `authorization` duplicado se ve identico a uno solo hasta que
-// se lo mira desde el servidor, donde aparece concatenado.
+// B11: what matters is not the object the client builds but what ARRIVES on
+// the other end. A duplicated `authorization` looks identical to a single one
+// until you look at it from the server, where it shows up concatenated.
 let ultimosHeadersExternos = null
 
-// B2: un proveedor que NO manda `usage` no es un caso raro, es el default del
-// protocolo -- `usage` en streaming hay que pedirlo-. Se apaga desde el test
-// para poder ejercitar el modo de falla y no solo el camino feliz.
+// B2: a provider that does NOT send `usage` is not a rare case, it's the
+// protocol default -- `usage` in streaming has to be requested. It gets
+// switched off from the test to be able to exercise the failure mode and not
+// just the happy path.
 let mandaUsage = true
 
-// B3: un proveedor que acepta la conexion y despues no manda nada. Es el caso
-// que dejaba el request abierto para siempre -- y con el, la reserva del
-// presupuesto que lo autorizo.
+// B3: a provider that accepts the connection and then sends nothing. This is
+// the case that used to leave the request hanging forever -- and with it, the
+// budget reserve that authorized it.
 let seCuelga = false
 
-// Manda tokens y CORTA el socket sin [DONE], pero SOLO para el modelo que se
-// le nombre. Un flag global cortaria tambien la respuesta del candidato que
-// tiene que salvar el request, que es justo lo que el test quiere ver.
+// Sends tokens and CUTS the socket without [DONE], but ONLY for the model
+// named to it. A global flag would also cut the response of the candidate
+// that has to save the request, which is exactly what the test wants to see.
 let cortaModelo = null
 
-// El proveedor contesta 429 para el modelo que se le nombre: es como se ve
-// desde afuera una cuota diaria agotada en un tier gratuito. No se mide en
-// dolares, asi que el ledger no la ve venir -- lo unico que queda es
-// reaccionar al rechazo.
+// The provider answers 429 for the model named to it: this is what an
+// exhausted daily quota on a free tier looks like from the outside. It's not
+// measured in dollars, so the ledger never sees it coming -- all that's left
+// is reacting to the rejection.
 let cuotaAgotadaModelo = null
 
-// B14 (segunda mitad): el proveedor contesta BIEN y no manda un solo token de
-// contenido. Cierra limpio, con [DONE]. No es lo mismo que colgarse: ahi salta
-// el reloj y el 502 sale por el camino de error, sin pasar nunca por la guarda
-// del 200 vacio -- que es como el primer intento de este test pasaba por el
-// motivo equivocado.
+// B14 (second half): the provider answers WELL and doesn't send a single
+// token of content. Closes clean, with [DONE]. It's not the same as hanging:
+// there the clock trips and the 502 goes out through the error path, never
+// passing through the empty-200 guard -- which is how this test's first
+// attempt passed for the wrong reason.
 let sinContenidoModelo = null
 
-// B14: el proveedor corta por el tope y lo DICE, que es como termina de verdad
-// un request con `max_tokens` chico. El finish_reason viaja en el ultimo chunk
-// y hasta ahora se descartaba.
+// B14: the provider cuts off at the cap and SAYS SO, which is how a request
+// with a small `max_tokens` really ends. The finish_reason travels in the
+// last chunk and until now was discarded.
 let finishReasonFalso = null
 
-// B15: abre con 200, manda un delta, y despues un objeto `error` EN EL CUERPO.
-// Es lo que hace un proveedor cuando se rompe algo despues de haber mandado los
-// headers -- el status ya viajo y no se puede corregir -, y es el modo normal
-// de fallar de OpenRouter cuando el proveedor de atras se cae a mitad.
+// B15: opens with 200, sends a delta, and then an `error` object IN THE BODY.
+// This is what a provider does when something breaks after it already sent
+// the headers -- the status already went out and can't be corrected -- and
+// it's the normal way OpenRouter fails when the provider behind it falls over
+// halfway through.
 let errorEnStreamModelo = null
 
-// D24 — el proveedor devuelve UN texto fijo, y elige COMO lo trocea.
+// D24 — the provider returns ONE fixed text, and chooses HOW to chunk it.
 //
-// Es el vector del ataque que D24 cierra: el gateway cuenta un delta a la vez,
-// y quien decide cuantos deltas son es el proveedor. `{ modelo, texto,
-// porCaracter }` sirve el mismo texto en dos troceos distintos para poder
-// comparar que cambia y que no.
+// This is the attack vector D24 closes: the gateway counts one delta at a
+// time, and it's the provider that decides how many deltas there are.
+// `{ modelo, texto, porCaracter }` serves the same text in two different
+// chunkings so we can compare what changes and what doesn't.
 let respuestaModelo = null
 
-// D27 caso 1 — el proveedor manda un pedazo, espera, y manda el resto. La pausa
-// es la ventana en la que el cliente corta: sin ella no hay forma de que el test
-// sepa que el segundo pedazo NO alcanzo a entrar al contenido atestiguado.
+// D27 case 1 — the provider sends a piece, waits, and sends the rest. The
+// pause is the window in which the client cuts off: without it there's no way
+// for the test to know that the second piece did NOT make it into the
+// witnessed content.
 let pausaModelo = null
 
-// Un proveedor compatible con OpenAI en veinte lineas: dos deltas, un `usage`
-// con tokens que NO coinciden con los contados de este lado -- a proposito,
-// para probar que se liquida con los del proveedor -- y el [DONE].
+// An OpenAI-compatible provider in twenty lines: two deltas, a `usage` with
+// token counts that do NOT match what's counted on this side -- on purpose,
+// to prove settlement uses the provider's numbers -- and the [DONE].
 function levantarProveedorFalso() {
   return new Promise((resolve) => {
     servidorExterno = http.createServer((req, res) => {
@@ -511,8 +520,9 @@ function levantarProveedorFalso() {
         }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' })
         const chunk = (d) => res.write('data: ' + JSON.stringify(d) + '\n\n')
-        // Cabecera mandada y despues silencio: el socket sigue vivo, asi que
-        // nadie del otro lado se entera solo. Es lo que tiene que cortar el reloj.
+        // Header sent and then silence: the socket is still alive, so nobody
+        // on the other end finds out on their own. This is what the clock has
+        // to cut off.
         if (seCuelga) return
         chunk({ choices: [{ delta: { role: 'assistant' } }] })
         if (
@@ -523,9 +533,10 @@ function levantarProveedorFalso() {
           res.write('data: [DONE]\n\n')
           return res.end()
         }
-        // D24 — el mismo texto, troceado como el proveedor quiera. Sale por su
-        // propio camino y termina ahi: lo que se compara es el troceo, y meterle
-        // el `usage` y los demas flags de abajo mezclaria variables.
+        // D24 — the same text, chunked however the provider wants. It goes
+        // out through its own path and ends there: what's being compared is
+        // the chunking, and adding `usage` and the other flags below would
+        // mix variables.
         if (respuestaModelo && ultimoPedidoExterno.model === respuestaModelo.modelo) {
           const partes = respuestaModelo.porCaracter
             ? respuestaModelo.texto.split('')
@@ -539,16 +550,17 @@ function levantarProveedorFalso() {
           return res.end()
         }
 
-        // D27 casos 1 y 2 — un pedazo, una pausa, y despues el resto o la
-        // muerte.
+        // D27 cases 1 and 2 — one piece, a pause, and then either the rest or
+        // death.
         //
-        // La PAUSA es la pieza que hace deterministas a los dos casos, y no es
-        // decoracion: `cortaModelo` destruye el socket en el mismo tick en que
-        // escribe, y entonces bare-fetch descarta la respuesta entera y falla
-        // con NETWORK_ERROR antes de que el gateway alcance a leer un solo
-        // delta -- o sea, `started` en false y un 500 sin que nada haya llegado
-        // al cliente, que es OTRO caso. Para probar "cae A MITAD" hay que
-        // asegurarse de que la primera mitad efectivamente llego.
+        // The PAUSE is the piece that makes both cases deterministic, and
+        // it's not decoration: `cortaModelo` destroys the socket in the same
+        // tick it writes, so bare-fetch discards the entire response and
+        // fails with NETWORK_ERROR before the gateway manages to read a
+        // single delta -- meaning `started` stays false and a 500 with
+        // nothing having reached the client, which is ANOTHER case. To test
+        // "falls apart HALFWAY" we need to make sure the first half actually
+        // arrived.
         if (pausaModelo && ultimoPedidoExterno.model === pausaModelo.modelo) {
           chunk({ choices: [{ delta: { content: pausaModelo.primero } }] })
           const t = setTimeout(() => {
@@ -558,23 +570,23 @@ function levantarProveedorFalso() {
               res.write('data: [DONE]\n\n')
               res.end()
             } catch (e) {
-              /* el cliente ya se fue: es exactamente el caso que se prueba */
+              /* the client already left: this is exactly the case being tested */
             }
           }, pausaModelo.ms)
           if (t.unref) t.unref()
           return
         }
 
-        // `reasoning_content` en el MISMO delta que el contenido: si el cliente
-        // lo leyera, el pensamiento del modelo saldria al chat.
+        // `reasoning_content` in the SAME delta as the content: if the client
+        // read it, the model's reasoning would leak out to the chat.
         chunk({
           choices: [{ delta: { reasoning_content: 'primero pienso...', content: 'hola ' } }]
         })
         chunk({ choices: [{ delta: { content: 'desde afuera' } }] })
-        // B15: el error llega DESPUES de los headers y despues de algun token,
-        // que es el unico momento en que puede llegar por el cuerpo. El stream
-        // se cierra limpio -- con [DONE] y todo --, asi que nada mas que el
-        // objeto `error` distingue esto de una respuesta que salio bien.
+        // B15: the error arrives AFTER the headers and after some token,
+        // which is the only moment it can arrive through the body. The
+        // stream closes clean -- [DONE] and all -- so nothing but the
+        // `error` object tells this apart from a response that went well.
         if (
           errorEnStreamModelo &&
           ultimoPedidoExterno &&
@@ -593,7 +605,7 @@ function levantarProveedorFalso() {
             usage: { prompt_tokens: 1000, completion_tokens: 500 }
           })
         }
-        // El chunk de cierre con el motivo, como lo manda un proveedor real.
+        // The closing chunk with the reason, the way a real provider sends it.
         if (finishReasonFalso) {
           chunk({ choices: [{ index: 0, delta: {}, finish_reason: finishReasonFalso }] })
         }
@@ -607,7 +619,7 @@ function levantarProveedorFalso() {
 
 const MODELO_EXTERNO = 'proveedor/modelo-de-prueba'
 
-test('se configura un asistente externo como una fila mas del registro', async (t) => {
+test('an external assistant gets configured as just another row in the registry', async (t) => {
   await levantarProveedorFalso()
 
   const env = (await import('bare-env')).default
@@ -638,9 +650,9 @@ test('se configura un asistente externo como una fila mas del registro', async (
   })
 
   t.is(ups.length, 1)
-  t.ok(ups[0].disponible(), 'la credencial se lee del entorno, no de la config')
+  t.ok(ups[0].disponible(), 'the credential is read from the environment, not from the config')
 
-  // El precio va contra el id de la FILA, que es lo que mira claveDePrecio().
+  // The price goes against the ROW's id, which is what claveDePrecio() looks at.
   costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
   gw.setUpstreams(ups)
   store.registerUpstream({
@@ -653,17 +665,17 @@ test('se configura un asistente externo como una fila mas del registro', async (
 
   const r = await pedir('GET', '/v1/nodes', { key: KEY })
   const fila = r.json.nodes.find((n) => n.kind === 'upstream')
-  t.ok(fila, 'aparece en el marketplace sin tocar el panel')
+  t.ok(fila, 'shows up in the marketplace without touching the panel')
   t.is(fila.modelId, MODELO_EXTERNO)
 
   const modelos = await pedir('GET', '/v1/models')
   t.ok(
     modelos.json.data.some((m) => m.id === MODELO_EXTERNO),
-    'y en /v1/models, que es lo que lee un cliente de terceros'
+    'and in /v1/models, which is what a third-party client reads'
   )
 })
 
-test('sin opt-in el prompt NO sale a un tercero, y el error dice como prenderlo', async (t) => {
+test('without opt-in the prompt does NOT go out to a third party, and the error says how to turn it on', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   gw.setUpstreamOptIn(false)
 
@@ -676,24 +688,25 @@ test('sin opt-in el prompt NO sale a un tercero, y el error dice como prenderlo'
   t.is(r.json.error.code, 'upstream_opt_in_required')
   t.ok(
     r.json.error.message.indexOf('opt-in') !== -1,
-    'el error es accionable: ' + r.json.error.message.slice(0, 60)
+    'the error is actionable: ' + r.json.error.message.slice(0, 60)
   )
 })
 
-test('el opt-in se prende por HTTP y pide credencial', async (t) => {
-  // B7: LEER el estado del externo tambien pide credencial. No lleva secretos
-  // -- va el nombre de la variable de entorno, nunca su valor -- pero dice
-  // quien es el proveedor y si hay una cuenta cargada del otro lado.
+test('opt-in gets turned on over HTTP and requires a credential', async (t) => {
+  // B7: READING the external's status also requires a credential. It doesn't
+  // carry secrets -- it sends the name of the environment variable, never its
+  // value -- but it says who the provider is and whether there's an account
+  // loaded on the other end.
   const leerSinKey = await pedir('GET', '/v1/upstream')
-  t.is(leerSinKey.status, 401, 'ni siquiera mirar el estado es publico')
+  t.is(leerSinKey.status, 401, 'not even looking at the status is public')
 
   const leerConKey = await pedir('GET', '/v1/upstream', { key: KEY })
   t.is(leerConKey.status, 200)
-  t.ok(leerConKey.json.upstreams[0].apiKeyEnv, 'va el NOMBRE de la variable...')
-  t.absent(JSON.stringify(leerConKey.json).indexOf('clave-de-prueba') !== -1, '...y nunca su valor')
+  t.ok(leerConKey.json.upstreams[0].apiKeyEnv, 'the NAME of the variable goes out...')
+  t.absent(JSON.stringify(leerConKey.json).indexOf('clave-de-prueba') !== -1, '...and never its value')
 
   const sinKey = await pedir('POST', '/v1/upstream/opt-in', { body: { enabled: true } })
-  t.is(sinKey.status, 401, 'autorizar gasto no puede quedar abierto al puerto')
+  t.is(sinKey.status, 401, 'authorizing spend cannot be left open to the port')
 
   const r = await pedir('POST', '/v1/upstream/opt-in', { key: KEY, body: { enabled: true } })
   t.is(r.status, 200)
@@ -701,69 +714,69 @@ test('el opt-in se prende por HTTP y pide credencial', async (t) => {
   t.is(r.json.upstreams[0].credencial, true)
   t.absent(
     r.json.upstreams[0].apiKey,
-    'el estado NUNCA devuelve el secreto, solo el nombre de la variable'
+    'the status NEVER returns the secret, only the variable name'
   )
   t.is(r.json.upstreams[0].apiKeyEnv, 'PYRUS_TEST_KEY')
 })
 
-test('con opt-in el externo contesta, y la respuesta dice que fue el externo', async (t) => {
+test('with opt-in the external answers, and the response says it was the external one', async (t) => {
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: MODELO_EXTERNO, messages: [{ role: 'user', content: 'hola' }] }
   })
 
   t.is(r.status, 200)
-  t.is(r.json.choices[0].message.content, 'hola desde afuera', 'llegan los deltas del proveedor')
+  t.is(r.json.choices[0].message.content, 'hola desde afuera', 'the provider deltas arrive')
   t.is(
     r.json.choices[0].message.content.indexOf('pienso'),
     -1,
-    'y NO llega el reasoning_content: delataria al proveedor de atras'
+    'and the reasoning_content does NOT arrive: it would give away the provider behind'
   )
 
-  // D19: la divulgacion va en los headers, que es lo que lee el chat.
-  t.is(r.headers['x-pyrus-kind'], 'upstream', 'el header dice que salio de la maquina')
+  // D19: the disclosure goes in the headers, which is what the chat reads.
+  t.is(r.headers['x-pyrus-kind'], 'upstream', 'the header says it came from the machine')
   t.is(
     decodeURIComponent(r.headers['x-pyrus-operator']),
     'Proveedor de prueba (externo)',
-    'y dice a quien'
+    'and says who'
   )
 
-  // El tope de salida lo impone el nodo aunque el cliente no mande max_tokens.
-  t.is(ultimoPedidoExterno.max_tokens, 256, 'sin techo la reserva no acotaria nada')
+  // The output cap is imposed by the node even if the client doesn't send max_tokens.
+  t.is(ultimoPedidoExterno.max_tokens, 256, 'without a ceiling the reserve would not cap anything')
   t.is(ultimoPedidoExterno.stream, true)
 })
 
-test('el rastro registra el externo con lo que costo de verdad', async (t) => {
+test('the trail registers the external one with what it actually cost', async (t) => {
   const r = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = r.json.log.find((e) => e.target === 'upstream')
 
-  t.ok(entrada, 'el ruteo al externo queda en el mismo rastro que el resto')
+  t.ok(entrada, 'routing to the external one stays in the same trail as the rest')
   t.is(entrada.ok, true)
-  // 1000 tokens de entrada a USD 1/1M + 500 de salida a USD 2/1M = 2000 micros.
-  // Los tokens son los del `usage` del proveedor, NO los deltas contados de
-  // este lado: liquidar con los propios subfacturaria casi todo el request.
-  t.is(entrada.costMicros, 2000, 'se liquida con el usage del proveedor')
+  // 1000 input tokens at USD 1/1M + 500 output at USD 2/1M = 2000 micros.
+  // The tokens are the provider's `usage`, NOT the deltas counted on this
+  // side: settling with our own would underbill almost the entire request.
+  t.is(entrada.costMicros, 2000, 'settled with the provider usage')
 })
 
-test('local:true nunca sale a un tercero, con opt-in o sin el', async (t) => {
+test('local:true never goes out to a third party, opt-in or not', async (t) => {
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: MODELO_EXTERNO, messages: [{ role: 'user', content: 'hola' }], local: true }
   })
 
   t.is(r.status, 503)
-  t.is(r.json.error.code, 'local_only', 'el candado gana aunque el opt-in este prendido')
+  t.is(r.json.error.code, 'local_only', 'the lock wins even with opt-in turned on')
 })
 
-test('agotado el presupuesto se contesta local, nunca el externo', async (t) => {
+test('with the budget exhausted it answers local, never the external one', async (t) => {
   const store = await import('../qvac/store.mjs')
   const budget = await import('../qvac/budget.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const costs = await import('../qvac/costs.mjs')
   const gw = await import('../qvac/gateway.mjs')
 
-  // Un externo que sirve el MISMO modelo que un candidato local: es la unica
-  // forma de que exista una alternativa a la que degradar.
+  // An external provider that serves the SAME model as a local candidate: it's
+  // the only way there's an alternative to degrade to.
   const compartido = 'facturas-ar'
   const ups = upstream.cargarDesde({
     upstreams: [
@@ -776,35 +789,37 @@ test('agotado el presupuesto se contesta local, nunca el externo', async (t) => 
       }
     ]
   })
-  // A proposito: el mock local sirve ESTE MISMO modelId. Si el precio se
-  // indexara por modelo, el candidato local heredaria la tarifa del externo,
-  // su reserva fallaria igual y en vez de degradar saldria un 402.
+  // On purpose: the local mock serves this EXACT SAME modelId. If the price
+  // were indexed by model, the local candidate would inherit the external's
+  // rate, its reserve would fail just the same, and instead of degrading it
+  // would come out as a 402.
   costs.registrarPrecio('upstream:' + ups[0].id, ups[0].precio)
   gw.setUpstreams(ups)
   store.registerUpstream({
     id: ups[0].id,
     modelId: compartido,
-    displayName: 'Modelo caro',
+    displayName: 'Expensive model',
     operator: 'Proveedor caro (externo)',
     maxConcurrentRequests: 4
   })
 
-  // Se satura el candidato local: sin esto el externo ni compite (D19).
+  // Saturate the local candidate: without this the external one doesn't even
+  // compete (D19).
   const propios = store.listNodes().filter((n) => n.modelId === compartido && n.kind !== 'upstream')
   for (const n of propios) {
     for (let i = 0; i < n.maxConcurrentRequests; i++) store.beginRequest(n.id)
   }
 
-  // La cuenta contra la que se liquida NO es el nodeId de la key ('panel')
-  // sino el id de la ENTRADA del registro de keys, que es lo que devuelve
-  // cuentaDe(req). Ponerle el tope al string equivocado creaba una cuenta
-  // fantasma con tope cero mientras la real seguia con los USD 20 del default
-  // -- y el test pasaba por el camino que no queria probar.
+  // The account settlement runs against is NOT the key's nodeId ('panel') but
+  // the id of the key registry ENTRY, which is what
+  // cuentaDe(req). Setting the cap on the wrong string used to create a
+  // phantom account with a zero cap while the real one kept the default USD
+  // 20 -- and the test passed for a path it wasn't meant to test.
   const apikeys = await import('../qvac/apikeys.mjs')
   const cuenta = apikeys.keyForNode('panel', 'web panel').id
-  t.ok(cuenta, 'la cuenta sale del registro de keys, no del nodeId')
+  t.ok(cuenta, 'the account comes from the key registry, not from the nodeId')
 
-  // Tope en cero: no alcanza ni para un token.
+  // Cap at zero: not even enough for one token.
   budget.setCap(cuenta, 0)
 
   const r = await pedir('POST', '/v1/chat/completions', {
@@ -812,15 +827,15 @@ test('agotado el presupuesto se contesta local, nunca el externo', async (t) => 
     body: { model: compartido, messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  t.is(r.status, 200, 'no se niega el servicio: se degrada')
-  t.not(r.headers['x-pyrus-kind'], 'upstream', 'y NO fue el externo')
+  t.is(r.status, 200, 'service is not denied: it degrades')
+  t.not(r.headers['x-pyrus-kind'], 'upstream', 'and it was NOT the external one')
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
-  t.ok(entrada.degradado, 'la degradacion queda auditada, no se confunde con una eleccion normal')
+  t.ok(entrada.degradado, 'the degradation is audited, not confused with a normal choice')
   t.ok(
     entrada.reason.indexOf('presupuesto agotado') !== -1,
-    'y el motivo dice por que: ' + entrada.reason.slice(0, 60)
+    'and the reason says why: ' + entrada.reason.slice(0, 60)
   )
 
   budget.setCap(cuenta, 20000000)
@@ -834,18 +849,18 @@ test('agotado el presupuesto se contesta local, nunca el externo', async (t) => 
 })
 
 // ---------------------------------------------------------------------------
-// B2 y B4 — los dos agujeros por los que el tope dejaba de ser un tope
+// B2 and B4 — the two holes through which the cap stopped being a cap
 // ---------------------------------------------------------------------------
 
-test('el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el tope', async (t) => {
+test('the request to the provider ALWAYS asks for usage, and the config cannot override the cap', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const costs = await import('../qvac/costs.mjs')
   const gw = await import('../qvac/gateway.mjs')
 
-  // Una config hostil: pide diez mil tokens de salida y apaga el streaming.
-  // Los dos campos son exactamente los que el nodo necesita controlar -- uno
-  // acota la reserva, el otro es el formato que sabe parsear-.
+  // A hostile config: it asks for ten thousand output tokens and turns off
+  // streaming. Both fields are exactly what the node needs to control -- one
+  // caps the reserve, the other is the format it knows how to parse.
   const ups = upstream.cargarDesde({
     upstreams: [
       {
@@ -886,17 +901,17 @@ test('el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el t
   })
   t.is(r.status, 200)
 
-  t.is(ultimoPedidoExterno.max_tokens, 256, 'gana el tope del nodo, no el de la config')
-  t.is(ultimoPedidoExterno.stream, true, 'la config no puede apagar el streaming')
+  t.is(ultimoPedidoExterno.max_tokens, 256, 'the node cap wins, not the config one')
+  t.is(ultimoPedidoExterno.stream, true, 'the config cannot turn off streaming')
   t.is(
     ultimoPedidoExterno.stream_options.include_usage,
     true,
-    'el usage lo pide el codigo: no es un campo que se pueda olvidar ni apagar'
+    'the code itself requests usage: it is not a field that can be forgotten or turned off'
   )
   t.alike(
     ultimoPedidoExterno.chat_template_kwargs,
     { enable_thinking: false },
-    'y lo demas de la config sigue pasando: extiende, no sobreescribe'
+    'and the rest of the config still passes through: it extends, it does not overwrite'
   )
 
   store.clearUpstreams()
@@ -906,18 +921,18 @@ test('el pedido al proveedor SIEMPRE pide usage, y la config no puede pisar el t
 })
 
 // ---------------------------------------------------------------------------
-// B11 — la credencial de un proveedor no puede viajar al endpoint de otro
+// B11 — one provider's credential cannot travel to another one's endpoint
 //
-// El mismo criterio que el test de arriba, sobre los headers en vez del body, y
-// con una vuelta mas: aca la defensa vieja no estaba ausente, estaba escrita en
-// el case equivocado. `Authorization` no colisiona con `authorization`, asi que
-// la del archivo y la nuestra sobrevivian LAS DOS y salian concatenadas.
+// The same criterion as the test above, on the headers instead of the body,
+// with one extra twist: here the old defense wasn't absent, it was written
+// with the wrong case. `Authorization` doesn't collide with `authorization`,
+// so the one from the file and ours BOTH survived and went out concatenated.
 //
-// Por eso el assert mira lo que recibio el SERVIDOR y no el objeto que armo el
-// cliente: del lado de aca las dos versiones se ven bien.
+// That's why the assert looks at what the SERVER received and not the object
+// the client built: from this side both versions look fine.
 // ---------------------------------------------------------------------------
 
-test('la config no puede mandarle la credencial de un proveedor a otro', async (t) => {
+test('the config cannot send one provider credential to another', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const costs = await import('../qvac/costs.mjs')
@@ -931,12 +946,12 @@ test('la config no puede mandarle la credencial de un proveedor a otro', async (
         baseUrl: 'http://127.0.0.1:' + PUERTO_EXTERNO + '/v1',
         apiKeyEnv: 'PYRUS_TEST_KEY',
         extraHeaders: {
-          // En MINUSCULA, que es como los escribe cualquiera que copie una
-          // linea de un curl. Ese detalle era todo el bug.
+          // In LOWERCASE, the way anyone copying a line from a curl command
+          // would write it. That detail was the entire bug.
           authorization: 'Bearer CREDENCIAL-DE-OTRO-PROVEEDOR',
           'content-type': 'text/plain',
-          // Y uno legitimo, para probar que la defensa no se come todo: los
-          // headers de atribucion de OpenRouter tienen que seguir llegando.
+          // And a legitimate one, to prove the defense doesn't eat everything:
+          // OpenRouter's attribution headers still have to get through.
           'HTTP-Referer': 'https://ejemplo.test'
         },
         models: [
@@ -969,21 +984,21 @@ test('la config no puede mandarle la credencial de un proveedor a otro', async (
   t.is(
     ultimosHeadersExternos.authorization,
     'Bearer clave-de-prueba',
-    'llega UNA credencial y es la nuestra: sin el arreglo llegaban las dos concatenadas'
+    'ONE credential arrives and it is ours: without the fix both used to arrive concatenated'
   )
   t.absent(
     String(ultimosHeadersExternos.authorization).includes('OTRO-PROVEEDOR'),
-    'y la del archivo no viaja ni pegada al final'
+    'and the one from the file does not travel even stuck at the end'
   )
   t.is(
     ultimosHeadersExternos['content-type'],
     'application/json',
-    'el cuerpo es JSON aunque el archivo diga otra cosa'
+    'the body is JSON even if the file says otherwise'
   )
   t.is(
     ultimosHeadersExternos['http-referer'],
     'https://ejemplo.test',
-    'y un header legitimo del proveedor sigue pasando: extiende, no sobreescribe'
+    'and a legitimate provider header still passes through: it extends, it does not overwrite'
   )
 
   store.clearUpstreams()
@@ -992,7 +1007,7 @@ test('la config no puede mandarle la credencial de un proveedor a otro', async (
   gw.setUpstreamOptIn(false)
 })
 
-test('un proveedor que no manda usage se liquida por la reserva, no por los deltas', async (t) => {
+test('a provider that does not send usage is settled by the reserve, not by the deltas', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const costs = await import('../qvac/costs.mjs')
@@ -1032,20 +1047,21 @@ test('un proveedor que no manda usage se liquida por la reserva, no por los delt
     key: KEY,
     body: { model: 'proveedor/mudo', messages: [{ role: 'user', content: 'hola' }] }
   })
-  t.is(r.status, 200, 'el request se contesta igual: esto no es un error del usuario')
+  t.is(r.status, 200, 'the request is answered just the same: this is not a user error')
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
   t.is(entrada.target, 'upstream')
 
-  // La reserva: 'hola' son 4 bytes -> ceil(4/2) = 2 tokens de entrada a USD 1
-  // por millon, mas los 256 de tope de salida a USD 2 por millon.
-  //   2 * 1 + 256 * 2 = 514 micro-dolares.
+  // The reserve: 'hola' is 4 bytes -> ceil(4/2) = 2 input tokens at USD 1 per
+  // million, plus the 256-token output cap at USD 2 per million.
+  //   2 * 1 + 256 * 2 = 514 micro-dollars.
   //
-  // Liquidar con lo contado de este lado habria dado 4 micros -- dos deltas de
-  // SSE a tarifa de salida, y la entrada gratis-: 128 veces menos. Ese era el
-  // agujero: no un error de redondeo, dos ordenes de magnitud por request.
-  t.is(entrada.costMicros, 514, 'se cobra la cota superior con la que se autorizo el gasto')
+  // Settling with what's counted on this side would have given 4 micros --
+  // two SSE deltas at the output rate, with input free -- 128 times less.
+  // That was the hole: not a rounding error, two orders of magnitude per
+  // request.
+  t.is(entrada.costMicros, 514, 'charged the upper bound that authorized the spend')
 
   mandaUsage = true
   store.clearUpstreams()
@@ -1055,10 +1071,10 @@ test('un proveedor que no manda usage se liquida por la reserva, no por los delt
 })
 
 // ---------------------------------------------------------------------------
-// B3 — el gasto no puede sobrevivir al silencio del proveedor
+// B3 — the spend cannot outlive the provider's silence
 // ---------------------------------------------------------------------------
 
-test('un proveedor que se cuelga no deja el request colgado', async (t) => {
+test('a provider that hangs does not leave the request hanging', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const costs = await import('../qvac/costs.mjs')
@@ -1080,8 +1096,8 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
             modelId: 'proveedor/colgado',
             maxTokens: 256,
             pricePerMTok: { input: 1, output: 2 },
-            // 300ms en vez de 60s: el reloj es el mismo, lo unico que cambia es
-            // cuanto hay que esperar para verlo funcionar.
+            // 300ms instead of 60s: it's the same clock, all that changes is
+            // how long you have to wait to see it work.
             timeoutPrimerChunkMs: 300
           }
         ]
@@ -1109,20 +1125,20 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
   })
   const tardo = Date.now() - arranco
 
-  t.ok(tardo < 5000, 'corta por el reloj, no por el fin del universo: ' + tardo + 'ms')
-  t.is(r.status, 502, 'y el request TERMINA, con el error del proveedor')
+  t.ok(tardo < 5000, 'it cuts off by the clock, not by the end of the universe: ' + tardo + 'ms')
+  t.is(r.status, 502, 'and the request ENDS, with the provider error')
 
   const despues = budget.usage(cuenta)
-  t.is(despues.reserved, antes.reserved, 'la reserva se libero: no quedo saldo comprometido')
-  t.is(despues.spent, antes.spent, 'y no se cobro nada: no llego un solo token')
+  t.is(despues.reserved, antes.reserved, 'the reserve was released: no balance stayed committed')
+  t.is(despues.spent, antes.spent, 'and nothing was charged: not a single token arrived')
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
-  t.is(entrada.ok, false, 'el fallo queda en el rastro')
-  t.is(entrada.costMicros, 0, 'cobrar la cota superior aca seria cobrar un request que no ocurrio')
+  t.is(entrada.ok, false, 'the failure stays in the trail')
+  t.is(entrada.costMicros, 0, 'charging the upper bound here would mean charging a request that never happened')
 
   const nodo = store.listNodes().find((n) => n.id === 'upstream:' + ups[0].id)
-  t.is(nodo.activeRequests, 0, 'y el slot del nodo tampoco quedo tomado')
+  t.is(nodo.activeRequests, 0, 'and the node slot did not stay taken either')
 
   seCuelga = false
   store.clearUpstreams()
@@ -1132,15 +1148,16 @@ test('un proveedor que se cuelga no deja el request colgado', async (t) => {
 })
 
 // ---------------------------------------------------------------------------
-// B14 — `finish_reason` no puede decir `stop` cuando el tope recorto
+// B14 — `finish_reason` cannot say `stop` when the cap was the one that cut
 //
-// D9 lo declara NO NEGOCIABLE, y no es formalismo: `finish_reason` es el unico
-// campo que el cliente mira para saber si le falta texto, y el que un agente
-// mira para decidir si pedir la continuacion. Decir `stop` despues de cortar
-// por un tope que ademas se cobro es mentir en el unico lugar donde importa.
+// D9 declares it NON-NEGOTIABLE, and it's not a formality: `finish_reason` is
+// the only field a client looks at to know whether text is missing, and the
+// one an agent looks at to decide whether to ask for the continuation.
+// Saying `stop` after cutting off at a cap that was also charged for is lying
+// in the one place it matters.
 //
-// El nodo impone su propio `maxTokens` aunque el cliente no lo pida
-// (upstream.mjs), asi que esto pasa HOY, sin esperar a la Fase 9.
+// The node imposes its own `maxTokens` even if the client doesn't ask for one
+// (upstream.mjs), so this happens TODAY, without waiting for Phase 9.
 // ---------------------------------------------------------------------------
 
 async function conUpstreamDePrueba(t, { modelId, extra = {} }, fn) {
@@ -1166,7 +1183,7 @@ async function conUpstreamDePrueba(t, { modelId, extra = {} }, fn) {
   store.registerUpstream({
     id: ups[0].id,
     modelId,
-    displayName: 'Con tope',
+    displayName: 'Capped',
     operator: 'Proveedor con tope (externo)',
     maxConcurrentRequests: 4
   })
@@ -1181,11 +1198,11 @@ async function conUpstreamDePrueba(t, { modelId, extra = {} }, fn) {
   }
 }
 
-test('si el proveedor corto por el tope, el cliente lee length y no stop', async (t) => {
+test('if the provider cut off at the cap, the client reads length and not stop', async (t) => {
   finishReasonFalso = 'length'
 
   await conUpstreamDePrueba(t, { modelId: 'proveedor/cortado' }, async () => {
-    // Sin stream: la respuesta se arma entera y el campo viaja en el JSON.
+    // Without stream: the response is assembled whole and the field travels in the JSON.
     const r = await pedir('POST', '/v1/chat/completions', {
       key: KEY,
       body: { model: 'proveedor/cortado', messages: [{ role: 'user', content: 'hola' }] }
@@ -1194,10 +1211,10 @@ test('si el proveedor corto por el tope, el cliente lee length y no stop', async
     t.is(
       r.json.choices[0].finish_reason,
       'length',
-      'la respuesta se corto por el tope y lo dice (D9)'
+      'the response was cut off at the cap and it says so (D9)'
     )
 
-    // Y con stream, en el chunk de cierre, que es donde lo lee un cliente SSE.
+    // And with stream, in the closing chunk, which is where an SSE client reads it.
     const s = await pedir('POST', '/v1/chat/completions', {
       key: KEY,
       body: {
@@ -1209,14 +1226,14 @@ test('si el proveedor corto por el tope, el cliente lee length y no stop', async
     t.is(s.status, 200)
     t.ok(
       s.body.includes('"finish_reason":"length"'),
-      'el chunk de cierre tambien lo dice, no solo el camino sin stream'
+      'the closing chunk says so too, not only the non-stream path'
     )
   })
 
   finishReasonFalso = null
 })
 
-test('una respuesta que termino sola sigue diciendo stop', async (t) => {
+test('a response that ended on its own still says stop', async (t) => {
   finishReasonFalso = 'stop'
 
   await conUpstreamDePrueba(t, { modelId: 'proveedor/entero' }, async () => {
@@ -1224,11 +1241,11 @@ test('una respuesta que termino sola sigue diciendo stop', async (t) => {
       key: KEY,
       body: { model: 'proveedor/entero', messages: [{ role: 'user', content: 'hola' }] }
     })
-    t.is(r.json.choices[0].finish_reason, 'stop', 'sin recorte, terminacion normal')
+    t.is(r.json.choices[0].finish_reason, 'stop', 'no cutoff, normal termination')
   })
 
-  // Y si el proveedor no dice nada, se reporta `stop`: es el default de "nadie
-  // lo dijo", no una afirmacion sobre todas las respuestas.
+  // And if the provider says nothing, `stop` is reported: it is the default
+  // for "nobody said", not a claim about every response.
   finishReasonFalso = null
   await conUpstreamDePrueba(t, { modelId: 'proveedor/mudo-fin' }, async () => {
     const r = await pedir('POST', '/v1/chat/completions', {
@@ -1239,15 +1256,16 @@ test('una respuesta que termino sola sigue diciendo stop', async (t) => {
   })
 })
 
-test('una respuesta vacia es 502 tambien SIN stream, no un 200 con content ""', async (t) => {
-  // La otra mitad de B14. La guarda existia solo del lado del stream, con el
-  // `return` del no-stream por delante: quien pedia sin `stream: true` -- un
-  // curl, Open WebUI, el default de cualquier SDK de OpenAI -- recibia 200 con
-  // `content: ""` y `finish_reason: "stop"`. Un cliente no tenia como
-  // distinguirlo de un modelo que decidio no decir nada.
+test('an empty response is 502 also WITHOUT stream, not a 200 with content ""', async (t) => {
+  // The other half of B14. The guard used to exist only on the stream side,
+  // with the no-stream `return` ahead of it: whoever asked without
+  // `stream: true` -- a curl, Open WebUI, the default of any OpenAI SDK --
+  // got back a 200 with `content: ""` and `finish_reason: "stop"`. A client
+  // had no way to tell it apart from a model that decided to say nothing.
   //
-  // El proveedor contesta BIEN: 200, chunk de apertura, [DONE]. Cero contenido.
-  // Ese es el caso que llega a la guarda; uno colgado saltaria por el reloj.
+  // The provider answers WELL: 200, opening chunk, [DONE]. Zero content.
+  // That's the case that reaches the guard; a hanging one would trip on the
+  // clock instead.
   sinContenidoModelo = 'proveedor/vacio'
 
   await conUpstreamDePrueba(t, { modelId: 'proveedor/vacio' }, async () => {
@@ -1255,47 +1273,47 @@ test('una respuesta vacia es 502 tambien SIN stream, no un 200 con content ""', 
       key: KEY,
       body: { model: 'proveedor/vacio', messages: [{ role: 'user', content: 'hola' }] }
     })
-    t.not(r.status, 200, 'una respuesta sin un solo token no es un exito')
-    // Acceso defensivo a proposito: si esto falla, el assert de arriba ya dijo
-    // que se rompio, y un TypeError sobre `error.code` abortaria la corrida
-    // entera sin llegar a los tests que siguen. Es la misma leccion de B18 --
-    // un test que revienta en vez de fallar no dice que se rompio.
+    t.not(r.status, 200, 'a response without a single token is not a success')
+    // Defensive access on purpose: if this fails, the assert above already
+    // said it broke, and a TypeError on `error.code` would abort the whole
+    // run without reaching the tests that follow. It's the same lesson as
+    // B18 -- a test that crashes instead of failing does not say what broke.
     t.is(
       (r.json && r.json.error && r.json.error.code) || null,
       'empty_response',
-      'y lo dice con su propio codigo'
+      'and it says so with its own code'
     )
-    t.absent(r.json && r.json.choices, 'no viaja un choices vacio con finish_reason stop')
+    t.absent(r.json && r.json.choices, 'no empty choices with finish_reason stop travels back')
   })
 
   sinContenidoModelo = null
 })
 
 // ---------------------------------------------------------------------------
-// B6 — la estimacion del prompt cuenta BYTES, y hasta ahora nadie lo probaba
+// B6 — the prompt estimate counts BYTES, and until now nobody tested it
 //
-// `estimarPromptTokens` divide bytes UTF-8 por 2. La version anterior dividia
-// CARACTERES por 3 y se declaraba cota superior: en ingles es cierto, y en
-// chino, japones, coreano, arabe o hindi es falso -- ahi la relacion se acerca
-// a 1 token por caracter y la reserva quedaba muy por debajo del gasto, justo
-// donde el comentario prometia lo contrario.
+// `estimarPromptTokens` divides UTF-8 bytes by 2. The previous version
+// divided CHARACTERS by 3 and claimed to be an upper bound: that's true in
+// English, and false in Chinese, Japanese, Korean, Arabic, or Hindi -- there
+// the ratio gets close to 1 token per character and the reserve ended up well
+// below the spend, exactly where the comment promised the opposite.
 //
-// El arreglo entro con la Fase 6.5 y quedo SIN TEST QUE LO EJERZA, que es por
-// lo que B6 siguio abierto tres auditorias. El unico assert que lo rozaba usa
-// el prompt 'hola': 4 caracteres y 4 bytes, ceil(4/3) = ceil(4/2) = 2. El mismo
-// numero con el bug y sin el.
+// The fix landed with Phase 6.5 and was left WITH NO TEST EXERCISING IT,
+// which is why B6 stayed open for three audits. The only assert that came
+// close used the prompt 'hola': 4 characters and 4 bytes, ceil(4/3) =
+// ceil(4/2) = 2. The same number with the bug and without it.
 //
-// Con 10 caracteres CJK son 30 bytes: 15 tokens contra 4. Esa es la diferencia
-// que el test tiene que ver.
+// With 10 CJK characters that's 30 bytes: 15 tokens versus 4. That's the
+// difference the test has to see.
 // ---------------------------------------------------------------------------
 
-test('un prompt en CJK no subestima la reserva: se cuentan bytes, no caracteres', async (t) => {
+test('a CJK prompt does not underestimate the reserve: bytes are counted, not characters', async (t) => {
   await conUpstreamDePrueba(t, { modelId: 'proveedor/cjk' }, async () => {
-    // 10 caracteres, 30 bytes UTF-8. Reserva = ceil(30/2) tokens de entrada a
-    // USD 1 el millon + 256 de tope de salida a USD 2 el millon:
+    // 10 characters, 30 UTF-8 bytes. Reserve = ceil(30/2) input tokens at USD
+    // 1 per million + 256 output cap at USD 2 per million:
     //   15 * 1 + 256 * 2 = 527 micros.
-    // Contando caracteres daria ceil(10/3) = 4 -> 516: casi cuatro veces menos
-    // de entrada, y una reserva corta es un tope que se pasa.
+    // Counting characters would give ceil(10/3) = 4 -> 516: almost four times
+    // less input, and a short reserve is a cap that gets exceeded.
     const cjk = await pedir('POST', '/v1/chat/completions', {
       key: KEY,
       body: {
@@ -1307,12 +1325,12 @@ test('un prompt en CJK no subestima la reserva: se cuentan bytes, no caracteres'
     t.is(
       cjk.headers['x-pyrus-cost-estimate-micros'],
       '527',
-      'bytes/2 sobre CJK; contando caracteres habria estimado 516'
+      'bytes/2 over CJK; counting characters would have estimated 516'
     )
 
-    // El contraste que explica por que esto no se veia: con ASCII los dos
-    // criterios dan el MISMO numero, asi que el test que ya existia pasaba
-    // igual con el bug puesto.
+    // The contrast that explains why this went unnoticed: with ASCII both
+    // criteria give the SAME number, so the test that already existed passed
+    // just the same with the bug in place.
     const ascii = await pedir('POST', '/v1/chat/completions', {
       key: KEY,
       body: { model: 'proveedor/cjk', messages: [{ role: 'user', content: 'hola' }] }
@@ -1320,15 +1338,16 @@ test('un prompt en CJK no subestima la reserva: se cuentan bytes, no caracteres'
     t.is(
       ascii.headers['x-pyrus-cost-estimate-micros'],
       '514',
-      'en ASCII los dos criterios coinciden: por eso el bug sobrevivio'
+      'in ASCII both criteria agree: that is why the bug survived'
     )
   })
 })
 
-test('un motivo que no conocemos viaja tal cual, no se aplana a stop', async (t) => {
-  // Inventarle un final conocido a algo que el proveedor nombro distinto es la
-  // misma mentira, mas chica. `content_filter` es el caso real que importa: el
-  // cliente tiene que poder distinguir "termino" de "lo cortaron".
+test('a finish reason we do not know travels as-is, it does not flatten to stop', async (t) => {
+  // Inventing a known ending for something the provider named differently is
+  // the same lie, just smaller. `content_filter` is the real case that
+  // matters: a client has to be able to tell "it finished" apart from "they
+  // cut it off".
   finishReasonFalso = 'content_filter'
 
   await conUpstreamDePrueba(t, { modelId: 'proveedor/filtrado' }, async () => {
@@ -1343,20 +1362,20 @@ test('un motivo que no conocemos viaja tal cual, no se aplana a stop', async (t)
 })
 
 // ---------------------------------------------------------------------------
-// B15 — un 200 no quiere decir que salio bien
+// B15 — a 200 does not mean it went well
 //
-// El status HTTP viaja con los headers, o sea antes de que el modelo genere un
-// solo token. Todo lo que se rompe DESPUES no puede corregirlo: viaja como un
-// objeto `error` adentro del cuerpo, con el stream cerrandose limpio, [DONE]
-// incluido. Es el modo normal de fallar de OpenRouter cuando el proveedor de
-// atras se cae a mitad.
+// The HTTP status travels with the headers, meaning before the model
+// generates a single token. Anything that breaks AFTER that can't be
+// corrected: it travels as an `error` object inside the body, with the
+// stream closing clean, [DONE] included. It's the normal way OpenRouter
+// fails when the provider behind it falls over halfway through.
 //
-// El parser miraba `usage` y `delta.content` y nada mas, asi que el error se
-// descartaba como cualquier evento desconocido. Eso daba la peor falla posible:
-// la que se ve identica a funcionar.
+// The parser only looked at `usage` and `delta.content` and nothing else, so
+// the error got discarded like any unknown event. That gave the worst
+// possible failure: one that looks identical to working.
 // ---------------------------------------------------------------------------
 
-test('un error adentro de un stream 200 no se reporta como respuesta exitosa', async (t) => {
+test('an error inside a 200 stream is not reported as a successful response', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const costs = await import('../qvac/costs.mjs')
@@ -1387,7 +1406,7 @@ test('un error adentro de un stream 200 no se reporta como respuesta exitosa', a
   store.registerUpstream({
     id: ups[0].id,
     modelId: 'proveedor/roto-a-mitad',
-    displayName: 'Roto a mitad',
+    displayName: 'Broken halfway',
     operator: 'Proveedor roto a mitad (externo)',
     maxConcurrentRequests: 4
   })
@@ -1397,15 +1416,16 @@ test('un error adentro de un stream 200 no se reporta como respuesta exitosa', a
     body: { model: 'proveedor/roto-a-mitad', messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  // Lo que pasaba antes: 200, `content: ""`, `finish_reason: "stop"`. Un
-  // cliente no tenia como distinguirlo de un modelo que decidio no decir nada.
-  t.not(r.status, 200, 'un error del proveedor no puede salir como respuesta valida')
-  t.is(r.status, 502, 'y es 502, porque el que fallo fue la maquina de un tercero')
-  t.absent(r.json && r.json.choices, 'no viaja un choices vacio con finish_reason stop')
+  // What used to happen: 200, `content: ""`, `finish_reason: "stop"`. A
+  // client had no way to tell it apart from a model that decided to say
+  // nothing.
+  t.not(r.status, 200, 'a provider error cannot go out as a valid response')
+  t.is(r.status, 502, 'and it is 502, because what failed was a third party machine')
+  t.absent(r.json && r.json.choices, 'no empty choices with finish_reason stop travels back')
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const entrada = log.json.log[0]
-  t.is(entrada.ok, false, 'el fallo queda en el rastro y no como un request exitoso')
+  t.is(entrada.ok, false, 'the failure stays in the trail and not as a successful request')
 
   errorEnStreamModelo = null
   store.clearUpstreams()
@@ -1414,15 +1434,15 @@ test('un error adentro de un stream 200 no se reporta como respuesta exitosa', a
   gw.setUpstreamOptIn(false)
 })
 
-test('un error adentro del stream deja seguir con el candidato siguiente', async (t) => {
+test('an error inside the stream lets it move on to the next candidate', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const gw = await import('../qvac/gateway.mjs')
 
   errorEnStreamModelo = 'r'
 
-  // Dos puertas al mismo modelo. La primera se rompe a mitad del stream; la
-  // segunda contesta bien.
+  // Two doors to the same model. The first breaks halfway through the
+  // stream; the second answers fine.
   const ups = upstream.cargarDesde({
     upstreams: [
       {
@@ -1446,7 +1466,7 @@ test('un error adentro del stream deja seguir con el candidato siguiente', async
   store.registerUpstream({
     id: ups[0].id,
     modelId: 'con-respaldo-2',
-    displayName: 'Roto',
+    displayName: 'Broken',
     operator: 'Se rompe a mitad',
     local: true,
     maxConcurrentRequests: 8
@@ -1454,14 +1474,14 @@ test('un error adentro del stream deja seguir con el candidato siguiente', async
   store.registerUpstream({
     id: ups[1].id,
     modelId: 'con-respaldo-2',
-    displayName: 'Sano',
+    displayName: 'Healthy',
     operator: 'Contesta bien',
     local: true,
     maxConcurrentRequests: 1
   })
-  // Mismo motivo que en el test del upstream caido: con la carga empatada el
-  // orden lo decide un `random()`. Ocupandole el unico slot al sano, el roto va
-  // primero de forma deterministica.
+  // Same reason as in the failed-upstream test: with tied load, order is
+  // decided by a `random()`. By taking the healthy one's only slot, the
+  // broken one goes first deterministically.
   store.beginRequest('upstream:' + ups[1].id)
 
   const r = await pedir('POST', '/v1/chat/completions', {
@@ -1469,20 +1489,21 @@ test('un error adentro del stream deja seguir con el candidato siguiente', async
     body: { model: 'con-respaldo-2', messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  // D4 permite el reintento acá: sin `stream: true` el contenido se junta y no
-  // sale hasta el final, asi que el cliente todavia no vio el pedazo del roto.
-  t.is(r.status, 200, 'el error del primero no es el error del request')
-  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Contesta bien', 'contesto el segundo')
+  // D4 allows the retry here: without `stream: true` the content is
+  // assembled and doesn't go out until the end, so the client still hasn't
+  // seen the piece from the one that broke.
+  t.is(r.status, 200, 'the first one\'s error is not the request\'s error')
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Contesta bien', 'the second one answered')
   t.is(
     r.json.choices[0].message.content,
     'hola desde afuera',
-    'y sin el pedazo que alcanzo a generar el que se rompio'
+    'and without the piece the broken one managed to generate'
   )
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   const e = log.json.log[0]
-  t.is(e.intentos.length, 2, 'los dos intentos quedan en el rastro')
-  t.is(e.intentos[0].ok, false, 'el primero fallo aunque el proveedor dijo 200')
+  t.is(e.intentos.length, 2, 'both attempts stay in the trail')
+  t.is(e.intentos[0].ok, false, 'the first one failed even though the provider said 200')
   t.is(e.intentos[1].ok, true)
 
   errorEnStreamModelo = null
@@ -1490,13 +1511,13 @@ test('un error adentro del stream deja seguir con el candidato siguiente', async
   gw.setUpstreams([])
 })
 
-test('un motor local detras de HTTP contesta sin credencial y sin opt-in', async (t) => {
+test('a local engine behind HTTP answers without a credential and without opt-in', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const gw = await import('../qvac/gateway.mjs')
 
-  // Se apaga el opt-in a proposito: si le aplicara, este test no pasaria. Es
-  // toda la diferencia entre "upstream" y "tercero".
+  // Opt-in is turned off on purpose: if it applied here, this test would not
+  // pass. It's the whole difference between "upstream" and "third party".
   gw.setUpstreamOptIn(false)
 
   const ups = upstream.cargarDesde({
@@ -1514,7 +1535,7 @@ test('un motor local detras de HTTP contesta sin credencial y sin opt-in', async
   store.registerUpstream({
     id: ups[0].id,
     modelId: ups[0].anunciadoComo,
-    displayName: 'Pesos abiertos',
+    displayName: 'Open weights',
     operator: 'Motor local (local)',
     local: true
   })
@@ -1524,23 +1545,23 @@ test('un motor local detras de HTTP contesta sin credencial y sin opt-in', async
     body: { model: 'modelo-compartido', messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  t.is(r.status, 200, 'contesta con el opt-in apagado: no es un tercero')
+  t.is(r.status, 200, 'answers with opt-in off: it is not a third party')
   t.is(r.json.choices[0].message.content, 'hola desde afuera')
-  t.is(r.headers['x-pyrus-scope'], 'local', 'y lo declara: el prompt no salio de la maquina')
-  t.is(r.headers['x-pyrus-kind'], 'upstream', 'aunque se le haya pedido por HTTP')
+  t.is(r.headers['x-pyrus-scope'], 'local', 'and it declares it: the prompt did not leave the machine')
+  t.is(r.headers['x-pyrus-kind'], 'upstream', 'even though it was requested over HTTP')
 
-  // Sin Authorization: el proveedor local no lleva credencial y mandarle una
-  // vacia seria peor que no mandar nada.
-  t.absent(ultimoPedidoExterno.max_tokens > 128, 'respeta su propio tope de salida')
+  // No Authorization: the local provider carries no credential and sending an
+  // empty one would be worse than sending none.
+  t.absent(ultimoPedidoExterno.max_tokens > 128, 'respects its own output cap')
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
-  t.is(log.json.log[0].target, 'local', 'y el rastro no lo cuenta como consumo externo: no lo fue')
+  t.is(log.json.log[0].target, 'local', 'and the trail does not count it as external consumption: it was not')
 
   store.clearUpstreams()
   gw.setUpstreams([])
 })
 
-test('con las dos puertas abiertas contesta la de casa, no la que cobra', async (t) => {
+test('with both doors open, the home one answers, not the one that charges', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const costs = await import('../qvac/costs.mjs')
@@ -1549,8 +1570,8 @@ test('con las dos puertas abiertas contesta la de casa, no la que cobra', async 
   const env = (await import('bare-env')).default
   env.PYRUS_TEST_KEY = 'clave-de-prueba'
 
-  // El MISMO modelo por dos caminos, que es lo que habilita `as`: sin eso
-  // serian dos modelos distintos y no se cruzarian nunca.
+  // The SAME model through two paths, which is what `as` enables: without
+  // that they'd be two different models and would never cross.
   const ups = upstream.cargarDesde({
     upstreams: [
       {
@@ -1570,7 +1591,7 @@ test('con las dos puertas abiertas contesta la de casa, no la que cobra', async 
     ]
   })
   gw.setUpstreams(ups)
-  gw.setUpstreamOptIn(true) // prendido: ni asi tiene que ganar el pago
+  gw.setUpstreamOptIn(true) // turned on: even so, the paid one must not win
 
   for (const u of ups) {
     if (u.precio) costs.registrarPrecio('upstream:' + u.id, u.precio)
@@ -1587,7 +1608,7 @@ test('con las dos puertas abiertas contesta la de casa, no la que cobra', async 
   t.is(
     store.findAllByModelId('dos-puertas').length,
     2,
-    'dos candidatos para un modelo: recien ahora el ruteo tiene algo que decidir'
+    'two candidates for one model: only now does routing have something to decide'
   )
 
   const r = await pedir('POST', '/v1/chat/completions', {
@@ -1596,23 +1617,23 @@ test('con las dos puertas abiertas contesta la de casa, no la que cobra', async 
   })
 
   t.is(r.status, 200)
-  t.is(r.headers['x-pyrus-scope'], 'local', 'gana la de casa mientras tenga lugar (D19)')
+  t.is(r.headers['x-pyrus-scope'], 'local', 'the home one wins as long as it has room (D19)')
   t.is(
     ultimoPedidoExterno.model,
     'pesos-abiertos',
-    'y se le pidio con SU nombre, no con el anunciado'
+    'and it was asked with ITS name, not the advertised one'
   )
 
-  // FASE 8 — y ahora gana POR PRECIO, que es otra cosa que ganar por casualidad.
-  // Los dos candidatos son `kind: upstream`, asi que el desempate por tipo --
-  // lo unico que decidia esto antes -- los deja empatados: si el motivo dice
-  // "mas barato", el criterio nuevo es el que mando.
+  // PHASE 8 — and now it wins BY PRICE, which is a different thing from
+  // winning by chance. Both candidates are `kind: upstream`, so the tiebreak
+  // by type -- the only thing that used to decide this -- leaves them tied:
+  // if the reason says "cheaper", the new criterion is what called it.
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   t.ok(
     log.json.log[0].reason.includes('mas barato'),
-    'el log dice POR QUE, y el por que es el precio: ' + log.json.log[0].reason
+    'the log says WHY, and the why is the price: ' + log.json.log[0].reason
   )
-  t.is(r.headers['x-pyrus-cost-estimate-micros'], '0', 'el motor de casa no cuesta dolares')
+  t.is(r.headers['x-pyrus-cost-estimate-micros'], '0', 'the home engine does not cost dollars')
 
   store.clearUpstreams()
   costs.olvidarPreciosExternos()
@@ -1621,15 +1642,16 @@ test('con las dos puertas abiertas contesta la de casa, no la que cobra', async 
 })
 
 // ---------------------------------------------------------------------------
-// FASE 8 — el precio decide entre dos que COBRAN
+// PHASE 8 — price decides between two that CHARGE
 //
-// El test de arriba tiene un gratis y un pago, y por eso no separa del todo dos
-// explicaciones: "gana el barato" y "gana el que no es un tercero". Este pone
-// dos proveedores que cobran, con la misma carga y distinto precio. Si gana el
-// barato, lo unico que puede haberlo decidido es el precio.
+// The test above has one free and one paid, and so it doesn't fully separate
+// two explanations: "the cheap one wins" and "the one that is not a third
+// party wins". This one sets up two providers that charge, with the same
+// load and different price. If the cheap one wins, the only thing that could
+// have decided it is the price.
 // ---------------------------------------------------------------------------
 
-test('entre dos proveedores que cobran, rutea al mas barato y lo dice', async (t) => {
+test('between two providers that charge, it routes to the cheaper one and says so', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const costs = await import('../qvac/costs.mjs')

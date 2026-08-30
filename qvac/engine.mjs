@@ -1,16 +1,16 @@
-// Motor de inferencia local de QVAC-Node.
+// QVAC-Node's local inference engine.
 //
-// Concentra todo el trato con `@qvac/bare-sdk` en un solo lugar: el shim del
-// global `process`, el registro explicito del plugin, la resolucion de un
-// modelo del registry y el streaming de tokens. Lo usan el comando
-// `qvac-node prompt` (Fase 1) y, mas adelante, `serve`/`gateway` (Fase 2).
+// Concentrates all dealings with `@qvac/bare-sdk` in one place: the global
+// `process` shim, explicit plugin registration, resolving a model from the
+// registry, and token streaming. Used by the `qvac-node prompt` command
+// (Phase 1) and, later on, `serve`/`gateway` (Phase 2).
 //
-// Este modulo se importa de forma DINAMICA desde bin.mjs a proposito: importar
-// el plugin hace dlopen del addon de llamacpp (96 MB en win32-x64) en el acto,
-// porque `@qvac/llm-llamacpp/addonLogging` hace `require.addon()` en el tope
-// del modulo. Arrancar el nodo no tiene por que pagar eso.
+// This module is imported DYNAMICALLY from bin.mjs on purpose: importing the
+// plugin does a dlopen of the llamacpp addon (96 MB on win32-x64) right then
+// and there, because `@qvac/llm-llamacpp/addonLogging` does `require.addon()`
+// at the top of the module. Starting the node shouldn't have to pay for that.
 
-import './global-process.mjs' // PRIMERO: ver el comentario de ese archivo
+import './global-process.mjs' // FIRST: see that file's comment
 import bareProcess from 'bare-process'
 import path from 'bare-path'
 import fs from 'bare-fs'
@@ -23,15 +23,16 @@ export { MODELS, DEFAULT_MODEL, DEFAULT_CTX_SIZE, resolveName } from './models.m
 
 let registered = false
 
-// En bare-sdk NADA se auto-registra: sin esto, cualquier llamada tira
+// In bare-sdk NOTHING auto-registers: without this, any call throws
 // WorkerPluginsNotRegisteredError.
 //
-// El registro del SDK NO es idempotente: llamar dos veces tira
-// PLUGIN_ALREADY_REGISTERED. La bandera local no alcanza, porque el registry
-// del SDK es del proceso entero y hay mas de un camino que registra: el entry
-// de Pear (qvac/worker.pear.entry.mjs) hace `registerPlugin(llmPlugin)` ANTES
-// de importar bin.mjs. Por eso se traga ese error especifico —y solo ese—:
-// significa que el plugin ya esta, que es exactamente lo que queriamos.
+// SDK registration is NOT idempotent: calling it twice throws
+// PLUGIN_ALREADY_REGISTERED. The local flag isn't enough, because the SDK's
+// registry is process-wide and there's more than one path that registers:
+// the Pear entry point (qvac/worker.pear.entry.mjs) does
+// `registerPlugin(llmPlugin)` BEFORE importing bin.mjs. That's why this
+// specific error -and only this one- gets swallowed: it means the plugin is
+// already there, which is exactly what we wanted.
 function register() {
   if (registered) return
   try {
@@ -42,34 +43,35 @@ function register() {
   registered = true
 }
 
-// Donde el SDK guarda los pesos. No lo exporta, asi que se replica el calculo
-// de `getQvacPath('models')` (server/utils/qvac-paths.js + server/env.js).
-// Solo se usa para INFORMAR y para detectar cache; nada depende de acertarle.
+// Where the SDK stores the weights. It doesn't export this, so the
+// computation of `getQvacPath('models')` gets replicated here
+// (server/utils/qvac-paths.js + server/env.js). Only used to REPORT and to
+// detect the cache; nothing depends on getting it exactly right.
 export function modelsDir() {
   const home = env['SNAP_USER_COMMON'] ?? env['HOME'] ?? env['USERPROFILE'] ?? '/tmp'
   return path.join(home, '.qvac', 'models')
 }
 
-// Los pesos se guardan como `<hash>_<nombre>.gguf`. El hash no se puede
-// derivar desde aca, asi que se busca por sufijo.
+// Weights get saved as `<hash>_<name>.gguf`. The hash can't be derived from
+// here, so it's looked up by suffix.
 export function isCached(modelName) {
   const dir = modelsDir()
   let entries = []
   try {
     entries = fs.readdirSync(dir)
   } catch {
-    return false // no existe el directorio todavia: no hay nada cacheado
+    return false // directory doesn't exist yet: nothing is cached
   }
   return entries.some((f) => f.endsWith(`_${modelName}.gguf`))
 }
 
-// Devuelve la entrada del registry MAS un `modelSrc` usable.
+// Returns the registry entry PLUS a usable `modelSrc`.
 //
-// Una entrada del registry NO es un modelSrc valido tal cual: el schema exige
-// un campo `src` que la entrada no trae, y sin el falla con
-// REQUEST_VALIDATION_FAILED "Invalid input at modelSrc". El esquema
-// `registry://` es el que baja los pesos por hypercore en vez de HTTP (mismo
-// patron que los descriptores predefinidos en dist/_sdk/models/registry).
+// A registry entry is NOT a valid modelSrc as-is: the schema requires a `src`
+// field the entry doesn't carry, and without it it fails with
+// REQUEST_VALIDATION_FAILED "Invalid input at modelSrc". The `registry://`
+// scheme is the one that pulls the weights over hypercore instead of HTTP
+// (same pattern as the predefined descriptors in dist/_sdk/models/registry).
 export async function resolveModel(pick = DEFAULT_MODEL) {
   register()
   const name = resolveName(pick)
@@ -77,7 +79,7 @@ export async function resolveModel(pick = DEFAULT_MODEL) {
   const entry = found.find((e) => e.name === name)
   if (!entry) {
     throw new Error(
-      `no se encontro "${name}" en el registry de QVAC. Alias conocidos: ${Object.keys(MODELS).join(', ')}`
+      `could not find "${name}" in the QVAC registry. Known aliases: ${Object.keys(MODELS).join(', ')}`
     )
   }
   return {
@@ -88,32 +90,35 @@ export async function resolveModel(pick = DEFAULT_MODEL) {
   }
 }
 
-// `verbosity: 0` es ERROR: baja al minimo el logging del addon de llamacpp.
+// `verbosity: 0` is ERROR: turns the llamacpp addon's logging down to the
+// minimum.
 //
-// OJO, no lo calla del todo: las dos lineas "parse: load the model metadata..."
-// e "initFromConfig: ..." que salen al cargar son printf crudos de llama.cpp,
-// anteriores al hook de logging, y NO se pueden apagar desde aca. Probado con
-// setGlobalLogLevel('error') + setGlobalConsoleOutput(false) del SDK: siguen
-// saliendo. Redirigir el fd 1 es la unica via y no vale la pena: se llevaria
-// puesta la respuesta.
-// El combo que no carga NINGUN modelo: Linux + binario standalone. El bundle
-// registra solo el backend Vulkan y nunca enumera las variantes de CPU, asi que
-// falla siempre -- medido y documentado en NOTES.md, "Nodo Linux 24/7".
+// HEADS UP, it doesn't silence it entirely: the two lines "parse: load the
+// model metadata..." and "initFromConfig: ..." that print on load are raw
+// printfs from llama.cpp, upstream of the logging hook, and CANNOT be turned
+// off from here. Tested with the SDK's setGlobalLogLevel('error') +
+// setGlobalConsoleOutput(false): they still show up. Redirecting fd 1 is the
+// only way and it's not worth it: it would take the response down with it.
+// The combo that loads NO model at all: Linux + standalone binary. The
+// bundle only registers the Vulkan backend and never enumerates the CPU
+// variants, so it always fails -- measured and documented in NOTES.md,
+// "Nodo Linux 24/7".
 //
-// Existe esta funcion porque el error que sale del SDK es `failed to fit params
-// to free device memory`, que apunta a la memoria y no tiene NADA que ver: nos
-// costo una hora de descartes (el archivo, el hash, dos modelos, `--gpu-layers`,
-// Vulkan, el contexto, el montaje de /tmp) antes de dar con la causa. Un tercero
-// abandonaria mucho antes. Decir lo que sabemos, donde lo sabemos, es barato.
+// This function exists because the error the SDK throws is `failed to fit
+// params to free device memory`, which points at memory and has NOTHING to
+// do with it: it cost us an hour of ruling things out (the file, the hash,
+// two models, `--gpu-layers`, Vulkan, the context, the /tmp mount) before
+// landing on the real cause. A third party would give up long before that.
+// Saying what we know, where we know it, is cheap.
 function pistaLinuxStandalone() {
   if (bareProcess.platform !== 'linux') return null
-  // Mismo criterio que bin.mjs: si argv[0] es el runtime `bare`, corremos desde
-  // el fuente y este problema no aplica.
+  // Same criterion as bin.mjs: if argv[0] is the `bare` runtime, we're
+  // running from source and this problem doesn't apply.
   if (path.basename(String(Bare.argv[0] || '')) === 'bare') return null
   return (
-    'En Linux el binario standalone NO registra ningun backend de CPU, ' +
-    'asi que ningun modelo carga. No es tu maquina ni el archivo del modelo: ' +
-    'ver NOTES.md, "Nodo Linux 24/7". Mientras tanto corre desde el fuente ' +
+    'On Linux the standalone binary does NOT register any CPU backend, ' +
+    'so no model loads. It is not your machine or the model file: ' +
+    'see NOTES.md, "Nodo Linux 24/7". In the meantime run from source ' +
     '(`node_modules/bare-runtime-linux-x64/bin/bare bin.mjs ...`).'
   )
 }
@@ -127,8 +132,8 @@ export async function loadModel({
 }) {
   register()
   const modelConfig = { ctx_size: ctxSize, verbosity }
-  // Solo se manda si lo pidieron: sin la clave, el SDK aplica sus device
-  // defaults, que son los correctos en una maquina con GPU decente.
+  // Only sent if requested: without the key, the SDK applies its device
+  // defaults, which are the right ones on a machine with a decent GPU.
   if (Number.isFinite(gpuLayers)) modelConfig.gpu_layers = gpuLayers
   try {
     return await sdk.loadModel({ modelSrc, modelConfig, onProgress })
@@ -141,8 +146,8 @@ export async function loadModel({
   }
 }
 
-// Stream de texto. Devuelve un async iterable de strings (los deltas), para no
-// filtrar la forma de los eventos del SDK a los llamadores.
+// Text stream. Returns an async iterable of strings (the deltas), so the
+// shape of the SDK's events doesn't leak to callers.
 export async function* complete({ modelId, prompt, history }) {
   register()
   const run = sdk.completion({
@@ -156,10 +161,10 @@ export async function* complete({ modelId, prompt, history }) {
   await run.final
 }
 
-// `unloadModel` NO cierra las conexiones del SDK: el swarm, el cliente del
-// registry y el corestore quedan arriba a proposito, para que un worker
-// long-lived sobreviva ciclos de load/unload. Un CLI de un solo tiro necesita
-// las dos cosas o el proceso no termina nunca.
+// `unloadModel` does NOT close the SDK's connections: the swarm, the
+// registry client, and the corestore are deliberately left up, so a
+// long-lived worker can survive load/unload cycles. A one-shot CLI needs
+// both closed or the process never exits.
 export async function shutdown(modelId) {
   if (modelId) await sdk.unloadModel({ modelId }).catch(() => {})
   await sdk.close().catch(() => {})

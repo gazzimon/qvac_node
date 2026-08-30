@@ -69,22 +69,22 @@ module.exports = class App extends ReadyResource {
       return
     }
 
-    // El pipe es de strings planos, asi que los mensajes con payload van con
-    // prefijo. Se parsean antes de caer en el 'message' generico.
+    // The pipe carries plain strings, so messages with a payload go out
+    // prefixed. They're parsed before falling through to the generic 'message'.
     if (message.startsWith('progress:')) {
       let stats = null
       try {
         stats = JSON.parse(message.slice('progress:'.length))
       } catch {
-        return // un progreso ilegible no justifica tirar abajo el updater
+        return // an unreadable progress update doesn't justify tearing down the updater
       }
       this.emit('updating-progress', stats)
       return
     }
 
     if (message.startsWith('updater-error:')) {
-      // Se emite como evento propio y NO como 'error': un fallo del updater
-      // no debe matar un nodo que esta sirviendo tokens. Se reporta y se sigue.
+      // Emitted as its own event and NOT as 'error': a failed updater
+      // shouldn't kill a node that's serving tokens. It's reported and life goes on.
       this.emit('updater-error', new Error(message.slice('updater-error:'.length)))
       return
     }
