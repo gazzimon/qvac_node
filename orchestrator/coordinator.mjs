@@ -63,7 +63,29 @@ const DEFAULTS = {
   // Cumulative token ceiling for the whole project. 0 = no limit. The
   // coordinator checks it before each wave and stops assigning once spend
   // reaches it, logging `budget:exceeded`. --budget on the CLI.
-  budgetTokens: 0
+  budgetTokens: 0,
+
+  // -------------------------------------------------------------------------
+  // THE DISCOVERY GATE
+  //
+  // `workers()` reads `swarm.peers`, which is a SNAPSHOT. A coordinator that
+  // has just joined the topic has not finished discovering anyone yet, so
+  // that snapshot is empty for a while — and "a while" is not milliseconds:
+  // NOTES.md measures 4–7s with a warm directory, a 38s tail on loopback, and
+  // 109s for a cold node in the real cross-machine run. Reading the snapshot
+  // immediately is why the fiui demo needed FOUR coordinator invocations
+  // before one of them found a worker.
+  //
+  // So: wait for at least `waitForWorkers` of them to show up, and only then
+  // start assigning. A run that assigns nothing because nobody was there yet
+  // is not a failed run, it is a run that started too early.
+  // -------------------------------------------------------------------------
+  waitForWorkers: 1,
+  // 120s covers the 109s cold-start measurement with a little headroom. It is
+  // an upper bound, not a delay: the wait returns the instant enough workers
+  // are present, which on a warm directory is a few seconds.
+  waitForWorkersMs: 120000,
+  workerPollMs: 250
 }
 
 export class Coordinator {

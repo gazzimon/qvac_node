@@ -2622,11 +2622,12 @@ test('D24: troceando el stream cambia el conteo del gateway y NO cambia el hash'
   const gw = await import('../qvac/gateway.mjs')
   await conProveedorQueFirma()
 
-  // El ataque de D24, montado. El gateway incrementa su contador UNA VEZ POR
-  // DELTA con contenido, y quien decide cuantos deltas son es el proveedor: el
-  // mismo texto servido de a un caracter infla ese contador sin mentir en
-  // ningun campo y sin romper ninguna validacion. No falsea el numero, falsea
-  // la señal que el otro cuenta.
+  // D24's attack, staged. The gateway increments its counter ONCE PER DELTA
+  // with content, and it's the provider who decides how many deltas that
+  // is: the same text served one character at a time inflates that counter
+  // without lying in any field and without breaking any validation. It
+  // doesn't falsify the number, it falsifies the signal the other side
+  // counts.
   const TEXTO = 'una respuesta cualquiera'
   const ups = upstream.cargarDesde({
     upstreams: [
@@ -2818,14 +2819,16 @@ test('D27 caso 2: el proveedor cae a mitad de stream y NO se cobra', async (t) =
     maxConcurrentRequests: 4
   })
 
-  // El proveedor abre 200, manda un delta, y despues avisa que se rompio con un
-  // objeto `error` EN EL CUERPO. Es el modo normal de caerse a mitad cuando los
-  // headers ya viajaron -- el status salio antes del primer token y no se puede
-  // corregir --, y es el que B15 enseño a detectar.
+  // The provider opens 200, sends a delta, and then reports it broke with
+  // an `error` object IN THE BODY. It's the normal way to fall over mid-way
+  // once the headers have already gone out -- the status went out before
+  // the first token and can't be corrected --, and it's the one B15 teaches
+  // how to detect.
   //
-  // Se usa este y no un `res.destroy()` a proposito: ver la nota de arriba de
-  // `pausaModelo`. Un socket destruido despues de una pausa NO llega como falla,
-  // asi que un test montado sobre eso probaria lo contrario de lo que dice.
+  // This is used on purpose instead of a `res.destroy()`: see the note
+  // above `pausaModelo`. A socket destroyed after a pause does NOT arrive
+  // as a failure, so a test built on that would prove the opposite of what
+  // it claims.
   errorEnStreamModelo = 'c9'
   const cuerpo = {
     model: 'cae-9',
@@ -3843,9 +3846,10 @@ test('D30.4: los errores del facilitator sobreviven al CLIENTE OFICIAL, no solo 
     t.is(v.invalidReason, 'facilitator_error', 'y el MOTIVO llega al cliente')
     t.ok(v.invalidMessage, 'con el detalle adentro: ' + v.invalidMessage)
 
-    // Este es el que tiraba. Se atrapa a proposito en vez de dejar que rompa la
-    // corrida: un throw acá se lee como "el test esta roto" y lo que pasa es que
-    // el facilitator contesto algo que el cliente no puede leer.
+    // This is the one that used to throw. Caught on purpose instead of
+    // letting it break the run: a throw here reads as "the test is broken"
+    // when what's actually happening is that the facilitator answered with
+    // something the client can't read.
     let s = null
     let tiro = null
     try {
