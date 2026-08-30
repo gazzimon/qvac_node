@@ -117,6 +117,100 @@ export function buildDAG(tickets) {
   return { ready, waiting }
 }
 
+// Can `fromId` reach `toId` by following `Depends on:` edges? Used to decide
+// whether two tickets that declare the same file are STRICTLY ORDERED (safe)
+// or could run at the same time (a silent last-writer-wins race).
+export function dependsOn(tickets, fromId, toId) {
+  const byId = new Map(tickets.map((t) => [t.id, t]))
+  const seen = new Set()
+  const stack = [fromId]
+  while (stack.length) {
+    const id = stack.pop()
+    if (id === toId && id !== fromId) return true
+    if (seen.has(id)) continue
+    seen.add(id)
+    const t = byId.get(id)
+    if (!t) continue
+    for (const dep of t.deps) {
+      if (dep === toId) return true
+      stack.push(dep)
+    }
+  }
+  return false
+}
+
+// Two tickets declaring the same file, WITHOUT a dependency between them.
+//
+// WHY THIS IS LOOSER THAN index.mjs's detectOverlap, AND WHY THAT IS SAFE
+//
+// The single-machine orchestrator forbids ANY two tickets from declaring the
+// same file, because it runs `dag.ready` in fixed-size batches: two tickets
+// that share a file can land in the same batch and race, and it has no wave
+// structure to prevent it. That check has to stay strict there.
+//
+// The coordinator DOES have waves (`dependencyWaves`), and a wave is exactly
+// the set of tickets that can run at once. So the invariant that actually
+// matters is narrower: two tickets may share a file as long as one depends on
+// the other, because then they can never be in the same wave — the dependent
+// runs strictly after the dependency's file has been mirrored and the context
+// drive republished.
+//
+// That is what lets a project GROW: ticket `api` (wave 2) can declare
+// `src/db.js` that ticket `db` (wave 1) created, receive its current content,
+// and return the whole updated file. No diffs — the repo already measured
+// that whole files beat diffs (see parseBlocks in worker/run.mjs), and this
+// keeps that property while removing the reason it was limiting.
+export function detectConcurrentOverlap(tickets) {
+  const owners = new Map() // file -> [ticketId, ...]
+  for (const t of tickets) {
+    for (const f of t.allowedFiles) {
+      if (!owners.has(f)) owners.set(f, [])
+      owners.get(f).push(t.id)
+    }
+  }
+
+  const clashes = []
+  for (const [file, ids] of owners) {
+    if (ids.length < 2) continue
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const ordered =
+          dependsOn(tickets, ids[i], ids[j]) || dependsOn(tickets, ids[j], ids[i])
+        if (!ordered) clashes.push({ file, tickets: [ids[i], ids[j]] })
+      }
+    }
+  }
+  return clashes
+}
+
+// Which of a ticket's declared files were ALREADY declared by something it
+// depends on — i.e. files it is editing rather than creating. Two consequences
+// for the caller, both load-bearing:
+//
+//   - the worker must be shown the file's current content, or it will "modify"
+//     a file it has never seen and produce a replacement from nothing;
+//   - the mirror must NOT clear these before applying an attempt. Clearing a
+//     path the ticket itself created is right (it stops a stale file from a
+//     superseded attempt lingering); clearing one a DEPENDENCY created would
+//     destroy that dependency's work the moment this ticket's model fails to
+//     reproduce it.
+export function inheritedFiles(tickets, ticket) {
+  const byId = new Map(tickets.map((t) => [t.id, t]))
+  const fromDeps = new Set()
+  const seen = new Set()
+  const stack = [...ticket.deps]
+  while (stack.length) {
+    const id = stack.pop()
+    if (seen.has(id)) continue
+    seen.add(id)
+    const t = byId.get(id)
+    if (!t) continue
+    for (const f of t.allowedFiles) fromDeps.add(f)
+    for (const d of t.deps) stack.push(d)
+  }
+  return ticket.allowedFiles.filter((f) => fromDeps.has(f))
+}
+
 // A dependency-safe schedule: an array of WAVES, each wave an array of
 // tickets whose dependencies are all satisfied by an EARLIER wave. Every
 // ticket in one wave can run in parallel with every other ticket in that same

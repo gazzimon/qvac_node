@@ -52,12 +52,12 @@ const STYLE = `
   }
   .card:hover { border-color: #4a7dfc; }
   .card.selected { border-color: #4a7dfc; box-shadow: 0 0 0 1px #4a7dfc; }
-  /* Jerarquia invertida a proposito: el titular es QUIEN provee, no que modelo
-     corre. Con el modelo de titulo, dos tarjetas de operadores distintos se
-     veian practicamente iguales -el nombre del modelo es el mismo en los dos
-     nodos- y la demo es justamente "le compro inferencia a la otra maquina".
-     El overflow-wrap es obligatorio: los modelId no tienen espacios y se
-     cortaban a la mitad ("llama_3.2_1b_intruct_tool_calli"). */
+  /* Hierarchy inverted on purpose: the headline is WHO provides, not which
+     model runs. With the model as the title, two cards from different
+     operators looked practically identical -the model name is the same on
+     both nodes- and the demo is exactly "I bought inference from the other
+     machine." overflow-wrap is mandatory: modelIds have no spaces and were
+     getting cut in half ("llama_3.2_1b_intruct_tool_calli"). */
   .card h3 { margin: 0 0 .1rem; font-size: 1.05rem; overflow-wrap: anywhere; }
   .card .model {
     font-family: ui-monospace, monospace; font-size: .72rem; color: #8b93a7;
@@ -73,23 +73,24 @@ const STYLE = `
   .price b { display: block; font-size: 1rem; color: #e6e6e6; }
   .price span { display: block; font-size: .74rem; color: #8b93a7; }
 
-  /* Reemplaza a la barra en 0%: una barra vacia con "0%" no dice si el nodo
-     esta libre o colgado. El estado se nombra. */
+  /* Replaces the bar at 0%: an empty bar with "0%" doesn't say whether the
+     node is free or hung. The state gets named instead. */
   .state { font-size: .8rem; font-weight: 600; margin-top: .6rem; }
   .state.libre { color: #4ade80; }
   .state.busy { color: #fbbf24; }
   .state.full { color: #f87171; }
 
-  /* La linea de evidencia bajo la respuesta: sin esto, el texto aparece y nada
-     dice que viajo por P2P desde otra maquina. Es la prueba, no un adorno. */
+  /* The evidence line under the response: without this, the text shows up
+     and nothing says it traveled P2P from another machine. It's the proof,
+     not decoration. */
   .meta {
     display: flex; flex-wrap: wrap; gap: .25rem .75rem; margin-top: .5rem;
     font-size: .76rem; color: #8b93a7; font-family: ui-monospace, monospace;
   }
   .meta b { color: #4ade80; font-weight: 600; }
 
-  /* El descubrimiento por DHT tarda ~17s medidos. Sin estado de carga, eso son
-     17 segundos de pantalla vacia delante del jurado, que se leen como roto. */
+  /* DHT discovery takes ~17s measured. Without a loading state, that's 17
+     seconds of empty screen in front of the judges, which reads as broken. */
   .hint { color: #8b93a7; font-size: .88rem; margin: 0 0 1rem; }
   .hint b { color: #9fd6ff; font-weight: 600; font-family: ui-monospace, monospace; }
   .skel { background: #171a21; border: 1px solid #262b36; border-radius: 10px; padding: 1rem; }
@@ -105,9 +106,9 @@ const STYLE = `
   .bar { flex: 1; height: 6px; background: #262b36; border-radius: 999px; overflow: hidden; }
   .bar > div { height: 100%; border-radius: 999px; transition: width .4s ease; }
   .pct { font-size: .75rem; color: #a9b4cc; min-width: 3ch; text-align: right; }
-  /* Los dos medidores de My Node (Fase 6.5 y 6.6). Se apilan en pantalla
-     angosta: son dos lecturas independientes, no una comparacion lado a lado
-     que se rompa al perder el ancho. */
+  /* My Node's two gauges (Phase 6.5 and 6.6). They stack on narrow screens:
+     they're two independent readings, not a side-by-side comparison that
+     breaks when it loses width. */
   .econ-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem; }
   @media (max-width: 700px) { .econ-grid { grid-template-columns: 1fr; } }
   .econ-grid h4 { margin: 0 0 .3rem; font-size: .95rem; }
@@ -119,9 +120,10 @@ const STYLE = `
   }
   .econ-row code { color: #8b93a7; }
 
-  /* El interruptor del asistente externo (Fase 8.5). Ambar como el badge del
-     upstream: el mismo color en el panel, en la lista de nodos y en la linea de
-     procedencia del chat, para que "esto sale de la red" se aprenda una vez. */
+  /* The external assistant's switch (Phase 8.5). Amber like the upstream
+     badge: the same color in the panel, in the node list, and in the chat's
+     provenance line, so "this leaves the network" only has to be learned
+     once. */
   .up-switch {
     display: flex; align-items: center; justify-content: space-between; gap: 1rem;
     border: 1px solid #262b36; border-radius: 10px; padding: .9rem 1rem; margin-top: 1rem;
@@ -142,16 +144,16 @@ const STYLE = `
   .badge.offline { background: #3a1414; color: #f87171; }
   .badge.real { background: #1a2740; color: #7db8ff; }
   .badge.mock { background: #2a2440; color: #c7a9ff; }
-  /* Verde como 'online': un par P2P verificado es la cosa buena que muestra
-     la demo, no puede parecerse a un mock. */
+  /* Green like 'online': a verified P2P peer is the good thing the demo
+     shows off, it can't look like a mock. */
   .badge.peer { background: #10331f; color: #4ade80; }
-  /* Ambar, el color de aviso del resto de la UI: el externo funciona, pero es
-     el unico camino donde el prompt sale de la red y cuesta plata. Ni el verde
-     del par verificado ni el azul de esta maquina. */
+  /* Amber, the rest of the UI's warning color: the external one works, but
+     it's the only path where the prompt leaves the network and costs money.
+     Neither the verified peer's green nor this machine's blue. */
   .badge.upstream { background: #3a2a10; color: #fbbf24; }
-  /* Acciones por tarjeta. "Chatear" queda primero y en azul: es la accion que
-     cuenta la demo sola. "Conectar" es secundaria pero es la que prueba que
-     esto es un gateway de verdad y no un chat con pasos extra. */
+  /* Per-card actions. "Chat" stays first and in blue: it's the action that
+     tells the demo's story on its own. "Connect" is secondary but it's what
+     proves this is a real gateway and not a chat with extra steps. */
   .actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; }
   .actions button { margin-top: 0; font-size: .8rem; padding: .4rem .75rem; }
 
@@ -178,9 +180,9 @@ const STYLE = `
   .tabs button:hover { background: #1f2430; color: #cfd6e4; }
   .tabs button.on { background: none; color: #9fd6ff; border-bottom-color: #4a7dfc; }
 
-  /* Pasos numerados. Sin la numeracion, cuatro bloques de comandos seguidos se
-     leen como alternativas y no como una secuencia -pasaba con el modal de
-     Open WebUI, que la gente ejecutaba salteado-. */
+  /* Numbered steps. Without the numbering, four command blocks in a row read
+     as alternatives instead of a sequence -happened with the Open WebUI
+     modal, where people ran them out of order-. */
   .step { display: flex; gap: .65rem; margin-bottom: 1rem; }
   .step .n {
     flex: none; width: 1.55rem; height: 1.55rem; border-radius: 999px;
@@ -204,15 +206,15 @@ const STYLE = `
   }
   .cmd button:hover { background: #3a445e; }
 
-  /* Estado real del servicio externo, no "asumamos que arranco". */
+  /* The external service's real status, not "let's assume it started." */
   .dot { display: inline-flex; align-items: center; gap: .45rem; font-size: .82rem; color: #8b93a7; }
   .dot i { width: .5rem; height: .5rem; border-radius: 999px; background: #6b7386; font-style: normal; }
   .dot.up { color: #4ade80 } .dot.up i { background: #4ade80 }
   .dot.down { color: #f87171 } .dot.down i { background: #f87171 }
 
-  /* Advertencia previa a los pasos. WhatsApp no vincula un bot sino LA cuenta
-     personal del operador: eso hay que leerlo antes de escanear el QR, no
-     despues, asi que va arriba y no en el pie de la receta. */
+  /* Warning ahead of the steps. WhatsApp doesn't link a bot, it links the
+     operator's personal account: that has to be read before scanning the QR,
+     not after, so it goes at the top and not at the bottom of the recipe. */
   .aviso {
     background: #241d10; border: 1px solid #4a3a17; border-radius: 8px;
     padding: .6rem .75rem; margin: 0 0 1.1rem;
@@ -249,8 +251,9 @@ const STYLE = `
   .log div { padding: .25rem 0; border-bottom: 1px solid #1a1e28; }
   .muted { color: #6b7386; }
 
-  /* Estado del agente, visible en las tres paginas: es la condicion que decide
-     si se llega a la red o no, asi que no puede vivir solo en una pantalla. */
+  /* Agent status, visible on all three pages: it's the condition that
+     decides whether the network is reachable or not, so it can't live on
+     just one screen. */
   .nav .agent { margin-left: auto; display: inline-flex; align-items: center; gap: .45rem; font-size: .8rem; }
   .nav .agent i { width: .5rem; height: .5rem; border-radius: 999px; background: #6b7386; display: block; flex: none; }
   .nav .agent b { font-weight: 600; }
@@ -260,19 +263,19 @@ const STYLE = `
   .nav .agent.error { color: #f87171 } .nav .agent.error i { background: #f87171 }
 
   /* ---------------------------------------------------------------- chat */
-  /* 'chatpage' y no 'chat': ya existe una clase .chat en el panel Network
-     (el bloque de chat viejo) con margin-top, y el body la heredaba. */
+  /* 'chatpage' and not 'chat': a .chat class already exists on the Network
+     panel (the old chat block) with margin-top, and the body inherited it. */
   body.chatpage { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
   body.chatpage main {
     flex: 1; min-height: 0; display: flex; flex-direction: column;
     max-width: 780px; width: 100%; padding: 0 1.25rem;
   }
-  /* El JS le pone display:flex al mostrarlo; la direccion y el flex-1 tienen
-     que estar aca, o el hilo y el composer quedan uno al lado del otro. */
+  /* The JS sets display:flex when showing it; the direction and flex-1 have
+     to be here, or the thread and the composer end up side by side. */
   #chat { flex: 1; min-height: 0; flex-direction: column; }
   #thread { flex: 1; min-height: 0; overflow-y: auto; padding: 1.5rem 0 1rem; }
 
-  /* La puerta. Es lo primero que se ve mientras el agente esta apagado. */
+  /* The gate. The first thing seen while the agent is off. */
   .gate { max-width: 30rem; margin: auto; padding: 3rem 0; text-align: center; }
   .gate h1 { font-size: 1.5rem; margin-bottom: .6rem; }
   .gate p { color: #8b93a7; font-size: .92rem; line-height: 1.6; margin: 0 0 1.5rem; }
@@ -315,8 +318,9 @@ const STYLE = `
   @keyframes blink { 50% { opacity: 0 } }
   @media (prefers-reduced-motion: reduce) { .msg .caret::after { animation: none } }
 
-  /* La linea de procedencia: quien contesto, cuanto tardo. Sin esto el chat es
-     indistinguible de cualquier otro y la red deja de ser visible. */
+  /* The provenance line: who answered, how long it took. Without this the
+     chat is indistinguishable from any other and the network stops being
+     visible. */
   .prov {
     display: flex; flex-wrap: wrap; gap: .25rem .7rem; margin-top: .5rem;
     font-size: .74rem; color: #8b93a7; font-family: ui-monospace, monospace;
@@ -325,8 +329,8 @@ const STYLE = `
   .prov .peer { color: #4ade80; font-weight: 600; }
   .prov .local { color: #7db8ff; font-weight: 600; }
   .prov .upstream { color: #fbbf24; font-weight: 600; }
-  /* El costo no se resalta como el operador: es un dato, no una alarma. Se
-     distingue de la latencia sin gritar. */
+  /* Cost isn't highlighted like the operator: it's data, not an alarm. It's
+     told apart from latency without shouting. */
   .prov .cost { font-variant-numeric: tabular-nums; }
 
   .composer { border-top: 1px solid #262b36; padding: .9rem 0 1.1rem; }
@@ -347,9 +351,9 @@ const STYLE = `
   .composer select:disabled { opacity: .55; }
   .composer label.chk { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
 
-  /* Paleta de acciones (Ctrl+K). Vive en el chat y no en un panel aparte
-     porque lo que hace -- cambiar de modelo, limpiar, ver el gasto -- son
-     decisiones que se toman MIENTRAS se escribe, no antes. */
+  /* Action palette (Ctrl+K). Lives in the chat and not in a separate panel
+     because what it does -- switching models, clearing, checking spend --
+     are decisions made WHILE writing, not before. */
   .pal-overlay {
     position: fixed; inset: 0; background: rgba(8,10,16,.72);
     display: flex; align-items: flex-start; justify-content: center;
@@ -379,9 +383,10 @@ const STYLE = `
   .pal-item .der { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
   .pal-item .val { font-size: .8rem; color: #9aa4b8; }
 
-  /* La marca de mock NO es decorativa: el proyecto exige que todo lo simulado
-     se vea. Un control que parece funcionar y no hace nada es peor que uno
-     ausente, porque el que lo usa cree que ya lo configuro. */
+  /* The mock marker is NOT decorative: the project requires that everything
+     simulated be visible. A control that looks like it works and does
+     nothing is worse than an absent one, because whoever uses it thinks
+     they already configured it. */
   .pal-item .mock {
     font-size: .66rem; text-transform: uppercase; letter-spacing: .05em;
     background: #3a2f16; color: #e0b95a; border: 1px solid #5a4a20;
@@ -390,8 +395,9 @@ const STYLE = `
   .pal-item[disabled] { cursor: default; }
   .pal-item[disabled]:hover { background: transparent; }
 
-  /* Interruptor y escalon: son controles de aspecto real aunque casi todos
-     esten mockeados, porque el punto del pedido es ver la forma. */
+  /* Switch and stepper: they're real-looking controls even though almost
+     all of them are mocked, because the point of the request is to see the
+     shape. */
   .sw { width: 34px; height: 19px; border-radius: 999px; background: #2c3348; position: relative; flex: none; }
   .sw.on { background: #4f7cff; }
   .sw i { position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #e8ecf6; transition: left .12s; }
@@ -404,7 +410,7 @@ const STYLE = `
   .pal-pie { border-top: 1px solid #2c3348; padding: .5rem 1rem; font-size: .72rem; color: #7c8699; }
   .pal-vacio { padding: 1.2rem 1rem; color: #7c8699; font-size: .88rem; }
 
-  /* El "+" del composer */
+  /* The composer's "+" */
   .mas-menu {
     position: absolute; bottom: calc(100% + .4rem); left: 0; min-width: 210px;
     background: #161b28; border: 1px solid #2c3348; border-radius: 10px;
@@ -422,20 +428,22 @@ const STYLE = `
   .composer .note a { color: #9fd6ff; }
 
   /* -------------------------------------------------------------------------
-     FASE 9 — los cuatro artefactos que la fase emite y que hasta ahora solo se
-     veian con curl. El HTML lo arma qvac/panel-x402.mjs; aca esta como se ve.
+     PHASE 9 — the four artifacts the phase emits, which until now could only
+     be seen with curl. The HTML is built by qvac/panel-x402.mjs; here's how
+     it looks.
 
-     Los tres tonos son la parte que NO es decoracion, y por eso estan juntos:
+     The three tones are the part that is NOT decoration, and that's why
+     they're kept together:
 
-       bueno    un hecho comprobado ACA (un hash recomputado que coincide);
-       tibio    un dato con una salvedad que hay que leer -- una ausencia con
-                motivo, un tx hash que nadie verifico contra la cadena, una
-                firma que esta pagina no comprueba;
-       malo     algo que se lee como prueba y no lo es: un mock, un hash que no
-                coincide, un tx sintetico, una liquidacion que fallo.
+       good    a fact verified RIGHT HERE (a recomputed hash that matches);
+       warm    data with a caveat that needs reading -- an absence with a
+               reason, a tx hash nobody verified against the chain, a
+               signature this page doesn't check;
+       bad     something that reads as proof and isn't: a mock, a hash that
+               doesn't match, a synthetic tx, a settlement that failed.
 
-     Un mock pintado de verde seria exactamente el mock que parece funcional que
-     la regla del proyecto prohibe.
+     A mock painted green would be exactly the mock that looks functional
+     that the project's rule prohibits.
      ------------------------------------------------------------------------- */
   .x402 {
     border: 1px solid #2c3348; border-left: 3px solid #5fa8ff; border-radius: 8px;
@@ -457,8 +465,8 @@ const STYLE = `
     color: #8b93a7; font-size: .72rem; min-width: 11ch; flex: 0 0 auto;
     text-transform: none; letter-spacing: .02em;
   }
-  /* overflow-wrap obligatorio: direcciones, hashes y firmas no tienen espacios
-     y se salian de la tarjeta cortadas a la mitad. */
+  /* overflow-wrap mandatory: addresses, hashes, and signatures have no
+     spaces and used to spill out of the card cut in half. */
   .x-v { color: #dbe2ef; overflow-wrap: anywhere; min-width: 0; }
   .x-v.mono, .x-pre { font-family: ui-monospace, monospace; font-size: .72rem; }
   .x-v.malo { color: #f87171; }
@@ -476,9 +484,9 @@ const STYLE = `
     background: #0f1218; border: 1px solid #262b36; border-radius: 6px; padding: .5rem;
     margin: .4rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #a9b4cc;
   }
-  /* D25 — "medido" y "estimado" NO comparten color. Es la regla entera: un
-     conteo de chunks de SSE pintado igual que un usage del proveedor es la
-     forma mas barata de convertir una estimacion en un numero. */
+  /* D25 — "measured" and "estimated" do NOT share a color. That's the whole
+     rule: an SSE chunk count painted the same as a provider's usage is the
+     cheapest way to turn an estimate into a fact. */
   .x-conteo {
     font-family: ui-monospace, monospace; font-size: .71rem; white-space: nowrap;
     border-radius: 999px; padding: .05rem .5rem; border: 1px solid transparent;
@@ -495,13 +503,14 @@ const STYLE = `
   .x-buscar button { margin: 0; white-space: nowrap; }
 </style>`
 
-// Escapado de HTML, inyectado en el script de los 3 paneles.
+// HTML escaping, injected into all 3 panels' script.
 //
-// No es paranoia de manual: el precio lo escribe el proveedor desde su panel y
-// se muestra crudo en los tres. Un precio como `<img src=x onerror=alert(1)>`
-// se ejecutaba al abrir la pagina —probado—. Se escapa TODO lo que venga del
-// servidor, no solo el precio, porque el dia que un nombre de operador o un
-// tag se vuelvan editables el agujero vuelve solo.
+// Not manual-level paranoia: the price is written by the provider from their
+// panel and shown raw in all three. A price like
+// `<img src=x onerror=alert(1)>` used to execute when the page opened
+// —tested—. EVERYTHING that comes from the server gets escaped, not just
+// the price, because the day an operator name or a tag becomes editable the
+// hole comes back on its own.
 const ESC = `
     function esc(v) {
       return String(v == null ? '' : v)
@@ -509,18 +518,19 @@ const ESC = `
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
     }`
 
-// El chip del nav vive en las TRES paginas y se pinta solo. Es el unico estado
-// compartido, y tiene que serlo: si el agente esta apagado la red no contesta,
-// y eso hay que verlo desde donde sea que uno este parado -- no solo en el chat.
+// The nav chip lives on all THREE pages and paints itself. It's the only
+// shared state, and it has to be: if the agent is off the network doesn't
+// answer, and that has to be visible from wherever you're standing -- not
+// just in the chat.
 const AGENT_CHIP = `
 <script>
   // ---------------------------------------------------------------------
-  // La credencial del panel.
+  // The panel's credential.
   //
-  // El gate del gateway dejo de aceptar requests sin Authorization, y la
-  // pagina no esta exenta: pide la suya y la manda como cualquier otro
-  // cliente. Un solo camino de autenticacion, sin puerta trasera para el
-  // navegador.
+  // The gateway's gate stopped accepting requests without Authorization,
+  // and the page isn't exempt: it requests its own and sends it like any
+  // other client. A single authentication path, with no back door for the
+  // browser.
   // ---------------------------------------------------------------------
   window.__panelKey = null
 
@@ -530,7 +540,7 @@ const AGENT_CHIP = `
       const r = await fetch('/v1/keys/panel')
       const d = await r.json()
       window.__panelKey = d.key
-    } catch (e) { /* sin key el gate responde 401 y se ve el motivo */ }
+    } catch (e) { /* with no key the gate answers 401 and the reason shows */ }
     return window.__panelKey
   }
 
@@ -559,7 +569,7 @@ const AGENT_CHIP = `
         chip.querySelector('[data-agent-label]').textContent = label[a.status] || a.status
       }
       if (typeof window.onAgent === 'function') window.onAgent(a)
-    } catch (err) { /* el gateway se cayo: el chip se queda como estaba */ }
+    } catch (err) { /* the gateway went down: the chip stays as it was */ }
   }
   pollAgent()
   setInterval(pollAgent, 2500)
@@ -582,15 +592,16 @@ function page(title, body, bodyClass) {
 </html>`
 }
 
-// Piezas del modal, compartidas por /network (archivos) y /node (conectar).
-// Viven aca y no adentro de una pagina porque "Conectar" se mudo a My Node
-// -- la credencial autentica contra TU gateway, no contra el nodo ajeno --
-// y copiar/cerrar/formatear las siguen necesitando las dos.
+// Modal pieces, shared by /network (files) and /node (connect).
+// Live here and not inside a single page because "Connect" moved to My
+// Node -- the credential authenticates against YOUR gateway, not against
+// someone else's node -- and both still need copy/close/format.
 const MODAL_JS = `
-    // navigator.clipboard NO existe fuera de un contexto seguro. El panel se
-    // abre por http://localhost (seguro) pero tambien por http://192.168.x.x
-    // desde otra maquina de la LAN, donde la API no esta y el boton "Copiar"
-    // no hacia nada en silencio. Por eso el fallback con execCommand.
+    // navigator.clipboard does NOT exist outside a secure context. The
+    // panel opens over http://localhost (secure) but also over
+    // http://192.168.x.x from another machine on the LAN, where the API
+    // isn't there and the "Copy" button silently did nothing. Hence the
+    // execCommand fallback.
     async function copiar(texto, btn) {
       let ok = false
       try {
@@ -610,7 +621,7 @@ const MODAL_JS = `
         document.body.removeChild(ta)
       }
       const antes = btn.textContent
-      btn.textContent = ok ? 'Copiado' : 'Copiá a mano'
+      btn.textContent = ok ? 'Copied' : 'Copy by hand'
       setTimeout(() => { btn.textContent = antes }, 1600)
     }
 
@@ -625,10 +636,10 @@ const MODAL_JS = `
 
     function onEsc(ev) { if (ev.key === 'Escape') cerrarModal() }
 
-    // Modal simple para contenido ya armado. Los paneles que necesitan uno con
-    // tabs y polling siguen escribiendo #modal a mano; este es para el caso
-    // comun -- un titulo y un cuerpo -- que antes obligaba a repetir el
-    // overlay, el cierre por Esc y el cierre por click afuera en cada lugar.
+    // Simple modal for content that's already built. Panels that need one
+    // with tabs and polling still write #modal by hand; this one is for the
+    // common case -- a title and a body -- which used to force repeating
+    // the overlay, the Esc close, and the click-outside close everywhere.
     function abrirModal(titulo, cuerpoHtml) {
       document.getElementById('modal').innerHTML =
         '<div class="modal-overlay" id="modal-overlay"><div class="modal">' +
@@ -650,17 +661,18 @@ const MODAL_JS = `
     }
 `
 
-// Las recetas de "Conectar": el mismo nodo, consumido desde afuera del panel.
-// Es la prueba de que esto es un gateway OpenAI-compatible de verdad y no un
-// chat con nuestro protocolo adentro.
+// The "Connect" recipes: the same node, consumed from outside the panel.
+// The proof that this is a real OpenAI-compatible gateway and not a chat
+// with our own protocol inside.
 const CONNECT_JS = `
     function recetas(c) {
       const modelo = c.node.modelId
 
-      // El bloque de proveedor es identico para todos los canales de OpenClaw
-      // -lo unico que cambia es que canal se enciende-, asi que se arma una
-      // sola vez y cada receta le pasa SU bloque de channels. Duplicar el
-      // config entero por canal garantizaba que uno quedara desactualizado.
+      // The provider block is identical across every OpenClaw channel -the
+      // only thing that changes is which channel gets turned on-, so it
+      // gets built once and each recipe passes it ITS OWN channels block.
+      // Duplicating the whole config per channel guaranteed one would end
+      // up out of date.
       const configOpenclaw = (canal) => [
         '{',
         '  models: {',
@@ -669,7 +681,7 @@ const CONNECT_JS = `
         '        baseUrl: "' + c.baseUrl + '",',
         '        apiKey: "' + c.apiKey + '",',
         '        api: "openai-completions",',
-        '        models: [{ id: "' + modelo + '", name: "QVAC · red P2P" }]',
+        '        models: [{ id: "' + modelo + '", name: "QVAC · P2P network" }]',
         '      }',
         '    }',
         '  },',
@@ -683,7 +695,7 @@ const CONNECT_JS = `
       const proveedorQvac = configOpenclaw([
         '    telegram: {',
         '      enabled: true,',
-        '      botToken: "PEGA_ACA_EL_TOKEN_DE_BOTFATHER",',
+        '      botToken: "PASTE_THE_BOTFATHER_TOKEN_HERE",',
         '      dmPolicy: "pairing"',
         '    }'
       ].join('\\n'))
@@ -699,73 +711,74 @@ const CONNECT_JS = `
       return {
         telegram: {
           titulo: 'Telegram',
-          pie: 'OpenClaw es un runtime de agente self-hosted. Le escribís al bot desde el celular y la respuesta la genera este nodo — sin OpenAI ni servidor de terceros en el medio.',
+          pie: 'OpenClaw is a self-hosted agent runtime. You write to the bot from your phone and the response is generated by this node — no OpenAI or third-party server in between.',
           pasos: [
-            { texto: 'Instalá OpenClaw.', cmd: 'npm install -g openclaw' },
-            { texto: 'En Telegram, hablale a <b>@BotFather</b>, mandá <b>/newbot</b> y guardá el token que te da (tiene forma <code>123:abc</code>).' },
-            { texto: 'Pegá esto en <code>~/.openclaw/openclaw.json</code>, reemplazando el token del paso 2:', cmd: proveedorQvac },
-            { texto: 'Arrancá el gateway y aprobá el pareo. El código vale 1 hora.', cmd: 'openclaw gateway\\nopenclaw pairing list telegram\\nopenclaw pairing approve telegram <CODIGO>' }
+            { texto: 'Install OpenClaw.', cmd: 'npm install -g openclaw' },
+            { texto: 'On Telegram, talk to <b>@BotFather</b>, send <b>/newbot</b>, and save the token it gives you (it looks like <code>123:abc</code>).' },
+            { texto: 'Paste this into <code>~/.openclaw/openclaw.json</code>, replacing the token from step 2:', cmd: proveedorQvac },
+            { texto: 'Start the gateway and approve the pairing. The code is valid for 1 hour.', cmd: 'openclaw gateway\\nopenclaw pairing list telegram\\nopenclaw pairing approve telegram <CODE>' }
           ]
         },
         whatsapp: {
           titulo: 'WhatsApp',
-          aviso: '<b>No es un bot.</b> WhatsApp no tiene @BotFather: OpenClaw vincula <b>tu cuenta personal</b> como un dispositivo más (igual que WhatsApp Web). Usá un número que puedas dedicar a esto y dejá <code>dmPolicy: "pairing"</code>, así nadie te escribe al nodo sin que vos lo apruebes.',
-          pie: 'Mismo gateway que Telegram, otro canal. La respuesta la genera este nodo: WhatsApp sólo transporta el texto.',
+          aviso: '<b>It is not a bot.</b> WhatsApp has no @BotFather: OpenClaw links <b>your personal account</b> as one more device (same as WhatsApp Web). Use a number you can dedicate to this and leave <code>dmPolicy: "pairing"</code> so nobody writes to the node without you approving it.',
+          pie: 'Same gateway as Telegram, another channel. The response is generated by this node: WhatsApp only carries the text.',
           estado: {
             url: 'http://127.0.0.1:18789/',
-            up: 'El gateway de OpenClaw responde en 127.0.0.1:18789',
-            down: 'El gateway de OpenClaw todavía no responde'
+            up: 'The OpenClaw gateway is responding on 127.0.0.1:18789',
+            down: 'The OpenClaw gateway is not responding yet'
           },
           pasos: [
-            { texto: 'Instalá OpenClaw y el plugin del canal.', cmd: 'npm install -g openclaw\\nopenclaw plugins install clawhub:@openclaw/whatsapp' },
-            { texto: 'Pegá esto en <code>~/.openclaw/openclaw.json</code>, con tu número en formato internacional (<code>+549…</code>) en <code>allowFrom</code>:', cmd: proveedorWhatsapp },
-            { texto: 'Vinculá la cuenta: el comando imprime un <b>QR en la terminal</b>. En el celular: <b>WhatsApp → Ajustes → Dispositivos vinculados → Vincular un dispositivo</b> y escaneá. El QR dura ~60 s; si vence, repetí el comando.', cmd: 'openclaw channels login --channel whatsapp' },
-            { texto: 'Arrancá el gateway y aprobá el primer mensaje. El pedido vale 1 hora.', cmd: 'openclaw gateway\\nopenclaw pairing list whatsapp\\nopenclaw pairing approve whatsapp <CODIGO>' },
-            { texto: 'El semáforo de arriba sólo dice si el gateway está vivo. Que WhatsApp haya quedado <b>vinculado</b> lo confirma este comando, y es lo primero que hay que mirar si no llega la respuesta — antes que el log del nodo.', cmd: 'openclaw channels status --probe' }
+            { texto: 'Install OpenClaw and the channel plugin.', cmd: 'npm install -g openclaw\\nopenclaw plugins install clawhub:@openclaw/whatsapp' },
+            { texto: 'Paste this into <code>~/.openclaw/openclaw.json</code>, with your number in international format (<code>+549…</code>) in <code>allowFrom</code>:', cmd: proveedorWhatsapp },
+            { texto: 'Link the account: the command prints a <b>QR in the terminal</b>. On your phone: <b>WhatsApp → Settings → Linked devices → Link a device</b> and scan it. The QR lasts ~60s; if it expires, repeat the command.', cmd: 'openclaw channels login --channel whatsapp' },
+            { texto: 'Start the gateway and approve the first message. The request is valid for 1 hour.', cmd: 'openclaw gateway\\nopenclaw pairing list whatsapp\\nopenclaw pairing approve whatsapp <CODE>' },
+            { texto: 'The status light above only says whether the gateway is alive. This command confirms whether WhatsApp actually got <b>linked</b>, and it is the first thing to check if the response does not arrive — before the node log.', cmd: 'openclaw channels status --probe' }
           ]
         },
         terminal: {
           titulo: 'Terminal',
-          pie: 'Forma OpenAI exacta. Si este curl anda, anda cualquier cliente compatible.',
+          pie: 'Exact OpenAI shape. If this curl works, any compatible client works.',
           pasos: [
-            { texto: 'Pedile una respuesta al nodo con streaming:', cmd: 'curl ' + c.baseUrl + '/chat/completions \\\\\\n  -H "Authorization: Bearer ' + c.apiKey + '" \\\\\\n  -H "Content-Type: application/json" \\\\\\n  -d \\'{"model":"' + modelo + '","messages":[{"role":"user","content":"hola"}],"stream":true}\\'' },
-            { texto: 'Y el catálogo de modelos de la red, igual que la API de OpenAI:', cmd: 'curl ' + c.baseUrl + '/models -H "Authorization: Bearer ' + c.apiKey + '"' }
+            { texto: 'Ask the node for a streamed response:', cmd: 'curl ' + c.baseUrl + '/chat/completions \\\\\\n  -H "Authorization: Bearer ' + c.apiKey + '" \\\\\\n  -H "Content-Type: application/json" \\\\\\n  -d \\'{"model":"' + modelo + '","messages":[{"role":"user","content":"hello"}],"stream":true}\\'' },
+            { texto: 'And the network\\'s model catalog, same as OpenAI\\'s API:', cmd: 'curl ' + c.baseUrl + '/models -H "Authorization: Bearer ' + c.apiKey + '"' }
           ]
         },
         hermes: {
           titulo: 'Hermes Agent',
-          pie: 'Agente con memoria persistente (SQLite local, sin servicio externo). No hay código nuestro acá: es configuración suya.',
+          pie: 'Agent with persistent memory (local SQLite, no external service). There is no code of ours here: it is your own configuration.',
           pasos: [
-            { texto: 'Pegá esto en <code>~/.hermes/config.yaml</code>:', cmd: 'model:\\n  provider: custom\\n  base_url: ' + c.baseUrl + '\\n  api_key: ' + c.apiKey + '\\n  default: ' + modelo },
-            { texto: 'Arrancá Hermes. Usá chat simple, sin tool calls.', cmd: 'hermes' }
+            { texto: 'Paste this into <code>~/.hermes/config.yaml</code>:', cmd: 'model:\\n  provider: custom\\n  base_url: ' + c.baseUrl + '\\n  api_key: ' + c.apiKey + '\\n  default: ' + modelo },
+            { texto: 'Start Hermes. Use simple chat, no tool calls.', cmd: 'hermes' }
           ]
         },
         webui: {
           titulo: 'Open WebUI',
-          pie: 'Cara de ChatGPT, self-hosted, apuntada a este nodo. Necesita Docker Desktop corriendo.',
+          pie: 'A ChatGPT-like face, self-hosted, pointed at this node. Needs Docker Desktop running.',
           estado: {
             url: 'http://localhost:3000/',
-            up: 'Open WebUI responde en localhost:3000',
-            down: 'Open WebUI todavía no responde'
+            up: 'Open WebUI is responding on localhost:3000',
+            down: 'Open WebUI is not responding yet'
           },
           pasos: [
-            { texto: 'Levantá el contenedor apuntado a este gateway:', cmd: 'docker run -d -p 3000:8080 \\\\\\n  -e OPENAI_API_BASE_URL=' + c.baseUrl + ' \\\\\\n  -e OPENAI_API_KEY=' + c.apiKey + ' \\\\\\n  -v open-webui:/app/backend/data \\\\\\n  --name open-webui ghcr.io/open-webui/open-webui:main' },
-            { texto: 'Abrí <a href="http://localhost:3000" target="_blank" rel="noopener">localhost:3000</a> y elegí el modelo <code>' + modelo + '</code>.' }
+            { texto: 'Bring up the container pointed at this gateway:', cmd: 'docker run -d -p 3000:8080 \\\\\\n  -e OPENAI_API_BASE_URL=' + c.baseUrl + ' \\\\\\n  -e OPENAI_API_KEY=' + c.apiKey + ' \\\\\\n  -v open-webui:/app/backend/data \\\\\\n  --name open-webui ghcr.io/open-webui/open-webui:main' },
+            { texto: 'Open <a href="http://localhost:3000" target="_blank" rel="noopener">localhost:3000</a> and pick the <code>' + modelo + '</code> model.' }
           ]
         }
       }
     }
 
-    // El servicio corre en OTRO origen, asi que un fetch normal da CORS aunque
-    // este arriba. Con mode:no-cors la respuesta es opaca -no se puede leer-
-    // pero la promesa resuelve si el puerto contesta y rechaza si no: alcanza
-    // para "esta arriba o no", que es lo unico que se pregunta.
+    // The service runs on ANOTHER origin, so a normal fetch gets CORS'd even
+    // when it's up. With mode:no-cors the response is opaque -can't be
+    // read- but the promise resolves if the port answers and rejects if it
+    // doesn't: enough for "is it up or not," which is the only thing being
+    // asked.
     //
-    // Lo unico. Vale para Open WebUI y para el gateway de OpenClaw por igual,
-    // y de ahi el limite honesto del semaforo: dice que el proceso contesta,
-    // NO que WhatsApp quedo vinculado. Eso solo lo sabe 'channels status', que
-    // es un comando y no un puerto. Pintar "vinculado" desde aca seria inventar
-    // un estado que el panel no puede ver.
+    // The only thing. Holds for Open WebUI and for OpenClaw's gateway alike,
+    // and hence the status light's honest limit: it says the process
+    // answers, NOT that WhatsApp got linked. Only 'channels status' knows
+    // that, and it's a command, not a port. Painting "linked" from here
+    // would mean inventing a state the panel can't see.
     async function servicioArriba(url) {
       try {
         await fetch(url, { mode: 'no-cors', cache: 'no-store' })
@@ -790,13 +803,13 @@ const CONNECT_JS = `
       const cuerpo = document.getElementById('tab-body')
       cuerpo.innerHTML =
         (r.aviso ? '<p class="aviso">' + r.aviso + '</p>' : '') +
-        (r.estado ? '<p><span class="dot" id="estado-dot"><i></i>chequeando…</span></p>' : '') +
+        (r.estado ? '<p><span class="dot" id="estado-dot"><i></i>checking…</span></p>' : '') +
         r.pasos.map((p, i) => \`
           <div class="step">
             <div class="n">\${i + 1}</div>
             <div class="body">
               <p>\${p.texto}</p>
-              \${p.cmd ? '<div class="cmd"><pre>' + esc(p.cmd) + '</pre><button data-copy="' + i + '">Copiar</button></div>' : ''}
+              \${p.cmd ? '<div class="cmd"><pre>' + esc(p.cmd) + '</pre><button data-copy="' + i + '">Copy</button></div>' : ''}
             </div>
           </div>\`).join('') +
         '<p class="sub" style="margin:1rem 0 0">' + r.pie + '</p>'
@@ -815,20 +828,22 @@ const CONNECT_JS = `
       }
     }
 
-    // Recibe TU nodo local, no un id de nodo ajeno.
+    // Takes YOUR local node, not another node's id.
     //
-    // Antes esto pegaba a /v1/connection/:id y emitia una credencial "para
-    // hablarle a tal proveedor", que era una idea equivocada: la key autentica
-    // contra tu propio gateway, y es el quien despues decide a que nodo rutear.
-    // Una key por nodo remoto sugeria un camino privilegiado que no existe.
+    // This used to hit /v1/connection/:id and issue a credential "for
+    // talking to such-and-such provider," which was the wrong idea: the key
+    // authenticates against your own gateway, and it's the one that later
+    // decides which node to route to. A key per remote node suggested a
+    // privileged path that doesn't exist.
     async function abrirConexion(nodo, apiKey) {
       let c
       try {
         c = {
           apiKey: apiKey,
-          // El host lo dice el browser, no una constante: si entraste por la IP
-          // de la LAN, el comando que copiaas tiene que apuntar ahi y no a
-          // 127.0.0.1, que en la maquina del cliente es otra cosa.
+          // The host is given by the browser, not a constant: if you came in
+          // through the LAN's IP, the command you copy has to point there
+          // and not at 127.0.0.1, which on the client's machine is a
+          // different thing.
           baseUrl: 'http://' + location.host + '/v1',
           node: nodo
         }
@@ -855,7 +870,7 @@ const CONNECT_JS = `
               <button data-tab="webui">Open WebUI</button>
             </div>
             <div id="tab-body"></div>
-            <button class="ghost" id="cerrar-modal">Cerrar</button>
+            <button class="ghost" id="cerrar-modal">Close</button>
           </div>
         </div>\`
 
@@ -863,9 +878,9 @@ const CONNECT_JS = `
         b.addEventListener('click', () => pintarTab(rs, b.dataset.tab))
       })
       document.getElementById('cerrar-modal').addEventListener('click', cerrarModal)
-      // Cerrar clickeando el fondo, pero NO cuando el click nace adentro del
-      // panel: sin el chequeo de target, seleccionar texto de un comando y
-      // soltar el mouse afuera cerraba el modal.
+      // Closes by clicking the background, but NOT when the click starts
+      // inside the panel: without the target check, selecting a command's
+      // text and releasing the mouse outside would close the modal.
       document.getElementById('modal-overlay').addEventListener('click', ev => {
         if (ev.target.id === 'modal-overlay') cerrarModal()
       })
@@ -888,12 +903,12 @@ export const NETWORK_HTML = page(
   <script>
     let nodesById = {}
 
-    // Tres clases de nodo, y la diferencia importa demasiado para taparla con
-    // un booleano: 'peer' es un nodo REMOTO de verdad, descubierto por el
-    // swarm y con su manifiesto firmado verificado. Antes caia en el mismo
-    // 'simulado' que los mocks -- justo al revés de lo que pasa.
-    // Un upstream local se nombra por lo que es -- un motor de esta maquina al
-    // que se le habla por HTTP -- y no por como se le pide.
+    // Three node classes, and the difference matters too much to paper over
+    // with a boolean: 'peer' is a genuinely REMOTE node, discovered by the
+    // swarm with its signed manifest verified. It used to fall into the same
+    // 'simulated' bucket as the mocks -- exactly backwards from reality.
+    // A local upstream is named for what it is -- an engine on this machine
+    // that's spoken to over HTTP -- not for how it's asked.
     function etiquetaDe (n) {
       if (n.local) return 'local engine · this machine'
       return KIND_LABEL[n.kind] || esc(n.kind)
@@ -903,17 +918,18 @@ export const NETWORK_HTML = page(
       real: 'this machine',
       peer: 'verified P2P peer',
       mock: 'simulated',
-      // El kind que manda el prompt FUERA de la red: a una API de un tercero,
-      // con la cuenta del operador. La etiqueta lo dice sin eufemismos porque
-      // es la unica que acota la promesa de privacidad.
+      // The kind that sends the prompt OUTSIDE the network: to a third
+      // party's API, on the operator's account. The label says so with no
+      // euphemism because it's the one that bounds the privacy promise.
       //
-      // OJO: no todo upstream es un tercero. Un llama-server o un NIM en
-      // localhost tambien entra por HTTP y tambien es kind 'upstream', pero el
-      // prompt no sale de la maquina. Ese caso lo separa n.local en
-      // etiquetaDe(); esta entrada es solo el default.
+      // NOTE: not every upstream is a third party. A llama-server or a NIM
+      // on localhost also comes in over HTTP and is also kind 'upstream',
+      // but the prompt doesn't leave the machine. That case is split off by
+      // n.local in etiquetaDe(); this entry is just the default.
       upstream: 'external API · third party',
-      // Sale del directorio Hyperbee: su manifiesto verifico alguna vez, pero
-      // ahora no hay socket. Nunca es candidato de ruteo (ver store.mjs).
+      // Comes from the Hyperbee directory: its manifest verified at some
+      // point, but there's no socket now. Never a routing candidate (see
+      // store.mjs).
       known: 'known · disconnected'
     }
 ${ESC}
@@ -922,13 +938,13 @@ ${ESC}
       return pct < 50 ? '#4ade80' : pct < 80 ? '#fbbf24' : '#f87171'
     }
 
-    // El grid se ARMA una vez y despues solo se actualizan los numeros.
+    // The grid gets BUILT once and afterward only the numbers get updated.
     //
-    // Antes se hacia innerHTML del grid entero en cada poll (cada 3s): las
-    // tarjetas se destruian y se volvian a crear sin parar, asi que un click
-    // que cayera justo en ese momento se perdia -Playwright no pudo ni
-    // clickear una tarjeta: "element was detached from the DOM"-. Ademas
-    // reiniciaba la transicion CSS de las barras en cada vuelta.
+    // It used to innerHTML the whole grid on every poll (every 3s): the
+    // cards were destroyed and recreated nonstop, so a click that landed
+    // right at that moment got lost -Playwright couldn't even click a
+    // card: "element was detached from the DOM"-. It also reset the bars'
+    // CSS transition every time around.
     let gridKey = null
 
     function buildGrid(nodes) {
@@ -948,21 +964,21 @@ ${ESC}
           </div>
         </div>
       \`).join('')
-      // Mirar el marketplace y elegir una maquina para hablarle es el recorrido
-      // que faltaba: hasta ahora el chat solo dejaba nombrar un MODELO, y dos
-      // pares sirviendo el mismo colapsaban en una opcion. El pin viaja por
-      // sessionStorage porque es una eleccion de esta sesion, no una
-      // preferencia que deba sobrevivir al navegador.
+      // Looking at the marketplace and picking a machine to talk to is the
+      // path that was missing: until now the chat only let you name a
+      // MODEL, and two peers serving the same one collapsed into one
+      // option. The pin travels via sessionStorage because it's a choice
+      // for this session, not a preference meant to outlive the browser.
       document.querySelectorAll('[data-usar]').forEach(el => {
         el.addEventListener('click', ev => {
           ev.stopPropagation()
-          try { sessionStorage.setItem('pyrus.pin', el.dataset.usar) } catch (e) { /* modo privado */ }
+          try { sessionStorage.setItem('pyrus.pin', el.dataset.usar) } catch (e) { /* private mode */ }
           window.location.href = '/'
         })
       })
 
-      // "Conectar" se mudo a /node porque la credencial autentica contra TU
-      // gateway y no contra el nodo ajeno que muestra la tarjeta.
+      // "Connect" moved to /node because the credential authenticates
+      // against YOUR gateway and not against the other node the card shows.
       document.querySelectorAll('[data-files]').forEach(el => {
         el.addEventListener('click', ev => {
           ev.stopPropagation()
@@ -971,9 +987,9 @@ ${ESC}
       })
     }
 
-    // Estado de carga del descubrimiento. Medido: el primer par tarda ~17s en
-    // aparecer por la DHT. Sin esto son 17 segundos de grilla vacia delante
-    // del jurado, que no se leen como "buscando" sino como "esta roto".
+    // Discovery's loading state. Measured: the first peer takes ~17s to
+    // show up via the DHT. Without this it's 17 seconds of empty grid in
+    // front of the judges, which reads not as "searching" but as "broken."
     const abiertoEn = Date.now()
     let buscando = false
 
@@ -1010,8 +1026,8 @@ ${ESC}
 
       nodesById = Object.fromEntries(nodes.map(n => [n.id, n]))
 
-      // Solo la identidad de los nodos justifica rearmar el DOM; el precio y
-      // la carga cambian seguido y se actualizan en el lugar.
+      // Only nodes' identity justifies rebuilding the DOM; price and load
+      // change often and get updated in place.
       const key = nodes.map(n => n.id + '|' + n.displayName + '|' + n.operator + '|' + n.tags.join('/')).join(',')
       if (key !== gridKey) {
         gridKey = key
@@ -1022,10 +1038,11 @@ ${ESC}
         const card = document.querySelector('.card[data-id="' + CSS.escape(n.id) + '"]')
         if (!card) continue
 
-        // El precio se parte en monto (grande) y unidad (chica). Se arma con
-        // nodos y textContent y NO con innerHTML: el precio lo escribe el
-        // proveedor desde su panel, y ya se probo que un <img src=x onerror>
-        // ahi adentro ejecuta al abrir la pagina.
+        // The price is split into amount (large) and unit (small). Built
+        // with DOM nodes and textContent and NOT with innerHTML: the price
+        // is written by the provider from their own panel, and it's already
+        // proven that an <img src=x onerror> in there executes when the
+        // page opens.
         const precio = card.querySelector('[data-price]')
         precio.textContent = ''
         const corte = String(n.pricing).indexOf(' / ')
@@ -1036,8 +1053,9 @@ ${ESC}
         precio.appendChild(monto)
         precio.appendChild(unidad)
 
-        // Se muestra uno u otro, sin recrear nodos: asi la transicion CSS de
-        // la barra anima de verdad en vez de reiniciarse en cada poll.
+        // One or the other gets shown, without recreating DOM nodes: that
+        // way the bar's CSS transition actually animates instead of
+        // resetting on every poll.
         const load = card.querySelector('[data-load]')
         const offline = card.querySelector('[data-offline]')
         const estado = card.querySelector('[data-state]')
@@ -1045,15 +1063,15 @@ ${ESC}
         offline.style.display = caido ? '' : 'none'
         estado.style.display = caido ? 'none' : ''
 
-        // La barra solo aparece cuando hay carga de verdad. Al 0% era una
-        // barra vacia con un "0%" al lado que no distinguia "libre" de
-        // "colgado"; el estado ahora se dice con palabras.
+        // The bar only shows up when there's real load. At 0% it was an
+        // empty bar with a "0%" next to it that didn't tell "free" apart
+        // from "hung"; the state is now said in words.
         load.style.display = !caido && n.loadPct > 0 ? '' : 'none'
         if (!caido) {
-          // Tres estados, no dos: un nodo con 1 de 4 slots tomados NO esta
-          // "ocupado" -acepta trabajo-, y decirlo asi desalienta al comprador
-          // en la unica pantalla donde elige. "Ocupado" se reserva para el que
-          // de verdad no tiene lugar.
+          // Three states, not two: a node with 1 of 4 slots taken is NOT
+          // "busy" -it still accepts work-, and saying so discourages the
+          // buyer on the one screen where they choose. "Busy" is reserved
+          // for one that genuinely has no room.
           const activos = n.activeRequests
           const tope = n.maxConcurrentRequests
           const lleno = activos >= tope
@@ -1076,21 +1094,21 @@ ${ESC}
 
 
     // -----------------------------------------------------------------------
-    // "Conectar": el mismo nodo, consumido desde afuera del panel.
+    // "Connect": the same node, consumed from outside the panel.
     //
-    // Es la prueba de que esto es un gateway OpenAI-compatible de verdad y no
-    // un chat con nuestro protocolo adentro: el comando que se copia aca es el
-    // que usaria cualquier cliente de terceros, sin camino privilegiado.
+    // The proof that this is a real OpenAI-compatible gateway and not a chat
+    // with our own protocol inside: the command copied here is the same one
+    // any third-party client would use, with no privileged path.
     // -----------------------------------------------------------------------
 
 ${MODAL_JS}
 
     async function abrirArchivos(id) {
       try {
-        // El nodo local (kind 'real'/'mock') no tiene peerKey: ese es SU
-        // propio drive. Un nodo 'peer' si lo tiene, y sin pasarlo el gateway
-        // siempre devolvia el drive local, sin importar que tarjeta se
-        // hubiera clickeado.
+        // The local node (kind 'real'/'mock') has no peerKey: that one is
+        // ITS OWN drive. A 'peer' node does have one, and without passing it
+        // the gateway always returned the local drive, no matter which card
+        // had been clicked.
         const nodo = nodesById[id]
         const peerKey = nodo && nodo.peerKey
         const url = peerKey ? '/v1/files?peerKey=' + encodeURIComponent(peerKey) : '/v1/files'
@@ -1098,27 +1116,28 @@ ${MODAL_JS}
         if (!r.ok) throw new Error('HTTP ' + r.status)
         const data = await r.json()
 
-        // Muestra el drive del nodo que eligio, con link qvac:// que se puede
-        // pegar en otra maquina para bajarlo sin conexion P2P previa.
+        // Shows the chosen node's drive, with a qvac:// link that can be
+        // pasted on another machine to download it with no prior P2P
+        // connection.
         const archivos = data.files || []
         const modal = document.getElementById('modal')
         modal.innerHTML = \`
           <div class="modal-overlay" id="modal-overlay">
             <div class="modal">
-              <h3>Archivos en \${esc(nodo ? nodo.operator : 'este nodo')}</h3>
-              <p class="sub">Los links <code>qvac://</code> se pueden copiar y pegar en otra máquina para bajar sin pairing previo.</p>
+              <h3>Files on \${esc(nodo ? nodo.operator : 'this node')}</h3>
+              <p class="sub"><code>qvac://</code> links can be copied and pasted on another machine to download without pairing first.</p>
               \${archivos.length === 0
-                ? '<p class="muted">Sin archivos publicados.</p>'
-                : '<table><thead><tr><th>Nombre</th><th>Tamaño</th><th>Link</th></tr></thead><tbody>' +
+                ? '<p class="muted">No files published.</p>'
+                : '<table><thead><tr><th>Name</th><th>Size</th><th>Link</th></tr></thead><tbody>' +
                   archivos.map(f => \`
                     <tr>
                       <td>\${esc(f.path)}</td>
                       <td>\${formatBytes(f.bytes)}</td>
-                      <td><button class="ghost" data-copy-file="\${esc(f.link)}" style="font-size:.75rem">Copiar</button></td>
+                      <td><button class="ghost" data-copy-file="\${esc(f.link)}" style="font-size:.75rem">Copy</button></td>
                     </tr>\`).join('') +
                   '</tbody></table>'
               }
-              <button class="ghost" id="cerrar-modal">Cerrar</button>
+              <button class="ghost" id="cerrar-modal">Close</button>
             </div>
           </div>\`
 
@@ -1142,7 +1161,8 @@ ${MODAL_JS}
     }
 
 
-    // El poll pisa el grid entero, asi que si falla no puede tumbar el panel.
+    // The poll overwrites the whole grid, so if it fails it can't take down
+    // the panel.
     refresh().catch(() => {})
     setInterval(() => refresh().catch(() => {}), 3000)
   </script>
@@ -1278,17 +1298,17 @@ export const NODE_HTML = page(
   <script>
     let nodesById = {}
     let current = null
-    let shellFor = null // para que nodo esta armado el DOM de #detail
-    let isMine = false  // el nodo elegido, es ESTE gateway? (solo ahi se puede re-firmar)
+    let shellFor = null // which node #detail's DOM is currently built for
+    let isMine = false  // is the chosen node THIS gateway? (only then can it be re-signed)
     let swarmActive = false
-    let catalogById = {} // alias -> {displayName, sizeGB, fits}, de /v1/swarm/manifest
+    let catalogById = {} // alias -> {displayName, sizeGB, fits}, from /v1/swarm/manifest
 ${ESC}
 ${FUENTE_EMBEBIDA}
 ${MODAL_JS}
 ${CONNECT_JS}
 
     // -------------------------------------------------------------------
-    // Onboarding: aparece solo si este gateway no se unio al swarm todavia.
+    // Onboarding: shows up only if this gateway hasn't joined the swarm yet.
     // -------------------------------------------------------------------
     function renderOnboarding(swarm) {
       swarmActive = !!swarm
@@ -1311,9 +1331,9 @@ ${CONNECT_JS}
     }
 
     // -------------------------------------------------------------------
-    // Detalle del nodo elegido. Se arma UNA vez por nodo y despues solo se
-    // actualizan los textos que cambian -- ver la nota vieja mas abajo sobre
-    // por que (el input de precio perdia lo que el usuario tipeaba).
+    // Chosen node's detail. Built ONCE per node and afterward only the
+    // texts that change get updated -- see the old note further down for
+    // why (the price input was losing what the user had typed).
     // -------------------------------------------------------------------
     function buildShell(n) {
       document.getElementById('detail').innerHTML = \`
@@ -1335,14 +1355,14 @@ ${CONNECT_JS}
       document.getElementById('save-pricing').addEventListener('click', saveFields)
       document.getElementById('toggle').addEventListener('click', toggleStatus)
       shellFor = n.id
-      mineFieldsBuiltFor = null // fuerza reconstruir el bloque "mine-fields" tambien
+      mineFieldsBuiltFor = null // also forces the "mine-fields" block to rebuild
     }
 
-    // Los campos que solo tienen sentido sobre TU PROPIO nodo P2P -- editarlos
-    // implica re-firmar el manifiesto con tu identidad, algo que no se puede
-    // hacer sobre el nodo de otro. Se arman aparte de buildShell() porque
-    // "es mio" puede cambiar sin que cambie el nodo elegido (ej. arrancaste
-    // --swarm recien).
+    // Fields that only make sense on YOUR OWN P2P node -- editing them
+    // means re-signing the manifest with your identity, something that
+    // can't be done on someone else's node. Built separately from
+    // buildShell() because "is mine" can change without the chosen node
+    // changing (e.g. you just started --swarm).
     let mineFieldsBuiltFor = null
 
     function buildMineFields() {

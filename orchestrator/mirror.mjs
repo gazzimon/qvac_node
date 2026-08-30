@@ -47,10 +47,19 @@ function normaliseRel(p) {
 // there yet is not an error. Directories in allowedFiles (trailing slash) are
 // left alone — clearing a whole subtree on every attempt is too blunt, and a
 // directory grant is rare.
-export function clearDeclaredPaths(workspace, ticket) {
+//
+// `keep` is the set of paths this ticket INHERITED from a dependency (see
+// `inheritedFiles` in split.mjs). Those are never cleared: clearing a path
+// this ticket created is right — it stops a stale file from a superseded
+// attempt lingering — but clearing one a dependency created would destroy
+// that dependency's work the moment this ticket's model fails to reproduce
+// it, turning "the edit did not happen" into "the original is gone".
+export function clearDeclaredPaths(workspace, ticket, { keep = [] } = {}) {
+  const keepSet = new Set(keep.map(normaliseRel))
   const cleared = []
   for (const decl of ticket.allowedFiles) {
     if (decl.endsWith('/')) continue
+    if (keepSet.has(normaliseRel(decl))) continue
     let abs
     try {
       abs = validateWrite(workspace, decl, ticket.allowedFiles)
@@ -74,7 +83,12 @@ export function clearDeclaredPaths(workspace, ticket) {
 // Returns { ok, written, rejected, mismatched, cleared }. `ok` is false — and
 // nothing is written — if any declared file fails its hash or a drive fetch
 // throws. Out-of-scope files go to `rejected` and do not block the rest.
-export async function applyResult(workspace, ticket, result, { fetchFromDrive = null } = {}) {
+export async function applyResult(
+  workspace,
+  ticket,
+  result,
+  { fetchFromDrive = null, keepPaths = [] } = {}
+) {
   const written = []
   const rejected = []
   const mismatched = []
@@ -141,7 +155,7 @@ export async function applyResult(workspace, ticket, result, { fetchFromDrive = 
   }
 
   // Phase 2: clear the declared paths, then lay down the verified bytes.
-  const cleared = clearDeclaredPaths(workspace, ticket)
+  const cleared = clearDeclaredPaths(workspace, ticket, { keep: keepPaths })
 
   for (const s of staged) {
     fs.mkdirSync(path.dirname(s.abs), { recursive: true })
