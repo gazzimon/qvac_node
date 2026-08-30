@@ -497,7 +497,7 @@ scheduled with the agentic layer.
 
 ---
 
-Design notes and the measured trade-offs behind each decision are in `NOTES.md`,
-`NOTES-SATURACION.md` and `ROADMAP_FASE7-X402.md`.
+Design notes and the measured trade-offs behind each decision are in `docs/NOTES.md`,
+`docs/NOTES-SATURACION.md` and `docs/roadmap/ROADMAP_FASE7-X402.md`.
 
 Apache-2.0 · gazzimon

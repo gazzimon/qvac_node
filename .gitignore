@@ -21,6 +21,7 @@ coverage/
 # ---- Orquestador (Hyperdrive del workspace, logs de corridas) ----
 .qvac/
 demo-build/
+logs/
 
 # ---- Pear / Hypercore / Hyperswarm (estado local del nodo) ----
 .pear/

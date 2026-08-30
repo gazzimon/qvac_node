@@ -7,7 +7,7 @@ en funcion de (a) cuantos tokens produce por segundo, (b) que fraccion del
 tiempo esta realmente produciendo, y (c) a cuanto se valora cada token.
 
 Todos los supuestos estan declarados arriba. Cambiar un valor y correr el
-script recalcula EVALUACION-DGX-SPARK.md entero.
+script recalcula docs/EVALUACION-DGX-SPARK.md entero.
 
 Uso: python scripts/eval-dgx-spark.py
 """

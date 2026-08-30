@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Recalcula todos los numeros de EVALUACION-ECONOMICA.md a partir de los
+Recalcula todos los numeros de docs/EVALUACION-ECONOMICA.md a partir de los
 supuestos declarados ahi. Cambiar un valor aca y correr el script reproduce
 la tabla correspondiente -- ningun numero del documento esta escrito a mano
 sin este script atras.
