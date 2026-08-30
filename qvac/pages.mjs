@@ -2180,14 +2180,15 @@ ${FUENTE_EMBEBIDA}
 )
 
 // ---------------------------------------------------------------------------
-// El chat. Es la pantalla que abre la app: preguntar primero, y la topologia
-// de la red -que nodo, que precio- como algo que se mira despues y no como el
-// paso previo obligatorio a poder escribir un prompt.
+// The chat. It's the screen the app opens to: ask first, with the network's
+// topology -which node, which price- as something looked at afterward and
+// not as the mandatory step before being able to type a prompt.
 // ---------------------------------------------------------------------------
 
-// String.raw: adentro viven regex con backslashes y, sin esto, el template
-// literal se los come al evaluar pages.mjs -- /\*\*/ llegaria al browser
-// como /**/. No lleva backticks ni interpolaciones justamente por eso.
+// String.raw: regexes with backslashes live inside, and without this the
+// template literal would eat them when pages.mjs gets evaluated -- /\*\*/
+// would reach the browser as /**/. It carries no backticks or
+// interpolations for exactly that reason.
 const CHAT_JS = String.raw`
     var msgs = []
     var nodes = []
@@ -2196,20 +2197,22 @@ const CHAT_JS = String.raw`
     var userPicked = false
     var skipped = sessionStorage.getItem('pyrus.skipGate') === '1'
 
-    // Backticks y sentinelas armados en runtime: este script viaja adentro de
-    // un template literal de pages.mjs, y un backtick suelto lo cierra al medio.
+    // Backticks and sentinels built at runtime: this script travels inside
+    // one of pages.mjs's template literals, and a loose backtick would
+    // close it in the middle.
     var BT = String.fromCharCode(96)
     var S = String.fromCharCode(1)
     var fenceRe = new RegExp(BT + BT + BT + '(\w*)\n?([\s\S]*?)' + BT + BT + BT, 'g')
     var codeRe = new RegExp(BT + '([^' + BT + '\n]+)' + BT, 'g')
     var slotRe = new RegExp(S + 'C(\d+)' + S, 'g')
 
-    // Markdown minimo, a mano. Sin CDN a proposito: estas paginas viajan como
-    // string adentro del binario standalone -- ver la nota de arriba del
-    // archivo-, y una dependencia externa no viaja con ellas.
+    // Minimal, hand-rolled markdown. No CDN on purpose: these pages travel
+    // as a string inside the standalone binary -- see the note at the top
+    // of the file --, and an external dependency doesn't travel with them.
     //
-    // Se escapa PRIMERO y se marca despues: al reves, cualquier respuesta del
-    // modelo con un "<script>" adentro seria HTML de verdad en la pagina.
+    // Escaped FIRST and marked up afterward: the other way around, any
+    // model response with a "<script>" inside would become real HTML on the
+    // page.
     function md(src) {
       var blocks = []
       var t = esc(src)
@@ -2255,19 +2258,20 @@ const CHAT_JS = String.raw`
       return nodes.filter(function (n) { return n.kind === 'real' })[0] || null
     }
 
-    // "Auto" = el mejor disponible. Nombra el MODELO y deja que el gateway
-    // elija la maquina: desde la fase 8 eso lo decide pickCandidate por carga,
-    // asi que Auto por fin significa algo. Antes se apoyaba en que
-    // findAllByModelId prefiriera al par, que era una preferencia de demo.
+    // "Auto" = the best one available. Names the MODEL and lets the gateway
+    // choose the machine: since Phase 8 that's decided by pickCandidate on
+    // load, so Auto finally means something. It used to rely on
+    // findAllByModelId preferring the peer, which was a demo preference.
     function autoModelId() {
       var p = peersOnline()[0]
       var l = localNode()
       return (p && p.modelId) || (l && l.modelId) || 'llama1b'
     }
 
-    // Todos los candidatos que se pueden fijar a mano, uno por MAQUINA y no
-    // por modelo. Antes se deduplicaba por modelId y dos pares sirviendo
-    // llama1b colapsaban en una sola opcion: no habia forma de elegir cual.
+    // Every candidate that can be pinned by hand, one per MACHINE and not
+    // per model. It used to deduplicate by modelId and two peers serving
+    // llama1b collapsed into a single option: there was no way to choose
+    // which.
     function fijables() {
       return nodes.filter(function (n) {
         return (
@@ -2277,7 +2281,7 @@ const CHAT_JS = String.raw`
       })
     }
 
-    // El nodo que quedo fijado desde /network ("Use this node").
+    // The node pinned from /network ("Use this node").
     function pinGuardado() {
       try { return sessionStorage.getItem('pyrus.pin') } catch (e) { return null }
     }
@@ -2286,10 +2290,10 @@ const CHAT_JS = String.raw`
       try {
         if (id) sessionStorage.setItem('pyrus.pin', id)
         else sessionStorage.removeItem('pyrus.pin')
-      } catch (e) { /* modo privado: el pin vive solo en el selector */ }
+      } catch (e) { /* private mode: the pin only lives in the selector */ }
     }
 
-    // -------------------------------------------------------------- la puerta
+    // -------------------------------------------------------------- the gate
     window.onAgent = function (a) {
       var gate = document.getElementById('gate')
       var chat = document.getElementById('chat')
@@ -2321,13 +2325,14 @@ const CHAT_JS = String.raw`
       btn.textContent = 'Joining the network...'
       try {
         await fetch('/v1/agent/launch', { method: 'POST' })
-      } catch (e) { /* el poll del chip repinta el estado real */ }
+      } catch (e) { /* the chip's poll repaints the real state */ }
       pollAgent()
     })
 
-    // Sigue existiendo una salida: el modelo propio no depende de la red, y un
-    // primer arranque que no deja producir un solo token contra la maquina que
-    // ya tenes adelante es una pared sin nada atras.
+    // There's still a way out: your own model doesn't depend on the
+    // network, and a first launch that doesn't let you produce a single
+    // token against the machine already in front of you is a wall with
+    // nothing behind it.
     document.getElementById('skip').addEventListener('click', function () {
       skipped = true
       sessionStorage.setItem('pyrus.skipGate', '1')
@@ -2335,19 +2340,19 @@ const CHAT_JS = String.raw`
       document.getElementById('prompt').focus()
     })
 
-    // ------------------------------------------------------------- opciones
-    // El selector tiene TRES modos, que son dos preguntas distintas:
-    // que modelo se quiere y en que maquina. Hasta ahora solo se podia
-    // contestar la primera.
+    // ------------------------------------------------------------- options
+    // The selector has THREE modes, which are two different questions:
+    // which model is wanted and on which machine. Until now only the first
+    // could be answered.
     //
-    //   local        -> esta maquina, y nada sale de aca   (local:true)
-    //   auto         -> el mejor disponible, decide el gateway por carga
-    //   node:<id>    -> una maquina concreta                (node:<id>)
+    //   local        -> this machine, and nothing leaves it   (local:true)
+    //   auto         -> the best one available, the gateway decides by load
+    //   node:<id>    -> a specific machine                    (node:<id>)
     //
-    // El checkbox "Local only" se absorbio en la primera opcion. Existiendo
-    // los dos por separado se podian contradecir -- elegir el modelo de un par
-    // Y tildar local only daba 404, porque el gateway filtra los pares
-    // despues de elegir.
+    // The "Local only" checkbox got absorbed into the first option. With
+    // both existing separately they could contradict each other -- picking
+    // a peer's model AND checking local only gave a 404, because the
+    // gateway filters peers out after choosing.
     function paintOptions() {
       var sel = document.getElementById('model')
       var vivo = agentLive()
@@ -2360,8 +2365,8 @@ const CHAT_JS = String.raw`
       }
       opts.push('<option value="auto"' + (vivo ? '' : ' disabled') + '>Auto - best available node</option>')
 
-      // Una opcion por MAQUINA, con su carga: es lo que hace posible elegir
-      // entre dos pares que sirven el mismo modelo.
+      // One option per MACHINE, with its load: this is what makes it
+      // possible to choose between two peers serving the same model.
       var lista = fijables()
       if (lista.length) {
         opts.push('<optgroup label="Specific node">')
@@ -2382,25 +2387,26 @@ const CHAT_JS = String.raw`
         if (sel.options[i].value === elegido && !sel.options[i].disabled) sigue = true
       }
 
-      // Un pin que llego desde /network manda sobre el default, pero solo si
-      // ese nodo sigue estando: si se fue, se cae a Auto y se limpia, en vez
-      // de dejar el selector apuntando a un fantasma.
+      // A pin that arrived from /network overrides the default, but only if
+      // that node is still around: if it's gone, it falls back to Auto and
+      // gets cleared, instead of leaving the selector pointing at a ghost.
       var pin = pinGuardado()
       if (pin && !sigue) {
         var vivoPin = false
         for (var j = 0; j < sel.options.length; j++) {
           if (sel.options[j].value === 'node:' + pin) vivoPin = true
         }
-        // Solo se descarta un pin cuando SABEMOS que el nodo no esta: con la
-        // grilla todavia vacia -- el primer pintado ocurre antes de que
-        // conteste /v1/nodes -- ningun pin figura, y borrarlo ahi tiraba
-        // siempre el que acababa de llegar desde /network.
+        // A pin only gets discarded when we KNOW the node isn't there: with
+        // the grid still empty -- the first paint happens before /v1/nodes
+        // answers -- no pin shows up, and clearing it there would always
+        // throw away the one that had just arrived from /network.
         if (!vivoPin && lista.length) { guardarPin(null); pin = null }
       }
 
-      // Si nadie eligio a mano, Auto gana apenas queda disponible: antes el
-      // nodo se ponia vivo y el selector seguia clavado en el modelo local
-      // porque era la unica opcion valida cuando se pinto la primera vez.
+      // If nobody chose by hand, Auto wins as soon as it becomes available:
+      // it used to be that the node went live and the selector stayed stuck
+      // on the local model because it was the only valid option when it was
+      // first painted.
       if (sigue) sel.value = elegido
       else if (pin) sel.value = 'node:' + pin
       else if (!userPicked && vivo) sel.value = 'auto'
@@ -2419,7 +2425,7 @@ const CHAT_JS = String.raw`
       }
     }
 
-    // Traduce el modo del selector a los tres campos del request.
+    // Translates the selector's mode into the request's three fields.
     function destino() {
       var v = document.getElementById('model').value
       if (v === 'local') {
@@ -2434,7 +2440,7 @@ const CHAT_JS = String.raw`
       return { model: autoModelId(), local: false, node: null }
     }
 
-    // --------------------------------------------------------------- el hilo
+    // --------------------------------------------------------------- the thread
     function render() {
       var el = document.getElementById('thread')
       if (!msgs.length) {
@@ -2450,16 +2456,17 @@ const CHAT_JS = String.raw`
           '<div class="who">' + quien + '</div>' +
           '<div class="' + clase + '">' + cuerpo + '</div>' +
           (m.meta ? prov(m.meta) : '') +
-          // FASE 9 — el desafio y el recibo van PEGADOS al turno que los
-          // produjo. En una pestaña aparte serian dos artefactos sueltos que
-          // hay que correlacionar a mano; aca la evidencia esta al lado de la
-          // respuesta sobre la que habla.
+          // PHASE 9 — the challenge and the receipt stay ATTACHED to the
+          // turn that produced them. On a separate tab they'd be two loose
+          // artifacts that need correlating by hand; here the evidence sits
+          // right next to the response it talks about.
           //
-          // El outputHash se recomputa contra m.content, que es exactamente
-          // el texto que este navegador acumulo delta a delta. Ese es el punto
-          // entero de D24: el hash es del TEXTO y no depende del troceo, asi
-          // que compararlo aca comprueba de verdad que lo atestiguado es lo que
-          // se recibio -- no que dos campos del mismo JSON coincidan.
+          // outputHash gets recomputed against m.content, which is exactly
+          // the text this browser accumulated delta by delta. That's D24's
+          // entire point: the hash is over the TEXT and doesn't depend on
+          // chunking, so comparing it here genuinely proves what's attested
+          // to is what was received -- not that two fields of the same JSON
+          // match.
           (m.x402 ? htmlDeDesafio(m.x402) : '') +
           (m.recibo
             ? htmlDeRecibo(m.recibo, { textoRecibido: m.content, messages: m.enviado })
@@ -2469,46 +2476,46 @@ const CHAT_JS = String.raw`
       el.scrollTop = el.scrollHeight
     }
 
-    // La linea de procedencia. Es lo que separa a esto de cualquier otro chat:
-    // el nodo que contesto sale nombrado, no supuesto.
+    // The provenance line. It's what sets this apart from any other chat:
+    // the node that answered is named, not assumed.
     function prov(m) {
-      // El que decide es scope (header X-Pyrus-Scope), no el kind: un
-      // upstream puede ser un tercero o un motor propio detras de HTTP, y la
-      // diferencia es justamente la que esta linea existe para declarar.
+      // What decides is scope (the X-Pyrus-Scope header), not kind: an
+      // upstream can be a third party or an engine of our own behind HTTP,
+      // and that difference is exactly what this line exists to declare.
       var afuera = m.scope === 'external'
       var clase = m.kind === 'peer' ? 'peer' : afuera ? 'upstream' : 'local'
-      // "(this machine)" es una afirmacion, no un adorno: colgarsela a una API
-      // de terceros diria que el prompt no salio de aca cuando salio. Y al
-      // reves, ponerle "(external API)" a un llama-server de localhost seria
-      // acusar de una fuga que no hubo.
+      // "(this machine)" is a claim, not decoration: hanging it on a third
+      // party's API would say the prompt didn't leave here when it did. And
+      // the other way around, putting "(external API)" on a localhost
+      // llama-server would accuse it of a leak that never happened.
       var quien =
         m.kind === 'peer'
           ? m.operator
           : afuera
             ? m.operator + ' (external API)'
             : m.operator + ' (this machine)'
-      // Cada parte en su propio span: unidas en un solo nodo de texto, el gap
-      // del flex no aplica y se leia "18150ms1 tok/s20.2s".
+      // Each part in its own span: joined into a single text node, the
+      // flex's gap doesn't apply and it read as "18150ms1 tok/s20.2s".
       var partes = ['<span class="' + clase + '">' + esc(quien) + '</span>']
       if (m.ttft !== null) partes.push('<span>first token ' + m.ttft + 'ms</span>')
       if (m.tps) partes.push('<span>' + m.tps + ' tok/s</span>')
       partes.push('<span>' + m.secs + 's total</span>')
-      // El costo va SIEMPRE, incluido el cero, y el cero se escribe con
-      // palabras. "USD 0.0000" se lee como "salio muy barato" y no es eso: es
-      // que a nadie se le cobra, porque el pago P2P todavia no existe. Y
-      // "up to" tampoco es un adorno: este numero es el techo con el que se
-      // autorizo el gasto, no lo que termino saliendo.
+      // Cost is ALWAYS shown, zero included, and zero is spelled out in
+      // words. "USD 0.0000" reads as "it came out really cheap," and that's
+      // not it: it's that nobody gets charged, because P2P payment doesn't
+      // exist yet. And "up to" isn't decoration either: this number is the
+      // cap the spend was authorized with, not what it actually came out to.
       //
-      // El texto lo arma textoDeCostoEstimado, en panel-x402.mjs, y no una
-      // funcion de aca: es la MISMA regla que aplican las vistas nuevas de la
-      // Fase 9, y con dos implementaciones una de las dos se afloja sola. Los
-      // seis decimales viven ahi por la misma razon de siempre -- con cuatro,
-      // un turno de menos de 50 micros se muestra "USD 0.0000", identico a
-      // gratis, que es justo la distincion que esta linea existe para hacer.
+      // The text is built by textoDeCostoEstimado, in panel-x402.mjs, and
+      // not by a function here: it's the SAME rule Phase 9's new views
+      // apply, and with two implementations one of the two drifts on its
+      // own. The six decimals live there for the usual reason -- with four,
+      // a turn under 50 micros shows as "USD 0.0000," identical to free,
+      // which is exactly the distinction this line exists to make.
       //
-      // Un turno VIEJO, sin el campo, no dibuja nada: decirle "no charge" seria
-      // afirmar que fue gratis cuando lo unico cierto es que no se registro.
-      if (m.cost === undefined || m.cost === null) { /* turno viejo, sin el dato */ }
+      // An OLD turn, with no field, draws nothing: saying "no charge" would
+      // claim it was free when the only truth is that it wasn't recorded.
+      if (m.cost === undefined || m.cost === null) { /* old turn, no data */ }
       else partes.push('<span class="cost">' + esc(textoDeCostoEstimado(m.cost).texto) + '</span>')
       return '<div class="prov">' + partes.join('') + '</div>'
     }
@@ -2528,11 +2535,11 @@ const CHAT_JS = String.raw`
       var dest = destino()
 
       msgs.push({ role: 'user', content: texto })
-      // x402 y recibo arrancan nulos y casi siempre se quedan asi: solo
-      // existen cuando el request paso por el camino de pago. enviado guarda
-      // los mensajes TAL CUAL viajaron, que es contra lo que se recomputa el
-      // promptHash de la atestacion -- el hash es sobre la conversacion entera
-      // canonicalizada, no sobre el ultimo turno.
+      // x402 and recibo start null and almost always stay that way: they
+      // only exist when the request went through the payment path. enviado
+      // stores the messages EXACTLY as they traveled, which is what the
+      // attestation's promptHash gets recomputed against -- the hash is
+      // over the whole canonicalized conversation, not the last turn.
       var slot = {
         role: 'assistant',
         content: '',
@@ -2555,8 +2562,8 @@ const CHAT_JS = String.raw`
       ctrl = new AbortController()
 
       try {
-        // El historial COMPLETO, menos el slot vacio que se esta llenando. Sin
-        // esto cada turno arrancaba de cero y el modelo no recordaba nada.
+        // The FULL history, minus the empty slot being filled. Without this
+        // every turn started from scratch and the model remembered nothing.
         var historial = msgs.filter(function (m) { return !m.streaming }).map(function (m) {
           return { role: m.role, content: m.content }
         })
@@ -2571,9 +2578,9 @@ const CHAT_JS = String.raw`
             messages: historial,
             stream: true,
             local: dest.local,
-            // El campo node solo viaja cuando el usuario fijo una maquina: mandarlo
-            // en null en todos los requests ensuciaria el contrato para los
-            // clientes que nunca lo usan.
+            // The node field only travels when the user pinned a machine:
+            // sending it null on every request would dirty the contract
+            // for clients that never use it.
             node: dest.node || undefined
           })
         })
@@ -2584,21 +2591,23 @@ const CHAT_JS = String.raw`
           try {
             b = await resp.json()
             if (b && b.error && b.error.message) msj = b.error.message
-          } catch (e) { /* el cuerpo no era JSON: queda el status */ }
+          } catch (e) { /* the body wasn't JSON: the status stays */ }
 
-          // FASE 9 — un 402 con accepts[] NO es un error de texto: es el nodo
-          // diciendo cuanto cobra, a quien, en que red y hasta cuantos tokens.
-          // Aplanarlo a "[error] HTTP 402" tiraba los cuatro datos que el DoD
-          // de la fase le exige al desafio.
+          // PHASE 9 — a 402 with accepts[] is NOT a plain-text error: it's
+          // the node saying how much it charges, to whom, on which network,
+          // and up to how many tokens. Flattening it to "[error] HTTP 402"
+          // threw away the four pieces of data the phase's DoD requires the
+          // challenge to carry.
           //
-          // Se llega aca cuando el request sale SIN credencial valida contra un
-          // nodo con wallet: la key del panel revocada desde /node, o el
-          // bootstrap de /v1/keys/panel que no contesto. Es el mismo 402 que ve
-          // un desconocido con curl, y ahora se lee igual.
+          // This gets reached when the request goes out with NO valid
+          // credential against a node with a wallet: the panel's key
+          // revoked from /node, or a /v1/keys/panel bootstrap that didn't
+          // answer. It's the same 402 a stranger with curl sees, and now it
+          // reads the same.
           //
-          // El otro 402 que existe -- presupuesto agotado (B13) -- no trae
-          // accepts y sigue por el camino de texto, que para ese caso es el
-          // correcto: no hay nada que pagar, hay un tope que se toco.
+          // The other 402 that exists -- budget exhausted (B13) -- carries
+          // no accepts and goes down the plain-text path, which is correct
+          // for that case: there's nothing to pay, a cap got hit.
           var vistaDesafio = vistaDeDesafio(b)
           if (resp.status === 402 && vistaDesafio.esDesafio) {
             slot.x402 = vistaDesafio
@@ -2610,14 +2619,15 @@ const CHAT_JS = String.raw`
           return
         }
 
-        // Quien contesto viaja en headers, no en el cuerpo: ver
-        // provenanceHeaders() en gateway.mjs.
+        // Who answered travels in headers, not in the body: see
+        // provenanceHeaders() in gateway.mjs.
         var operador = decodeURIComponent(resp.headers.get('X-Pyrus-Operator') || '') || 'unknown node'
         var tipo = resp.headers.get('X-Pyrus-Kind') || 'real'
         var alcance = resp.headers.get('X-Pyrus-Scope') || 'local'
-        // FASE 8 — lo que este turno puede llegar a costar. Es el TECHO con el
-        // que se autorizo el gasto, no lo que salio: en SSE los headers salen
-        // antes del primer token, asi que el real todavia no existe.
+        // PHASE 8 — what this turn might end up costing. It's the CAP the
+        // spend was authorized with, not what it came out to: in SSE the
+        // headers go out before the first token, so the real one doesn't
+        // exist yet.
         var costo = parseInt(resp.headers.get('X-Pyrus-Cost-Estimate-Micros') || '0', 10) || 0
 
         var reader = resp.body.getReader()
@@ -2639,15 +2649,15 @@ const CHAT_JS = String.raw`
               slot.content += '\n[error] ' + (ev.error.message || ev.error)
               continue
             }
-            // FASE 9 / D12 — el recibo viaja como EVENTO SSE FINAL y no en
-            // X-PAYMENT-RESPONSE, porque con stream los headers ya salieron
-            // antes del primer token. Se reconoce por paymentResponse, que es
-            // la clave que el gateway le cuelga; no es un chunk de completion y
-            // no tiene choices.
+            // PHASE 9 / D12 — the receipt travels as a FINAL SSE EVENT and
+            // not in X-PAYMENT-RESPONSE, because with streaming the headers
+            // already went out before the first token. Recognized by
+            // paymentResponse, the key the gateway attaches to it; it's not
+            // a completion chunk and has no choices.
             //
-            // Se guarda entero (recibo + atestacion + el motivo cuando falta) y
-            // se dibuja abajo de la respuesta. receiptUrl queda para poder
-            // volver a mirarlo desde /node despues.
+            // Stored whole (receipt + attestation + the reason when it's
+            // missing) and drawn below the response. receiptUrl stays
+            // around so it can be looked up again from /node later.
             if (ev.paymentResponse || ev.attestation || ev.attestationMissing) {
               slot.recibo = ev
               continue
@@ -2689,7 +2699,7 @@ const CHAT_JS = String.raw`
     function save() {
       try {
         sessionStorage.setItem('pyrus.chat', JSON.stringify(msgs.slice(-40)))
-      } catch (e) { /* sin storage el chat anda igual, solo no sobrevive al reload */ }
+      } catch (e) { /* with no storage the chat still works, it just doesn't survive a reload */ }
     }
 
     function load() {
@@ -2705,8 +2715,9 @@ const CHAT_JS = String.raw`
     })
     document.getElementById('model').addEventListener('change', function () {
       userPicked = true
-      // Elegir a mano descarta el pin que venia de /network: el selector es la
-      // ultima palabra, si no el chip diria una cosa y el request haria otra.
+      // Choosing by hand discards the pin that came from /network: the
+      // selector is the last word, otherwise the chip would say one thing
+      // and the request would do another.
       if (this.value.indexOf('node:') !== 0) guardarPin(null)
       else guardarPin(this.value.slice(5))
       paintOptions()
@@ -2739,20 +2750,20 @@ const CHAT_JS = String.raw`
     }
 
     // ======================================================================
-    // Paleta de acciones (Ctrl+K) y menu "+" del composer.
+    // Action palette (Ctrl+K) and the composer's "+" menu.
     //
-    // La mitad de estas acciones estan CABLEADAS contra endpoints que ya
-    // existen; la otra mitad es forma sin fondo todavia. Las segundas llevan
-    // una etiqueta MOCK visible, no solo un comentario: un control que parece
-    // funcionar y no hace nada es peor que uno ausente, porque el que lo toca
-    // se queda creyendo que ya lo configuro.
+    // Half of these actions are WIRED to endpoints that already exist; the
+    // other half is form with no substance yet. The second kind carries a
+    // visible MOCK label, not just a comment: a control that looks like it
+    // works and does nothing is worse than an absent one, because whoever
+    // touches it walks away thinking they already configured it.
     // ======================================================================
 
     var opciones = { thinking: false, esfuerzo: 2, rapido: false, cambiarSiFlag: false, modo: 'auto' }
     try {
       var guardadas = JSON.parse(sessionStorage.getItem('pyrus.opts') || 'null')
       if (guardadas) opciones = Object.assign(opciones, guardadas)
-    } catch (e) { /* sin sesion, quedan los defaults */ }
+    } catch (e) { /* no session, defaults stay */ }
 
     function guardarOpts() {
       try { sessionStorage.setItem('pyrus.opts', JSON.stringify(opciones)) } catch (e) {}
