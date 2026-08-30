@@ -2798,14 +2798,14 @@ const CHAT_JS = String.raw`
 
     var NIVELES = ['Minimal', 'Low', 'Medium', 'High', 'Max']
 
-    // Cada accion declara si esta cableada. mock:true pinta la etiqueta.
+    // Every action declares whether it's wired up. mock:true paints the label.
     function acciones() {
       return [
-        { g: 'Context', t: 'Attach file...', d: 'Sube al drive de este nodo e inserta su nombre', f: adjuntarArchivo },
-        { g: 'Context', t: 'Mention file from this node...', d: 'Lista lo que este nodo publica', f: mencionarArchivo },
+        { g: 'Context', t: 'Attach file...', d: 'Uploads to this node\\'s drive and inserts its name', f: adjuntarArchivo },
+        { g: 'Context', t: 'Mention file from this node...', d: 'Lists what this node publishes', f: mencionarArchivo },
         { g: 'Context', t: 'Clear conversation', f: function () { document.getElementById('new').click() } },
-        { g: 'Context', t: 'Rewind', d: 'Deshace el ultimo intercambio', f: rebobinar, off: msgs.length < 2 },
-        { g: 'Context', t: 'Browse the web', mock: true, d: 'No hay herramienta de web todavia' },
+        { g: 'Context', t: 'Rewind', d: 'Undoes the last exchange', f: rebobinar, off: msgs.length < 2 },
+        { g: 'Context', t: 'Browse the web', mock: true, d: 'No web tool yet' },
 
         { g: 'Model', t: 'Switch model...', v: etiquetaModelo(), f: function () {
           cerrarPal()
@@ -2816,22 +2816,22 @@ const CHAT_JS = String.raw`
         { g: 'Model', t: 'Effort', v: NIVELES[opciones.esfuerzo], extra: escalon(opciones.esfuerzo), mock: true,
           f: function () { opciones.esfuerzo = (opciones.esfuerzo + 1) % 5; guardarOpts(); repintarPal() } },
         { g: 'Model', t: 'Thinking', extra: interruptor(opciones.thinking), mock: true,
-          d: 'Medido: prenderlo en nemotron-3.5 cuesta 100x tokens. El toggle todavia no viaja al upstream',
+          d: 'Measured: turning it on in nemotron-3.5 costs 100x tokens. The toggle does not reach the upstream yet',
           f: function () { opciones.thinking = !opciones.thinking; guardarOpts(); repintarPal() } },
         { g: 'Model', t: 'Switch models when a message is flagged', extra: interruptor(opciones.cambiarSiFlag), mock: true,
           f: function () { opciones.cambiarSiFlag = !opciones.cambiarSiFlag; guardarOpts(); repintarPal() } },
         { g: 'Model', t: 'Toggle fast mode', extra: interruptor(opciones.rapido), mock: true,
           f: function () { opciones.rapido = !opciones.rapido; guardarOpts(); repintarPal() } },
-        { g: 'Model', t: 'Account & usage...', d: 'Gasto y cuota reales de este nodo', f: verCuenta },
+        { g: 'Model', t: 'Account & usage...', d: 'This node\\'s real spend and quota', f: verCuenta },
 
-        { g: 'Modes', t: 'Manual', d: 'Pide aprobacion antes de cada accion', mock: true,
-          v: opciones.modo === 'manual' ? 'activo' : '',
+        { g: 'Modes', t: 'Manual', d: 'Asks for approval before every action', mock: true,
+          v: opciones.modo === 'manual' ? 'active' : '',
           f: function () { opciones.modo = 'manual'; guardarOpts(); repintarPal() } },
-        { g: 'Modes', t: 'Plan', d: 'Explora y propone antes de tocar nada', mock: true,
-          v: opciones.modo === 'plan' ? 'activo' : '',
+        { g: 'Modes', t: 'Plan', d: 'Explores and proposes before touching anything', mock: true,
+          v: opciones.modo === 'plan' ? 'active' : '',
           f: function () { opciones.modo = 'plan'; guardarOpts(); repintarPal() } },
-        { g: 'Modes', t: 'Auto', d: 'Aprueba lo seguro y frena en lo riesgoso', mock: true,
-          v: opciones.modo === 'auto' ? 'activo' : '',
+        { g: 'Modes', t: 'Auto', d: 'Approves what is safe and stops on what is risky', mock: true,
+          v: opciones.modo === 'auto' ? 'active' : '',
           f: function () { opciones.modo = 'auto'; guardarOpts(); repintarPal() } }
       ]
     }
@@ -2843,12 +2843,12 @@ const CHAT_JS = String.raw`
       return t.length > 34 ? t.slice(0, 33) + '…' : t
     }
 
-    // ---------------------------------------------------- acciones reales
+    // ---------------------------------------------------- real actions
 
     function rebobinar() {
-      // Se saca el ultimo par usuario/asistente. Es local y exacto: el
-      // historial COMPLETO se manda en cada request, asi que deshacerlo aca
-      // deshace de verdad lo que el modelo va a ver en el turno siguiente.
+      // Removes the last user/assistant pair. Local and exact: the FULL
+      // history is sent on every request, so undoing it here genuinely
+      // undoes what the model is going to see on the next turn.
       cerrarPal()
       while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
       if (msgs.length) msgs.pop()
@@ -2858,7 +2858,7 @@ const CHAT_JS = String.raw`
 
     async function verCuenta() {
       cerrarPal()
-      abrirModal('Account & usage', '<p class="hint">Cargando...</p>')
+      abrirModal('Account & usage', '<p class="hint">Loading...</p>')
       try {
         var res = await Promise.all([
           authFetch('/v1/budget').then(function (x) { return x.json() }),
@@ -2867,29 +2867,29 @@ const CHAT_JS = String.raw`
         var b = res[0]
         var q = res[1]
         abrirModal('Account & usage',
-          '<p class="sub">Numeros reales de este nodo, no un ejemplo.</p>' +
-          '<h4 style="margin:.6rem 0 .3rem">Gasto en APIs externas (' + esc(b.period || '') + ')</h4>' +
-          '<p>Gastado <b>' + esc(b.spent || '-') + '</b> de un tope de <b>' + esc(b.cap || '-') +
-          '</b> &middot; queda ' + esc(b.remaining || '-') + '</p>' +
-          '<h4 style="margin:.9rem 0 .3rem">Cuota que este nodo REGALA a sus pares</h4>' +
-          '<p><b>' + esc(String(q.given_tokens != null ? q.given_tokens : 0)) + '</b> tokens entregados &middot; ' +
-          esc(String(q.quota_tokens || 0)) + ' por par cada ' + esc(String(q.window_hours || 0)) + ' h &middot; ' +
-          esc(String((q.peers || []).length)) + ' par(es) consumiendo</p>')
+          '<p class="sub">This node\\'s real numbers, not an example.</p>' +
+          '<h4 style="margin:.6rem 0 .3rem">External API spend (' + esc(b.period || '') + ')</h4>' +
+          '<p>Spent <b>' + esc(b.spent || '-') + '</b> of a cap of <b>' + esc(b.cap || '-') +
+          '</b> &middot; ' + esc(b.remaining || '-') + ' left</p>' +
+          '<h4 style="margin:.9rem 0 .3rem">Quota this node GIVES AWAY to its peers</h4>' +
+          '<p><b>' + esc(String(q.given_tokens != null ? q.given_tokens : 0)) + '</b> tokens given &middot; ' +
+          esc(String(q.quota_tokens || 0)) + ' per peer every ' + esc(String(q.window_hours || 0)) + ' h &middot; ' +
+          esc(String((q.peers || []).length)) + ' peer(s) consuming</p>')
       } catch (e) {
-        abrirModal('Account & usage', '<p class="hint">No se pudo leer: ' + esc(e.message) + '</p>')
+        abrirModal('Account & usage', '<p class="hint">Could not read: ' + esc(e.message) + '</p>')
       }
     }
 
     async function mencionarArchivo() {
       cerrarPal()
-      abrirModal('Mention a file', '<p class="hint">Leyendo el drive de este nodo...</p>')
+      abrirModal('Mention a file', '<p class="hint">Reading this node\\'s drive...</p>')
       try {
         var res = await authFetch('/v1/files')
         var j = await res.json()
         var fs = j.files || []
         if (!fs.length) {
-          abrirModal('Mention a file', '<p class="hint">Este nodo no publica ningun archivo todavia. ' +
-            'Subi uno con "Attach file" o desde <a href="/node">my node</a>.</p>')
+          abrirModal('Mention a file', '<p class="hint">This node does not publish any files yet. ' +
+            'Upload one with "Attach file" or from <a href="/node">my node</a>.</p>')
           return
         }
         abrirModal('Mention a file', '<div class="pal-lista">' + fs.map(function (f) {
@@ -2907,7 +2907,7 @@ const CHAT_JS = String.raw`
           })
         })
       } catch (e) {
-        abrirModal('Mention a file', '<p class="hint">No se pudo listar: ' + esc(e.message) + '</p>')
+        abrirModal('Mention a file', '<p class="hint">Could not list: ' + esc(e.message) + '</p>')
       }
     }
 
@@ -2918,13 +2918,14 @@ const CHAT_JS = String.raw`
       inp.addEventListener('change', async function () {
         var f = inp.files && inp.files[0]
         if (!f) return
-        adjuntos.push({ nombre: f.name + ' (subiendo...)' })
+        adjuntos.push({ nombre: f.name + ' (uploading...)' })
         pintarAdjuntos()
         var i = adjuntos.length - 1
         try {
-          // Sube DE VERDAD al Hyperdrive de este nodo. Lo que no existe es un
-          // modelo que lea el archivo: por eso se inserta el nombre en el
-          // prompt y no se manda el binario al chat.
+          // Uploads FOR REAL to this node's Hyperdrive. What doesn't exist
+          // is a model that reads the file: that's why the name gets
+          // inserted into the prompt instead of sending the binary to the
+          // chat.
           var res = await authFetch('/v1/files/upload?name=' + encodeURIComponent(f.name), {
             method: 'POST',
             body: f
@@ -2934,14 +2935,14 @@ const CHAT_JS = String.raw`
           var ta = document.getElementById('prompt')
           ta.value = (ta.value ? ta.value + ' ' : '') + '@' + f.name
         } catch (e) {
-          adjuntos[i] = { nombre: f.name + ' (fallo)' }
+          adjuntos[i] = { nombre: f.name + ' (failed)' }
         }
         pintarAdjuntos()
       })
       inp.click()
     }
 
-    // ------------------------------------------------------------ la paleta
+    // ------------------------------------------------------------ the palette
 
     var palAbierta = false
     var palFiltro = ''
@@ -2971,7 +2972,7 @@ const CHAT_JS = String.raw`
           (a.mock ? '<span class="mock">mock</span>' : '') +
           (a.extra || '') + '</span></button>'
       })
-      if (!html) html = '<div class="pal-vacio">Nada coincide con ese filtro.</div>'
+      if (!html) html = '<div class="pal-vacio">Nothing matches that filter.</div>'
 
       document.getElementById('pal-lista').innerHTML = html
       document.querySelectorAll('#pal-lista .pal-item').forEach(function (b) {
@@ -2990,8 +2991,8 @@ const CHAT_JS = String.raw`
         '<div class="pal-overlay" id="pal-ov"><div class="pal">' +
         '<input class="filtro" id="pal-filtro" placeholder="Filter actions..." autocomplete="off">' +
         '<div class="pal-lista" id="pal-lista"></div>' +
-        '<div class="pal-pie">Enter para ejecutar &middot; Esc para cerrar &middot; ' +
-        'lo marcado <b>mock</b> todavia no hace nada</div></div></div>'
+        '<div class="pal-pie">Enter to run &middot; Esc to close &middot; ' +
+        'anything marked <b>mock</b> does not do anything yet</div></div></div>'
       repintarPal()
       var inp = document.getElementById('pal-filtro')
       inp.focus()
@@ -3039,7 +3040,7 @@ const CHAT_JS = String.raw`
       }
     })
 
-    // --------------------------------------------------------- el menu "+"
+    // --------------------------------------------------------- the "+" menu
 
     document.getElementById('mas').addEventListener('click', function (ev) {
       ev.stopPropagation()
