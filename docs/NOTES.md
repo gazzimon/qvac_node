@@ -1172,3 +1172,67 @@ no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA
 
 Cada uso pasa por el mismo gate de autorización que cualquier otro comando de
 Bash — no es acceso sin supervisión, es evitar el copy-paste manual.
+
+---
+
+## Dos olas sobre un mismo archivo, contra la K16 (30/8/2026)
+
+Primera corrida cross-machine que ejercita **edición entre olas**: un
+`requirements.md` donde `extend` (ola 2) declara el MISMO `src/calc.js` que
+`base` (ola 1) creó, con `Depends on: base`. Bajo la regla vieja
+(`detectOverlap`) este requirements se rechazaba de entrada.
+
+Gateway y worker en la K16 con `qwen8b` (25 GB de RAM, el modelo entra
+holgado); coordinador en la Windows. Gate seedeado por el autor: exige `add`
+Y `mul` en el archivo final.
+
+### Lo que salió bien
+
+Ola 1 escribió `add`, el contexto se re-publicó (v3 → v4), y el worker de la
+ola 2 recibió el archivo como **material a editar** (no como contexto de
+referencia) y devolvió el archivo completo con `add` intacto más `mul`. CI
+verde. La edición sin diffs funciona: 1374 tokens, dos inferencias.
+
+### El bug que solo aparece con dos olas
+
+`base` quedó `ci-failed` en la ola 1 — correctamente, porque el gate pide
+`mul` y en ese momento no existía. En la corrida siguiente ese veredicto ya
+estaba **obsoleto**: `extend` había arreglado el archivo. Pero el coordinador
+lo reasignó igual, y el modelo de `base` —cuyo spec no menciona `mul`—
+devolvió el archivo entero con solo `add`, **sobrescribiendo el trabajo de
+`extend`, que ya figuraba `done`**. CI volvió a rojo, y `base` no podía pasar
+nunca por sí solo: habría repetido la destrucción cada noche hasta el techo de
+reintentos.
+
+Pérdida silenciosa de trabajo ya aprobado. No lo detectó ninguno de los 16
+suites: hizo falta correr dos olas contra un modelo real.
+
+**El arreglo, verificado en vivo:** antes de gastar una inferencia en
+reintentar un ticket que ya entregó, se vuelve a correr el gate. Cuesta menos
+de un segundo contra una generación de 30-100 s. En la segunda pasada:
+
+```
+[coord] re-running CI before retrying 1 ticket(s) that already delivered
+[coord] base: CI green on re-check — closed without reassigning
+[coord] summary: 2/2 closed, 1374 tokens
+```
+
+`tokens_this_run=0` — cerró sin pedirle nada al modelo, y `mul` sobrevivió.
+Esto también resuelve la carrera `sum`/`mul` documentada más arriba, que hasta
+ahora se "arreglaba" gastando una inferencia de más.
+
+Si el gate sigue rojo, reasignar un ticket que comparte archivo con un
+dependiente ya cerrado se **bloquea** y escala a un humano, en vez de destruir.
+La invalidación en cascada (rehacer también el dependiente) es la respuesta
+completa y **no está construida**.
+
+### Operación
+
+- El `pkill -f 'bare bin.mjs'` NO mató el gateway; hubo que matarlo por PID.
+  No hay units de systemd en esta máquina (contra lo que decía una nota
+  anterior): el proceso colgaba de un `bash -c` huérfano de un ssh previo.
+- El registry de QVAC no contesta mientras el gateway corre (tiene el lock).
+  Para consultar qué modelos existen hay que pararlo — por eso no se pudo
+  verificar si `Qwen2.5-Coder-7B/14B` están disponibles. El catálogo del repo
+  (`qvac/models.mjs`) no los tiene; el único code-specialized es
+  `katcoder35b` (19.9 GB, entra pero justo, sin calificar todavía).
