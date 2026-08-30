@@ -3877,7 +3877,7 @@ test('D30.2: the two network tables cannot drift out of sync', async (t) => {
   t.ok(redes.porQueNoSeEstrena(9745), 'and 9745 is still mainnet on both sides')
 })
 
-test('D30.3: el activo de prueba existe compilado, y es EIP-3009 de verdad', async (t) => {
+test('D30.3: the test asset exists compiled, and is real EIP-3009', async (t) => {
   const fs = require('bare-fs')
   const path = require('bare-path')
   const sodium = require('sodium-native')
@@ -3888,173 +3888,178 @@ test('D30.3: el activo de prueba existe compilado, y es EIP-3009 de verdad', asy
     fs.readFileSync(path.join(raiz, 'scripts', 'activo-prueba.artefacto.json'), 'utf8')
   )
 
-  // EL ARTEFACTO CORRESPONDE A LA FUENTE QUE ESTA AL LADO.
+  // THE ARTIFACT MATCHES THE SOURCE SITTING RIGHT NEXT TO IT.
   //
-  // Se despliega bytecode precompilado para que el repo no gane un toolchain, y
-  // el precio de esa decision es que recompilar no es `npm run` de nada. Sin
-  // este assert, alguien edita el .sol, no recompila, y lo que se despliega deja
-  // de ser lo que se lee -- que es la peor version de "hay codigo en el repo".
+  // Precompiled bytecode gets deployed so the repo doesn't gain a toolchain,
+  // and the price of that decision is that recompiling isn't `npm run`
+  // anything. Without this assert, someone edits the .sol, doesn't
+  // recompile, and what gets deployed stops being what gets read -- which
+  // is the worst version of "there's code in the repo".
   const h = Buffer.alloc(sodium.crypto_hash_sha256_BYTES)
   sodium.crypto_hash_sha256(h, Buffer.from(fuente, 'utf8'))
   t.is(
     h.toString('hex'),
     artefacto.fuenteSha256,
-    'el bytecode se compilo de ESTA fuente (si no: recompilar, ver el encabezado del .sol)'
+    'the bytecode was compiled from THIS source (if not: recompile, see the .sol\'s header)'
   )
 
-  t.ok(/^0x[0-9a-f]+$/.test(artefacto.bytecode), 'el bytecode de creacion es hex')
-  t.ok(/^0x[0-9a-f]+$/.test(artefacto.deployedBytecode), 'y el de runtime tambien')
-  t.ok(artefacto.solc.indexOf('0.8.') === 0, 'con la version de solc anotada: ' + artefacto.solc)
+  t.ok(/^0x[0-9a-f]+$/.test(artefacto.bytecode), 'the creation bytecode is hex')
+  t.ok(/^0x[0-9a-f]+$/.test(artefacto.deployedBytecode), 'and so is the runtime one')
+  t.ok(artefacto.solc.indexOf('0.8.') === 0, 'with the solc version noted: ' + artefacto.solc)
 
-  // Y con la CLAVE con la que se le paso la fuente a solc. No es metadata
-  // decorativa: esa clave entra en el hash de metadata que solc pega al final
-  // del bytecode, asi que compilar la misma fuente con la misma version y los
-  // mismos settings da bytecode DISTINTO si la clave cambia. Sin esto anotado,
-  // reproducir el artefacto es adivinar -- y se adivino una vez.
-  t.ok(artefacto.claveFuente, 'y con la clave de fuente: ' + artefacto.claveFuente)
+  // And with the KEY the source was passed to solc under. It's not
+  // decorative metadata: that key goes into the metadata hash solc appends
+  // to the end of the bytecode, so compiling the same source with the same
+  // version and the same settings gives DIFFERENT bytecode if the key
+  // changes. Without this noted, reproducing the artifact is guesswork --
+  // and it was guessed once.
+  t.ok(artefacto.claveFuente, 'and with the source key: ' + artefacto.claveFuente)
 
-  // QUE IMPLEMENTA EIP-3009, COMPROBADO CONTRA EL BYTECODE Y NO CONTRA EL ABI.
+  // THAT IMPLEMENTS EIP-3009, CHECKED AGAINST THE BYTECODE AND NOT THE ABI.
   //
-  // El ABI lo escribe el compilador desde la fuente, asi que preguntarle al ABI
-  // si el contrato tiene una funcion es preguntarle a la fuente otra vez. Los
-  // selectores, en cambio, estan en el DISPATCHER del runtime: si estan ahi, la
-  // funcion es alcanzable en la cadena. Son los mismos cuatro bytes que
-  // `verificar-x402` va a llamar despues contra el contrato desplegado.
+  // The ABI is written by the compiler from the source, so asking the ABI
+  // whether the contract has a function is asking the source again. The
+  // selectors, on the other hand, live in the runtime's DISPATCHER: if
+  // they're there, the function is reachable on chain. They're the same
+  // four bytes `verificar-x402` will later call against the deployed contract.
   const runtime = artefacto.deployedBytecode.slice(2)
   const SELECTORES = {
     'authorizationState(address,bytes32)': 'e94a0102',
     'transferWithAuthorization(...,uint8,bytes32,bytes32)': 'e3ee160e',
     'transferWithAuthorization(...,bytes)': 'cf092995',
     'DOMAIN_SEPARATOR()': '3644e515',
-    // `name` y `version` no son de EIP-3009 pero el facilitator de @x402/evm los
-    // LEE de la cadena antes de liquidar. El USD-0 de Plasma revierte en
-    // `version()`; este no puede.
+    // `name` and `version` aren't part of EIP-3009 but @x402/evm's
+    // facilitator READS them from the chain before settling. Plasma's USD-0
+    // reverts on `version()`; this one can't.
     'name()': '06fdde03',
     'version()': '54fd4d50'
   }
   for (const nombre of Object.keys(SELECTORES)) {
     const sel = SELECTORES[nombre]
-    t.ok(runtime.indexOf(sel) !== -1, nombre + ' es alcanzable en el runtime (0x' + sel + ')')
+    t.ok(runtime.indexOf(sel) !== -1, nombre + ' is reachable in the runtime (0x' + sel + ')')
   }
 
-  // D28/D30.3 — NO SE LLAMA $QVAC, Y ESO NO ES UNA CUESTION DE GUSTO.
+  // D28/D30.3 — IT ISN'T CALLED $QVAC, AND THAT ISN'T A MATTER OF TASTE.
   //
-  // La atestacion de D24 y el recibo de x402 REGISTRAN EL ACTIVO. Ponerle el
-  // nombre del token nativo escribiria adentro de artefactos firmados la
-  // contradiccion que D28 borro del pitch: que el riel de pago se denomina en el
-  // activo especulativo. Es un stand-in de stablecoin y se llama como tal.
+  // D24's attestation and x402's receipt RECORD THE ASSET. Giving it the
+  // native token's name would write inside signed artifacts the exact
+  // contradiction D28 erased from the pitch: that the payment rail is
+  // denominated in the speculative asset. It's a stablecoin stand-in and it
+  // is named as one.
   t.is(
     artefacto.abi.filter((f) => f.name === 'name').length,
     1,
-    'expone name(), que es lo que el facilitator lee'
+    'exposes name(), which is what the facilitator reads'
   )
 
-  // Se mira la DENOMINACION, no el archivo entero: el encabezado del .sol
-  // explica por que no se llama $QVAC, y esa explicacion tiene que poder
-  // mencionarlo. Lo que no puede llevar ese nombre es lo que va a quedar
-  // escrito adentro de la atestacion firmada, que es `name` y `symbol`.
+  // The DENOMINATION is checked, not the whole file: the .sol's header
+  // explains why it isn't called $QVAC, and that explanation needs to be
+  // able to mention it. What can't carry that name is what will end up
+  // written inside the signed attestation, which is `name` and `symbol`.
   const declarado = (campo) => {
     const m = fuente.match(new RegExp('constant\\s+' + campo + '\\s*=\\s*"([^"]*)"'))
     return m ? m[1] : null
   }
-  t.is(declarado('name'), 'PyrusLLM Test USD', 'se llama como el stand-in de stablecoin que es')
+  t.is(declarado('name'), 'PyrusLLM Test USD', 'named like the stablecoin stand-in it is')
   t.is(declarado('symbol'), 'tUSD')
-  t.absent(/QVAC/i.test(declarado('name') + declarado('symbol')), 'y no lleva el token nativo')
+  t.absent(/QVAC/i.test(declarado('name') + declarado('symbol')), 'and it does not carry the native token')
 
-  // Y VA MARCADO COMO PRUEBA DONDE SE VEA. `name` y `symbol` son lo que muestra
-  // un explorer; `AVISO` es para el que abre el contrato.
-  t.ok(fuente.indexOf('NO ES UNA STABLECOIN') !== -1, 'el aviso esta en el contrato mismo')
+  // AND IT IS MARKED AS A TEST WHEREVER IT'S VISIBLE. `name` and `symbol`
+  // are what an explorer shows; `AVISO` is for whoever opens the contract.
+  t.ok(fuente.indexOf('NO ES UNA STABLECOIN') !== -1, 'the notice is in the contract itself')
   t.ok(
     artefacto.abi.some((f) => f.name === 'AVISO'),
-    'y expuesto en el ABI, no solo en un comentario'
+    'and exposed in the ABI, not just in a comment'
   )
 })
 
-test('D30: el guardia de red es lista blanca, y mainnet no tiene puerta', async (t) => {
+test('D30: the network guard is a whitelist, and mainnet has no door', async (t) => {
   const redes = require('../scripts/redes-prueba.js')
 
-  t.is(redes.porQueNoSeEstrena(9746), null, 'la testnet de Plasma se puede usar')
-  t.is(redes.porQueNoSeEstrena(31337), null, 'y una cadena local tambien')
+  t.is(redes.porQueNoSeEstrena(9746), null, 'Plasma\'s testnet can be used')
+  t.is(redes.porQueNoSeEstrena(31337), null, 'and a local chain too')
 
-  // Lo que D30 dice textualmente es "sin excepcion". Estas tres tienen que
-  // devolver motivo, y el de 9745 tiene que nombrarla: es el default de D15, o
-  // sea el error mas facil de cometer.
+  // What D30 says literally is "no exception". These three have to return a
+  // reason, and 9745's has to name it: it's D15's default, i.e. the easiest
+  // mistake to make.
   const plasma = redes.porQueNoSeEstrena(9745)
-  t.ok(plasma, '9745, que es el default de D15, NO se estrena')
-  t.ok(String(plasma).indexOf('MAINNET') !== -1, 'y el motivo dice que es mainnet: ' + plasma)
-  t.ok(redes.porQueNoSeEstrena(988), 'Stable, el fallback de D15, tampoco')
-  t.ok(redes.porQueNoSeEstrena(1), 'ni Ethereum')
+  t.ok(plasma, '9745, which is D15\'s default, does NOT debut')
+  t.ok(String(plasma).indexOf('MAINNET') !== -1, 'and the reason says it is mainnet: ' + plasma)
+  t.ok(redes.porQueNoSeEstrena(988), 'Stable, D15\'s fallback, doesn\'t either')
+  t.ok(redes.porQueNoSeEstrena(1), 'nor Ethereum')
 
-  // LISTA BLANCA, NO LISTA NEGRA. Una cadena que nadie anoto tiene que caer del
-  // lado de "no", porque el modo de falla de la omision es desplegar en una red
-  // con plata real creyendo que era de prueba.
+  // WHITELIST, NOT BLACKLIST. A chain nobody wrote down has to fall on the
+  // "no" side, because the failure mode of omission is deploying on a
+  // network with real money while believing it was a test one.
   const rara = redes.porQueNoSeEstrena(424242)
-  t.ok(rara, 'una cadena desconocida no se estrena')
-  // `String(rara)` y no `rara.indexOf`: con el arreglo sacado esto es null, y un
-  // TypeError ABORTA la corrida en vez de fallar el assert -- o sea que el arnes
-  // no puede ver si el arreglo estaba vigilado. Es la leccion de B18 otra vez.
-  t.ok(String(rara).indexOf('lista de testnets') !== -1, 'y dice como agregarla: ' + rara)
+  t.ok(rara, 'an unknown chain does not get its debut')
+  // `String(rara)` and not `rara.indexOf`: with the array stripped out this
+  // is null, and a TypeError ABORTS the run instead of failing the assert
+  // -- meaning the harness can't see whether the array was guarded. It's
+  // B18's lesson again.
+  t.ok(String(rara).indexOf('lista de testnets') !== -1, 'and it says how to add it: ' + rara)
 
-  // Basura tampoco pasa. `Number(undefined)` es NaN y un `if (TESTNETS[id])`
-  // solo no alcanzaria.
-  t.ok(redes.porQueNoSeEstrena(undefined), 'undefined no es una testnet')
-  t.ok(redes.porQueNoSeEstrena(0), 'ni el chainId cero')
-  t.ok(redes.porQueNoSeEstrena('9746; drop'), 'ni un string que empieza pareciendose a una')
+  // Garbage doesn't pass either. `Number(undefined)` is NaN and an `if
+  // (TESTNETS[id])` alone wouldn't be enough.
+  t.ok(redes.porQueNoSeEstrena(undefined), 'undefined is not a testnet')
+  t.ok(redes.porQueNoSeEstrena(0), 'nor chainId zero')
+  t.ok(redes.porQueNoSeEstrena('9746; drop'), 'nor a string that starts out looking like one')
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 — hacer visible lo que la fase ya emitia y nadie podia mirar.
+// PHASE 9 — making visible what the phase already emitted and nobody could see.
 //
-// `qvac/panel-x402.mjs` es el codigo QUE CORRE EL PANEL: pages.mjs lo pega
-// adentro del <script> de cada pagina con `String(fn)`. Probarlo aca es
-// probarlo alla, y esa es toda la razon por la que vive en un modulo aparte en
-// vez de adentro de un string de HTML.
+// `qvac/panel-x402.mjs` is the code THAT RUNS THE PANEL: pages.mjs pastes it
+// inside each page's <script> with `String(fn)`. Testing it here is testing
+// it there, and that's the entire reason it lives in a separate module
+// instead of inside an HTML string.
 //
-// Los tests de abajo son las cinco cosas que ese archivo existe para no dibujar
-// mal. Ninguno mira "que el HTML se sirva": miran que el dato llegue con el
-// significado que tenia.
+// The tests below are the five things that file exists to avoid drawing
+// wrong. None of them check "that the HTML gets served": they check that
+// the data arrives with the meaning it had.
 // ---------------------------------------------------------------------------
 
-test('el BLAKE2b del panel da lo MISMO que el que firma el nodo', async (t) => {
+test('the panel\'s BLAKE2b gives the SAME result as the one that signs on the node', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
   const at = await import('../qvac/atestacion.mjs')
 
-  // Esta es la comprobacion que sostiene todo lo demas. El panel recomputa el
-  // `outputHash` con una implementacion escrita a mano -- sodium no existe en el
-  // navegador y no entra un CDN -- y contra ese numero se decide si una
-  // atestacion "coincide". Un BLAKE2b propio que nadie contrasta diria NO
-  // COINCIDE sobre artefactos correctos: seria peor que no comparar nada.
+  // This is the check that everything else rests on. The panel recomputes
+  // `outputHash` with a hand-written implementation -- sodium doesn't exist
+  // in the browser and a CDN doesn't fit -- and that number is what decides
+  // whether an attestation "matches". A hand-rolled BLAKE2b that nobody
+  // cross-checks would say NO MATCH on correct artifacts: that would be
+  // worse than not comparing at all.
   const casos = [
-    '', // el bloque vacio, que es un caso aparte del algoritmo
+    '', // the empty block, which is a special case for the algorithm
     'a',
     'hola',
-    'nandu ' + String.fromCodePoint(0x1f986) + ' acentue', // UTF-8 multibyte y un par de surrogates
+    'nandu ' + String.fromCodePoint(0x1f986) + ' acentue', // multibyte UTF-8 and a couple of surrogates
     'x'.repeat(127),
-    'x'.repeat(128), // el limite de bloque EXACTO: el error clasico de esta funcion
+    'x'.repeat(128), // the EXACT block boundary: this function's classic bug
     'x'.repeat(129),
     'y'.repeat(1000)
   ]
   for (const c of casos) {
-    t.is(px.hashDeTexto(c), at.hashDe(c), 'mismo hash para una entrada de ' + c.length + ' chars')
+    t.is(px.hashDeTexto(c), at.hashDe(c), 'same hash for an input of ' + c.length + ' chars')
   }
 
-  // Y el del prompt, que no es sobre el texto del ultimo turno sino sobre la
-  // conversacion ENTERA canonicalizada: si las dos canonicalizaciones divergen,
-  // el panel diria que un promptHash correcto no coincide.
+  // And the prompt one, which isn't over the last turn's text but over the
+  // WHOLE canonicalized conversation: if the two canonicalizations diverge,
+  // the panel would say a correct promptHash doesn't match.
   const msgs = [
     { role: 'user', content: 'hola' },
     { role: 'assistant', content: 'que tal' }
   ]
-  t.is(px.hashDeMensajes(msgs), at.hashDeMensajes(msgs), 'y el promptHash, igual')
+  t.is(px.hashDeMensajes(msgs), at.hashDeMensajes(msgs), 'and the promptHash, same')
 })
 
-test('el JCS del panel es el mismo JCS que firma el manifiesto', async (t) => {
+test('the panel\'s JCS is the same JCS that signs the manifest', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
   const { canonicalize } = await import('../qvac/manifest.mjs')
 
-  // Se reescribe en vez de importarse porque el archivo viaja entero al
-  // navegador y un import no cruza esa frontera. Lo que impide que las dos
-  // copias se separen es esto.
+  // It gets rewritten instead of imported because the whole file travels to
+  // the browser and an import does not cross that boundary. This is what
+  // stops the two copies from drifting apart.
   const valores = [
     { b: 1, a: 2 },
     { z: [1, 'x', null, true], a: { d: 4, c: 3 } },
@@ -4063,43 +4068,45 @@ test('el JCS del panel es el mismo JCS que firma el manifiesto', async (t) => {
     { saltado: undefined, queda: 1 }
   ]
   for (const v of valores) {
-    t.is(px.canonicalizarJCS(v), canonicalize(v), 'mismo JCS: ' + JSON.stringify(v))
+    t.is(px.canonicalizarJCS(v), canonicalize(v), 'same JCS: ' + JSON.stringify(v))
   }
 
-  // Los bytes firmados son el artefacto SIN `signature`, que es lo que el panel
-  // muestra para que la firma se pueda verificar afuera.
+  // The signed bytes are the artifact WITHOUT `signature`, which is what the
+  // panel shows so the signature can be verified externally.
   const a = { v: 1, requestId: 'r', providerPubkey: '0xab', signature: '0xdead' }
   t.is(px.bytesFirmados(a), canonicalize({ v: 1, requestId: 'r', providerPubkey: '0xab' }))
-  t.absent(px.bytesFirmados(a).indexOf('signature') !== -1, 'y la firma no se firma a si misma')
+  t.absent(px.bytesFirmados(a).indexOf('signature') !== -1, 'and the signature does not sign itself')
 })
 
-test('regla 1: una atestacion ausente muestra EL MOTIVO, nunca un guion', async (t) => {
+test('rule 1: a missing attestation shows THE REASON, never a dash', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
-  // El caso normal y el que mas importa: sirvio un par. La ausencia es lo
-  // CORRECTO -- este nodo no corrio el modelo y el 402 pago a la wallet del par
-  // --, y la atestacion del par viaja por Protomux en la Fase 10.
+  // The normal case, and the one that matters most: a peer served it. The
+  // absence is CORRECT -- this node did not run the model and the 402 paid
+  // the peer's wallet --, and the peer's attestation travels over Protomux
+  // in Phase 10.
   const motivoPar =
     'el que sirvio fue otro nodo: su atestacion la firma el, y viaja por Protomux (Fase 10)'
   const v = px.vistaDeAtestacion({ attestation: null, attestationMissing: motivoPar })
   t.absent(v.hay)
-  t.is(v.motivo, motivoPar, 'el motivo viaja tal cual, sin resumir')
+  t.is(v.motivo, motivoPar, 'the reason travels as-is, unsummarized')
   t.ok(v.motivoDeclarado)
-  t.ok(v.esDelPar, 'y se reconoce que esta ausencia no es una falla')
+  t.ok(v.esDelPar, 'and it is recognized that this absence is not a failure')
 
   const html = px.htmlDeAtestacion(v)
-  t.ok(html.indexOf('Protomux') !== -1, 'el motivo APARECE en lo que se dibuja')
-  t.ok(html.indexOf('no hay atestacion') !== -1, 'y dice que no hay, en palabras')
+  t.ok(html.indexOf('Protomux') !== -1, 'the reason APPEARS in what gets drawn')
+  t.ok(html.indexOf('no hay atestacion') !== -1, 'and it says there is none, in words')
 
-  // Y el caso feo, que es distinto: falta la atestacion Y falta el motivo. Eso
-  // es una respuesta incompleta, no una ausencia justificada, y se dice asi.
+  // And the ugly case, which is different: the attestation is missing AND
+  // the reason is missing. That is an incomplete response, not a justified
+  // absence, and it gets said that way.
   const mudo = px.vistaDeAtestacion({ attestation: null })
-  t.absent(mudo.motivoDeclarado, 'nadie dijo por que falta')
-  t.ok(mudo.motivo.indexOf('incompleta') !== -1, 'y eso se nombra: ' + mudo.motivo)
-  t.absent(mudo.esDelPar, 'y no se le adjudica al par sin que nadie lo haya dicho')
+  t.absent(mudo.motivoDeclarado, 'nobody said why it is missing')
+  t.ok(mudo.motivo.indexOf('incompleta') !== -1, 'and that gets named: ' + mudo.motivo)
+  t.absent(mudo.esDelPar, 'and it is not attributed to the peer without anyone having said so')
 })
 
-test('regla 2: runtime mock se VE como mock, aunque la firma sea real', async (t) => {
+test('rule 2: a mock runtime LOOKS like a mock, even if the signature is real', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
   const base = {
@@ -4119,28 +4126,28 @@ test('regla 2: runtime mock se VE como mock, aunque la firma sea real', async (t
   }
 
   const mock = px.vistaDeAtestacion({ attestation: { ...base, runtime: 'mock' } })
-  t.ok(mock.esMock, 'un artefacto firmado con una wallet REAL sobre texto inventado es un mock')
+  t.ok(mock.esMock, 'an artifact signed with a REAL wallet over made-up text is a mock')
   t.ok(mock.avisoMock && mock.avisoMock.indexOf('demo') !== -1, mock.avisoMock)
 
   const real = px.vistaDeAtestacion({ attestation: { ...base, runtime: 'llamacpp' } })
-  t.absent(real.esMock, 'y un motor de verdad no se marca')
+  t.absent(real.esMock, 'and a real engine does not get flagged')
   t.is(real.avisoMock, null)
 
-  // Lo que importa es que se VEA, no que el campo exista en un objeto.
+  // What matters is that it gets SEEN, not that the field exists on an object.
   const htmlMock = px.htmlDeAtestacion(mock)
   const htmlReal = px.htmlDeAtestacion(real)
-  t.ok(htmlMock.indexOf('runtime: mock') !== -1, 'el mock sale nombrado en el dibujo')
-  t.ok(htmlMock.indexOf('x-aviso malo') !== -1, 'y con el tono de lo que no es evidencia')
-  t.absent(htmlReal.indexOf('runtime: mock') !== -1, 'y el real no arrastra el aviso')
+  t.ok(htmlMock.indexOf('runtime: mock') !== -1, 'the mock comes out named in the drawing')
+  t.ok(htmlMock.indexOf('x-aviso malo') !== -1, 'and with the tone of something that is not evidence')
+  t.absent(htmlReal.indexOf('runtime: mock') !== -1, 'and the real one does not carry the warning')
 
-  // D26: cuantizacion y runtime son DECLARACIONES firmadas, no mediciones. Que
-  // esten firmadas es lo que da contra que arbitrar, no una prueba de que sean
-  // ciertas -- y el panel no puede sugerir lo segundo.
+  // D26: quantization and runtime are signed DECLARATIONS, not measurements.
+  // That they're signed is what gives something to arbitrate against, not
+  // proof that they're true -- and the panel cannot suggest the second thing.
   t.ok(real.declarados.indexOf('DECLARACIONES') !== -1)
-  t.ok(htmlReal.indexOf('DECLARACIONES') !== -1, 'y eso se dibuja al lado de los dos campos')
+  t.ok(htmlReal.indexOf('DECLARACIONES') !== -1, 'and that gets drawn next to both fields')
 })
 
-test('regla 3: gateway y proveedor no son el mismo numero ni se pintan igual', async (t) => {
+test('rule 3: gateway and provider are not the same number and are not painted the same', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
   const medido = px.vistaDeConteo({
@@ -4148,56 +4155,56 @@ test('regla 3: gateway y proveedor no son el mismo numero ni se pintan igual', a
     tokensDecode: 500,
     tokensFuente: 'proveedor'
   })
-  t.ok(medido.medido, 'con usage del proveedor son tokens contados por su tokenizador')
+  t.ok(medido.medido, 'with usage from the provider these are tokens counted by its tokenizer')
   t.is(medido.etiqueta, 'medido')
   t.is(medido.tono, 'medido')
 
   const estimado = px.vistaDeConteo({ tokensPrefill: 3, tokensDecode: 9, tokensFuente: 'gateway' })
-  t.absent(estimado.medido, 'sin usage lo que hay es una estimacion y un conteo de chunks')
+  t.absent(estimado.medido, 'without usage what there is is an estimate and a chunk count')
   t.is(estimado.etiqueta, 'estimado')
   t.is(estimado.tono, 'estimado')
   t.ok(estimado.texto.indexOf('CHUNKS DE SSE') !== -1, estimado.texto)
   t.ok(
     estimado.texto.indexOf('bytes/4') !== -1,
-    'y que el prefill es una estimacion, no una medida'
+    'and that the prefill is an estimate, not a measurement'
   )
 
-  // El dibujo tiene que separarlos: si compartieran clase, un conteo de chunks
-  // se leeria igual que una medicion, que es exactamente el ataque que D24
-  // cierra con el outputHash.
+  // The drawing has to keep them apart: if they shared a class, a chunk
+  // count would read the same as a measurement, which is exactly the
+  // attack D24 closes with outputHash.
   t.absent(
     px.htmlDeConteo(medido) === px.htmlDeConteo(estimado),
-    'dos conteos de distinta procedencia no pueden dibujarse igual'
+    'two counts of different provenance cannot be drawn the same'
   )
   t.ok(px.htmlDeConteo(estimado).indexOf('tono-estimado') !== -1)
   t.ok(px.htmlDeConteo(medido).indexOf('tono-medido') !== -1)
 
-  // Una entrada anterior a D25 no declara nada, y decirle "gateway" seria
-  // afirmar algo que el rastro no dice.
+  // An entry from before D25 declares nothing, and saying "gateway" would
+  // be asserting something the trail doesn't say.
   const viejo = px.vistaDeConteo({ tokens: 5 })
   t.is(viejo.fuente, null)
   t.is(viejo.etiqueta, 'sin procedencia')
-  t.absent(viejo.medido, 'y en la duda NO se afirma que sea medido')
+  t.absent(viejo.medido, 'and when in doubt it does NOT assert that it is measured')
 })
 
-test('regla 4: un tx hash siempre dice de donde salio', async (t) => {
+test('rule 4: a tx hash always says where it came from', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
-  // El del facilitator de pruebas. No es una heuristica sobre "hashes que
-  // parecen falsos": 32 bytes todos iguales no es la salida de keccak sobre
-  // ninguna transaccion, y si es lo que emite un facilitator de juguete.
+  // The test facilitator's one. It's not a heuristic about "hashes that
+  // look fake": 32 identical bytes is not the output of keccak over any
+  // transaction, and it IS what a toy facilitator emits.
   const falso = px.vistaDeLiquidacion({
     success: true,
     transaction: '0x' + 'fe'.repeat(32),
     network: 'eip155:988',
     payer: '0x1'
   })
-  t.ok(falso.txSintetico, 'el 0xfe...fe se reconoce por lo que es')
+  t.ok(falso.txSintetico, '0xfe...fe gets recognized for what it is')
   t.ok(falso.txOrigen.indexOf('PRUEBAS') !== -1, falso.txOrigen)
-  t.ok(falso.txOrigen.indexOf('explorer') !== -1, 'y que en el explorer no existe')
+  t.ok(falso.txOrigen.indexOf('explorer') !== -1, 'and that it does not exist on the explorer')
 
-  // Uno que no lo es. Igual lleva su procedencia: NADIE lo verifico contra la
-  // cadena, ni el gateway ni el panel. Un hash pelado se lee como confirmado.
+  // One that isn't. It still carries its provenance: NOBODY verified it
+  // against the chain, not the gateway, not the panel. A bare hash reads as confirmed.
   const comun = px.vistaDeLiquidacion({
     success: true,
     transaction: '0x9f2c1a4b7e0d3856',
@@ -4206,16 +4213,16 @@ test('regla 4: un tx hash siempre dice de donde salio', async (t) => {
   })
   t.absent(comun.txSintetico)
   t.ok(comun.txOrigen.indexOf('verificaron contra la cadena') !== -1, comun.txOrigen)
-  t.ok(comun.txOrigen.indexOf('facilitator') !== -1, 'y de quien salio')
+  t.ok(comun.txOrigen.indexOf('facilitator') !== -1, 'and who it came from')
 
   const html = px.htmlDeLiquidacion(comun)
-  t.ok(html.indexOf('0x9f2c1a4b7e0d3856') !== -1, 'el hash se muestra')
-  t.ok(html.indexOf('verificaron contra la cadena') !== -1, 'y nunca solo')
-  t.ok(html.indexOf('eip155:9745') !== -1, 'con el CAIP-2 crudo al lado del nombre')
+  t.ok(html.indexOf('0x9f2c1a4b7e0d3856') !== -1, 'the hash is shown')
+  t.ok(html.indexOf('verificaron contra la cadena') !== -1, 'and never alone')
+  t.ok(html.indexOf('eip155:9745') !== -1, 'with the raw CAIP-2 next to the name')
   t.ok(html.indexOf('Plasma') !== -1)
 
-  // Una liquidacion fallida NO es un detalle de forma: el nodo sirvio y no
-  // cobro. Se dice fuerte, igual que lo dice el log del gateway.
+  // A failed settlement is NOT a formality: the node served and did not get
+  // paid. It gets said loudly, same as the gateway's log says it.
   const fallo = px.vistaDeLiquidacion({
     success: false,
     errorReason: 'settlement_failed',
@@ -4227,32 +4234,32 @@ test('regla 4: un tx hash siempre dice de donde salio', async (t) => {
   t.ok(px.htmlDeLiquidacion(fallo).indexOf('NO se cobro') !== -1)
 })
 
-test('regla 5: el costo del header se dice como TECHO, no como cobro', async (t) => {
+test('rule 5: the header\'s cost is stated as a CAP, not as a charge', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
-  // Con SSE los headers salen antes del primer token: ese numero es el tope con
-  // el que se autorizo el gasto y nunca lo que salio.
+  // With SSE the headers go out before the first token: that number is the
+  // ceiling the spend was authorized under, and never what actually came out.
   const caro = px.textoDeCostoEstimado(13500)
   t.ok(caro.techo)
   t.is(caro.texto.indexOf('up to'), 0, caro.texto)
 
-  // El cero se escribe con palabras. "USD 0.0000" se lee como "salio muy
-  // barato" y no es eso: es que a nadie se le cobra.
+  // Zero is written out in words. "USD 0.0000" reads as "it came out very
+  // cheap" and that's not it: it's that nobody gets charged.
   t.is(px.textoDeCostoEstimado(0).texto, 'no charge')
   t.absent(px.textoDeCostoEstimado(0).techo)
 
-  // Seis decimales: con cuatro, cualquier turno de menos de 50 micros se
-  // mostraria identico a gratis, que es la distincion que este texto hace.
+  // Six decimals: with four, any turn under 50 micros would display
+  // identical to free, which is the distinction this text makes.
   t.ok(
     px.textoDeCostoEstimado(12).texto.indexOf('0.000012') !== -1,
     px.textoDeCostoEstimado(12).texto
   )
 
-  // Sin dato NO es cero: un turno viejo sin el campo no dice que fue gratis.
+  // No data is NOT zero: an old turn without the field does not say it was free.
   t.is(px.textoDeCostoEstimado(undefined).texto, 'sin dato de costo')
 })
 
-test('el outputHash se compara de verdad, y no-pude no es coincide', async (t) => {
+test('the outputHash is really compared, and could-not-check is not a match', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
   const at = await import('../qvac/atestacion.mjs')
 
@@ -4276,29 +4283,29 @@ test('el outputHash se compara de verdad, y no-pude no es coincide', async (t) =
 
   const ok = px.vistaDeAtestacion({ attestation: base }, { textoRecibido: texto })
   const hOk = ok.hashes.filter((h) => h.campo === 'outputHash')[0]
-  t.is(hOk.estado, 'coincide', 'recomputado sobre lo recibido')
+  t.is(hOk.estado, 'coincide', 'recomputed over what was received')
 
-  // Lo que D24 existe para atrapar: el texto no es el atestiguado.
+  // What D24 exists to catch: the text is not the attested one.
   const mal = px.vistaDeAtestacion({ attestation: base }, { textoRecibido: texto + '!' })
   t.is(mal.hashes.filter((h) => h.campo === 'outputHash')[0].estado, 'no-coincide')
-  t.ok(px.htmlDeAtestacion(mal).indexOf('NO coincide') !== -1, 'y se dibuja como lo que es')
+  t.ok(px.htmlDeAtestacion(mal).indexOf('NO coincide') !== -1, 'and it gets drawn as what it is')
 
-  // Y el estado que NO se puede confundir con los otros dos: no hubo con que
-  // comparar. Un panel que dibuje esto como "coincide" convierte la falta de
-  // evidencia en evidencia.
+  // And the state that CANNOT be confused with the other two: there was
+  // nothing to compare against. A panel that draws this as "matches" turns
+  // the lack of evidence into evidence.
   const sin = px.vistaDeAtestacion({ attestation: base }, {})
   const hSin = sin.hashes.filter((h) => h.campo === 'outputHash')[0]
   t.is(hSin.estado, 'sin-material')
   t.absent(hSin.estado === 'coincide')
   t.ok(px.htmlDeAtestacion(sin).indexOf('no se recomputo') !== -1)
 
-  // La firma NO se verifica aca, y el panel no puede insinuar que si.
-  t.absent(ok.firmaVerificada, 'esto no recupera firmantes EIP-191')
+  // The signature is NOT verified here, and the panel cannot imply that it is.
+  t.absent(ok.firmaVerificada, 'this does not recover EIP-191 signers')
   t.ok(ok.avisoFirma.indexOf('NO verifica la firma') !== -1)
-  t.is(ok.firmadoSobre, px.bytesFirmados(base), 'pero deja los bytes para verificarla afuera')
+  t.is(ok.firmadoSobre, px.bytesFirmados(base), 'but it leaves the bytes to verify it externally')
 })
 
-test('el 402 se dibuja con los CUATRO datos, y el monto no se inventa en USD', async (t) => {
+test('the 402 gets drawn with the FOUR pieces of data, and the amount does not get invented in USD', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
   const desafio = {
@@ -4325,61 +4332,64 @@ test('el 402 se dibuja con los CUATRO datos, y el monto no se inventa en USD', a
   t.ok(v.esDesafio)
   t.is(v.opciones.length, 1)
   const o = v.opciones[0]
-  t.is(o.monto, '1000', 'CUANTO')
-  t.is(o.payTo, '0x' + 'ab'.repeat(20), 'A QUIEN')
-  t.is(o.red.id, 'eip155:988', 'EN QUE CADENA')
-  t.is(o.tope, 256, 'HASTA CUANTOS TOKENS')
+  t.is(o.monto, '1000', 'HOW MUCH')
+  t.is(o.payTo, '0x' + 'ab'.repeat(20), 'TO WHOM')
+  t.is(o.red.id, 'eip155:988', 'ON WHICH CHAIN')
+  t.is(o.tope, 256, 'UP TO HOW MANY TOKENS')
 
-  // El primer 402 no lleva error de verdad: "X-PAYMENT header is required" es la
-  // frase del spec, no un rechazo, y mostrarla como si algo hubiera fallado
-  // diria que el cliente hizo algo mal cuando todavia no hizo nada.
+  // The first 402 doesn't carry a real error: "X-PAYMENT header is
+  // required" is the spec's phrase, not a rejection, and showing it as if
+  // something had failed would say the client did something wrong when it
+  // hasn't done anything yet.
   t.is(v.error, null)
   t.is(px.vistaDeDesafio({ ...desafio, error: 'red equivocada' }).error, 'red equivocada')
 
   const html = px.htmlDeDesafio(v)
   for (const etiqueta of ['CUANTO', 'A QUIEN', 'EN QUE RED', 'HASTA CUANTOS TOKENS']) {
-    t.ok(html.indexOf(etiqueta) !== -1, 'el dibujo nombra ' + etiqueta)
+    t.ok(html.indexOf(etiqueta) !== -1, 'the drawing names ' + etiqueta)
   }
-  // El accepts[] declara `asset` y `extra.name` pero NO `decimals`: dividir por
-  // 1e6 seria inventar el dato que falta justo en el numero que la persona lee
-  // como "lo que me van a cobrar".
-  t.ok(html.indexOf('no declara los decimales') !== -1, 'se dice por que no hay USD')
-  t.absent(html.indexOf('USD 0.001') !== -1, 'y no se convierte igual')
+  // accepts[] declares `asset` and `extra.name` but NOT `decimals`: dividing
+  // by 1e6 would mean inventing the data that's missing right in the number
+  // the person reads as "what I'm about to be charged".
+  t.ok(html.indexOf('no declara los decimales') !== -1, 'it says why there is no USD')
+  t.absent(html.indexOf('USD 0.001') !== -1, 'and it does not get converted anyway')
 
-  // Un cuerpo que no es un desafio no se dibuja como uno: el 402 de presupuesto
-  // agotado (B13) no trae accepts y tiene que seguir por el camino de texto.
+  // A body that is not a challenge does not get drawn as one: the 402 for
+  // exhausted budget (B13) does not carry accepts and has to go through the
+  // text path.
   t.absent(px.vistaDeDesafio({ error: { message: 'presupuesto agotado' } }).esDesafio)
   t.is(px.htmlDeDesafio(px.vistaDeDesafio(null)), '')
 })
 
-test('las dos formas del recibo se leen igual, y D27 se dice en palabras', async (t) => {
+test('the receipt\'s two shapes read the same, and D27 is stated in words', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
-  // El gateway emite el mismo recibo con dos formas: aplanado en
-  // GET /v1/receipts/:id, y colgando de `paymentResponse` en el evento SSE
-  // final (D12). Las dos tienen que llegar al mismo dibujo.
+  // The gateway emits the same receipt in two shapes: flattened on
+  // GET /v1/receipts/:id, and hanging off `paymentResponse` in the final
+  // SSE event (D12). Both have to reach the same drawing.
   const liq = { success: true, transaction: '0xabcdef', network: 'eip155:988', payer: '0x1' }
   t.alike(
     px.liquidacionDe({ id: 'x', ...liq }),
     { id: 'x', ...liq },
-    'aplanado: es el recibo mismo'
+    'flattened: it is the receipt itself'
   )
-  t.alike(px.liquidacionDe({ x402Version: 2, paymentResponse: liq }), liq, 'y anidado')
+  t.alike(px.liquidacionDe({ x402Version: 2, paymentResponse: liq }), liq, 'and nested')
 
-  // D27: el vocabulario es mas ancho que el de OpenAI a proposito. Aplanar un
-  // corte del cliente a "stop" afirmaria que la respuesta termino.
+  // D27: the vocabulary is wider than OpenAI's on purpose. Flattening a
+  // client cutoff to "stop" would assert that the response finished.
   t.ok(px.textoDeFinishReason('client_cancelled').indexOf('lo corto el cliente') !== -1)
   t.ok(px.textoDeFinishReason('length').indexOf('tope') !== -1)
   t.is(px.textoDeFinishReason('stop'), 'termino sola')
   t.is(px.textoDeFinishReason(null), 'no declarado')
 })
 
-test('el codigo que se embebe en el panel es el mismo, y CORRE', async (t) => {
+test('the code embedded in the panel is the same one, and it RUNS', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
-  // pages.mjs no llama a estas funciones: pega su TEXTO adentro del <script> de
-  // cada pagina. Si el texto no parsea, el panel se rompe entero y ningun test
-  // de "el HTML se sirve" se entera -- el HTML se serviria igual, roto.
+  // pages.mjs does not call these functions: it pastes their TEXT inside
+  // each page's <script>. If the text doesn't parse, the whole panel breaks
+  // and no "the HTML gets served" test notices -- the HTML would get served
+  // the same way, broken.
   const api = new Function(
     px.FUENTE_EMBEBIDA +
       '\nreturn { hashDeTexto, vistaDeConteo, vistaDeAtestacion, vistaDeDesafio, ' +

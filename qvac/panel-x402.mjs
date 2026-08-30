@@ -581,16 +581,23 @@ export function textoDeFinishReason(reason) {
 }
 
 // -----------------------------------------------------------------------------
-// 4 - El split prefill/decode y su procedencia (D25)
+// 4 - The prefill/decode split and its provenance (D25)
 // -----------------------------------------------------------------------------
 //
-// `proveedor` y `gateway` NO son la misma clase de numero y no pueden dibujarse
-// igual. Con `gateway` el prefill es una ESTIMACION del prompt y el decode es un
-// conteo de CHUNKS DE SSE -- y quien decide como se trocea el stream es el
-// proveedor, o sea que ese numero lo mueve el otro lado sin mentir en ningun
-// campo y sin romper ninguna validacion. Es el ataque que D24 cierra con el
-// `outputHash`, y es la razon por la que la procedencia va al lado del numero y
-// no en una nota al pie.
+// `proveedor` and `gateway` are NOT the same class of number and can't be
+// drawn the same way. With `gateway` the prefill is an ESTIMATE of the prompt
+// and the decode is a count of SSE CHUNKS -- and who decides how the stream
+// gets chopped up is the provider, meaning that number is moved by the other
+// side without lying in any field and without breaking any validation. It's
+// the attack D24 closes off with `outputHash`, and it's why the provenance
+// goes right next to the number and not in a footnote.
+//
+// NOTE: `etiqueta` and `tono` ('sin procedencia', 'medido', 'estimado') are
+// enum-like data asserted verbatim by the test suite and used as CSS-class
+// tokens ('tono-medido', 'tono-estimado') — left untranslated per rule 2/3.
+// The 'estimado' branch's `texto` also contains the literal substring
+// "CHUNKS DE SSE", asserted verbatim by the test suite — kept verbatim
+// embedded in the translated sentence below.
 export function vistaDeConteo(entrada) {
   const e = entrada || {}
   const fuente = e.tokensFuente == null ? null : String(e.tokensFuente)
@@ -603,11 +610,11 @@ export function vistaDeConteo(entrada) {
       medido: false,
       prefill,
       decode,
-      // Las entradas anteriores a D25 no tienen el campo, y la atestacion no lo
-      // lleva nunca. Decir "gateway" aca seria afirmar algo que el dato no dice.
+      // Entries from before D25 don't have the field, and the attestation
+      // never carries it. Saying "gateway" here would claim something the
+      // data doesn't say.
       etiqueta: 'sin procedencia',
-      texto:
-        'no declara de donde salieron estos numeros: el que lo dice es el rastro de ruteo (D25)',
+      texto: 'does not declare where these numbers came from: the routing trail (D25) is what says that',
       tono: 'ausente'
     }
   }
@@ -618,8 +625,7 @@ export function vistaDeConteo(entrada) {
       prefill,
       decode,
       etiqueta: 'medido',
-      texto:
-        'los dos numeros salieron del `usage` del proveedor: son tokens contados por su tokenizador',
+      texto: 'both numbers came from the provider\'s `usage`: they are tokens counted by its tokenizer',
       tono: 'medido'
     }
   }
@@ -630,45 +636,49 @@ export function vistaDeConteo(entrada) {
     decode,
     etiqueta: 'estimado',
     texto:
-      'NO son tokens medidos: el prefill es una estimacion del prompt (bytes/4) y el decode es ' +
-      'un conteo de CHUNKS DE SSE, que no son tokens — quien decide como se trocea el ' +
-      'stream es el proveedor',
+      'these are NOT measured tokens: the prefill is an estimate of the prompt (bytes/4) and the ' +
+      'decode is a count of CHUNKS DE SSE, which are not tokens — who decides how the stream ' +
+      'gets chopped up is the provider',
     tono: 'estimado'
   }
 }
 
 // -----------------------------------------------------------------------------
-// El costo del header (regla 5)
+// The header's cost (rule 5)
 // -----------------------------------------------------------------------------
 //
-// Con SSE los headers salen ANTES del primer token, asi que
-// `X-Pyrus-Cost-Estimate-Micros` es el TECHO con el que se autorizo el gasto y
-// nunca lo que salio. El chat ya lo decia bien ("up to USD ..." / "no charge");
-// esto es la misma regla en un solo lugar, para que lo nuevo no la afloje.
+// With SSE the headers go out BEFORE the first token, so
+// `X-Pyrus-Cost-Estimate-Micros` is the CEILING the spend was authorized
+// against and never what actually came out. The chat already said this right
+// ("up to USD ..." / "no charge"); this is the same rule in one single place,
+// so the new part doesn't loosen it.
+// NOTE: 'sin dato de costo' is asserted verbatim by the test suite (t.is) —
+// left in Spanish. 'no charge' and 'up to USD ...' are already English.
 export function textoDeCostoEstimado(micros) {
   const n = Number(micros)
   if (!Number.isFinite(n)) return { texto: 'sin dato de costo', techo: false }
   if (n <= 0) return { texto: 'no charge', techo: false }
-  // Seis decimales y no cuatro: con cuatro, cualquier turno de menos de 50
-  // micros se muestra "USD 0.0000", o sea identico a gratis, que es justo la
-  // distincion que esta linea existe para hacer.
+  // Six decimals and not four: with four, any turn under 50 micros shows as
+  // "USD 0.0000," i.e. identical to free, which is exactly the distinction
+  // this line exists to make.
   const s = (n / 1000000).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
   return { texto: 'up to USD ' + s, techo: true }
 }
 
 // -----------------------------------------------------------------------------
-// EL DIBUJO
+// THE DRAWING
 // -----------------------------------------------------------------------------
 //
-// Los renderers viven ACA y no en pages.mjs, y no es por prolijidad: las cinco
-// cosas que este trabajo existe para no dibujar mal se pierden en el dibujo, no
-// en el modelo. Un `vistaDeAtestacion` perfecto que la pagina pinta como "—" no
-// arregla nada. Estando aca, la suite puede afirmar sobre el HTML mismo -- que
-// el motivo de la ausencia APARECE, que el mock se ve, que "estimado" no se
-// pinta igual que "medido" -- y `bug-puesto` puede romperlos y ver caer el test.
+// The renderers live HERE and not in pages.mjs, and it's not for tidiness: the
+// five things this work exists so they don't get drawn wrong get lost in the
+// drawing, not in the model. A perfect `vistaDeAtestacion` that the page
+// paints as "—" fixes nothing. Being here, the suite can assert on the HTML
+// itself -- that the reason for the absence APPEARS, that the mock shows,
+// that "estimated" doesn't get painted the same as "measured" -- and
+// `bug-puesto` can break them and watch the test fall.
 //
-// pages.mjs sigue siendo el dueno del CSS y del layout; lo que se decide aca es
-// QUE dice cada bloque, no como se ve.
+// pages.mjs remains the owner of the CSS and the layout; what's decided here
+// is WHAT each block says, not how it looks.
 
 function escaparHtml(v) {
   return String(v == null ? '' : v)
@@ -691,19 +701,23 @@ function filaDato(etiqueta, valor, clase) {
   )
 }
 
-// El 402, con los CUATRO datos que el DoD exige, cada uno nombrado. No se
-// resumen en una frase: "hasta 256 tokens por 1000 unidades a 0xab...ab en
-// Stable" se lee lindo y esconde cual numero es cual.
+// The 402, with the FOUR pieces of data the DoD demands, each one named. They
+// don't get summarized into one sentence: "up to 256 tokens for 1000 units to
+// 0xab...ab on Stable" reads nicely and hides which number is which.
+//
+// NOTE: the four labels 'CUANTO', 'A QUIEN', 'EN QUE RED', 'HASTA CUANTOS
+// TOKENS' are asserted verbatim by the test suite (it loops over that exact
+// array and checks each appears in the rendered HTML) — left untranslated.
 export function htmlDeDesafio(vista) {
   const v = vista || {}
   if (!v.esDesafio) return ''
   const partes = [
     '<div class="x402">',
-    '<div class="x-tit">402 · este nodo pide pago antes de generar un solo token</div>'
+    '<div class="x-tit">402 · this node requires payment before generating a single token</div>'
   ]
   if (v.error) {
     partes.push(
-      '<div class="x-aviso malo">el pago anterior no verifico: ' + escaparHtml(v.error) + '</div>'
+      '<div class="x-aviso malo">the previous payment did not verify: ' + escaparHtml(v.error) + '</div>'
     )
   }
   for (let i = 0; i < v.opciones.length; i++) {
@@ -714,34 +728,34 @@ export function htmlDeDesafio(vista) {
     partes.push(filaDato('activo', o.activo, 'mono'))
     partes.push(filaDato('A QUIEN', o.payTo, 'mono'))
     partes.push(
-      filaDato('EN QUE RED', o.red.texto + (o.red.esPrueba ? ' — red de PRUEBA' : ''), 'mono')
+      filaDato('EN QUE RED', o.red.texto + (o.red.esPrueba ? ' — TEST network' : ''), 'mono')
     )
     partes.push(
       filaDato(
         'HASTA CUANTOS TOKENS',
-        o.tope === null ? 'no declarado' : o.tope + ' tokens de salida'
+        o.tope === null ? 'not declared' : o.tope + ' output tokens'
       )
     )
     partes.push(
       filaDato(
-        'esquema',
-        o.esquema + (o.validezSeg === null ? '' : ' · la firma vale ' + o.validezSeg + ' s')
+        'scheme',
+        o.esquema + (o.validezSeg === null ? '' : ' · the signature is valid for ' + o.validezSeg + ' s')
       )
     )
     partes.push('</div>')
   }
   partes.push(
-    '<div class="x-nota">El tope de salida es el mismo numero que el gateway aplica despues, ' +
-      'y por eso el precio fijo es honesto (D9). Pagar es re-enviar el request con el header ' +
-      'X-PAYMENT firmado.</div>'
+    '<div class="x-nota">The output cap is the same number the gateway applies afterward, ' +
+      'which is why the fixed price is honest (D9). Paying means re-sending the request with ' +
+      'the signed X-PAYMENT header.</div>'
   )
   partes.push('</div>')
   return partes.join('')
 }
 
-// El badge de procedencia del conteo. `medido` y `estimado` NO comparten clase
-// ni texto: es la regla 3, y es lo unico que separa un token contado por el
-// tokenizador del proveedor de un chunk de SSE.
+// The provenance badge for the count. `medido` and `estimado` do NOT share a
+// class or text: that's rule 3, and it's the only thing that separates a
+// token counted by the provider's tokenizer from an SSE chunk.
 export function htmlDeConteo(vista) {
   const c = vista || {}
   const n = function (x) {
@@ -764,20 +778,23 @@ export function htmlDeConteo(vista) {
 
 export function htmlDeLiquidacion(vista) {
   const v = vista || {}
-  const partes = ['<div class="x-bloque">', '<div class="x-tit">Recibo de liquidacion (x402)</div>']
+  const partes = ['<div class="x-bloque">', '<div class="x-tit">Settlement receipt (x402)</div>']
+  // NOTE: the failure branch's opening "NO se cobro" is asserted verbatim by
+  // the test suite (indexOf) — that literal prefix is kept in Spanish, the
+  // rest of the sentence is translated.
   partes.push(
     v.liquidado
-      ? '<div class="x-aviso bueno">el facilitator informo la liquidacion como exitosa</div>'
+      ? '<div class="x-aviso bueno">the facilitator reported the settlement as successful</div>'
       : '<div class="x-aviso malo">NO se cobro: ' +
           escaparHtml(v.error) +
-          ' — el nodo sirvio igual, que es lo que D12 acepta a cambio de no poner una ' +
-          'transaccion on-chain delante del primer token</div>'
+          ' — the node served anyway, which is what D12 accepts in exchange for not putting ' +
+          'an on-chain transaction in front of the first token</div>'
   )
-  partes.push(filaDato('red', v.red.texto + (v.red.esPrueba ? ' — red de PRUEBA' : ''), 'mono'))
-  if (v.payer) partes.push(filaDato('pago', v.payer, 'mono'))
+  partes.push(filaDato('red', v.red.texto + (v.red.esPrueba ? ' — TEST network' : ''), 'mono'))
+  if (v.payer) partes.push(filaDato('payer', v.payer, 'mono'))
   if (v.tx) {
     partes.push(filaDato('tx hash', v.tx, 'mono'))
-    // Regla 4: el hash NUNCA sale sin decir de donde vino.
+    // Rule 4: the hash NEVER goes out without saying where it came from.
     partes.push(
       '<div class="x-aviso ' +
         (v.txSintetico ? 'malo' : 'tibio') +
@@ -786,7 +803,7 @@ export function htmlDeLiquidacion(vista) {
         '</div>'
     )
   } else {
-    partes.push(filaDato('tx hash', 'no lo devolvio el facilitator'))
+    partes.push(filaDato('tx hash', 'the facilitator did not return one'))
   }
   partes.push('</div>')
   return partes.join('')
@@ -795,19 +812,22 @@ export function htmlDeLiquidacion(vista) {
 export function htmlDeAtestacion(vista) {
   const v = vista || {}
   if (!v.hay) {
-    // Regla 1: la ausencia va CON EL MOTIVO. El caso del par no es una falla y
-    // se dice asi; cualquier otro se marca mas fuerte.
+    // Rule 1: the absence goes WITH THE REASON. The peer's case is not a
+    // failure and is stated as such; any other case is flagged more strongly.
+    // NOTE: "no hay atestacion" is asserted verbatim by the test suite
+    // (indexOf) — left in Spanish.
     return (
       '<div class="x-bloque">' +
-      '<div class="x-tit">Atestacion del proveedor (D24)</div>' +
+      '<div class="x-tit">Provider attestation (D24)</div>' +
       '<div class="x-aviso ' +
       (v.esDelPar ? 'tibio' : v.motivoDeclarado ? 'tibio' : 'malo') +
       '"><b>no hay atestacion</b> — ' +
       escaparHtml(v.motivo) +
       '</div>' +
       (v.esDelPar
-        ? '<div class="x-nota">Es lo correcto: este nodo no corrio el modelo y el 402 pago a ' +
-          'la wallet del par. Firmar aca seria el artefacto que parece prueba y no lo es.</div>'
+        ? '<div class="x-nota">This is correct: this node did not run the model, and the 402 ' +
+          'paid the peer\'s wallet. Signing here would be the artifact that looks like proof ' +
+          'and is not.</div>'
         : '') +
       '</div>'
     )
@@ -815,21 +835,21 @@ export function htmlDeAtestacion(vista) {
 
   const partes = [
     '<div class="x-bloque">',
-    '<div class="x-tit">Atestacion del proveedor (D24)</div>'
+    '<div class="x-tit">Provider attestation (D24)</div>'
   ]
 
-  // Regla 2: el mock se ve, arriba de todo y no en una nota al pie.
+  // Rule 2: the mock shows, above everything else and not in a footnote.
   if (v.esMock) {
     partes.push(
       '<div class="x-aviso malo"><b>runtime: mock</b> — ' + escaparHtml(v.avisoMock) + '</div>'
     )
   }
 
-  partes.push(filaDato('modelo', v.modelId === null ? 'no declarado' : v.modelId, 'mono'))
+  partes.push(filaDato('model', v.modelId === null ? 'not declared' : v.modelId, 'mono'))
   partes.push(filaDato('runtime', v.runtime, v.esMock ? 'mono malo' : 'mono'))
-  partes.push(filaDato('cuantizacion', v.quantization, 'mono'))
+  partes.push(filaDato('quantization', v.quantization, 'mono'))
   partes.push('<div class="x-nota">' + escaparHtml(v.declarados) + '</div>')
-  partes.push(filaDato('termino', v.finishReason + ' — ' + v.finishTexto))
+  partes.push(filaDato('finished', v.finishReason + ' — ' + v.finishTexto))
   partes.push(
     '<div class="x-fila"><span class="x-k">tokens</span><span class="x-v">' +
       htmlDeConteo(v.conteo) +
@@ -837,9 +857,10 @@ export function htmlDeAtestacion(vista) {
   )
   partes.push(filaDato('requestId', v.requestId, 'mono'))
   partes.push(filaDato('nonce', v.nonce, 'mono'))
-  partes.push(filaDato('firmada por', v.providerPubkey, 'mono'))
+  partes.push(filaDato('signed by', v.providerPubkey, 'mono'))
 
-  // Los hashes: el corazon de D24. Cada uno dice si se recomputo y contra que.
+  // The hashes: the heart of D24. Each one says whether it was recomputed
+  // and against what.
   for (let i = 0; i < v.hashes.length; i++) {
     const h = v.hashes[i]
     partes.push(filaDato(h.campo, h.declarado === null ? '—' : h.declarado, 'mono'))
@@ -848,15 +869,15 @@ export function htmlDeAtestacion(vista) {
         (h.estado === 'coincide' ? 'bueno' : h.estado === 'no-coincide' ? 'malo' : 'tibio') +
         '">' +
         escaparHtml(h.texto) +
-        (h.estado === 'no-coincide' ? ' — recomputado: ' + escaparHtml(h.calculado) : '') +
+        (h.estado === 'no-coincide' ? ' — recomputed: ' + escaparHtml(h.calculado) : '') +
         '</div>'
     )
   }
 
-  partes.push(filaDato('firma', v.signature, 'mono'))
+  partes.push(filaDato('signature', v.signature, 'mono'))
   partes.push('<div class="x-aviso tibio">' + escaparHtml(v.avisoFirma) + '</div>')
   partes.push(
-    '<details class="x-det"><summary>los bytes que se firmaron (JCS sin el campo signature)</summary>' +
+    '<details class="x-det"><summary>the bytes that were signed (JCS without the signature field)</summary>' +
       '<pre class="x-pre">' +
       escaparHtml(v.firmadoSobre) +
       '</pre></details>'
@@ -865,24 +886,24 @@ export function htmlDeAtestacion(vista) {
   return partes.join('')
 }
 
-// El mismo recibo llega con DOS formas y las dos hay que aceptar, porque las
-// dos las emite el gateway hoy:
+// The same receipt arrives in TWO shapes and both have to be accepted,
+// because the gateway emits both today:
 //
-//   - evento SSE final: el recibo de liquidacion cuelga de `paymentResponse`,
-//     con `x402Note` explicando por que no vino en el header (D12);
-//   - `GET /v1/receipts/:id`: el mismo recibo va APLANADO en la raiz, que es la
-//     forma que ya leen los clientes y el test.
+//   - final SSE event: the settlement receipt hangs off `paymentResponse`,
+//     with `x402Note` explaining why it didn't come in the header (D12);
+//   - `GET /v1/receipts/:id`: the same receipt goes FLATTENED at the root,
+//     which is the shape clients and the test already read.
 //
-// La atestacion, en las dos, va al lado y en su propia clave.
+// The attestation, in both, goes alongside it in its own key.
 export function liquidacionDe(recibo) {
   const r = recibo || {}
   return r.paymentResponse ? r.paymentResponse : r
 }
 
-// El recibo entero: liquidacion y atestacion UNA AL LADO DE LA OTRA, porque
-// prueban mitades distintas del mismo intercambio -- el recibo, que alguien
-// pago; la atestacion, que este nodo entrego esto -- y separarlas deja a cada
-// una pareciendo la prueba completa.
+// The whole receipt: settlement and attestation SIDE BY SIDE, because they
+// prove different halves of the same exchange -- the receipt, that someone
+// paid; the attestation, that this node delivered this -- and separating
+// them would leave each one looking like the complete proof.
 export function htmlDeRecibo(recibo, contexto) {
   return (
     '<div class="x402 x-par">' +
@@ -893,23 +914,24 @@ export function htmlDeRecibo(recibo, contexto) {
 }
 
 // -----------------------------------------------------------------------------
-// LO QUE VIAJA AL NAVEGADOR
+// WHAT TRAVELS TO THE BROWSER
 // -----------------------------------------------------------------------------
 //
-// El panel corre EXACTAMENTE estas funciones: se serializan con `String(fn)` y
-// se pegan adentro del `<script>` de cada pagina. No es un truco de empaquetado
-// -- es lo que hace que el test y el panel no puedan divergir, que es todo el
-// motivo por el que este archivo esta separado de pages.mjs.
+// The panel runs EXACTLY these functions: they get serialized with
+// `String(fn)` and pasted inside each page's `<script>`. It's not a bundling
+// trick -- it's what keeps the test and the panel from being able to diverge,
+// which is the whole reason this file is separate from pages.mjs.
 //
-// `bare-pack` no minifica (no tiene minificador entre sus dependencias, se
-// miro), asi que el texto que sale de `String(fn)` adentro del binario
-// standalone es el mismo que en el arbol.
+// `bare-pack` doesn't minify (it has no minifier among its dependencies,
+// checked), so the text `String(fn)` produces inside the standalone binary is
+// the same as in the tree.
 //
-// Los NOMBRES salen de las claves de este objeto y NO de `fn.name`: si algun dia
-// entra un minificador, `fn.name` se mangla y las claves literales no.
+// The NAMES come from this object's keys and NOT from `fn.name`: if a
+// minifier ever gets added, `fn.name` gets mangled and the literal keys
+// don't.
 //
-// El orden es el de dependencia: cada funcion solo puede llamar a las que ya se
-// declararon arriba, mas las constantes de `CONSTANTES_EMBEBIDAS`.
+// The order is the dependency order: each function can only call the ones
+// already declared above it, plus the constants from `CONSTANTES_EMBEBIDAS`.
 const CONSTANTES_EMBEBIDAS =
   'var MASCARA64 = ' +
   MASCARA64 +
@@ -954,7 +976,7 @@ const FUNCIONES_EMBEBIDAS = {
 }
 
 export const FUENTE_EMBEBIDA =
-  '// ---- qvac/panel-x402.mjs, embebido tal cual: ver la nota de ese archivo ----\n' +
+  '// ---- qvac/panel-x402.mjs, embedded as-is: see that file\'s note ----\n' +
   CONSTANTES_EMBEBIDAS +
   Object.keys(FUNCIONES_EMBEBIDAS)
     .map(function (n) {

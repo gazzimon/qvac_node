@@ -274,9 +274,10 @@
 
   /* -------------------------------------------------------------- install */
   .install { text-align: left; }
-  /* minmax(0, ...): el comando de instalacion es una linea larga sin espacios
-     y su min-content aplastaba la columna del titulo a 298px. Con esto el
-     <pre> scrollea adentro de su propia caja, que es lo que ya sabe hacer. */
+  /* minmax(0, ...): the install command is one long line with no spaces
+     and its min-content was squashing the title column down to 298px. With
+     this the <pre> scrolls inside its own box, which it already knows how
+     to do. */
   .install .grid {
     display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
     gap: clamp(2rem, 5vw, 4rem); align-items: center;
@@ -298,8 +299,8 @@
     font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.9;
     color: var(--ink); overflow-x: auto;
   }
-  /* El comando entra entero: una barra de scroll horizontal justo donde le
-     pedis a alguien que copie algo esconde la mitad de lo que tiene que copiar. */
+  /* The command comes in whole: a horizontal scrollbar right where you're
+     asking someone to copy something hides half of what they have to copy. */
   #cmd { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
   .term .c1 { color: var(--mute); }
   .term .c2 { color: var(--network); }
@@ -482,9 +483,9 @@
   }
 
   /* ------------------------------------------------------- direct downloads */
-  /* El one-liner sigue siendo el camino principal. Esto es para quien no
-     ejecuta un script bajado de internet sin haber visto antes el archivo: el
-     mismo binario, su tamano y su checksum, a un click. */
+  /* The one-liner is still the main path. This is for whoever won't run a
+     script downloaded from the internet without having seen the file
+     first: the same binary, its size, and its checksum, one click away. */
   .dl {
     margin-top: clamp(2.5rem, 5vw, 3.5rem);
     padding-top: clamp(1.75rem, 4vw, 2.4rem);
@@ -503,8 +504,8 @@
     border-top: 1px solid var(--line);
   }
   .dl li:first-child { border-top: none; }
-  /* La fila que corresponde al sistema del visitante, marcada igual que la
-     pestana de arriba: la eleccion ya esta hecha, y la lista lo dice. */
+  /* The row matching the visitor's own system, marked the same way as the
+     tab above: the choice is already made, and the list says so. */
   .dl li.mine { background: var(--surface-2); }
   .dl .p { font-size: .92rem; color: var(--ink); }
   .dl .p i { font-style: normal; color: var(--mute); font-size: .82rem; }
@@ -525,18 +526,18 @@
   .dl a.sum {
     font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--mute);
     text-decoration: none; border-bottom: 1px dotted var(--line);
-    /* Sin esto el subrayado se estira con la celda de la grilla y queda una
-       linea punteada suelta a la derecha del texto. */
+    /* Without this the underline stretches with the grid cell and leaves a
+       loose dotted line to the right of the text. */
     justify-self: start;
   }
   .dl a.sum:hover { color: var(--ink); border-bottom-color: var(--network); }
-  /* Abajo de 640px las cuatro columnas quedarian de 3ch: la fila se parte en
-     dos lineas antes de llegar a eso. */
+  /* Below 640px the four columns would end up at 3ch: the row splits into
+     two lines before getting there. */
   @media (max-width: 640px) {
     .dl li { grid-template-columns: minmax(0, 1fr) auto; row-gap: .55rem; }
     .dl .p { grid-column: 1 / -1; }
-    /* Tamano y checksum comparten la segunda linea -- en filas separadas, el
-       sha256 quedaba solo en una tercera linea vacia. */
+    /* Size and checksum share the second line -- in separate rows, the
+       sha256 ended up alone on an empty third line. */
     .dl .s { grid-column: 1; grid-row: 2; }
     .dl a.sum { grid-column: 1; grid-row: 2; justify-self: end; }
     .dl a.get { grid-column: 2; grid-row: 2; }
@@ -967,14 +968,15 @@
     const prompt = currentOS === 'win' ? 'PS&gt;' : '$'
     document.getElementById('cmd').innerHTML =
       '<span class="c1">' + prompt + '</span> ' + CMDS[currentOS]
-    // Acotado a .os-tabs: las filas de descarga tambien llevan data-os, y sin
-    // el prefijo esto les ponia aria-selected -- y el listener de abajo les
-    // colgaba un click que cambiaba la pestana en vez de bajar el archivo.
+    // Scoped to .os-tabs: the download rows also carry data-os, and
+    // without the prefix this was setting aria-selected on them too --
+    // and the listener below was hanging a click on them that switched the
+    // tab instead of downloading the file.
     document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
       b.setAttribute('aria-selected', String(b.dataset.os === currentOS))
     })
-    // La lista de descargas sigue a la pestana: marcar la fila que corresponde
-    // ahorra leer cinco lineas casi iguales para encontrar la propia.
+    // The download list follows the tab: marking the matching row saves
+    // reading five almost-identical lines to find your own.
     document.querySelectorAll('.dl li[data-os]').forEach((li) => {
       li.classList.toggle('mine', li.dataset.os === currentOS)
     })
