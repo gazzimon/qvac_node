@@ -446,6 +446,10 @@ export class Coordinator {
     }
     todo = todo.filter((t) => !overCeiling.includes(t))
 
+    // Recorded before any placement so `run:end` can say whether this run had
+    // anything to do at all — a finished project must not read as stalled.
+    this._pendingAtStart = todo.length
+
     this.log(`${todo.length} pending out of ${this.tickets.length}`)
     if (todo.length === 0) {
       this.endRun()
@@ -536,10 +540,14 @@ export class Coordinator {
     return this.cfg.budgetTokens > 0 && this.state.tokensSpent() >= this.cfg.budgetTokens
   }
 
+  // `pendingAtStart` is what lets isStalled() tell "tried and got nowhere"
+  // from "nothing left to do" — see its comment in state.mjs. Set once, at
+  // the top of run(), before anything is placed.
   endRun() {
     this.state.append(EVENTS.RUN_END, {
       done: this.state.done().length,
       blocked: this.state.blocked().length,
+      pendingAtStart: this._pendingAtStart ?? null,
       tokensSpent: this.state.tokensSpent()
     })
     if (this.state.isStalled()) {

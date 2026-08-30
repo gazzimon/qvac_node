@@ -194,6 +194,46 @@ await check('a run that starts already over budget assigns nothing and logs budg
   assert.ok(s.events.some((e) => e.type === EVENTS.BUDGET_EXCEEDED))
 })
 
+// ---------------------------------------------------------------------------
+// Stall detection must not fire on a FINISHED project
+// ---------------------------------------------------------------------------
+await check('a finished project closing zero tickets is NOT stalled', () => {
+  const { STORAGE } = scaffold('finished', ONE_TICKET)
+  const s = new State(path.join(STORAGE, 'runs.jsonl'))
+  // The night it finished.
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.TICKET_DONE, { ticketId: 'db' })
+  s.append(EVENTS.RUN_END, { done: 1, pendingAtStart: 1 })
+  // Two nights after: nothing pending, nothing closed. Success, not a stall.
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.RUN_END, { done: 1, pendingAtStart: 0 })
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.RUN_END, { done: 1, pendingAtStart: 0 })
+  assert.equal(s.isStalled(), false, 'a completed project must not raise a nightly alarm')
+})
+
+await check('a project with work left that closes nothing twice IS stalled', () => {
+  const { STORAGE } = scaffold('spinning', ONE_TICKET)
+  const s = new State(path.join(STORAGE, 'runs.jsonl'))
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.CI_FAIL, { ticketId: 'db', status: 'failed' })
+  s.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 1 })
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.CI_FAIL, { ticketId: 'db', status: 'failed' })
+  s.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 1 })
+  assert.equal(s.isStalled(), true)
+})
+
+await check('an older log without pendingAtStart keeps the previous meaning', () => {
+  const { STORAGE } = scaffold('legacy', ONE_TICKET)
+  const s = new State(path.join(STORAGE, 'runs.jsonl'))
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.RUN_END, { done: 0 })
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.RUN_END, { done: 0 })
+  assert.equal(s.isStalled(), true, 'no pendingAtStart ⇒ fall back to the old rule')
+})
+
 await check('budgetTokens: 0 means no limit', () => {
   const { STORAGE } = scaffold('nolimit', ONE_TICKET)
   const s = new State(path.join(STORAGE, 'runs.jsonl'))

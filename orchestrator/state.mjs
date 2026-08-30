@@ -179,7 +179,19 @@ export class State {
 
     for (const e of this.events) {
       if (e.type === EVENTS.RUN_START) {
-        current = { start: e.ts, done: 0, failed: 0, blocked: 0, violations: 0, tokens: 0 }
+        current = {
+          start: e.ts,
+          done: 0,
+          failed: 0,
+          blocked: 0,
+          violations: 0,
+          tokens: 0,
+          // How many tickets this run actually had to work on. `run:start`
+          // carries the total ticket count, not the pending count, so this is
+          // filled from `run:end`'s own bookkeeping below — a run that had
+          // nothing to do is NOT the same as a run that tried and failed.
+          hadWork: null
+        }
         runs.push(current)
       }
       if (!current) continue
@@ -190,15 +202,25 @@ export class State {
       if (e.type === EVENTS.RESULT_RECEIVED && e.usage && Number.isFinite(e.usage.tokens)) {
         current.tokens += e.usage.tokens
       }
-      if (e.type === EVENTS.RUN_END) current.end = e.ts
+      if (e.type === EVENTS.RUN_END) {
+        current.end = e.ts
+        if (Number.isFinite(e.pendingAtStart)) current.hadWork = e.pendingAtStart
+      }
     }
 
     return runs
   }
 
+  // Spinning in place: `window` runs in a row that HAD pending tickets and
+  // closed none of them. A run with nothing left to do closes zero too, and
+  // that is success, not a stall — without that distinction a finished
+  // project raises a false alarm on every nightly wake-up, forever. Runs
+  // written before `run:end` carried `pendingAtStart` have `hadWork: null`
+  // and are treated the old way (any zero-close run counts), so an existing
+  // log does not silently change meaning.
   isStalled(window = 2) {
     const runs = this.runSummaries()
     if (runs.length < window) return false
-    return runs.slice(-window).every((r) => r.done === 0)
+    return runs.slice(-window).every((r) => r.done === 0 && r.hadWork !== 0)
   }
 }
