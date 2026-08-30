@@ -1,78 +1,83 @@
-// Lo que la Fase 9 ya emite, traducido a algo que una PERSONA pueda auditar
-// mirando. No agrega ningun dato: lee lo que devuelven los endpoints que ya
-// existen y decide como se tiene que ver cada cosa.
+// What Phase 9 already emits, translated into something a PERSON can audit by
+// looking at it. It adds no data of its own: it reads what the existing
+// endpoints return and decides how each thing has to look.
 //
 // -----------------------------------------------------------------------------
-// POR QUE ESTE ARCHIVO EXISTE, Y POR QUE NO ESTA ADENTRO DE pages.mjs
+// WHY THIS FILE EXISTS, AND WHY IT'S NOT INSIDE pages.mjs
 //
-// La Fase 9 produce cuatro artefactos -- el desafio 402, el recibo de
-// liquidacion, la atestacion firmada (D24) y el split prefill/decode (D25) -- y
-// hasta ahora los cuatro se servian por HTTP y no se veian en ningun panel. Un
-// `grep` de `attestation`, `x402`, `tokensFuente` u `outputHash` sobre pages.mjs
-// devolvia CERO en todos.
+// Phase 9 produces four artifacts -- the 402 challenge, the settlement
+// receipt, the signed attestation (D24), and the prefill/decode split (D25) --
+// and until now all four were served over HTTP and shown in no panel at all. A
+// `grep` for `attestation`, `x402`, `tokensFuente`, or `outputHash` over
+// pages.mjs came back ZERO on all of them.
 //
-// Eso rompe la regla de los mocks del proyecto: que la atestacion diga
-// `runtime: mock`, que falte CON MOTIVO, o que el hash corresponda a lo que se
-// sirvio, no lo podia comprobar nadie sin curl. Un artefacto firmado que solo se
-// ve con curl no es evidencia para el que tiene que confiar en el nodo.
+// That breaks the project's rule about mocks: whether the attestation says
+// `runtime: mock`, whether it's missing WITH A REASON, or whether the hash
+// matches what was actually served -- nobody could check any of that without
+// curl. A signed artifact that's only visible with curl is not evidence for
+// whoever has to trust the node.
 //
-// Vive aparte de `pages.mjs` por una razon de prueba, no de orden: pages.mjs
-// exporta strings de HTML, y un test no puede llamar a una funcion que vive
-// adentro de un string. Aca son funciones PURAS, que la suite ejercita con las
-// respuestas REALES de los endpoints; y el panel recibe EXACTAMENTE ese codigo,
-// embebido por `FUENTE_EMBEBIDA` (ver el final del archivo). Una sola
-// implementacion, probada del lado del test y ejecutada del lado del navegador.
-// Copiadas serian dos, y el test verificaria la que el panel no corre.
-//
-// -----------------------------------------------------------------------------
-// LAS CINCO COSAS QUE ESTE ARCHIVO EXISTE PARA NO DIBUJAR MAL
-//
-//   1. `attestation: null` NO es un guion. Viene junto a `attestationMissing`,
-//      que dice POR QUE falta -- y el caso normal es que haya servido un par y
-//      la firma sea de el (Fase 10). Una ausencia con motivo es un dato; una
-//      ausencia muda es un agujero que se lee como "no hacia falta".
-//   2. `runtime: "mock"` tiene que VERSE como mock. Es una atestacion firmada
-//      con una wallet REAL sobre texto inventado del modo --demo: el artefacto
-//      es autentico y el contenido es teatro, y las dos cosas a la vez.
-//   3. `tokensFuente: "gateway"` no es `"proveedor"` y no se dibuja igual.
-//      "gateway" significa que el prefill es una ESTIMACION (bytes/4) y que el
-//      decode es un conteo de CHUNKS DE SSE, que no son tokens.
-//   4. Un tx hash tiene que decir de donde salio. Lo devuelve el facilitator y
-//      esta pagina no toca ninguna cadena: contra el facilitator de pruebas el
-//      hash es inventado y en el explorer no existe.
-//   5. El costo del header es el TECHO estimado, no el real -- con SSE los
-//      headers salen antes del primer token. El chat ya lo dice bien ("up to
-//      USD ..." / "no charge") y lo nuevo mantiene ese criterio.
+// It lives apart from `pages.mjs` for a testing reason, not a tidiness one:
+// pages.mjs exports HTML strings, and a test can't call a function that lives
+// inside a string. Here they're PURE functions, which the suite exercises
+// against the endpoints' REAL responses; and the panel receives that EXACT
+// code, embedded via `FUENTE_EMBEBIDA` (see the end of the file). One single
+// implementation, tested on the test side and run on the browser side. Copies
+// would be two, and the test would verify the one the panel doesn't run.
 //
 // -----------------------------------------------------------------------------
-// LO QUE ESTA PAGINA VERIFICA Y LO QUE NO
+// THE FIVE THINGS THIS FILE EXISTS SO THEY DON'T GET DRAWN WRONG
 //
-// VERIFICA los hashes: `outputHash` y `promptHash` se RECOMPUTAN aca, con el
-// mismo BLAKE2b-256 y la misma canonicalizacion JCS que uso el nodo al firmar,
-// contra el texto que el cliente efectivamente recibio. Ese es todo el punto de
-// D24 -- el hash es sobre el texto, y el texto no depende de en cuantos pedazos
-// viajo, asi que cualquiera puede recontarlo. Que se pueda comparar EN LA
-// PANTALLA es la diferencia entre un campo y una prueba.
+//   1. `attestation: null` is NOT a dash. It comes together with
+//      `attestationMissing`, which says WHY it's missing -- and the normal
+//      case is that a peer served it and the signature is theirs (Phase 10).
+//      An absence with a reason is data; a silent absence is a hole that
+//      reads as "it wasn't needed."
+//   2. `runtime: "mock"` has to LOOK like a mock. It's an attestation signed
+//      with a REAL wallet over text invented by --demo mode: the artifact is
+//      genuine and the content is theater, both at once.
+//   3. `tokensFuente: "gateway"` is not `"proveedor"` and doesn't get drawn
+//      the same way. "gateway" means the prefill is an ESTIMATE (bytes/4) and
+//      the decode is a count of SSE CHUNKS, which are not tokens.
+//   4. A tx hash has to say where it came from. The facilitator returns it and
+//      this page doesn't touch any chain: against the test facilitator the
+//      hash is made up and doesn't exist on the explorer.
+//   5. The header's cost is the estimated CEILING, not the actual figure --
+//      with SSE the headers go out before the first token. The chat already
+//      says this right ("up to USD ..." / "no charge") and the new part keeps
+//      that same rule.
 //
-// NO VERIFICA la firma. Recuperar el firmante de un EIP-191 pide keccak256 y
-// secp256k1, y este arbol no mete un CDN ni escribe curvas a mano para un panel.
-// Lo que hace en cambio es mostrar los BYTES EXACTOS que se firmaron (el JCS del
-// artefacto sin `signature`), que es lo que hace falta para verificarla afuera.
-// Se dice cual de las dos cosas se hizo, siempre.
+// -----------------------------------------------------------------------------
+// WHAT THIS PAGE VERIFIES AND WHAT IT DOESN'T
 //
-// El BLAKE2b de abajo esta contrastado contra `sodium.crypto_generichash` en la
-// suite unitaria -- vector por vector, incluido el limite de bloque de 128 bytes
-// y el UTF-8 multibyte. Un hash escrito a mano que nadie contrasta seria peor
-// que no comparar nada: diria "NO COINCIDE" sobre una atestacion correcta.
+// It VERIFIES the hashes: `outputHash` and `promptHash` are RECOMPUTED here,
+// with the same BLAKE2b-256 and the same JCS canonicalization the node used
+// when signing, against the text the client actually received. That's the
+// whole point of D24 -- the hash is over the text, and the text doesn't
+// depend on how many pieces it traveled in, so anyone can recount it. Being
+// able to compare it ON SCREEN is the difference between a field and a proof.
+//
+// It does NOT verify the signature. Recovering the signer of an EIP-191
+// requires keccak256 and secp256k1, and this tree doesn't pull in a CDN or
+// hand-write curves for a panel. What it does instead is show the EXACT BYTES
+// that were signed (the artifact's JCS without `signature`), which is what's
+// needed to verify it externally. Which of the two things was done is always
+// stated.
+//
+// The BLAKE2b below is checked against `sodium.crypto_generichash` in the
+// unit suite -- vector by vector, including the 128-byte block boundary and
+// multibyte UTF-8. A hand-written hash nobody checks would be worse than not
+// comparing anything at all: it would say "DOES NOT MATCH" over a correct
+// attestation.
 
 // -----------------------------------------------------------------------------
 // BLAKE2b-256 (RFC 7693)
 // -----------------------------------------------------------------------------
 //
-// Con BigInt y no con pares de 32 bits: son ~20 lineas menos y esto corre una
-// vez por respuesta, no en un loop caliente. El algoritmo lo fija `ALG` de
-// `qvac/atestacion.mjs`, que hashea con sodium; los dos tienen que dar lo mismo
-// y la suite lo comprueba.
+// With BigInt and not pairs of 32-bit words: it's ~20 fewer lines and this
+// runs once per response, not in a hot loop. The algorithm is pinned by `ALG`
+// from `qvac/atestacion.mjs`, which hashes with sodium; the two have to give
+// the same result and the suite checks it.
 
 const MASCARA64 = 0xffffffffffffffffn
 
@@ -102,12 +107,12 @@ const SIGMA = [
   [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3]
 ]
 
-// UTF-8 a mano y no `TextEncoder`, por una razon concreta: `TextEncoder` NO
-// existe bajo Bare -- comprobado, da `undefined` --, y el navegador si lo tiene.
-// Escribir cada mitad con la API que tiene disponible seria tener dos
-// codificadores y contrastar solo uno. Los surrogates sueltos van a U+FFFD, que
-// es lo mismo que hace `Buffer.from(s, 'utf8')`, o sea lo que el nodo hasheo al
-// firmar.
+// UTF-8 by hand and not `TextEncoder`, for a concrete reason: `TextEncoder`
+// does NOT exist under Bare -- checked, it gives `undefined` --, and the
+// browser does have it. Writing each half with whatever API it happens to
+// have available would mean two encoders and only checking one of them. Lone
+// surrogates go to U+FFFD, which is exactly what `Buffer.from(s, 'utf8')`
+// does, i.e. what the node hashed when signing.
 export function bytesUtf8(texto) {
   const s = String(texto == null ? '' : texto)
   const out = []
@@ -149,7 +154,7 @@ function comprimir(h, bloque, contados, ultimo) {
   const m = new Array(16)
   for (let i = 0; i < 16; i++) {
     let x = 0n
-    // Little-endian: entra el byte mas alto y se va corriendo hacia abajo.
+    // Little-endian: the highest byte goes in first and shifts its way down.
     for (let b = 7; b >= 0; b--) x = (x << 8n) | BigInt(bloque[i * 8 + b])
     m[i] = x
   }
@@ -182,15 +187,15 @@ function comprimir(h, bloque, contados, ultimo) {
 
 export function blake2b256Hex(bytes) {
   const h = IV.slice()
-  // Parametros: fanout 1, depth 1, keylen 0, digest de 32 bytes -> 0x01010020.
+  // Parameters: fanout 1, depth 1, keylen 0, 32-byte digest -> 0x01010020.
   h[0] ^= 0x01010020n
 
   const n = bytes.length
   let contados = 0
   let i = 0
-  // Estrictamente `>`, no `>=`: el ultimo bloque completo tiene que procesarse
-  // como FINAL y no como intermedio. Con `>=` el hash de una entrada de
-  // exactamente 128 bytes sale mal, y es el error clasico de esta funcion.
+  // Strictly `>`, not `>=`: the last full block has to be processed as FINAL
+  // and not as intermediate. With `>=` the hash of an input of exactly 128
+  // bytes comes out wrong, and it's the classic bug in this function.
   while (n - i > 128) {
     contados += 128
     comprimir(h, bytes.subarray(i, i + 128), contados, false)
@@ -212,22 +217,23 @@ export function blake2b256Hex(bytes) {
   return hex
 }
 
-// El mismo formato que `atestacion.hashDe`: el algoritmo PEGADO al valor, para
-// que un tercero sepa con que recomputarlo sin tener que adivinar.
+// The same format as `atestacion.hashDe`: the algorithm stuck to the value,
+// so a third party knows what to recompute it with without having to guess.
 export function hashDeTexto(texto) {
   return 'blake2b-256:' + blake2b256Hex(bytesUtf8(texto))
 }
 
-// JCS (RFC 8785), la misma canonicalizacion de `manifest.canonicalize`. Se
-// reescribe aca en vez de importarla porque este archivo viaja ENTERO al
-// navegador y un import no cruza esa frontera. La suite compara las dos salidas
-// campo por campo, que es lo que impide que se separen.
+// JCS (RFC 8785), the same canonicalization as `manifest.canonicalize`. It's
+// rewritten here instead of importing it because this file travels WHOLE to
+// the browser and an import doesn't cross that boundary. The suite compares
+// the two outputs field by field, which is what keeps them from drifting
+// apart.
 export function canonicalizarJCS(valor) {
   if (valor === null) return 'null'
   const t = typeof valor
   if (t === 'boolean') return valor ? 'true' : 'false'
   if (t === 'number') {
-    if (!Number.isFinite(valor)) throw new Error('JCS: numero no finito')
+    if (!Number.isFinite(valor)) throw new Error('JCS: non-finite number')
     return JSON.stringify(valor)
   }
   if (t === 'string') return JSON.stringify(valor)
@@ -248,15 +254,16 @@ export function canonicalizarJCS(valor) {
       '}'
     )
   }
-  throw new Error('JCS: tipo no serializable (' + t + ')')
+  throw new Error('JCS: non-serializable type (' + t + ')')
 }
 
 export function hashDeMensajes(messages) {
   return hashDeTexto(canonicalizarJCS(messages || []))
 }
 
-// Los bytes que se firmaron: el artefacto SIN `signature`. Se muestran para que
-// la firma se pueda verificar AFUERA, que es lo que esta pagina no hace.
+// The bytes that were signed: the artifact WITHOUT `signature`. They're shown
+// so the signature can be verified EXTERNALLY, which is what this page
+// doesn't do.
 export function bytesFirmados(atestacion) {
   const copia = {}
   const claves = Object.keys(atestacion || {})
@@ -267,12 +274,13 @@ export function bytesFirmados(atestacion) {
 }
 
 // -----------------------------------------------------------------------------
-// Las redes
+// The networks
 // -----------------------------------------------------------------------------
 //
-// El CAIP-2 crudo va SIEMPRE, con el nombre al lado cuando lo conocemos. Un
-// panel que muestre solo "Plasma" obliga a creerle al panel; el id es el dato
-// que viajo en el `accepts[]` y es contra el que el cliente firma.
+// The raw CAIP-2 goes ALWAYS, with the name next to it when we know it. A
+// panel that shows only "Plasma" forces you to take the panel's word for it;
+// the id is the data that traveled in `accepts[]` and is what the client
+// signs against.
 const REDES = {
   'eip155:9745': { nombre: 'Plasma', prueba: false },
   'eip155:9746': { nombre: 'Plasma testnet', prueba: true },
@@ -285,24 +293,25 @@ export function etiquetaDeRed(caip2) {
   return {
     id,
     nombre: r ? r.nombre : null,
-    // Una red que no esta en la tabla no se inventa: se muestra el id pelado.
-    texto: r ? r.nombre + ' · ' + id : id || 'red no declarada',
+    // A network not in the table doesn't get invented: the bare id is shown.
+    texto: r ? r.nombre + ' · ' + id : id || 'undeclared network',
     esPrueba: !!(r && r.prueba)
   }
 }
 
 // -----------------------------------------------------------------------------
-// 1 - El desafio 402
+// 1 - The 402 challenge
 // -----------------------------------------------------------------------------
 //
-// Los cuatro datos que el DoD de la Fase 9 le exige al 402: CUANTO, A QUIEN, EN
-// QUE CADENA y HASTA CUANTOS TOKENS.
+// The four pieces of data Phase 9's DoD demands of the 402: HOW MUCH, TO WHOM,
+// ON WHICH CHAIN, and UP TO HOW MANY TOKENS.
 //
-// El monto va en UNIDADES MINIMAS del activo y NO se convierte a dolares, y eso
-// es a proposito: el `accepts[]` declara `asset` y `extra.name`, pero NO declara
-// `decimals`. Dividir por 1e6 seria asumir que todo activo tiene 6 -- la tabla
-// de x402 tiene de 18 tambien -- o sea inventar el dato que falta justo en el
-// numero que la persona va a leer como "lo que me van a cobrar".
+// The amount goes in the asset's MINIMUM UNITS and is NOT converted to
+// dollars, and that's on purpose: `accepts[]` declares `asset` and
+// `extra.name`, but does NOT declare `decimals`. Dividing by 1e6 would be
+// assuming every asset has 6 -- the x402 table has 18 too -- i.e. inventing
+// the data that's missing on exactly the number the person is going to read
+// as "what they're going to charge me."
 export function vistaDeDesafio(cuerpo) {
   const body = cuerpo || {}
   const accepts = Array.isArray(body.accepts) ? body.accepts : []
@@ -311,26 +320,30 @@ export function vistaDeDesafio(cuerpo) {
   return {
     esDesafio: true,
     x402Version: body.x402Version == null ? null : body.x402Version,
-    // Cuando el 402 es un REINTENTO -- el pago anterior no verifico -- el
-    // gateway le agrega `error` con el motivo. Que se vea: sin eso, un cliente
-    // que firmo mal recibe el mismo 402 dos veces y no sabe que cambio.
+    // When the 402 is a RETRY -- the previous payment didn't verify -- the
+    // gateway adds `error` with the reason. Make it visible: without that, a
+    // client that signed wrong gets the same 402 twice and doesn't know what
+    // changed.
     error: body.error && body.error !== 'X-PAYMENT header is required' ? String(body.error) : null,
     opciones: accepts.map(function (a) {
       return {
-        // CUANTO
+        // HOW MUCH
         monto: String(a.amount == null ? '' : a.amount),
         activo: String(a.asset || ''),
         activoNombre: (a.extra && a.extra.name) || null,
-        // El `accepts[]` no declara `decimals`, asi que el monto no se convierte
-        // a USD sin inventar. Se dice, en vez de dividir por 1e6 y esperar.
+        // `accepts[]` doesn't declare `decimals`, so the amount isn't
+        // converted to USD without inventing it. It's stated, instead of
+        // dividing by 1e6 and hoping.
+        // NOTE: this string is asserted verbatim by test/index.js (checks
+        // for the substring "no declara los decimales") — left in Spanish.
         avisoMonto:
           'en unidades minimas del activo — el 402 no declara los decimales, ' +
           'asi que esta pagina no lo convierte a USD',
-        // A QUIEN
+        // TO WHOM
         payTo: String(a.payTo || ''),
-        // EN QUE CADENA
+        // ON WHICH CHAIN
         red: etiquetaDeRed(a.network),
-        // HASTA CUANTOS TOKENS
+        // UP TO HOW MANY TOKENS
         tope: Number.isFinite(Number(a.outputTokenLimit)) ? Number(a.outputTokenLimit) : null,
         esquema: String(a.esquema || a.scheme || ''),
         recurso: String(a.resource || ''),
@@ -344,20 +357,21 @@ export function vistaDeDesafio(cuerpo) {
 }
 
 // -----------------------------------------------------------------------------
-// 2 - El recibo de liquidacion
+// 2 - The settlement receipt
 // -----------------------------------------------------------------------------
 //
-// De donde sale el tx hash, y por que no se presenta como un hecho de la cadena:
-// lo devuelve el FACILITATOR que liquido, y ni el gateway ni esta pagina miran
-// ninguna cadena para comprobarlo. Contra el facilitator de pruebas el hash es
-// inventado -- `0xfefe...fe` -- y en el explorer no existe.
+// Where the tx hash comes from, and why it's not presented as a fact of the
+// chain: it's returned by the FACILITATOR that settled it, and neither the
+// gateway nor this page looks at any chain to check it. Against the test
+// facilitator the hash is made up -- `0xfefe...fe` -- and it doesn't exist on
+// the explorer.
 //
-// El sello `txSintetico` NO es una heuristica sobre "hashes que parecen falsos":
-// es una propiedad del propio valor. Un hash de transaccion es la salida de
-// keccak sobre la transaccion; que sus 32 bytes sean todos IGUALES no pasa en la
-// practica, y si es exactamente lo que emite un facilitator de juguete. Se marca
-// lo que se puede afirmar del valor; el resto se dice como advertencia para
-// TODOS los hashes por igual, tambien los que parecen buenos.
+// The `txSintetico` flag is NOT a heuristic about "hashes that look fake": it's
+// a property of the value itself. A transaction hash is the output of keccak
+// over the transaction; its 32 bytes all being EQUAL doesn't happen in
+// practice, and it IS exactly what a toy facilitator emits. What can be
+// asserted about the value gets flagged; the rest is stated as a warning for
+// ALL hashes alike, including the ones that look good.
 export function vistaDeLiquidacion(recibo) {
   const r = recibo || {}
   const tx = String(r.transaction || '')
@@ -371,18 +385,24 @@ export function vistaDeLiquidacion(recibo) {
 
   return {
     liquidado: r.success === true,
-    // Un `success: false` NO es un detalle de forma: el nodo sirvio y no cobro.
-    // D12 lo acepta a cambio de no poner una transaccion on-chain delante del
-    // TTFT, y es lo que la Fase 10 arregla acumulando recibos.
+    // A `success: false` is NOT a formality: the node served and didn't get
+    // paid. D12 accepts that in exchange for not putting an on-chain
+    // transaction in front of TTFT, and it's what Phase 10 fixes by
+    // accumulating receipts.
     error:
       r.success === true
         ? null
         : [r.errorReason, r.errorMessage].filter(Boolean).join(': ') ||
-          'la liquidacion no informo exito',
+          // NOTE: not asserted by the test suite — safe to translate.
+          'settlement did not report success',
     tx: tx || null,
     txSintetico: todosIguales,
-    // El origen va SIEMPRE, con hash real o de juguete. Un hash sin procedencia
-    // se lee como una transaccion confirmada, y aca no se confirmo nada.
+    // The origin always goes along, whether the hash is real or a toy one. A
+    // hash with no provenance reads as a confirmed transaction, and nothing
+    // was confirmed here.
+    // NOTE: both branches below are asserted verbatim by the test suite
+    // (checks for the substrings "PRUEBAS" and "verificaron contra la
+    // cadena") — left in Spanish.
     txOrigen: tx
       ? todosIguales
         ? 'sus 32 bytes son todos iguales: es el sello de un facilitator de PRUEBAS, ' +
@@ -396,18 +416,18 @@ export function vistaDeLiquidacion(recibo) {
 }
 
 // -----------------------------------------------------------------------------
-// 3 - La atestacion del proveedor (D24)
+// 3 - The provider's attestation (D24)
 // -----------------------------------------------------------------------------
 //
-// `attestation: null` viene acompanada de `attestationMissing`, que dice POR QUE
-// falta. Ese motivo ES el dato: el caso normal es que haya servido un par, y
-// entonces la firma que corresponde es la de EL (Fase 10) -- este nodo no
-// atestigua trabajo ajeno. Dibujar un guion ahi convierte una decision de diseno
-// en un agujero.
+// `attestation: null` comes together with `attestationMissing`, which says WHY
+// it's missing. That reason IS the data: the normal case is that a peer
+// served it, and then the signature that belongs is THEIRS (Phase 10) -- this
+// node doesn't attest work it didn't do. Drawing a dash there turns a design
+// decision into a hole.
 //
-// `textoRecibido` y `messages` son opcionales: cuando estan, los hashes se
-// RECOMPUTAN y se comparan. Cuando no, se dice que no se comparo -- que no es lo
-// mismo que "coincide", y son tres estados distintos a proposito.
+// `textoRecibido` and `messages` are optional: when present, the hashes get
+// RECOMPUTED and compared. When absent, it says it wasn't compared -- which is
+// not the same as "matches," and those are three distinct states on purpose.
 export function vistaDeAtestacion(recibo, contexto) {
   const r = recibo || {}
   const ctx = contexto || {}
@@ -417,22 +437,30 @@ export function vistaDeAtestacion(recibo, contexto) {
     const motivo = r.attestationMissing ? String(r.attestationMissing) : null
     return {
       hay: false,
-      // Sin atestacion Y sin motivo la respuesta esta incompleta, y eso se dice
-      // asi: es distinto de "no habia que firmar".
+      // No attestation AND no reason means the response is incomplete, and
+      // that's stated as such: it's different from "there was nothing to
+      // sign."
+      // NOTE: asserted verbatim by the test suite (checks for the substring
+      // "incompleta") — left in Spanish.
       motivo:
         motivo ||
         'el recibo no trae atestacion NI el motivo por el que falta: es una respuesta ' +
           'incompleta, no una ausencia justificada',
       motivoDeclarado: !!motivo,
-      // El unico caso en que la ausencia es lo CORRECTO y no una falla: sirvio
-      // un par, cobro su wallet, y su atestacion la firma el (Fase 10).
+      // The one case where the absence is CORRECT and not a failure: a peer
+      // served it, its wallet got paid, and its attestation is the one that
+      // signs it (Phase 10).
+      // NOTE: 'otro nodo' ("other node") here is compared against Spanish
+      // text produced elsewhere (attestationMissing, outside this file's
+      // scope) via indexOf — a data comparison, not display prose. Left
+      // untranslated; translating it would silently break `esDelPar`.
       esDelPar: !!(motivo && motivo.indexOf('otro nodo') !== -1)
     }
   }
 
   const runtime = String(a.runtime || 'unknown')
-  // Un mock firmado con una wallet REAL sigue siendo un mock. El artefacto es
-  // autentico y el texto es inventado, y las dos cosas tienen que verse juntas.
+  // A mock signed with a REAL wallet is still a mock. The artifact is genuine
+  // and the text is made up, and the two have to be visible together.
   const esMock = runtime === 'mock' || runtime.indexOf('mock') === 0
 
   const hashes = [
@@ -447,22 +475,27 @@ export function vistaDeAtestacion(recibo, contexto) {
     nonce: String(a.nonce || ''),
     ts: Number(a.ts) || null,
     modelId: a.modelId == null ? null : String(a.modelId),
-    // DECLARADOS, no medidos (D26). No hay forma black-box publicada de
-    // verificar la cuantizacion: lo que sostiene estos dos campos es que estan
-    // firmados y que hay stake detras, no una medicion.
+    // DECLARED, not measured (D26). There's no published black-box way to
+    // verify quantization: what backs these two fields is that they're
+    // signed and there's stake behind them, not a measurement.
     quantization: String(a.quantization || 'unknown'),
     runtime,
+    // NOTE: asserted verbatim by the test suite (checks for the substring
+    // "DECLARACIONES") — left in Spanish.
     declarados: 'quantization y runtime son DECLARACIONES firmadas, no mediciones (D26)',
     esMock,
+    // NOTE: asserted via `.indexOf('demo')` — the literal flag name `--demo`
+    // (never translated per rule 2) already guarantees that substring, so
+    // the surrounding prose is safe to translate.
     avisoMock: esMock
-      ? 'MOCK: el texto lo invento el modo --demo. La firma es de una wallet REAL sobre ' +
-        'texto que ningun modelo genero — el artefacto es autentico y el contenido es teatro'
+      ? 'MOCK: the text was made up by --demo mode. The signature is from a REAL wallet ' +
+        'over text no model generated — the artifact is genuine and the content is theater'
       : null,
     finishReason: String(a.finishReason || ''),
     finishTexto: textoDeFinishReason(a.finishReason),
-    // La atestacion NO lleva `tokensFuente`: el que lo declara es el rastro de
-    // ruteo (D25). Se pasa por `vistaDeConteo` igual para que los dos numeros
-    // nunca se dibujen como una medicion cuando nadie dijo que lo sean.
+    // The attestation does NOT carry `tokensFuente`: what declares it is the
+    // routing trail (D25). It's still run through `vistaDeConteo` so the two
+    // numbers never get drawn as a measurement when nobody said they were.
     conteo: vistaDeConteo({
       tokensPrefill: a.tokensPrefill,
       tokensDecode: a.tokensDecode,
@@ -470,9 +503,11 @@ export function vistaDeAtestacion(recibo, contexto) {
     }),
     providerPubkey: String(a.providerPubkey || ''),
     signature: String(a.signature || ''),
-    // Los bytes contra los que se firmo, para poder verificarla AFUERA.
+    // The bytes it was signed against, so it can be verified EXTERNALLY.
     firmadoSobre: bytesFirmados(a),
     firmaVerificada: false,
+    // NOTE: asserted verbatim by the test suite (checks for the substring
+    // "NO verifica la firma") — left in Spanish.
     avisoFirma:
       'esta pagina NO verifica la firma — recuperar el firmante de un EIP-191 pide ' +
       'keccak256 y secp256k1, y aca no entra un CDN. Los hashes SI se recomputan; ' +
@@ -481,14 +516,22 @@ export function vistaDeAtestacion(recibo, contexto) {
   }
 }
 
-// Recomputa un hash y lo compara, o dice que no se comparo. Las cuatro salidas
-// son distintas a proposito, y la que mas importa es `sin-material`: "no lo pude
-// comparar" no es "coincide", y un panel que las mezcle convierte la falta de
-// evidencia en evidencia.
+// Recomputes a hash and compares it, or says it wasn't compared. The four
+// outcomes are deliberately distinct, and the one that matters most is
+// `sin-material`: "I couldn't compare it" is not "matches," and a panel that
+// blurs them turns a lack of evidence into evidence.
+//
+// NOTE: the `estado` values ('sin-dato', 'sin-material', 'error', 'coincide',
+// 'no-coincide') are enum-like data asserted verbatim by the test suite and
+// also used as CSS-class-adjacent tokens — left untranslated per rule 2/3.
+// The `texto` strings for 'sin-material' and both 'coincide'/'no-coincide'
+// cases are ALSO asserted verbatim (indexOf checks for "no se recomputo",
+// "coincide", and "NO coincide") — left in Spanish. Only 'sin-dato' and the
+// dynamic 'error' message are untested and were translated.
 function comparacionDeHash(campo, declarado, material, recomputar) {
   const dec = declarado == null ? null : String(declarado)
   if (!dec) {
-    return { campo, declarado: null, estado: 'sin-dato', texto: 'la atestacion no lo trae' }
+    return { campo, declarado: null, estado: 'sin-dato', texto: 'the attestation does not carry it' }
   }
   if (material === undefined || material === null) {
     return {
@@ -506,7 +549,7 @@ function comparacionDeHash(campo, declarado, material, recomputar) {
       campo,
       declarado: dec,
       estado: 'error',
-      texto: 'no se pudo recomputar: ' + ((err && err.message) || err)
+      texto: 'could not recompute: ' + ((err && err.message) || err)
     }
   }
   const coincide = calculado === dec
@@ -521,8 +564,12 @@ function comparacionDeHash(campo, declarado, material, recomputar) {
   }
 }
 
-// D27 en palabras. `client_cancelled` es vocabulario propio y mas ancho que el
-// de OpenAI: aplanarlo a `stop` afirmaria que la respuesta termino.
+// D27 in words. `client_cancelled` is our own vocabulary and wider than
+// OpenAI's: flattening it to `stop` would claim the response finished.
+//
+// NOTE: every return value here is asserted verbatim (or via indexOf) by the
+// test suite ('termino sola', the substring 'tope', the substring 'lo corto
+// el cliente', and 'no declarado') — the whole function is left in Spanish.
 export function textoDeFinishReason(reason) {
   const r = String(reason || '')
   if (r === 'stop') return 'termino sola'

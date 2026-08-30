@@ -163,25 +163,26 @@ function toPublic(node) {
     activeRequests: node.activeRequests,
     maxConcurrentRequests: node.maxConcurrentRequests,
     loadPct: loadPct(node),
-    // Que un upstream sea local cambia lo que el panel puede decir de el: no
-    // se lo puede etiquetar "external API" ni avisar que el prompt sale de la
-    // maquina, porque no sale.
+    // Whether an upstream is local changes what the panel can say about it:
+    // it can't be labeled "external API" or warn that the prompt leaves the
+    // machine, because it doesn't.
     local: node.local === true,
-    // Sin esto el panel no tiene con que pedirle el drive AL PAR CORRECTO: sin
-    // peerKey, /v1/files siempre cae al drive local, sin importar que tarjeta
-    // se haya clickeado.
+    // Without this the panel has nothing to ask the drive from THE RIGHT
+    // PEER with: with no peerKey, /v1/files always falls back to the local
+    // drive, no matter which card was clicked.
     peerKey: node.peerKey || null,
-    // FASE 9 / D10 — a donde cobra este candidato, si declara algo. Va al
-    // publico porque es exactamente lo que el 402 le tiene que decir al
-    // cliente, y porque ya viaja en un manifiesto que se anuncia a toda la red.
+    // PHASE 9 / D10 — where this candidate charges, if it declares
+    // anything. Goes public because it's exactly what the 402 has to tell
+    // the client, and because it already travels in a manifest announced to
+    // the whole network.
     economic: node.economic || null
   }
 }
 
-// El % de carga sube al arrancar un request y baja al terminar. Para el nodo
-// real esto refleja actividad real; para los mock, ademas, un timer los hace
-// fluctuar solos (ver startFluctuation) asi el panel se ve vivo aunque nadie
-// les mande requests durante el video.
+// The load % goes up when a request starts and down when it ends. For the
+// real node this reflects real activity; for the mocks, a timer also makes
+// them fluctuate on their own (see startFluctuation) so the panel looks
+// alive even when nobody's sending them requests during the video.
 export function beginRequest(id) {
   const node = nodes.get(id)
   if (!node) return
@@ -194,18 +195,19 @@ export function endRequest(id) {
   node.activeRequests = Math.max(node.activeRequests - 1, 0)
 }
 
-// El par contesto `at_capacity`: sabemos que esta lleno AHORA, y lo sabemos
-// mejor que el ultimo `node:status` que recibimos -- que puede tener hasta
-// 2 segundos de atraso (swarm.mjs:48).
+// The peer answered `at_capacity`: we know it's full RIGHT NOW, and we know
+// it better than the last `node:status` we got -- which can be up to 2
+// seconds stale (swarm.mjs:48).
 //
-// Sin esto, el request siguiente vuelve a evaluar a ese par como si tuviera
-// lugar y se come otro rechazo, y el que sigue tambien, hasta que llegue el
-// proximo status. Es S5 de NOTES-SATURACION.md: hasta 2s de requests mandados
-// a alguien que ya dijo que no puede.
+// Without this, the next request evaluates that peer again as if it had
+// room and eats another rejection, and the one after that too, until the
+// next status arrives. This is S5 from NOTES-SATURACION.md: up to 2s of
+// requests sent to someone who already said they can't.
 //
-// Se lo marca lleno y listo: el proximo `node:status` trae la verdad y pisa
-// esto (updateStatus escribe activeRequests sin mirar lo que habia). No hace
-// falta recordar que fue una marca ni cuando expira.
+// It just gets marked full and that's it: the next `node:status` brings the
+// truth and overwrites this (updateStatus writes activeRequests without
+// looking at what was there). No need to remember it was a mark or when it
+// expires.
 export function markSaturated(id) {
   const node = nodes.get(id)
   if (!node) return
@@ -233,16 +235,17 @@ export function kick(id) {
 }
 
 // ---------------------------------------------------------------------------
-// Pares del swarm (Fase 2-b): el registro se puebla desde manifiestos
-// VERIFICADOS, no desde seed(). Un par anuncia N modelos y cada uno entra como
-// una fila del marketplace, porque es la unidad que el cliente elige.
+// Swarm peers (Phase 2-b): the registry gets populated from VERIFIED
+// manifests, not from seed(). A peer announces N models and each one enters
+// as a marketplace row, because that's the unit the client chooses.
 // ---------------------------------------------------------------------------
 
-// El panel muestra el precio como texto. El manifiesto lo trae estructurado
-// (unit/amount/currency); esto lo aplana para mostrar, sin perder que el dato
-// firmado es el del manifiesto.
-// "1000000 QVAC" obliga a contar ceros para saber si son cien mil o un millon.
-// Nadie cuenta ceros mirando una grilla, y menos un jurado con 3 minutos.
+// The panel shows the price as text. The manifest carries it structured
+// (unit/amount/currency); this flattens it for display, without losing the
+// fact that the signed data is the manifest's.
+// "1000000 QVAC" forces counting zeros to know whether it's a hundred
+// thousand or a million. Nobody counts zeros looking at a grid, least of
+// all a judge with 3 minutes.
 function compactAmount(n) {
   const x = Number(n)
   if (!Number.isFinite(x)) return String(n)
@@ -253,9 +256,10 @@ function compactAmount(n) {
   return String(x)
 }
 
-// El unit del manifiesto es un identificador (per_1m_completion_tokens), no
-// una frase. Reemplazar guiones bajos por espacios daba "per 1m completion
-// tokens": ni ingles ni castellano, y encima repetia el "1m" del monto.
+// The manifest's unit is an identifier (per_1m_completion_tokens), not a
+// phrase. Replacing underscores with spaces gave "per 1m completion
+// tokens": neither English nor Spanish, and it repeated the amount's "1m"
+// on top of it.
 const UNIDAD_ES = {
   per_1m_completion_tokens: 'per 1M output tokens',
   per_1m_prompt_tokens: 'per 1M input tokens',
@@ -277,27 +281,29 @@ function formatPricing(pricing) {
     .join(' · ')
 }
 
-// Lo que trae el manifiesto lo eligio OTRA maquina. La firma prueba QUIEN lo
-// dijo, no que lo que dijo tenga sentido, y nada valida el schema en runtime:
-// `qos.maxConcurrentRequests` puede venir string, objeto o un numero absurdo.
-// El panel /admin lo concatena en el DOM, asi que un manifiesto perfectamente
-// firmado con HTML en ese campo era un XSS contra el operador que lo abre.
-// Se corta en el borde -aca, donde entra- y no en cada lugar que lo lee.
+// What the manifest carries was chosen by ANOTHER machine. The signature
+// proves WHO said it, not that what was said makes sense, and nothing
+// validates the schema at runtime: `qos.maxConcurrentRequests` can arrive as
+// a string, an object, or an absurd number. The /admin panel concatenates it
+// into the DOM, so a perfectly signed manifest with HTML in that field was
+// an XSS against whatever operator opens it. Cut off at the edge -here,
+// where it comes in- and not at every place that reads it.
 function capacidad(v) {
   const n = Math.floor(Number(v))
   if (!Number.isFinite(n) || n < 1) return 1
-  // Un par no puede anunciar capacidad infinita: el numero solo sirve para
-  // mostrar carga y para el ruteo, y uno gigante hace que el par se vea
-  // eternamente libre.
+  // A peer can't announce infinite capacity: the number only serves to
+  // show load and for routing, and a giant one makes the peer look
+  // eternally free.
   return Math.min(n, 1024)
 }
 
-// La direccion de cobro de un manifiesto YA VERIFICADO, o null.
+// The payout address from an ALREADY-VERIFIED manifest, or null.
 //
-// Devuelve null para todo lo que no sea una direccion usable: el bloque mock
-// (que trae `_mock` y la direccion cero), una direccion mal formada, o la
-// ausencia del bloque. Null significa "este par no declara donde cobrar", que
-// es un estado legitimo -- un nodo que solo consume -- y distinto de tener una.
+// Returns null for anything that isn't a usable address: the mock block
+// (which carries `_mock` and the zero address), a malformed address, or the
+// block being absent. Null means "this peer declares no payout address,"
+// which is a legitimate state -- a node that only consumes -- distinct from
+// having one.
 function economicVerificado(manifest) {
   const e = manifest && manifest.economic
   if (!e || e._mock) return null
@@ -317,11 +323,11 @@ function peerNodeId(peerKey, modelId) {
   return `${peerKey.slice(0, 12)}:${modelId}`
 }
 
-// `online: false` es la puerta por la que entran las filas del directorio: un
-// par hidratado del Hyperbee NO tiene socket, asi que no puede ser candidato.
-// Entra como 'known' y offline, y ahi se queda hasta que se conecte de verdad.
+// `online: false` is the door directory rows come in through: a peer
+// hydrated from the Hyperbee has NO socket, so it can't be a candidate. It
+// enters as 'known' and offline, and stays there until it actually connects.
 export function upsertFromManifest(peerKey, manifest, { online = true } = {}) {
-  const operator = (manifest.metadata && manifest.metadata.operator) || 'Nodo remoto'
+  const operator = (manifest.metadata && manifest.metadata.operator) || 'Remote node'
   const tags = (manifest.metadata && manifest.metadata.tags) || []
   // PHASE 9 / D10 — where this peer gets paid.
   //
@@ -338,10 +344,11 @@ export function upsertFromManifest(peerKey, manifest, { online = true } = {}) {
   // would send the money into a hole.
   const economic = economicVerificado(manifest)
 
-  // Se borran las filas viejas de ESTE par antes de insertar: si reanuncia con
-  // menos modelos, los que ya no sirve tienen que desaparecer del marketplace.
-  // `hard` porque esto es un reemplazo, no una desconexion: degradarlas a
-  // 'known' dejaria fantasmas de los modelos que el par dejo de servir.
+  // THIS peer's old rows get deleted before inserting: if it re-announces
+  // with fewer models, the ones it no longer serves have to disappear from
+  // the marketplace. `hard` because this is a replacement, not a
+  // disconnection: degrading them to 'known' would leave ghosts of the
+  // models the peer stopped serving.
   removeByPeer(peerKey, { hard: true })
 
   for (const m of manifest.models) {
@@ -451,22 +458,23 @@ export function registerUpstream({
     displayName: displayName || modelId,
     tags,
     pricing,
-    operator: operator || 'Asistente externo',
+    operator: operator || 'External assistant',
     maxConcurrentRequests,
     activeRequests: 0,
     status: status === 'offline' ? 'offline' : 'online',
-    // Un upstream que corre en ESTA maquina (llama-server, vLLM, un NIM
-    // self-hosted). Sigue siendo kind 'upstream' porque se le pide por HTTP y
-    // no por el motor embebido, pero NO es un tercero: el prompt no sale de
-    // aca. Todo lo que decide privacidad y gasto mira este campo, no el kind.
+    // An upstream running on THIS machine (llama-server, vLLM, a self-hosted
+    // NIM). Still kind 'upstream' because it's asked over HTTP and not
+    // through the embedded engine, but it's NOT a third party: the prompt
+    // doesn't leave here. Everything that decides privacy and spend looks at
+    // this field, not at kind.
     local: local === true
   })
   return rowId
 }
 
-// Se borran TODOS antes de volver a registrar: la config se relee entera, y
-// dejar la fila de un modelo que el operador saco del archivo anunciaria algo
-// que este nodo ya no puede servir.
+// ALL of them get deleted before re-registering: the config gets re-read
+// whole, and leaving the row for a model the operator removed from the file
+// would announce something this node can no longer serve.
 export function clearUpstreams() {
   for (const [id, node] of nodes) {
     if (node.kind === 'upstream') nodes.delete(id)
@@ -476,8 +484,8 @@ export function clearUpstreams() {
 export function updateStatus(peerKey, status) {
   for (const node of nodes.values()) {
     if (node.peerKey !== peerKey) continue
-    // La capacidad tambien puede cambiar: el par puede haber cargado otro
-    // modelo y tener menos slots libres que cuando firmo el manifiesto.
+    // Capacity can also change: the peer might have loaded another model
+    // and have fewer free slots than when it signed the manifest.
     if (Number.isFinite(status.maxConcurrentRequests)) {
       node.maxConcurrentRequests = status.maxConcurrentRequests
     }
@@ -487,20 +495,21 @@ export function updateStatus(peerKey, status) {
   }
 }
 
-// D3: se cae la conexion, se cae el candidato. Sin mirar `expiresAt`.
+// D3: the connection drops, the candidate drops. With no look at `expiresAt`.
 //
-// Con el directorio enganchado la fila no se BORRA, se degrada a 'known' +
-// offline. D3 sigue intacto -- `findAllByModelId` filtra por online, asi que
-// deja de ser candidato en el mismo instante -- pero el par no desaparece del
-// panel: queda como "lo conozco, ahora no esta", que es la informacion que el
-// Hyperbee existe para conservar. Sin directorio se borra como antes.
+// With the directory hooked up the row does NOT get DELETED, it degrades to
+// 'known' + offline. D3 stays intact -- `findAllByModelId` filters by
+// online, so it stops being a candidate at the same instant -- but the peer
+// doesn't disappear from the panel: it stays as "I know it, it's just not
+// here right now," which is the information the Hyperbee exists to
+// preserve. With no directory it gets deleted like before.
 //
-// `hard: true` fuerza el borrado real. Lo usa `upsertFromManifest`, donde el
-// par NO se fue: se esta reemplazando su lista de modelos.
-// El nombre con el que se anuncia un par, para poder decir QUIEN nos consumio
-// y no solo una clave publica de 64 caracteres. Si el par nunca se anuncio
-// -o ya se fue del registro- se devuelve un prefijo de la clave, que sigue
-// siendo mas util que "desconocido".
+// `hard: true` forces a real deletion. Used by `upsertFromManifest`, where
+// the peer did NOT leave: its model list is being replaced.
+// The name a peer announces itself under, so it can be said WHO consumed us
+// and not just a 64-character public key. If the peer never announced
+// itself -or already left the registry- a prefix of the key is returned,
+// which is still more useful than "unknown."
 export function operatorForPeer(peerKey) {
   if (!peerKey) return 'unknown peer'
   for (const node of nodes.values()) {
@@ -524,9 +533,9 @@ export function removeByPeer(peerKey, { hard = false } = {}) {
   }
 }
 
-// Lo que este nodo publica en `node:status`. Es la carga REAL de lo que corre
-// en esta maquina: los nodos mock del modo --demo no cuentan, seria anunciarle
-// a la red una capacidad que no existe.
+// What this node publishes in `node:status`. It's the REAL load of what
+// runs on this machine: --demo mode's mock nodes don't count, that would
+// mean announcing capacity to the network that doesn't exist.
 export function localLoad() {
   let activeRequests = 0
   let maxConcurrentRequests = 0
@@ -569,33 +578,37 @@ export function findAllByModelId(modelId) {
   return candidatos.sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9))
 }
 
-// El rastro dejo de ser solo de ruteo: ahora tambien entran la carga del
-// modelo y los dos numeros D7 del swarm. `kind` es lo que los separa al
-// leerlos, y va por defecto en 'route' para que las entradas viejas -y
-// cualquier llamador que no lo pase- sigan significando lo mismo.
+// The trail stopped being routing-only: model load and the swarm's two D7
+// numbers also enter now. `kind` is what tells them apart when reading them
+// back, and it defaults to 'route' so old entries -and any caller that
+// doesn't pass it- keep meaning the same thing.
 export function pushLog(entry) {
   const full = { ts: Date.now(), kind: 'route', ...entry }
   routingLog.unshift(full)
   if (routingLog.length > MAX_LOG) routingLog.length = MAX_LOG
 
-  // El array en memoria sigue siendo el que lee el panel (30 entradas, rapido
-  // y sin await). El bee guarda la serie completa, que es lo que despues
-  // permite decir "este par fallo 3 veces esta semana" en vez de "fallo".
+  // The in-memory array is still what the panel reads (30 entries, fast and
+  // with no await). The bee stores the full series, which is what later
+  // allows saying "this peer failed 3 times this week" instead of "it
+  // failed."
   //
-  // Se le pasa `full` y no `entry`: si el bee guardara la version sin `kind`,
-  // el historial largo no se podria filtrar por tipo y el panel tendria dos
-  // formas distintas de la misma entrada segun de donde la leyo.
+  // `full` gets passed, not `entry`: if the bee stored the version without
+  // `kind`, the long history couldn't be filtered by type and the panel
+  // would have two different shapes of the same entry depending on where it
+  // read it from.
   if (directory) directory.pushLog(full)
 }
 
-// Contadores por par. El directorio los persiste (es la materia prima de la
-// reputacion) y ademas se acumulan en memoria, porque el ruteo los necesita
-// SINCRONOS: `directory.stats()` es un get contra el Hyperbee, y meter un await
-// en el camino de cada request para desempatar candidatos que probablemente
-// esten empatados en carga sale mas caro que lo que decide.
+// Per-peer counters. The directory persists them (they're the raw material
+// for reputation) and they also accumulate in memory, because routing needs
+// them SYNCHRONOUS: `directory.stats()` is a get against the Hyperbee, and
+// putting an await on every request's path just to break ties between
+// candidates that are probably tied on load anyway costs more than what it
+// decides.
 //
-// La copia en memoria arranca vacia en cada boot. Eso esta bien: sin datos, el
-// desempate historico simplemente no participa y ordena la carga sola.
+// The in-memory copy starts empty on every boot. That's fine: with no data,
+// the historical tiebreaker simply doesn't take part and load alone does
+// the ordering.
 const peerStats = new Map()
 
 export function recordPeerResult(peerKey, { ok = true, ms = null, tokens = 0 } = {}) {
@@ -611,16 +624,16 @@ export function recordPeerResult(peerKey, { ok = true, ms = null, tokens = 0 } =
   })
 }
 
-// Lo que `routing.pickCandidate` recibe inyectado para desempatar. Devuelve
-// null si de ese nodo no sabemos nada todavia -- que es lo honesto: un par
-// nuevo no tiene historial, no tiene historial "perfecto".
+// What `routing.pickCandidate` gets injected with to break ties. Returns
+// null if we don't know anything about that node yet -- which is the honest
+// thing: a new peer has no history, it doesn't have a "perfect" history.
 export function statsFor(node) {
   if (!node || !node.peerKey) return null
   return peerStats.get(node.peerKey) || null
 }
 
-// El log largo, desde el Hyperbee. El panel puede pedir mas de 30 entradas sin
-// que el array en memoria tenga que crecer.
+// The long log, from the Hyperbee. The panel can ask for more than 30
+// entries without the in-memory array having to grow.
 export async function getLogHistory(limit = 200) {
   if (!directory) return routingLog.slice(0, limit)
   return await directory.recentLog(limit)
@@ -630,10 +643,11 @@ export function getLog() {
   return routingLog
 }
 
-// Fluctuacion de los nodos mock: cada tick, cada nodo mock online se mueve un
-// paso al azar dentro de [0, maxConcurrentRequests]. Es puro teatro para que
-// el video muestre porcentajes cambiando sin que el cliente este pidiendo
-// nada -el nodo real NUNCA se toca aca, su carga es siempre la real.
+// Mock nodes' fluctuation: on every tick, every online mock node moves a
+// random step within [0, maxConcurrentRequests]. Pure theater so the video
+// shows percentages changing without the client actually requesting
+// anything -the real node NEVER gets touched here, its load is always the
+// real one.
 export function startFluctuation(intervalMs = 2200) {
   stopFluctuation()
   fluctuationTimer = setInterval(() => {

@@ -2886,8 +2886,8 @@ async function cuentaDePrueba() {
   return new WM(FRASE_DE_PRUEBA, { provider: 'http://127.0.0.1:1/no-existe' }).getAccount()
 }
 
-// Un recibo con una autorizacion EIP-3009 REALMENTE firmada contra el dominio
-// que el recibo declara. `pisar` cambia cualquier campo despues de construir.
+// A receipt with an EIP-3009 authorization REALLY signed against the domain
+// the receipt declares. `pisar` (override) changes any field after building it.
 async function reciboDePrueba(cuenta, i = 0, pisar = {}) {
   const x402 = await import('../qvac/x402.mjs')
   const { evm } = await x402.cargar()
@@ -3009,32 +3009,32 @@ test('PHASE 10: a batch is for ONE network and ONE wallet, and the total is the 
     recibos: [mk({ n: 1, amount: '1000' }), mk({ n: 2, amount: '2500' })]
   })
   t.is(l.count, 2)
-  t.is(l.totalAmount, '3500', 'el total es la suma en unidades minimas, como string')
+  t.is(l.totalAmount, '3500', 'the total is the sum in minimal units, as a string')
   t.alike(
     l.nonces,
     l.recibos.map((r) => r.nonce),
-    'los nonces y el orden de los recibos coinciden'
+    'the nonces and the receipts\' order match'
   )
 
   t.exception(
     () => lote.construirLote({ recibos: [mk({ n: 1 }), mk({ n: 2, network: 'eip155:988' })] }),
     /red/,
-    'dos redes en un lote no: se liquida contra UN facilitator'
+    'two networks in one batch, no: it settles against ONE facilitator'
   )
   t.exception(
     () =>
       lote.construirLote({ recibos: [mk({ n: 1 }), mk({ n: 2, payTo: '0x' + 'dd'.repeat(20) })] }),
     /wallet/,
-    'dos destinos en un lote tampoco'
+    'two destinations in one batch either'
   )
   t.exception(
     () => lote.construirLote({ recibos: [] }),
     /no hay recibos/,
-    'un lote vacio no es un lote'
+    'an empty batch is not a batch'
   )
 })
 
-test('FASE 10: el lote se firma con la wallet y verifica -- contenido Y autorizaciones', async (t) => {
+test('PHASE 10: the batch gets signed with the wallet and verifies -- content AND authorizations', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const cuenta = await cuentaDePrueba()
   const address = await cuenta.getAddress()
@@ -3043,15 +3043,15 @@ test('FASE 10: el lote se firma con la wallet y verifica -- contenido Y autoriza
     recibos: [await reciboDePrueba(cuenta, 0), await reciboDePrueba(cuenta, 1)]
   })
   const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
-  t.ok(firmado && firmado.signature.startsWith('0x'), 'se firmo con una firma EVM')
+  t.ok(firmado && firmado.signature.startsWith('0x'), 'it got signed with an EVM signature')
 
   const v = await lote.verificarLote(firmado)
-  t.ok(v.ok, 'verifica: ' + (v.reason || ''))
-  t.is(v.firmante.toLowerCase(), address.toLowerCase(), 'y el firmante es la wallet de prueba')
-  t.is(v.recibosMal.length, 0, 'las dos autorizaciones EIP-3009 recuperan a quien dice pagar')
+  t.ok(v.ok, 'verifies: ' + (v.reason || ''))
+  t.is(v.firmante.toLowerCase(), address.toLowerCase(), 'and the signer is the test wallet')
+  t.is(v.recibosMal.length, 0, 'both EIP-3009 authorizations recover whoever claims to pay')
 })
 
-test('FASE 10: cambiar el lote despues de firmar lo invalida (JCS)', async (t) => {
+test('PHASE 10: changing the batch after signing invalidates it (JCS)', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const cuenta = await cuentaDePrueba()
   const l = lote.construirLote({
@@ -3059,50 +3059,50 @@ test('FASE 10: cambiar el lote despues de firmar lo invalida (JCS)', async (t) =
   })
   const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
 
-  // Inflar el total sin re-firmar: el firmante recuperado deja de ser la wallet
-  // y ademas la suma no cuadra. Los dos chequeos lo agarran.
+  // Inflate the total without re-signing: the recovered signer stops being the
+  // wallet, and on top of that the sum no longer adds up. Both checks catch it.
   const inflado = { ...firmado, totalAmount: '999999' }
   const v1 = await lote.verificarLote(inflado)
-  t.absent(v1.ok, 'un total cambiado no pasa')
-  t.ok(/suma|totalAmount/.test(v1.reason), 'y dice por que: ' + v1.reason)
+  t.absent(v1.ok, 'a changed total does not pass')
+  t.ok(/suma|totalAmount/.test(v1.reason), 'and it says why: ' + v1.reason)
 
-  // Sacar un recibo del lote firmado.
+  // Remove one receipt from the signed batch.
   const podado = { ...firmado, recibos: firmado.recibos.slice(0, 1), count: 1 }
   const v2 = await lote.verificarLote(podado)
-  t.absent(v2.ok, 'sacarle un recibo tampoco')
+  t.absent(v2.ok, 'dropping a receipt doesn\'t either')
 
-  // Sin firma no hay lote.
-  t.absent((await lote.verificarLote({ ...firmado, signature: undefined })).ok, 'sin firma, no')
-  t.is(await lote.firmarLote(l, null), null, 'y sin firmante no sale un lote sin firmar')
+  // Without a signature there is no batch.
+  t.absent((await lote.verificarLote({ ...firmado, signature: undefined })).ok, 'without a signature, no')
+  t.is(await lote.firmarLote(l, null), null, 'and without a signer, no unsigned batch comes out')
 })
 
-test('FASE 10: firmar con TU wallet no te deja quedarte con el lote de OTRO', async (t) => {
+test('PHASE 10: signing with YOUR wallet does not let you keep ANOTHER\'s batch', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const cuenta = await cuentaDePrueba()
 
-  // Un lote cuyos recibos pagan a `0xbb…` (el payTo de reciboDePrueba). Lo firma
-  // la wallet de prueba, que NO es 0xbb…: el firmante recuperado es real y no
-  // coincide con el destino. `verificarLote` no ata firmante==payTo -- eso es
-  // decision de quien lo consume -- pero SI expone quien firmo, que es lo que
-  // permite rechazarlo.
+  // A batch whose receipts pay `0xbb…` (reciboDePrueba's payTo). It's signed
+  // by the test wallet, which is NOT 0xbb…: the recovered signer is real and
+  // doesn't match the destination. `verificarLote` does not tie signer==payTo
+  // -- that's a decision for whoever consumes it -- but it DOES expose who
+  // signed, which is what allows rejecting it.
   const l = lote.construirLote({ recibos: [await reciboDePrueba(cuenta, 7)] })
   const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
   const v = await lote.verificarLote(firmado)
-  t.ok(v.ok, 'la firma es valida...')
+  t.ok(v.ok, 'the signature is valid...')
   t.not(
     v.firmante.toLowerCase(),
     firmado.payTo.toLowerCase(),
-    '...pero el firmante NO es el payTo del lote'
+    '...but the signer is NOT the batch\'s payTo'
   )
 })
 
-test('FASE 10: verificarLote agarra un recibo cuya autorizacion no recupera a su pagador', async (t) => {
+test('PHASE 10: verificarLote catches a receipt whose authorization does not recover its payer', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const cuenta = await cuentaDePrueba()
 
   const bueno = await reciboDePrueba(cuenta, 0)
-  // Un recibo con la firma de OTRA autorizacion: bien formada, pero no es la de
-  // este `from`/`value`/`nonce`.
+  // A receipt with the signature of ANOTHER authorization: well-formed, but
+  // not the one for this `from`/`value`/`nonce`.
   const otra = await reciboDePrueba(cuenta, 1)
   const malo = {
     ...bueno,
@@ -3114,12 +3114,12 @@ test('FASE 10: verificarLote agarra un recibo cuya autorizacion no recupera a su
   const l = lote.construirLote({ recibos: [bueno, malo] })
   const firmado = await lote.firmarLote(l, (m) => cuenta.sign(m))
   const v = await lote.verificarLote(firmado)
-  t.absent(v.ok, 'el lote no pasa entero')
-  t.is(v.recibosMal.length, 1, 'y senala EXACTAMENTE el recibo malo')
-  t.is((v.recibosMal[0] || {}).nonce, malo.nonce, 'que es el que trae la firma cambiada')
+  t.absent(v.ok, 'the whole batch does not pass')
+  t.is(v.recibosMal.length, 1, 'and it points to EXACTLY the bad receipt')
+  t.is((v.recibosMal[0] || {}).nonce, malo.nonce, 'the one carrying the swapped signature')
 })
 
-test('FASE 10: liquidarLote llama liquidar una vez por recibo y clasifica el resultado', async (t) => {
+test('PHASE 10: liquidarLote calls liquidar once per receipt and classifies the result', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const cuenta = await cuentaDePrueba()
   const l = lote.construirLote({
@@ -3136,8 +3136,8 @@ test('FASE 10: liquidarLote llama liquidar una vez por recibo y clasifica el res
     lote: firmado,
     liquidar: async ({ requisito }) => {
       vistos.push(requisito.amount)
-      // El primero cobra, el segundo es un nonce ya usado (idempotente: cuenta
-      // como liquidado), el tercero no tiene saldo (es del otro lado).
+      // The first one settles, the second is an already-used nonce (idempotent:
+      // it counts as settled), the third has no balance (that's the other side).
       if (vistos.length === 1)
         return { success: true, transaction: '0xabc', network: requisito.network }
       if (vistos.length === 2)
@@ -3146,48 +3146,48 @@ test('FASE 10: liquidarLote llama liquidar una vez por recibo y clasifica el res
     }
   })
 
-  t.is(vistos.length, 3, 'una llamada por recibo, con el requisito EXACTO guardado en el recibo')
-  t.is(res.liquidados.length, 2, 'exito + nonce-ya-usado cuentan como liquidados')
+  t.is(vistos.length, 3, 'one call per receipt, with the EXACT requirement stored in the receipt')
+  t.is(res.liquidados.length, 2, 'success + nonce-already-used count as settled')
   t.is(res.fallidos.length, 1)
-  t.is(res.fallidos[0].clase, 'saldo', 'el insuficiente se clasifica aparte: no se reintenta')
+  t.is(res.fallidos[0].clase, 'saldo', 'insufficient funds is classified apart: it does not get retried')
 })
 
-test('FASE 10: el protocolo nodo<->facilitator esta declarado, no adivinado', async (t) => {
+test('PHASE 10: the node<->facilitator protocol is declared, not guessed', async (t) => {
   const x402 = await import('../qvac/x402.mjs')
   const p = x402.PROTOCOLO_FACILITATOR
-  t.ok(p, 'x402 exporta el descriptor del protocolo')
+  t.ok(p, 'x402 exports the protocol descriptor')
   t.alike(
     p.envia,
     ['paymentPayload', 'paymentRequirements'],
-    'lo que este nodo manda en /verify y /settle'
+    'what this node sends on /verify and /settle'
   )
   t.ok(
     p.paymentPayload.includes('network') && p.paymentPayload.includes('payload'),
-    'la forma del paymentPayload'
+    'the shape of paymentPayload'
   )
   t.alike(
     p.paymentPayloadPayload,
     ['authorization', 'signature'],
-    'y adentro, la autorizacion firmada'
+    'and inside it, the signed authorization'
   )
   t.ok(
     p.settleResponse.includes('transaction') && p.settleResponse.includes('success'),
-    'lo que se lee de /settle'
+    'what gets read from /settle'
   )
   t.ok(
     Object.isFrozen(p) && Object.isFrozen(p.envia),
-    'el descriptor esta congelado: nadie lo edita en caliente'
+    'the descriptor is frozen: nobody edits it on the fly'
   )
 })
 
 // ---------------------------------------------------------------------------
-// FASE 10 — persistencia y flush del acumulador
+// PHASE 10 — accumulator persistence and flush
 //
-// `_pend` es memoria del proceso. Un corte entre "servido/verificado" y
-// "liquidado" regalaba el trabajo: la autorizacion EIP-3009 estaba firmada y en
-// ningun disco. Estos tests prueban que se espeja a un JSONL con escritura
-// atomica, que se recarga al abrir, y que el flush arma-firma-liquida-marca sin
-// volver a cobrar lo ya liquidado.
+// `_pend` is process memory. A cutoff between "served/verified" and
+// "settled" was giving away the work: the EIP-3009 authorization was signed
+// and on no disk. These tests prove it mirrors to a JSONL with atomic
+// writes, that it reloads on open, and that the build-sign-settle-mark flush
+// does not re-charge what's already settled.
 // ---------------------------------------------------------------------------
 
 function dirLoteTmp() {
@@ -3217,7 +3217,7 @@ function dirLoteTmp() {
   }
 }
 
-test('FASE 10: el acumulador se persiste a JSONL y se recarga al abrir', async (t) => {
+test('PHASE 10: the accumulator persists to JSONL and reloads on open', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const fs = require('bare-fs')
   const cuenta = await cuentaDePrueba()
@@ -3227,26 +3227,26 @@ test('FASE 10: el acumulador se persiste a JSONL y se recarga al abrir', async (
     lote.abrir(tmp.dir, { intervaloMs: 0 })
     lote.agregar(await reciboDePrueba(cuenta, 100))
     lote.agregar(await reciboDePrueba(cuenta, 101))
-    t.is(lote.pendientes().length, 2, 'dos en memoria')
+    t.is(lote.pendientes().length, 2, 'two in memory')
 
     const lineas = tmp.leer().trim() ? tmp.leer().trim().split('\n') : []
-    t.is(lineas.length, 2, 'y dos lineas JSON en el archivo (una por recibo)')
+    t.is(lineas.length, 2, 'and two JSON lines in the file (one per receipt)')
     if (lineas.length === 2) {
-      t.ok(JSON.parse(lineas[0]).nonce, 'cada linea parsea a un recibo con nonce')
+      t.ok(JSON.parse(lineas[0]).nonce, 'each line parses to a receipt with a nonce')
     }
 
-    // Una corrida nueva: se pierde la memoria, se recarga del disco.
+    // A fresh run: memory is lost, it reloads from disk.
     lote.limpiar()
-    t.is(lote.pendientes().length, 0, 'la memoria arranca vacia')
+    t.is(lote.pendientes().length, 0, 'memory starts empty')
     const recuperados = lote.abrir(tmp.dir, { intervaloMs: 0 })
-    t.is(recuperados, 2, 'abrir devuelve cuantos recibos rescato')
-    t.is(lote.pendientes().length, 2, 'y estan de vuelta en el acumulador')
+    t.is(recuperados, 2, 'open returns how many receipts it rescued')
+    t.is(lote.pendientes().length, 2, 'and they are back in the accumulator')
 
-    // Una linea corrupta no se lleva puesto el resto del archivo.
+    // A corrupt line doesn't take the rest of the file down with it.
     fs.appendFileSync(tmp.archivo, '{ esto no es json\n')
     lote.limpiar()
     const trasCorrupcion = lote.abrir(tmp.dir, { intervaloMs: 0 })
-    t.is(trasCorrupcion, 2, 'la linea rota se saltea, los dos buenos siguen')
+    t.is(trasCorrupcion, 2, 'the broken line gets skipped, the two good ones remain')
   } finally {
     lote.abrir(null)
     lote.limpiar()
@@ -3254,7 +3254,7 @@ test('FASE 10: el acumulador se persiste a JSONL y se recarga al abrir', async (
   }
 })
 
-test('FASE 10: flushTodo arma-firma-liquida-marca, agrupando por red+wallet', async (t) => {
+test('PHASE 10: flushTodo builds-signs-settles-marks, grouping by network+wallet', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const cuenta = await cuentaDePrueba()
   const tmp = dirLoteTmp()
@@ -3273,22 +3273,22 @@ test('FASE 10: flushTodo arma-firma-liquida-marca, agrupando por red+wallet', as
     lote.agregar(await reciboDePrueba(cuenta, 201))
 
     const res = await lote.flushTodo()
-    t.is(res.length, 1, 'un solo grupo: misma red, misma wallet')
+    t.is(res.length, 1, 'a single group: same network, same wallet')
     t.is((res[0] || {}).ok, true)
-    t.is((res[0] || {}).liquidados, 2, 'los dos recibos del grupo se liquidaron')
-    t.is(liquidados.length, 2, 'liquidar se llamo una vez por recibo, con su autorizacion')
+    t.is((res[0] || {}).liquidados, 2, 'both receipts in the group got settled')
+    t.is(liquidados.length, 2, 'liquidar got called once per receipt, with its authorization')
 
     t.is(
       lote.pendientes({ soloPendientes: true }).length,
       0,
-      'y quedaron marcados: un corte y reanudar no vuelve a cobrar'
+      'and they stayed marked: a crash-and-resume does not charge again'
     )
     const bruto = tmp.leer().trim()
     const enDisco = bruto ? bruto.split('\n').map((l) => JSON.parse(l)) : []
-    t.is(enDisco.length, 2, 'los dos recibos siguen en disco')
+    t.is(enDisco.length, 2, 'both receipts are still on disk')
     t.ok(
       enDisco.length === 2 && enDisco.every((r) => r.liquidacion && r.liquidacion.success),
-      'el disco tambien refleja lo liquidado, no solo la memoria'
+      'disk reflects what was settled too, not just memory'
     )
   } finally {
     lote.abrir(null)
@@ -3297,7 +3297,7 @@ test('FASE 10: flushTodo arma-firma-liquida-marca, agrupando por red+wallet', as
   }
 })
 
-test('FASE 10: el flush por tamano se dispara solo al cruzar el umbral', async (t) => {
+test('PHASE 10: the size-based flush only fires when it crosses the threshold', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const cuenta = await cuentaDePrueba()
   const tmp = dirLoteTmp()
@@ -3317,12 +3317,12 @@ test('FASE 10: el flush por tamano se dispara solo al cruzar el umbral', async (
     lote.agregar(await reciboDePrueba(cuenta, 300))
     lote.agregar(await reciboDePrueba(cuenta, 301))
     await lote.flushSiSuperaUmbral()
-    t.is(corridas, 0, 'con 2 pendientes y umbral 3, el flush por tamano NO corre')
+    t.is(corridas, 0, 'with 2 pending and a threshold of 3, the size-based flush does NOT run')
 
     lote.agregar(await reciboDePrueba(cuenta, 302))
     await lote.flushSiSuperaUmbral()
-    t.is(corridas, 3, 'con el tercero se cruza el umbral y se liquidan los tres')
-    t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'no queda nada por liquidar')
+    t.is(corridas, 3, 'with the third one the threshold is crossed and all three settle')
+    t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'nothing left to settle')
   } finally {
     lote.abrir(null)
     lote.limpiar()
@@ -3330,7 +3330,7 @@ test('FASE 10: el flush por tamano se dispara solo al cruzar el umbral', async (
   }
 })
 
-test('FASE 10: cerrar hace un ultimo flush y persiste lo que quede', async (t) => {
+test('PHASE 10: closing does one last flush and persists what remains', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const cuenta = await cuentaDePrueba()
   const tmp = dirLoteTmp()
@@ -3349,13 +3349,13 @@ test('FASE 10: cerrar hace un ultimo flush y persiste lo que quede', async (t) =
     lote.agregar(await reciboDePrueba(cuenta, 401))
 
     await lote.cerrar()
-    t.is(liquido, 2, 'el close arma-firma-liquida lo pendiente antes de salir')
+    t.is(liquido, 2, 'close builds-signs-settles what was pending before exiting')
 
-    // El archivo quedo con los recibos marcados: reabrir no los ofrece para
-    // liquidar de nuevo.
+    // The file kept the receipts marked: reopening does not offer them up
+    // for settling again.
     const recuperados = lote.abrir(tmp.dir, { intervaloMs: 0 })
-    t.is(recuperados, 2, 'siguen en el archivo, para auditar')
-    t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'pero ninguno pendiente de cobro')
+    t.is(recuperados, 2, 'still in the file, for auditing')
+    t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'but none pending payment')
   } finally {
     lote.abrir(null)
     lote.limpiar()
@@ -3364,24 +3364,25 @@ test('FASE 10: cerrar hace un ultimo flush y persiste lo que quede', async (t) =
 })
 
 // ---------------------------------------------------------------------------
-// FASE 10 — el transporte por Protomux: el par que sirve ruteado, cobra
+// PHASE 10 — the Protomux transport: the peer that serves routed traffic gets paid
 //
-// Handoff completo (decidido): cuando un gateway rutea un request pagado a un
-// par, le REENVIA la autorizacion EIP-3009 del cliente. El par corre el modelo,
-// arma su atestacion D24, arma el recibo con ese pago y lo acumula en SU lote
-// para liquidarlo diferido. El gateway que ruteo ya NO liquida. El par NO
-// re-verifica el pago (decidido): confia en el gateway que lo ruteo.
+// Full handoff (decided): when a gateway routes a paid request to a peer, it
+// FORWARDS the client's EIP-3009 authorization. The peer runs the model,
+// builds its D24 attestation, builds the receipt with that payment and
+// accumulates it in ITS OWN batch to settle deferred. The gateway that
+// routed no longer settles. The peer does NOT re-verify the payment
+// (decided): it trusts the gateway that routed it.
 //
-// Estos tests ejercitan el `provider.mjs` REAL con un motor falso -- el mismo
-// harness que los tests de cuota. La firma EIP-3009 del cliente y la de la
-// atestacion del par son reales; la plata no existe.
+// These tests exercise the REAL `provider.mjs` with a fake engine -- the
+// same harness the quota tests use. The client's EIP-3009 signature and the
+// peer's attestation are real; the money doesn't exist.
 // ---------------------------------------------------------------------------
 
 async function parConWallet(tokensPorRespuesta = 5, pedazo = 'texto ', { lento = false } = {}) {
   const { Provider } = await import('../qvac/provider.mjs')
   const wdk = await import('@tetherto/wdk-wallet-evm')
   const WM = wdk.default || wdk
-  // getAccount(1): el par NO es el mismo que el cliente pagador (getAccount(0)).
+  // getAccount(1): the peer is NOT the same as the paying client (getAccount(0)).
   const cuenta = await new WM(FRASE_DE_PRUEBA, {
     provider: 'http://127.0.0.1:1/no-existe'
   }).getAccount(1)
@@ -3391,8 +3392,8 @@ async function parConWallet(tokensPorRespuesta = 5, pedazo = 'texto ', { lento =
     loadModel: async () => 'cargado',
     complete: async function* () {
       for (let i = 0; i < tokensPorRespuesta; i++) {
-        // `lento`: cede el control entre tokens para que un `chat:cancel` que
-        // llega mientras se genera pueda interleavear (el caso de D27 caso 1).
+        // `lento` (slow): yields control between tokens so a `chat:cancel` that
+        // arrives mid-generation can interleave (D27 case 1's scenario).
         if (lento) await new Promise((r) => setTimeout(r, 3))
         yield pedazo
       }
@@ -3409,8 +3410,8 @@ async function parConWallet(tokensPorRespuesta = 5, pedazo = 'texto ', { lento =
   return { provider, address }
 }
 
-// El `payment` que el gateway reenvia por `chat:request`: la autorizacion
-// EIP-3009 que el CLIENTE (getAccount 0) firmo a favor de `payToAddress`.
+// The `payment` the gateway forwards over `chat:request`: the EIP-3009
+// authorization the CLIENT (getAccount 0) signed in favor of `payToAddress`.
 async function pagoReenviadoPara(payToAddress, { value = '1000', nonce = 1 } = {}) {
   const x402 = await import('../qvac/x402.mjs')
   const { evm } = await x402.cargar()
@@ -3466,7 +3467,7 @@ async function pagoReenviadoPara(payToAddress, { value = '1000', nonce = 1 } = {
   }
 }
 
-test('FASE 10: un par que sirve un request ruteado atestigua y acumula en su lote', async (t) => {
+test('PHASE 10: a peer that serves a routed request attests and accumulates in its batch', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const at = await import('../qvac/atestacion.mjs')
   const quota = await import('../qvac/quota.mjs')
@@ -3489,46 +3490,46 @@ test('FASE 10: un par que sirve un request ruteado atestigua y acumula en su lot
   )
 
   const done = cap.vistos.find((m) => m.type === 'chat:done')
-  t.ok(done, 'el par cerro el stream')
+  t.ok(done, 'the peer closed the stream')
   const att = (done && done.attestation) || null
-  t.ok(att && att.signature, 'y devolvio su atestacion D24 firmada')
+  t.ok(att && att.signature, 'and it returned its signed D24 attestation')
   const v = att ? await at.verificar(att) : { ok: false, firmante: null }
-  t.ok(v.ok, 'que verifica: ' + (v.reason || ''))
+  t.ok(v.ok, 'which verifies: ' + (v.reason || ''))
   t.is(
     String(v.firmante || '').toLowerCase(),
     address.toLowerCase(),
-    'firmada por la wallet DEL PAR'
+    'signed by the PEER\'s wallet'
   )
 
   const pend = lote.pendientes()
-  t.is(pend.length, 1, 'el par acumulo el recibo en SU lote')
+  t.is(pend.length, 1, 'the peer accumulated the receipt in ITS batch')
   const r0 = pend[0] || {}
   t.is(
     String(r0.payTo || '').toLowerCase(),
     address.toLowerCase(),
-    'que paga a la wallet del par (D10)'
+    'which pays the peer\'s wallet (D10)'
   )
   t.is(
     String(r0.payer || '').toLowerCase(),
     payment.authorization.from.toLowerCase(),
-    'y el pagador es el cliente, no el par'
+    'and the payer is the client, not the peer'
   )
-  t.is(r0.nonce, payment.authorization.nonce, 'con el nonce EIP-3009 como clave')
-  t.ok(r0.attestation && r0.attestation.signature, 'y la atestacion colgada del recibo')
-  t.is(r0.liquidacion, null, 'sin liquidar: eso es el flush del lote')
+  t.is(r0.nonce, payment.authorization.nonce, 'with the EIP-3009 nonce as the key')
+  t.ok(r0.attestation && r0.attestation.signature, 'and the attestation attached to the receipt')
+  t.is(r0.liquidacion, null, 'not settled: that\'s the batch flush\'s job')
 
   quota.reset()
   lote.limpiar()
 })
 
-test('FASE 10: el par recorta en el tope del 402 y lo atestigua como length (D9)', async (t) => {
+test('PHASE 10: the peer trims at the 402\'s cap and attests it as length (D9)', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
   lote.limpiar()
 
-  // 40 pedazos de 10 bytes = 400 bytes ~ 100 tokens estimados; el tope de 4
-  // corta muchisimo antes.
+  // 40 chunks of 10 bytes = 400 bytes ~ 100 estimated tokens; the cap of 4
+  // cuts it off far earlier.
   const { provider, address } = await parConWallet(40, 'diez-bytes')
   const payment = await pagoReenviadoPara(address, { nonce: 7 })
 
@@ -3546,25 +3547,25 @@ test('FASE 10: el par recorta en el tope del 402 y lo atestigua como length (D9)
   )
 
   const chunks = cap.vistos.filter((m) => m.type === 'chat:chunk')
-  t.ok(chunks.length < 40 && chunks.length > 0, 'corto en el tope: ' + chunks.length + ' de 40')
+  t.ok(chunks.length < 40 && chunks.length > 0, 'cut off at the cap: ' + chunks.length + ' of 40')
   const done = cap.vistos.find((m) => m.type === 'chat:done')
   t.is(
     ((done && done.attestation) || {}).finishReason,
     'length',
-    'y la atestacion dice length, no stop (D9)'
+    'and the attestation says length, not stop (D9)'
   )
 
   quota.reset()
   lote.limpiar()
 })
 
-test('FASE 10: sin wallet el par sirve igual pero no atestigua ni acumula', async (t) => {
+test('PHASE 10: without a wallet the peer still serves but does not attest or accumulate', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
   lote.limpiar()
 
-  // providerDePrueba NO recibe walletAddress/firmarConWallet.
+  // providerDePrueba does NOT get walletAddress/firmarConWallet.
   const provider = await providerDePrueba(3)
   const payment = await pagoReenviadoPara('0x' + 'cc'.repeat(20), { nonce: 9 })
 
@@ -3581,24 +3582,24 @@ test('FASE 10: sin wallet el par sirve igual pero no atestigua ni acumula', asyn
   )
 
   const done = cap.vistos.find((m) => m.type === 'chat:done')
-  t.ok(done, 'el stream se sirve igual: la atestacion no es una puerta')
-  t.is(done && done.attestation, undefined, 'pero no sale atestacion')
-  t.ok(done && done.attestationMissing, 'con el motivo: ' + (done && done.attestationMissing))
-  t.is(lote.pendientes().length, 0, 'y no se acumulo nada')
+  t.ok(done, 'the stream serves the same way: the attestation is not a gate')
+  t.is(done && done.attestation, undefined, 'but no attestation comes out')
+  t.ok(done && done.attestationMissing, 'with the reason: ' + (done && done.attestationMissing))
+  t.is(lote.pendientes().length, 0, 'and nothing got accumulated')
 
   quota.reset()
   lote.limpiar()
 })
 
-test('FASE 10: un pago reenviado a otra wallet NO lo acumula el par', async (t) => {
+test('PHASE 10: a payment forwarded to another wallet does NOT get accumulated by the peer', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
   lote.limpiar()
 
   const { provider } = await parConWallet(3)
-  // El payTo del pago apunta a OTRA direccion, no a la del par: el 402 no
-  // pago a este nodo. Se sirve, pero no se acumula ni se atestigua.
+  // The payment's payTo points at ANOTHER address, not the peer's: the 402
+  // did not pay this node. It gets served, but it doesn't get accumulated or attested.
   const payment = await pagoReenviadoPara('0x' + 'dd'.repeat(20), { nonce: 11 })
 
   const cap = capturar()
@@ -3614,24 +3615,24 @@ test('FASE 10: un pago reenviado a otra wallet NO lo acumula el par', async (t) 
   )
 
   const done = cap.vistos.find((m) => m.type === 'chat:done')
-  t.is(done && done.attestation, undefined, 'no atestigua un cobro que no es suyo')
+  t.is(done && done.attestation, undefined, 'does not attest a charge that is not its own')
   t.ok(
     String(done && done.attestationMissing).indexOf('wallet de este nodo') !== -1,
     done && done.attestationMissing
   )
-  t.is(lote.pendientes().length, 0, 'y no acumula nada')
+  t.is(lote.pendientes().length, 0, 'and it does not accumulate anything')
 
   quota.reset()
   lote.limpiar()
 })
 
-test('FASE 10 / D27 caso 1: el par cancelado manda IGUAL su chat:done con la atestacion parcial', async (t) => {
+test('PHASE 10 / D27 case 1: the cancelled peer still sends its chat:done with the partial attestation', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const quota = await import('../qvac/quota.mjs')
   quota.reset()
   lote.limpiar()
 
-  // Engine lento: un `chat:cancel` que llega mientras genera interleavea.
+  // Slow engine: a `chat:cancel` that arrives mid-generation interleaves.
   const { provider, address } = await parConWallet(30, 'pedazo ', { lento: true })
   const payment = await pagoReenviadoPara(address, { nonce: 71 })
 
@@ -3652,31 +3653,31 @@ test('FASE 10 / D27 caso 1: el par cancelado manda IGUAL su chat:done con la ate
   await corriendo
 
   const chunks = cap.vistos.filter((m) => m.type === 'chat:chunk')
-  t.ok(chunks.length > 0 && chunks.length < 30, 'corto a mitad: ' + chunks.length + ' de 30')
+  t.ok(chunks.length > 0 && chunks.length < 30, 'cut off halfway: ' + chunks.length + ' of 30')
 
   const done = cap.vistos.find((m) => m.type === 'chat:done')
-  t.ok(done, 'aun cancelado, el par manda su chat:done (D27 caso 1)')
-  t.ok(done && done.attestation && done.attestation.signature, 'con la atestacion parcial firmada')
+  t.ok(done, 'even cancelled, the peer sends its chat:done (D27 case 1)')
+  t.ok(done && done.attestation && done.attestation.signature, 'with the signed partial attestation')
   t.is(
     (done && done.attestation && done.attestation.finishReason) || null,
     'client_cancelled',
-    'que dice client_cancelled, no stop'
+    'which says client_cancelled, not stop'
   )
 
   const pend = lote.pendientes()
-  t.is(pend.length, 1, 'y el prefijo servido quedo acumulado en el lote del par')
-  t.is((pend[0] || {}).payer, payment.authorization.from, 'a nombre del cliente que pago')
+  t.is(pend.length, 1, 'and the served prefix stayed accumulated in the peer\'s batch')
+  t.is((pend[0] || {}).payer, payment.authorization.from, 'under the name of the client who paid')
 
   quota.reset()
   lote.limpiar()
 })
 
-test('FASE 10 / D27 caso 1: cancelChat mantiene el chat vivo para el chat:done tardio del par', async (t) => {
+test('PHASE 10 / D27 case 1: cancelChat keeps the chat alive for the peer\'s late chat:done', async (t) => {
   const { NodeSwarm } = await import('../qvac/swarm.mjs')
   const sw = new NodeSwarm({ models: [] })
 
-  // Un par de mentira: lo unico que `chatRequest`/`_send` le piden es
-  // `key`, `manifest` y un `channel.send`.
+  // A fake peer: all `chatRequest`/`_send` ask of it is
+  // `key`, `manifest` and a `channel.send`.
   const enviados = []
   const par = { key: 'ab'.repeat(32), manifest: {}, channel: { send: (m) => enviados.push(m) } }
   sw.peers.set(par.key, par)
@@ -3692,169 +3693,173 @@ test('FASE 10 / D27 caso 1: cancelChat mantiene el chat vivo para el chat:done t
       onError: (m, c) => eventos.push(['error', m, c])
     }
   )
-  t.ok(rid, 'se abrio el chat')
+  t.ok(rid, 'the chat opened')
   t.ok(
     enviados.find((m) => m.type === 'chat:request'),
-    'y salio el chat:request'
+    'and the chat:request went out'
   )
 
   sw.cancelChat(rid)
   t.ok(
     enviados.find((m) => m.type === 'chat:cancel'),
-    'salio el chat:cancel al par'
+    'the chat:cancel went out to the peer'
   )
-  t.is(eventos.length, 0, 'pero el chat NO se cerro: se espera el chat:done tardio del par')
+  t.is(eventos.length, 0, 'but the chat did NOT close: the peer\'s late chat:done is expected')
 
-  // El par contesta tarde con su atestacion parcial, por el dispatch normal.
+  // The peer answers late with its partial attestation, through normal dispatch.
   sw._dispatch(par, {
     type: 'chat:done',
     requestId: rid,
     attestation: { v: 1, requestId: rid, marca: 'parcial' }
   })
   const done = eventos.find((e) => e[0] === 'done')
-  t.ok(done, 'el chat:done tardio SI llego a onDone, no se descarto')
+  t.ok(done, 'the late chat:done DID reach onDone, it was not discarded')
   t.is(
     (done && done[1] && done[1].attestation && done[1].attestation.marca) || null,
     'parcial',
-    'con la atestacion parcial del par intacta'
+    'with the peer\'s partial attestation intact'
   )
 })
 
 // ---------------------------------------------------------------------------
-// D30 / BLOQUE 0 — las precondiciones para poder demostrar la Fase 10
+// D30 / BLOCK 0 — the preconditions needed to demonstrate Phase 10
 //
-// D30 decidio que ningun camino que mueva valor se estrena en mainnet. Eso tiene
-// tres precondiciones que se pueden probar sin tocar una cadena, y estan aca:
+// D30 decided that no path that moves value gets its debut on mainnet. That
+// has three preconditions that can be tested without touching a chain, and
+// they are here:
 //
-//   D30.1  el keystore no puede quedar en %TEMP%
-//   D30.2  la red tiene que ser elegible, y el default tiene que decir que es mainnet
-//   D30.3  el activo de prueba tiene que existir como artefacto y ser EIP-3009
+//   D30.1  the keystore can't end up in %TEMP%
+//   D30.2  the network has to be eligible, and the default has to say it's mainnet
+//   D30.3  the test asset has to exist as an artifact and be real EIP-3009
 //
-// La cuarta (el facilitator self-hosted) necesita un proceso node y esta en
-// test/integracion.js.
+// The fourth one (the self-hosted facilitator) needs a node process and is
+// in test/integracion.js.
 //
-// NINGUNO DE ESTOS SALE A INTERNET. El artefacto se mira en disco, la red se
-// resuelve de una tabla, y el keystore de tres rutas.
+// NONE OF THESE REACH THE INTERNET. The artifact is checked on disk, the
+// network resolves from a table, and the keystore from three paths.
 // ---------------------------------------------------------------------------
 
-test('D30.1: el keystore NUNCA cae en temp por su cuenta', async (t) => {
+test('D30.1: the keystore NEVER falls into temp on its own', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
   const os = require('bare-os')
   const path = require('bare-path')
   const temp = os.tmpdir()
 
-  // El bug que esto cierra: `swarmStorageDir()` manda TODO a os.tmpdir() bajo
-  // bare, o sea en desarrollo -- que es justo donde se va a probar el fondeo.
-  // Windows limpia temp, y ahi adentro lo que se pierde no es cache: es la
-  // unica copia de una seed.
+  // The bug this closes: `swarmStorageDir()` sends EVERYTHING to os.tmpdir()
+  // under bare, i.e. in development -- which is exactly where funding is
+  // about to be tested. Windows cleans temp, and what gets lost in there
+  // isn't cache: it's the only copy of a seed.
   const sano = wallet.directorioKeystore({
     storage: null,
     persistente: path.join(temp, '..', 'persistente-de-mentira'),
     app: 'pyrusllm'
   })
-  t.absent(sano.volatil, 'con un persistente sano el keystore no es volatil')
-  t.absent(sano.dir.indexOf(temp) === 0, 'y no cuelga de temp: ' + sano.dir)
-  t.ok(sano.dir.indexOf('pyrusllm') !== -1, 'y lleva el nombre de la app adentro')
+  t.absent(sano.volatil, 'with a sane persistent dir the keystore is not volatile')
+  t.absent(sano.dir.indexOf(temp) === 0, 'and it does not hang off temp: ' + sano.dir)
+  t.ok(sano.dir.indexOf('pyrusllm') !== -1, 'and it carries the app name inside')
 
-  // Un --storage explicito SI se respeta: es una decision del operador y no
-  // nuestra. Lo que no puede es pasar callado.
+  // An explicit --storage IS respected: it's the operator's decision, not
+  // ours. What it can't do is pass silently.
   const elegido = wallet.directorioKeystore({
     storage: path.join(temp, 'wallet-elegida'),
     persistente: '/datos/persistentes',
     app: 'pyrusllm'
   })
-  t.is(elegido.dir, path.resolve(path.join(temp, 'wallet-elegida')), 'se respeta')
-  t.ok(elegido.volatil, 'pero queda marcado como volatil')
-  t.ok(String(elegido.motivo).indexOf('limpia') !== -1, 'y el motivo lo explica: ' + elegido.motivo)
+  t.is(elegido.dir, path.resolve(path.join(temp, 'wallet-elegida')), 'it is respected')
+  t.ok(elegido.volatil, 'but it stays marked as volatile')
+  t.ok(String(elegido.motivo).indexOf('limpia') !== -1, 'and the reason explains it: ' + elegido.motivo)
 
-  // Y el caso patologico: si la propia plataforma dijera que su directorio
-  // persistente esta adentro de temp, tambien se avisa. El chequeo falla hacia
-  // "si es temp", que es el lado barato de equivocarse.
+  // And the pathological case: if the platform itself claimed its own
+  // persistent directory was inside temp, it also gets flagged. The check
+  // fails toward "it is temp", which is the cheap side to be wrong on.
   const raro = wallet.directorioKeystore({ storage: null, persistente: temp, app: 'pyrusllm' })
-  t.ok(raro.volatil, 'un persistente que cae en temp tampoco pasa desapercibido')
+  t.ok(raro.volatil, 'a persistent dir that falls inside temp does not go unnoticed either')
 
-  // Sin persistente NO se inventa uno. Devolver temp aca seria exactamente el
-  // bug con otro nombre.
+  // Without a persistent dir, NONE gets invented. Returning temp here would
+  // be exactly the bug under another name.
   t.exception(
     () => wallet.directorioKeystore({ storage: null, persistente: null, app: 'pyrusllm' }),
     /persistente/,
-    'sin persistente se corta en vez de caer a temp'
+    'without a persistent dir it cuts off instead of falling back to temp'
   )
 })
 
-test('D30.2: la red se elige, y el default dice en la cara que es mainnet', async (t) => {
+test('D30.2: the network gets chosen, and the default says to your face it is mainnet', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
 
-  // D15 NO cambia: Plasma mainnet sigue siendo el default. Lo que cambia es que
-  // ahora se puede elegir otra y que el que elige mainnet lo sabe.
+  // D15 does NOT change: Plasma mainnet is still the default. What changes
+  // is that now another one can be chosen, and whoever chooses mainnet knows it.
   const porDefecto = wallet.redDe({})
-  t.is(porDefecto.nombre, 'plasma', 'D15 intacto: el default sigue siendo Plasma')
+  t.is(porDefecto.nombre, 'plasma', 'D15 intact: the default is still Plasma')
   t.is(porDefecto.chainId, 9745)
-  t.ok(porDefecto.mainnet, 'y esta marcada como MAINNET, que es lo que permite avisarlo')
+  t.ok(porDefecto.mainnet, 'and it is marked as MAINNET, which is what allows warning about it')
 
   const prueba = wallet.redDe({ [wallet.VAR_RED]: 'plasma-testnet' })
-  t.is(prueba.chainId, 9746, 'la testnet de D30 es elegible')
-  t.absent(prueba.mainnet, 'y la testnet no esta marcada como mainnet')
-  t.absent(prueba.rpc === porDefecto.rpc, 'con OTRO rpc, no el de mainnet: ' + prueba.rpc)
+  t.is(prueba.chainId, 9746, 'D30\'s testnet is eligible')
+  t.absent(prueba.mainnet, 'and the testnet is not marked as mainnet')
+  t.absent(prueba.rpc === porDefecto.rpc, 'with a DIFFERENT rpc, not mainnet\'s: ' + prueba.rpc)
 
-  // EIP-155: el chainId entra en lo que se firma. Que sean dos numeros distintos
-  // no es trivia -- es la razon por la que una tx de 9745 no vale en 9746, y por
-  // la que "la testnet es la misma red con otra URL" es falso.
-  t.absent(porDefecto.chainId === prueba.chainId, '9745 y 9746 no son la misma red')
+  // EIP-155: the chainId is part of what gets signed. That they're two
+  // different numbers isn't trivia -- it's the reason a 9745 tx is not valid
+  // on 9746, and why "the testnet is the same network with another URL" is false.
+  t.absent(porDefecto.chainId === prueba.chainId, '9745 and 9746 are not the same network')
 
-  // El RPC se puede pisar, pero SOLO la URL. Si pisar el rpc cambiara tambien la
-  // red para la que se firma, un RPC mal apuntado seria una firma para otra
-  // cadena sin que nadie lo pidiera.
+  // The RPC can be overridden, but ONLY the URL. If overriding the rpc also
+  // changed the network being signed for, a misdirected RPC would be a
+  // signature for another chain without anyone asking for it.
   const propio = wallet.redDe({
     [wallet.VAR_RED]: 'plasma-testnet',
     [wallet.VAR_RPC]: 'http://127.0.0.1:8545'
   })
-  t.is(propio.rpc, 'http://127.0.0.1:8545', 'la URL se pisa')
-  t.is(propio.chainId, 9746, 'el chainId NO')
-  t.ok(propio.rpcPropio, 'y queda dicho que el rpc no es el de la tabla')
+  t.is(propio.rpc, 'http://127.0.0.1:8545', 'the URL gets overridden')
+  t.is(propio.chainId, 9746, 'the chainId does NOT')
+  t.ok(propio.rpcPropio, 'and it stays on record that the rpc is not the table\'s')
 
-  // Una red que no existe se corta con el nombre adentro del mensaje. Caer al
-  // default seria operar contra mainnet creyendo que se pidio otra cosa.
+  // A network that does not exist cuts off with the name inside the
+  // message. Falling back to the default would mean operating against
+  // mainnet while believing something else was requested.
   t.exception(() => wallet.redDe({ [wallet.VAR_RED]: 'ethereum' }), /no es una red conocida/)
 })
 
-test('D30.2: el rpc elegido llega hasta la cuenta, sin tocar la red', async (t) => {
+test('D30.2: the chosen rpc reaches all the way to the account, without touching the network', async (t) => {
   const wallet = await import('../qvac/wallet.mjs')
   const tmp = dirWalletTmp()
 
-  // Lo que estaba roto no era que `abrir` no aceptara un rpc: lo aceptaba. Era
-  // que NADIE se lo pasaba, asi que la constante de mainnet ganaba siempre. Se
-  // prueba de punta a punta: se crea con una red, se abre con la misma, y la
-  // cuenta devuelve el rpc con el que se armo.
+  // What was broken wasn't that `abrir` didn't accept an rpc: it did. It was
+  // that NOBODY passed it one, so the mainnet constant always won. It's
+  // tested end to end: create with one network, open with the same one, and
+  // the account returns the rpc it was built with.
   const red = wallet.redDe({ [wallet.VAR_RED]: 'plasma-testnet' })
   const creada = await wallet.crear(tmp.dir, 'passphrase-de-prueba', { red })
   t.ok(/^0x[a-fA-F0-9]{40}$/.test(creada.address))
 
   const abierta = await wallet.abrir(tmp.dir, 'passphrase-de-prueba', { red })
-  t.is(abierta.rpc, red.rpc, 'la cuenta se armo contra el rpc que se pidio')
-  t.is(abierta.red.chainId, 9746, 'y contra la red que se pidio')
+  t.is(abierta.rpc, red.rpc, 'the account was built against the rpc that was requested')
+  t.is(abierta.red.chainId, 9746, 'and against the network that was requested')
 
-  // Y sin `red` sigue saliendo el default de D15, que es lo que un nodo que no
-  // configura nada tiene que seguir haciendo.
+  // And without `red`, D15's default still comes out, which is what a node
+  // that configures nothing has to keep doing.
   const porDefecto = await wallet.abrir(tmp.dir, 'passphrase-de-prueba')
-  t.is(porDefecto.red.chainId, 9745, 'sin elegir, D15: Plasma mainnet')
-  t.is(porDefecto.address, abierta.address, 'y la direccion no depende de la red')
+  t.is(porDefecto.red.chainId, 9745, 'without choosing, D15: Plasma mainnet')
+  t.is(porDefecto.address, abierta.address, 'and the address does not depend on the network')
 
-  // La derivacion NO habla con la red, y eso es precondicion de que un nodo sin
-  // internet pueda anunciarse. Un rpc que no existe tiene que dar lo mismo.
+  // Derivation does NOT talk to the network, and that's a precondition for a
+  // node without internet to be able to announce itself. An rpc that
+  // doesn't exist has to give the same result.
   const inventado = await wallet.abrir(tmp.dir, 'passphrase-de-prueba', {
     rpc: 'http://127.0.0.1:1/no-existe'
   })
-  t.is(inventado.address, abierta.address, 'la direccion sale sin tocar la cadena')
+  t.is(inventado.address, abierta.address, 'the address comes out without touching the chain')
 
   tmp.limpiar()
 })
 
-test('D30.2: las dos tablas de redes no se pueden desincronizar', async (t) => {
-  // `qvac/wallet.mjs` corre bajo Bare y `scripts/redes-prueba.js` bajo Node, asi
-  // que la tabla esta escrita dos veces -- igual que en verificar-x402.js, y por
-  // el mismo motivo. La duplicacion que hace dano no es tener dos tablas: es que
-  // una diga testnet donde la otra dice mainnet. Eso es lo que se compara aca.
+test('D30.2: the two network tables cannot drift out of sync', async (t) => {
+  // `qvac/wallet.mjs` runs under Bare and `scripts/redes-prueba.js` under
+  // Node, so the table is written twice -- same as in verificar-x402.js, and
+  // for the same reason. The duplication that causes harm isn't having two
+  // tables: it's one saying testnet where the other says mainnet. That's
+  // what gets compared here.
   const wallet = await import('../qvac/wallet.mjs')
   const redes = require('../scripts/redes-prueba.js')
 
@@ -3863,13 +3868,13 @@ test('D30.2: las dos tablas de redes no se pueden desincronizar', async (t) => {
     t.is(
       esTestnetAlla,
       !red.mainnet,
-      nombre + ' (' + red.chainId + '): las dos tablas coinciden en si es de prueba'
+      nombre + ' (' + red.chainId + '): both tables agree on whether it is a test network'
     )
   }
 
-  // Y el que importa nombrado, porque es el que D30 elige.
+  // And the one that matters, named, because it's the one D30 chooses.
   t.is(redes.testnetDe(9746).caip2, wallet.REDES['plasma-testnet'].caip2)
-  t.ok(redes.porQueNoSeEstrena(9745), 'y 9745 sigue siendo mainnet de los dos lados')
+  t.ok(redes.porQueNoSeEstrena(9745), 'and 9745 is still mainnet on both sides')
 })
 
 test('D30.3: el activo de prueba existe compilado, y es EIP-3009 de verdad', async (t) => {
