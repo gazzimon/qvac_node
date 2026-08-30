@@ -239,3 +239,79 @@ await check('the workspace ends with the UPDATED file, not the original', () => 
 
 console.log(`\n${ok} ok, ${bad} failed`)
 process.exitCode = bad === 0 ? 0 : 1
+
+// ---------------------------------------------------------------------------
+// Found on the K16, not by reasoning: an earlier-wave ticket whose CI verdict
+// went stale was reassigned and OVERWROTE the later ticket that had edited the
+// same file — silent loss of work that had already passed the gate.
+// ---------------------------------------------------------------------------
+{
+  const { State, EVENTS } = await import('../orchestrator/state.mjs')
+
+  const sc = fs.mkdtempSync(path.join(os.tmpdir(), 'pyrus-stale-'))
+  const ws = path.join(sc, 'workspace')
+  const storage = path.join(sc, 'coord')
+  fs.mkdirSync(path.join(ws, 'src'), { recursive: true })
+  fs.mkdirSync(storage, { recursive: true })
+  const req = path.join(sc, 'requirements.md')
+  fs.writeFileSync(
+    req,
+    `# G\n\n## Ticket: base\nCreate add.\nDepends on: none\nFiles: src/calc.js\n\n` +
+      `## Ticket: extend\nAdd mul, keep add.\nDepends on: base\nFiles: src/calc.js\n`
+  )
+  fs.writeFileSync(
+    path.join(ws, 'package.json'),
+    JSON.stringify({ name: 'g', type: 'module', scripts: { test: 'node verify.mjs' } }, null, 2)
+  )
+  // The gate wants BOTH — exactly the shape that makes `base` fail on its own.
+  fs.writeFileSync(
+    path.join(ws, 'verify.mjs'),
+    `import fs from 'fs'\nconst s = fs.readFileSync('src/calc.js','utf8')\n` +
+      `if (!s.includes('add') || !s.includes('mul')) process.exit(1)\nconsole.log('ok')\n`
+  )
+  // The state the K16 run reached: extend done, base still ci-failed, and the
+  // file on disk already correct because extend fixed it.
+  fs.writeFileSync(path.join(ws, 'src', 'calc.js'), 'export const add=1\nexport const mul=2\n')
+  const seed = new State(path.join(storage, 'runs.jsonl'))
+  seed.append(EVENTS.TICKET_ASSIGNED, { ticketId: 'base', attemptId: 'base#1' })
+  seed.append(EVENTS.RESULT_RECEIVED, { ticketId: 'base', attemptId: 'base#1', ok: true, files: [] })
+  seed.append(EVENTS.CI_FAIL, { ticketId: 'base', status: 'failed' })
+  seed.append(EVENTS.TICKET_ASSIGNED, { ticketId: 'extend', attemptId: 'extend#1' })
+  seed.append(EVENTS.RESULT_RECEIVED, { ticketId: 'extend', attemptId: 'extend#1', ok: true, files: [] })
+  seed.append(EVENTS.CI_PASS, { ticketId: 'extend', ms: 1 })
+  seed.append(EVENTS.TICKET_DONE, { ticketId: 'extend' })
+
+  const swarm = new FakeSwarm('coord-key', {})
+  swarm.sendTask = () => {
+    throw new Error('base must NOT be reassigned: its output would overwrite extend')
+  }
+  swarm.peers.set('worker-key', { manifest: { security: { acceptsTasks: true } } })
+  const store = new Corestore(path.join(sc, 'store'))
+  await store.ready()
+  const coord = new Coordinator({
+    swarm,
+    store,
+    workspace: ws,
+    storageDir: storage,
+    requirementFile: req,
+    workerKeys: ['worker-key'],
+    waitForWorkersMs: 500,
+    workerPollMs: 20
+  })
+  const summary = await coord.run()
+  await coord.close()
+  await store.close()
+
+  await check('a stale CI failure closes on re-check instead of destructively retrying', () => {
+    assert.equal(summary.done, 2, `both should be closed, got ${summary.done}`)
+    assert.equal(summary.blocked, 0)
+  })
+
+  await check("the workspace still holds the later ticket's work", () => {
+    const s = fs.readFileSync(path.join(ws, 'src', 'calc.js'), 'utf8')
+    assert.ok(s.includes('mul'), 'mul must survive — this is the bug that was found live')
+  })
+}
+
+console.log(`\n${ok} ok, ${bad} failed`)
+process.exitCode = bad === 0 ? 0 : 1

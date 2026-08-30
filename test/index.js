@@ -3767,7 +3767,7 @@ test('D30.1: the keystore NEVER falls into temp on its own', async (t) => {
   })
   t.is(elegido.dir, path.resolve(path.join(temp, 'wallet-elegida')), 'it is respected')
   t.ok(elegido.volatil, 'but it stays marked as volatile')
-  t.ok(String(elegido.motivo).indexOf('limpia') !== -1, 'and the reason explains it: ' + elegido.motivo)
+  t.ok(String(elegido.motivo).indexOf('cleans up') !== -1, 'and the reason explains it: ' + elegido.motivo)
 
   // And the pathological case: if the platform itself claimed its own
   // persistent directory was inside temp, it also gets flagged. The check
@@ -3779,7 +3779,7 @@ test('D30.1: the keystore NEVER falls into temp on its own', async (t) => {
   // be exactly the bug under another name.
   t.exception(
     () => wallet.directorioKeystore({ storage: null, persistente: null, app: 'pyrusllm' }),
-    /persistente/,
+    /persistent/,
     'without a persistent dir it cuts off instead of falling back to temp'
   )
 })
@@ -3997,7 +3997,7 @@ test('D30: the network guard is a whitelist, and mainnet has no door', async (t)
   // is null, and a TypeError ABORTS the run instead of failing the assert
   // -- meaning the harness can't see whether the array was guarded. It's
   // B18's lesson again.
-  t.ok(String(rara).indexOf('lista de testnets') !== -1, 'and it says how to add it: ' + rara)
+  t.ok(String(rara).indexOf('list of known testnets') !== -1, 'and it says how to add it: ' + rara)
 
   // Garbage doesn't pass either. `Number(undefined)` is NaN and an `if
   // (TESTNETS[id])` alone wouldn't be enough.
