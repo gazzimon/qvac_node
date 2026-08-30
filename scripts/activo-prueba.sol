@@ -1,125 +1,132 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.28;
 
-// D30.3 — EL ACTIVO DE PRUEBA. NO ES UNA STABLECOIN Y NO VALE NADA.
+// D30.3 — THE TEST ASSET. NOT A STABLECOIN AND WORTH NOTHING.
 //
 // -----------------------------------------------------------------------------
-// POR QUE EXISTE
+// WHY IT EXISTS
 //
-// D30 decidio que ningun camino que mueva valor se estrena en mainnet. La
-// consecuencia inmediata es que hace falta un activo en Plasma testnet (9746), y
-// ahi NO HAY NINGUNO: los faucets dan XPL, que es gas nativo y no tiene
-// contrato. El USD-0 de testnet esta "in development" y los deployments
-// oficiales de USDT0 no listan ninguna testnet. Verificado por cinco vias,
-// incluido un eth_getCode contra la cadena.
+// D30 decided no path that moves value gets its first run on mainnet. The
+// immediate consequence is that an asset is needed on Plasma testnet (9746),
+// and there IS NONE THERE: the faucets give out XPL, which is native gas and
+// has no contract. Testnet USD-0 is "in development" and USDT0's official
+// deployments list no testnet. Verified five different ways, including an
+// eth_getCode against the chain.
 //
-// Asi que el activo con el que se prueba hay que desplegarlo, y esto es ese
-// activo: un ERC-20 con EIP-3009, que es lo unico que el esquema `exact` de x402
-// necesita para firmar y liquidar.
-//
-// -----------------------------------------------------------------------------
-// COMO SE LLAMA, Y POR QUE NO SE LLAMA $QVAC
-//
-// D28 decidio que el riel de pago es stablecoin y que el token nativo vive en la
-// capa de incentivos. Como la atestacion de D24 y el recibo de x402 REGISTRAN EL
-// ACTIVO, llamar $QVAC a esto escribiria adentro de artefactos firmados la misma
-// contradiccion que D28 borro del pitch. Es un stand-in de stablecoin, se llama
-// como tal, y va marcado como prueba en los tres lugares donde se ve: el `name`
-// que muestra el explorer, el `symbol`, y `AVISO`.
-//
-// Y el `mint` de abajo es abierto a proposito. No es un descuido: un activo que
-// cualquiera puede emitir es la marca mas fuerte posible de que esto NO es una
-// stablecoin, y ademas evita custodiar una llave de emision para algo que solo
-// existe para que una demo tenga contra que firmar.
+// So the asset to test with has to be deployed, and this is that asset: an
+// ERC-20 with EIP-3009, which is the only thing x402's `exact` scheme needs
+// to sign and settle.
 //
 // -----------------------------------------------------------------------------
-// QUE TIENE QUE CUMPLIR, Y QUIEN LO COMPRUEBA
+// WHAT IT'S CALLED, AND WHY IT ISN'T CALLED $QVAC
 //
-// El criterio de aceptacion no se inventa aca: ya estaba escrito y es ejecutable.
+// D28 decided the payment rail is stablecoin and the native token lives in
+// the incentive layer. Since D24's attestation and x402's receipt RECORD THE
+// ASSET, calling this $QVAC would write, inside signed artifacts, the exact
+// contradiction D28 erased from the pitch. It's a stablecoin stand-in, it's
+// named as one, and it's marked as a test in all three places it's visible:
+// the `name` the explorer shows, the `symbol`, and `AVISO`.
+//
+// And the `mint` below is open on purpose. Not an oversight: an asset anyone
+// can issue is the strongest possible mark that this is NOT a stablecoin,
+// and it also avoids having to custody an issuance key for something that
+// only exists so a demo has something to sign against.
+//
+// -----------------------------------------------------------------------------
+// WHAT IT HAS TO SATISFY, AND WHO CHECKS IT
+//
+// The acceptance criterion isn't invented here: it was already written down
+// and is executable.
 //
 //     PYRUS_X402_PLASMA_TESTNET_ASSET=0x... \
 //     PYRUS_X402_PLASMA_TESTNET_NAME="PyrusLLM Test USD" \
 //     npm run verificar-x402
 //
-// Comprueba tres cosas contra la cadena: que haya contrato, que
-// `authorizationState` no revierta (o sea, que implemente EIP-3009), y que el
-// DOMAIN_SEPARATOR que devuelve el contrato coincida con el dominio EIP-712 con
-// el que vamos a FIRMAR. El tercero es el que mas callado falla y el unico que
-// prueba que la firma va a verificar del otro lado.
+// It checks three things against the chain: that a contract exists, that
+// `authorizationState` doesn't revert (i.e. that it implements EIP-3009),
+// and that the DOMAIN_SEPARATOR the contract returns matches the EIP-712
+// domain we're going to SIGN with. The third is the one that fails the most
+// quietly and the only one that proves the signature is going to verify on
+// the other side.
 //
-// Hay un cuarto requisito que no sale de x402 sino de este stack: el facilitator
-// de `@x402/evm` lee `name()` y `version()` ON-CHAIN antes de liquidar (ver
-// `eip3009ABI`). El USD-0 de Plasma REVIERTE en `version()`; aca no, porque no
-// hay razon para heredar ese problema en un contrato que escribimos nosotros.
+// There's a fourth requirement that doesn't come from x402 but from this
+// stack: `@x402/evm`'s facilitator reads `name()` and `version()` ON-CHAIN
+// before settling (see `eip3009ABI`). Plasma's USD-0 REVERTS on `version()`;
+// this one doesn't, because there's no reason to inherit that problem in a
+// contract we write ourselves.
 //
 // -----------------------------------------------------------------------------
-// LAS DOS SOBRECARGAS DE transferWithAuthorization
+// THE TWO transferWithAuthorization OVERLOADS
 //
-// No es redundancia: `@x402/evm` elige UNA U OTRA por el LARGO DE LA FIRMA
-// (`isECDSA = sigLength === 130`). Con 65 bytes llama a la de (v, r, s); con
-// cualquier otro largo, a la de `bytes`. Implementar solo una deja media rama
-// del facilitator llamando a una funcion que no existe.
+// Not redundancy: `@x402/evm` picks ONE OR THE OTHER by the SIGNATURE'S
+// LENGTH (`isECDSA = sigLength === 130`). With 65 bytes it calls the (v, r,
+// s) one; with any other length, the `bytes` one. Implementing only one
+// leaves half the facilitator's branch calling a function that doesn't
+// exist.
 //
-// LO QUE ESTE CONTRATO **NO** HACE, y conviene que este escrito porque la
-// sobrecarga de `bytes` invita a suponer lo contrario: **no soporta ERC-1271**.
-// `_recuperar` exige 65 bytes y hace `ecrecover`, asi que un pagador que sea un
-// CONTRATO -- wallet inteligente, cuenta con ERC-4337, firma envuelta en
-// ERC-6492 -- no puede pagar con este activo. `@x402/evm` si tiene ese camino y
-// lo va a intentar; acá revierte.
+// WHAT THIS CONTRACT **DOES NOT** DO, and it's worth having it written down
+// because the `bytes` overload invites assuming the opposite:
+// **it does not support ERC-1271**. `_recuperar` requires 65 bytes and does
+// `ecrecover`, so a payer that's a CONTRACT -- a smart wallet, an ERC-4337
+// account, a signature wrapped in ERC-6492 -- cannot pay with this asset.
+// `@x402/evm` does have that path and will try it; here it reverts.
 //
-// No es una limitacion que moleste hoy: el pagador de D30 es una EOA de WDK y
-// firma 65 bytes. Se declara igual porque un comentario que promete una
-// capacidad inexistente es la misma clase de artefacto que este proyecto
-// persigue en todos lados -- el que parece prueba y no lo es.
+// Not a limitation that's a problem today: D30's payer is a WDK EOA and
+// signs 65 bytes. Stated anyway because a comment that promises a
+// capability that doesn't exist is the same kind of artifact this project
+// chases down everywhere -- the one that looks like proof and isn't.
 
 // -----------------------------------------------------------------------------
-// POR QUE LOS `require` ESTAN EN INGLES, Y POR QUE NO SE TRADUCEN
+// WHY THE `require` MESSAGES ARE IN ENGLISH, AND WHY THEY DON'T GET
+// TRANSLATED
 //
-// Los comentarios de este repo estan en castellano y estos mensajes no. No es un
-// descuido y no hay que "arreglarlo": **el revert string es interfaz de maquina
-// acá, no texto para una persona.**
+// This repo's comments are in Spanish and these messages aren't. Not an
+// oversight and not something to "fix": **the revert string is a machine
+// interface here, not text for a person.**
 //
-// `@x402/evm` clasifica un fallo de liquidacion REGEX-MATCHEANDO el mensaje de
-// revert (`parseEip3009TransferError`), y esos regex estan escritos contra el
-// FiatTokenV2 de Circle, que es la implementacion de referencia de EIP-3009:
+// `@x402/evm` classifies a settlement failure by REGEX-MATCHING the revert
+// message (`parseEip3009TransferError`), and those regexes are written
+// against Circle's FiatTokenV2, EIP-3009's reference implementation:
 //
 //     /authorization.*(expired|valid before)/i   -> valid_before_expired
 //     /authorization.*not.*valid/i               -> valid_after_in_future
 //     /authorization.*used/i                     -> nonce_already_used
-//     /transfer.*exceeds.*balance/i              -> insufficient_balance
-//     /invalid.*signature/i                      -> invalid_signature
+//     /transfer.*exceeds.*balance/i               -> insufficient_balance
+//     /invalid.*signature/i                       -> invalid_signature
 //
-// Con los mensajes en castellano NINGUNO matchea y los cinco colapsan a
-// `transaction_failed`. Eso hoy casi no molesta -- D9 cobra un tope fijo --, y
-// en la Fase 10 rompe algo importante: el lote liquida solo, y esos cinco piden
-// tres acciones incompatibles. `nonce_already_used` es un reintento idempotente
-// y hay que darlo por cobrado; `insufficient_balance` es del otro lado y no se
-// reintenta; `invalid_signature` no es contabilidad, es reputacion. Con un
-// unico `transaction_failed` para los tres, el lote no puede decidir.
+// With the messages in Spanish NONE of them match and all five collapse to
+// `transaction_failed`. That barely matters today -- D9 charges a fixed cap
+// --, and in Phase 10 it breaks something important: the batch settles on
+// its own, and those five call for three incompatible actions.
+// `nonce_already_used` is an idempotent retry and has to be treated as
+// charged; `insufficient_balance` is the other side's problem and doesn't
+// get retried; `invalid_signature` isn't accounting, it's reputation. With
+// a single `transaction_failed` for all three, the batch can't decide.
 //
-// El prefijo `tUSD:` se mantiene -- identifica al contrato en el explorer y no
-// estorba a ningun regex. Hay un test que corre los regex REALES del paquete
-// contra estos mensajes: si alguien los traduce, se rompe.
+// The `tUSD:` prefix stays -- it identifies the contract on the explorer
+// and doesn't get in any regex's way. There's a test that runs the
+// package's REAL regexes against these messages: if someone translates
+// them, it breaks.
 
 contract PyrusTestUSD {
     // -------------------------------------------------------------------------
-    // Lo que se ve en el explorer. Los tres dicen lo mismo.
+    // What's visible on the explorer. All three say the same thing.
     // -------------------------------------------------------------------------
 
     string public constant name = "PyrusLLM Test USD";
     string public constant symbol = "tUSD";
 
-    // El `version` del dominio EIP-712. Se expone como funcion porque el
-    // facilitator de @x402/evm la LEE de la cadena antes de liquidar.
+    // The EIP-712 domain's `version`. Exposed as a function because
+    // @x402/evm's facilitator READS it from the chain before settling.
     string public constant version = "1";
 
     string public constant AVISO =
         "ACTIVO DE PRUEBA - NO ES UNA STABLECOIN - NO VALE NADA - mint abierto - PyrusLLM D30.3";
 
-    // 6, como USD-0. No es un detalle estetico: `montoEnUnidades` de
-    // qvac/x402.mjs escala micro-dolares por 10^(decimals-6), asi que con 6 un
-    // micro-dolar ES una unidad minima y el activo de prueba es intercambiable
-    // con el de mainnet para todo lo que el gateway hace.
+    // 6, like USD-0. Not an aesthetic detail: qvac/x402.mjs's
+    // `montoEnUnidades` scales micro-dollars by 10^(decimals-6), so with 6 a
+    // micro-dollar IS a minimum unit and the test asset is interchangeable
+    // with mainnet's for everything the gateway does.
     uint8 public constant decimals = 6;
 
     uint256 public totalSupply;
@@ -133,10 +140,11 @@ contract PyrusTestUSD {
     // EIP-3009
     // -------------------------------------------------------------------------
 
-    // Los typehash se computan con keccak256(bytes(...)) en el constructor y no
-    // se pegan como constantes escritas a mano: una constante mal copiada da un
-    // contrato que compila, despliega, y rechaza TODAS las firmas -- y el motivo
-    // aparece recien contra la cadena.
+    // The typehashes are computed with keccak256(bytes(...)) in the
+    // constructor and not pasted in as hand-written constants: a
+    // miscopied constant gives a contract that compiles, deploys, and
+    // rejects EVERY signature -- and the cause only shows up against the
+    // chain.
     bytes32 public immutable TRANSFER_WITH_AUTHORIZATION_TYPEHASH;
     bytes32 public immutable RECEIVE_WITH_AUTHORIZATION_TYPEHASH;
     bytes32 public immutable CANCEL_AUTHORIZATION_TYPEHASH;
@@ -146,11 +154,11 @@ contract PyrusTestUSD {
     event AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce);
     event AuthorizationCanceled(address indexed authorizer, bytes32 indexed nonce);
 
-    // El dominio se ata al chainId. Se guarda el de despliegue y se RECOMPUTA si
-    // cambia, que es lo que pasa en un fork: una firma de la cadena vieja no
-    // puede valer en la nueva. Es la misma logica que EIP-155 impone a las
-    // transacciones, aplicada a las autorizaciones firmadas -- y es exactamente
-    // por lo que 9745 y 9746 no se pueden confundir (D30.2).
+    // The domain is tied to the chainId. The deployment one gets stored and
+    // RECOMPUTED if it changes, which is what happens in a fork: a signature
+    // from the old chain can't be valid on the new one. Same logic EIP-155
+    // imposes on transactions, applied to signed authorizations -- and it's
+    // exactly why 9745 and 9746 can't be confused with each other (D30.2).
     uint256 private immutable _chainIdDespliegue;
     bytes32 private immutable _dominioDespliegue;
 
@@ -205,11 +213,12 @@ contract PyrusTestUSD {
     // ERC-20
     // -------------------------------------------------------------------------
 
-    // MINT ABIERTO. Ver el encabezado: es la marca de que esto no es una
-    // stablecoin, y evita custodiar una llave de emision para una demo. El tope
-    // por llamada esta para que un loop no genere un totalSupply absurdo que
-    // confunda al mirar el explorer, no como control de nada.
-    uint256 public constant MINT_MAXIMO_POR_LLAMADA = 1000000000000; // 1.000.000 tUSD
+    // OPEN MINT. See the header: it's the mark that this isn't a
+    // stablecoin, and it avoids custodying an issuance key for a demo. The
+    // per-call cap is there so a loop doesn't generate an absurd
+    // totalSupply that confuses anyone looking at the explorer, not as a
+    // control of any kind.
+    uint256 public constant MINT_MAXIMO_POR_LLAMADA = 1000000000000; // 1,000,000 tUSD
 
     function mint(address to, uint256 amount) external {
         require(to != address(0), "tUSD: mint to the zero address");
@@ -254,7 +263,7 @@ contract PyrusTestUSD {
     }
 
     // -------------------------------------------------------------------------
-    // EIP-3009 — las autorizaciones firmadas, que es lo que x402 `exact` usa
+    // EIP-3009 — signed authorizations, which is what x402 `exact` uses
     // -------------------------------------------------------------------------
 
     function transferWithAuthorization(
@@ -317,10 +326,10 @@ contract PyrusTestUSD {
         _transfer(from, to, value);
     }
 
-    // `receiveWithAuthorization` es igual pero exige que el que manda la
-    // transaccion sea el destinatario. Existe para que un tercero no pueda
-    // adelantarse a presentar la autorizacion; x402 no la usa hoy, y esta porque
-    // media EIP-3009 sin ella no es EIP-3009.
+    // `receiveWithAuthorization` is the same but requires whoever sends the
+    // transaction to be the recipient. Exists so a third party can't front-run
+    // presenting the authorization; x402 doesn't use it today, and it's here
+    // because half an EIP-3009 without it isn't EIP-3009.
     function receiveWithAuthorization(
         address from,
         address to,
@@ -383,9 +392,9 @@ contract PyrusTestUSD {
         _transfer(from, to, value);
     }
 
-    // Cancelar es lo que le da al pagador una salida cuando firmo algo que ya no
-    // quiere que se liquide. Sin esto, una autorizacion firmada con un
-    // `validBefore` largo no se puede retirar.
+    // Canceling is what gives the payer a way out when they signed something
+    // they no longer want settled. Without this, an authorization signed
+    // with a far-out `validBefore` can't be withdrawn.
     function cancelAuthorization(address authorizer, bytes32 nonce, bytes memory signature)
         external
     {
@@ -419,9 +428,9 @@ contract PyrusTestUSD {
         require(block.timestamp < validBefore, "tUSD: authorization is expired");
     }
 
-    // EL NONCE ES LA CLAVE DE IDEMPOTENCIA DEL PAGO (D20). Marcarlo ANTES de
-    // transferir es lo que hace que un reintento del facilitator no pueda cobrar
-    // dos veces: la segunda liquidacion revierte aca, no en nuestro proceso.
+    // THE NONCE IS THE PAYMENT'S IDEMPOTENCY KEY (D20). Marking it BEFORE
+    // transferring is what makes it so a facilitator retry can't charge
+    // twice: the second settlement reverts here, not in our own process.
     function _consumir(
         address firmante,
         bytes32 nonce,
@@ -442,9 +451,9 @@ contract PyrusTestUSD {
         require(_recuperar(digest, signature) == firmante, "tUSD: invalid signature");
     }
 
-    // ecrecover con el guardia de maleabilidad. Sin el, (v, r, s) y (v', r, -s)
-    // recuperan la misma direccion, o sea que hay DOS firmas validas para la
-    // misma autorizacion -- y el nonce solo mata una.
+    // ecrecover with the malleability guard. Without it, (v, r, s) and (v',
+    // r, -s) recover the same address, i.e. there are TWO valid signatures
+    // for the same authorization -- and the nonce only kills one of them.
     function _recuperar(bytes32 digest, bytes memory signature) private pure returns (address) {
         require(signature.length == 65, "tUSD: invalid signature length");
         bytes32 r;
