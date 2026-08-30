@@ -108,6 +108,11 @@ try {
   if (typeof coordExit !== 'number') verdict = 'crashed'
   else if (coordExit === 3) verdict = 'over-budget'
   else if (blocked.length > 0) verdict = 'blocked'
+  // Before `stalled`: a night where no worker was reachable attempted
+  // nothing, so it also closed nothing. Reporting that as "the project is
+  // spinning in place" would point at the wrong thing entirely — the tickets
+  // are fine, the fleet was down.
+  else if (coordExit === 4) verdict = 'no-workers'
   else if (stalled) verdict = 'stalled'
   else verdict = 'ok'
 

@@ -1,34 +1,36 @@
 'use strict'
 
-// D30 — dónde se puede estrenar algo que mueve valor, y dónde no.
+// D30 — where something that moves value can have its first run, and where
+// it can't.
 //
 // -----------------------------------------------------------------------------
-// POR QUE ES UNA LISTA BLANCA Y NO UNA LISTA NEGRA
+// WHY THIS IS AN ALLOWLIST AND NOT A DENYLIST
 //
-// D30 dice "todo camino que mueva valor se estrena en testnet, sin excepción".
-// Una lista negra de mainnets cumple eso hasta el día que aparece una cadena que
-// nadie anotó — y el modo de falla de esa omisión es desplegar en una red con
-// plata real creyendo que era de prueba. Con lista blanca, la omisión falla
-// hacia el lado correcto: una testnet que falta se agrega acá con su nombre, y
-// mientras tanto NO se despliega nada.
+// D30 says "every path that moves value has its first run on testnet, no
+// exceptions." A denylist of mainnets satisfies that until the day a chain
+// nobody wrote down shows up — and that omission's failure mode is deploying
+// on a network with real money thinking it was a test one. With an
+// allowlist, the omission fails toward the right side: a missing testnet
+// gets added here with its name, and in the meantime NOTHING gets deployed.
 //
-// Y no hay variable de entorno que lo saltee, a propósito. D30 no dice "salvo
-// que el operador confirme": dice sin excepción. Una vez que el camino funcionó
-// en 9746, promocionar a mainnet es un cambio de código con revisión, no un flag
-// que alguien exporta a las tres de la mañana.
+// And there's no environment variable that skips it, on purpose. D30
+// doesn't say "unless the operator confirms": it says no exceptions. Once a
+// path has worked on 9746, promoting it to mainnet is a code change with
+// review, not a flag someone exports at three in the morning.
 //
 // -----------------------------------------------------------------------------
-// ESTE ARCHIVO CORRE BAJO NODE **Y** BAJO BARE
+// THIS FILE RUNS UNDER NODE **AND** UNDER BARE
 //
-// Los scripts (`desplegar-activo-prueba.js`, `facilitator.js`) son Node; la
-// suite corre bajo `brittle-bare`. Por eso es CommonJS sin un solo `require`:
-// así el test puede cargarlo y comparar esta tabla contra la de
-// `qvac/wallet.mjs`, que es la duplicación que de verdad hace daño si se
-// desincroniza — una red que acá es testnet y allá es mainnet.
+// The scripts (`desplegar-activo-prueba.js`, `facilitator.js`) are Node;
+// the suite runs under `brittle-bare`. That's why it's CommonJS with not a
+// single `require`: that way the test can load it and compare this table
+// against `qvac/wallet.mjs`'s, which is the duplication that actually does
+// damage if it drifts out of sync — a network that's testnet here and
+// mainnet there.
 
-// Las redes de prueba conocidas. `nativo` es el gas que hay que conseguir del
-// faucet: sin gas nativo el facilitator no puede difundir la transacción, que es
-// la mitad de D30.4 que se olvida.
+// The known testnets. `nativo` is the gas that has to be obtained from the
+// faucet: without native gas the facilitator can't broadcast the
+// transaction, which is the half of D30.4 that gets forgotten.
 const TESTNETS = {
   9746: {
     nombre: 'plasma-testnet',
@@ -56,39 +58,40 @@ const TESTNETS = {
     caip2: 'eip155:31337',
     rpc: 'http://127.0.0.1:8545',
     explorer: null,
-    nativo: 'ETH (de mentira)'
+    nativo: 'ETH (fake)'
   }
 }
 
-// Sólo para que el mensaje diga QUÉ es lo que se está rechazando en vez de "no
-// la conozco". No es lo que decide: lo que decide es TESTNETS.
+// Only so the message says WHAT is being rejected instead of "I don't know
+// it." Not what decides: what decides is TESTNETS.
 const MAINNETS_CONOCIDAS = {
   1: 'Ethereum',
-  988: 'Stable (el fallback de D15)',
-  9745: 'Plasma (el default de D15)'
+  988: 'Stable (D15\'s fallback)',
+  9745: 'Plasma (D15\'s default)'
 }
 
-// Por qué NO se puede desplegar/liquidar contra `chainId`, o `null` si se puede.
+// Why `chainId` CANNOT be deployed/settled against, or `null` if it can.
 //
-// Devuelve el motivo y no un booleano por lo mismo que `verifyManifest`: hay que
-// poder decir en pantalla por qué se cortó, y "false" no se lee.
+// Returns the reason and not a boolean for the same reason as
+// `verifyManifest`: it has to be possible to say on screen why it was cut
+// off, and "false" doesn't read.
 function porQueNoSeEstrena(chainId) {
   const id = Number(chainId)
   if (!Number.isInteger(id) || id <= 0) {
-    return `chainId invalido: ${JSON.stringify(chainId)}`
+    return `invalid chainId: ${JSON.stringify(chainId)}`
   }
   if (TESTNETS[id]) return null
   const conocida = MAINNETS_CONOCIDAS[id]
   if (conocida) {
     return (
-      `chainId ${id} es ${conocida}: MAINNET. D30 decide que ningun camino que ` +
-      'mueva valor se estrena ahi, y no hay flag que lo saltee'
+      `chainId ${id} is ${conocida}: MAINNET. D30 decides no path that ` +
+      'moves value gets its first run there, and no flag skips it'
     )
   }
   return (
-    `chainId ${id} no esta en la lista de testnets conocidas. Si es una testnet, ` +
-    'agregala a TESTNETS en scripts/redes-prueba.js con su nombre y su faucet — ' +
-    'D30 no se saltea con una variable de entorno'
+    `chainId ${id} is not in the list of known testnets. If it is a testnet, ` +
+    'add it to TESTNETS in scripts/redes-prueba.js with its name and its faucet — ' +
+    'D30 is not skipped with an environment variable'
   )
 }
 

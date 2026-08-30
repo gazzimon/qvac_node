@@ -1,46 +1,49 @@
-// Spike de la Fase 7 / D13 — ¿de dónde sale la seed de la wallet bajo Bare?
+// Phase 7 / D13 spike — where does the wallet's seed come from under Bare?
+
+// The D11 spike (spike-d11-wdk-bare.mjs) answered "does WDK run under
+// Bare?". This one answers the question that only shows up once you try to
+// USE it, one the roadmap had assumed was already settled:
 //
-// El spike de D11 (spike-d11-wdk-bare.mjs) contestó "¿corre WDK bajo Bare?".
-// Éste contesta la pregunta que aparece recién cuando uno intenta USARLO, y que
-// el roadmap daba por resuelta:
+//   WDK doesn't generate seeds or store them. `new WalletManagerEvm(x)`
+//   requires a BIP-39 MNEMONIC -- a 32-byte hex seed, which is what
+//   identity.mjs already knows how to generate and persist, gets rejected
+//   with "The seed phrase is invalid" -- and `@tetherto/wdk-wallet` ships
+//   no secret manager at all: its exports are errors and interfaces
+//   (WdkError, ISigner, IWalletAccount...), no custody.
 //
-//   WDK no genera seeds ni las guarda. `new WalletManagerEvm(x)` exige un
-//   MNEMONIC BIP-39 -- una seed hex de 32 bytes, que es lo que identity.mjs ya
-//   sabe generar y persistir, se rechaza con "The seed phrase is invalid" -- y
-//   `@tetherto/wdk-wallet` no trae ningún secret manager: sus exports son
-//   errores e interfaces (WdkError, ISigner, IWalletAccount...), nada de
-//   custodia.
+// I.e. D13 can't "delegate to WDK's secret manager," which was one of the
+// two halves of the decision as written. The other one remains: encryption
+// at rest, and we write it ourselves.
 //
-// O sea que D13 no se puede "delegar al secret manager de WDK", que era una de
-// las dos mitades de la decisión escrita. Queda la otra: cifrado en reposo, y
-// lo escribimos nosotros.
+// RESULT (2026-08-26): all eight steps pass under Bare.
 //
-// RESULTADO (2026-08-26): los ocho pasos pasan bajo Bare.
+//   - `bip39` does NOT work: it imports `node:crypto` and doesn't resolve
+//     under Bare (R1).
+//   - `@scure/bip39` DOES, with two caveats this file pins down:
+//       * the subpath carries an extension: '@scure/bip39/wordlists/english.js';
+//       * its `generateMnemonic` uses `crypto.getRandomValues`, which doesn't
+//         exist under Bare. Not needed: `entropyToMnemonic` accepts OUR
+//         entropy, and cryptographic randomness is already in the tree
+//         (sodium-native, via hypercore), which is also the same one
+//         apikeys.mjs already uses.
+//   - The address is derived with NO RPC reachable, which is the condition
+//     for being able to build the signed manifest offline.
+//   - The known BIP-39/BIP-44 vector gives the standard address, so we
+//     aren't generating something only we understand.
+//   - sodium encrypts the phrase and a wrong passphrase FAILS instead of
+//     returning garbage. Deriving the key costs ~477 ms, which is startup
+//     UX and has to be kept in mind.
 //
-//   - `bip39` NO sirve: importa `node:crypto` y no resuelve bajo Bare (R1).
-//   - `@scure/bip39` SÍ, con dos salvedades que este archivo deja fijadas:
-//       * el subpath lleva extensión: '@scure/bip39/wordlists/english.js';
-//       * su `generateMnemonic` usa `crypto.getRandomValues`, que bajo Bare no
-//         existe. No hace falta: `entropyToMnemonic` acepta NUESTRA entropía, y
-//         azar criptográfico ya hay en el árbol (sodium-native, vía hypercore),
-//         que además es el mismo que ya usa apikeys.mjs.
-//   - La dirección se deriva SIN RPC alcanzable, que es la condición para poder
-//     armar el manifiesto firmado offline.
-//   - El vector conocido de BIP-39/BIP-44 da la dirección estándar, así que no
-//     estamos generando algo que sólo entendemos nosotros.
-//   - sodium cifra la frase y la passphrase equivocada FALLA en vez de devolver
-//     basura. Derivar la clave cuesta ~477 ms, que es UX de arranque y hay que
-//     tenerlo presente.
-//
-// SE GUARDA PARA REPETIRLO. La respuesta vale para las versiones de hoy:
-// wdk-wallet-evm 1.0.0-beta.17, @scure/bip39 2.3.0, @x402/* 2.23.0. WDK está en
-// BETA, así que esto se vuelve a correr antes de asumir que sigue andando.
+// KEPT AROUND TO BE RE-RUN. The answer holds for today's versions:
+// wdk-wallet-evm 1.0.0-beta.17, @scure/bip39 2.3.0, @x402/* 2.23.0. WDK is
+// in BETA, so this gets run again before assuming it still works.
 //
 //   npm install @tetherto/wdk-wallet-evm @scure/bip39
 //   bare scripts/spike-d13-wallet-bare.mjs
 //
-// Cada paso corta a los que dependen de él: interesa saber CUÁL falla, no leer
-// una cascada de errores que salen todos del primero.
+// Each step cuts off the ones that depend on it: what matters is knowing
+// WHICH one fails, not reading a cascade of errors that all stem from the
+// first.
 
 const probar = async (nombre, fn) => {
   try {
@@ -48,7 +51,7 @@ const probar = async (nombre, fn) => {
     console.log('OK   ' + nombre + (r ? ' -> ' + r : ''))
     return true
   } catch (e) {
-    console.log('FALL ' + nombre)
+    console.log('FAIL ' + nombre)
     console.log('     ' + String((e && e.message) || e).split('\n')[0])
     return false
   }
@@ -60,56 +63,56 @@ const sodium = (await import('sodium-native')).default || (await import('sodium-
 const wdk = await import('@tetherto/wdk-wallet-evm')
 const WalletManagerEvm = wdk.default || wdk
 
-// A propósito inalcanzable: el nodo tiene que poder anunciar su dirección de
-// cobro sin depender de que haya RPC.
+// Unreachable on purpose: the node has to be able to announce its payout
+// address without depending on there being an RPC.
 const SIN_RED = { provider: 'http://127.0.0.1:1/no-existe' }
 
-// La pieza que reemplaza al `generateMnemonic` que no corre bajo Bare.
+// The piece that replaces `generateMnemonic`, which doesn't run under Bare.
 function generarFrase() {
-  const entropia = Buffer.alloc(32) // 256 bits -> 24 palabras
+  const entropia = Buffer.alloc(32) // 256 bits -> 24 words
   sodium.randombytes_buf(entropia)
   return bip39.entropyToMnemonic(entropia, wordlist)
 }
 
-await probar('1. wordlist inglés (el subpath lleva .js)', async () => wordlist.length + ' palabras')
+await probar('1. english wordlist (the subpath carries .js)', async () => wordlist.length + ' words')
 
 let frase = null
-await probar('2. generar 24 palabras con entropía de sodium', async () => {
+await probar('2. generate 24 words with sodium entropy', async () => {
   frase = generarFrase()
-  if (!bip39.validateMnemonic(frase, wordlist)) throw new Error('el checksum BIP-39 no valida')
-  return '24 palabras, checksum válido'
+  if (!bip39.validateMnemonic(frase, wordlist)) throw new Error('the BIP-39 checksum does not validate')
+  return '24 words, valid checksum'
 })
 
-await probar('3. WDK deriva la dirección SIN RPC alcanzable', async () => {
+await probar('3. WDK derives the address with NO RPC reachable', async () => {
   const addr = await (await new WalletManagerEvm(frase, SIN_RED).getAccount()).getAddress()
-  // El mismo pattern que exige el schema congelado (manifest-v0.json).
-  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) throw new Error('no matchea el schema: ' + addr)
+  // The same pattern the frozen schema requires (manifest-v0.json).
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) throw new Error('does not match the schema: ' + addr)
   return addr
 })
 
-await probar('4. la misma frase da SIEMPRE la misma dirección', async () => {
+await probar('4. the same phrase ALWAYS gives the same address', async () => {
   const a = await (await new WalletManagerEvm(frase, SIN_RED).getAccount()).getAddress()
   const b = await (await new WalletManagerEvm(frase, SIN_RED).getAccount()).getAddress()
-  if (a !== b) throw new Error('no determinística: ' + a + ' vs ' + b)
+  if (a !== b) throw new Error('not deterministic: ' + a + ' vs ' + b)
   return a
 })
 
-await probar('5. dos frases distintas dan direcciones distintas', async () => {
+await probar('5. two different phrases give different addresses', async () => {
   const a = await (await new WalletManagerEvm(generarFrase(), SIN_RED).getAccount()).getAddress()
   const b = await (await new WalletManagerEvm(generarFrase(), SIN_RED).getAccount()).getAddress()
-  if (a === b) throw new Error('COLISIÓN')
+  if (a === b) throw new Error('COLLISION')
   return a.slice(0, 12) + '... != ' + b.slice(0, 12) + '...'
 })
 
-await probar('6. vector conocido BIP-39/BIP-44', async () => {
+await probar('6. known BIP-39/BIP-44 vector', async () => {
   const conocida = 'test test test test test test test test test test test junk'
   const addr = await (await new WalletManagerEvm(conocida, SIN_RED).getAccount()).getAddress()
   const esperada = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
-  if (addr !== esperada) throw new Error('dio ' + addr + ' y se esperaba ' + esperada)
+  if (addr !== esperada) throw new Error('got ' + addr + ' and expected ' + esperada)
   return addr
 })
 
-await probar('7. cifrar la frase, y que la passphrase equivocada NO abra', async () => {
+await probar('7. encrypt the phrase, and the wrong passphrase does NOT open it', async () => {
   const secreto = Buffer.from(frase, 'utf8')
   const salt = Buffer.alloc(sodium.crypto_pwhash_SALTBYTES)
   sodium.randombytes_buf(salt)
@@ -133,25 +136,26 @@ await probar('7. cifrar la frase, y que la passphrase equivocada NO abra', async
   sodium.crypto_secretbox_easy(cifrado, secreto, nonce, derivar('la-buena'))
 
   if (cifrado.toString('utf8').includes(frase.split(' ')[0])) {
-    throw new Error('la frase se ve en el cifrado')
+    throw new Error('the phrase is visible in the ciphertext')
   }
 
   const claro = Buffer.alloc(cifrado.length - sodium.crypto_secretbox_MACBYTES)
   if (!sodium.crypto_secretbox_open_easy(claro, cifrado, nonce, derivar('la-buena'))) {
-    throw new Error('no abrió con la passphrase correcta')
+    throw new Error('did not open with the correct passphrase')
   }
-  if (claro.toString('utf8') !== frase) throw new Error('abrió pero devolvió otra cosa')
+  if (claro.toString('utf8') !== frase) throw new Error('opened but returned something else')
 
-  // Fallar cerrado. Una passphrase equivocada que devuelve basura derivaría una
-  // dirección de cobro distinta, y el nodo anunciaría una wallet que no controla.
+  // Fail closed. A wrong passphrase that returned garbage would derive a
+  // different payout address, and the node would announce a wallet it
+  // doesn't control.
   const basura = Buffer.alloc(claro.length)
   if (sodium.crypto_secretbox_open_easy(basura, cifrado, nonce, derivar('la-mala'))) {
-    throw new Error('PELIGRO: abrió con la passphrase equivocada')
+    throw new Error('DANGER: opened with the wrong passphrase')
   }
-  return 'ida y vuelta ok; la equivocada no abre'
+  return 'round trip ok; the wrong one does not open'
 })
 
-await probar('8. cuánto tarda derivar la clave (es UX de arranque)', async () => {
+await probar('8. how long deriving the key takes (it is startup UX)', async () => {
   const salt = Buffer.alloc(sodium.crypto_pwhash_SALTBYTES)
   sodium.randombytes_buf(salt)
   const k = Buffer.alloc(sodium.crypto_secretbox_KEYBYTES)
@@ -164,5 +168,5 @@ await probar('8. cuánto tarda derivar la clave (es UX de arranque)', async () =
     sodium.crypto_pwhash_MEMLIMIT_MODERATE,
     sodium.crypto_pwhash_ALG_DEFAULT
   )
-  return Date.now() - t + 'ms con OPSLIMIT/MEMLIMIT MODERATE'
+  return Date.now() - t + 'ms with OPSLIMIT/MEMLIMIT MODERATE'
 })

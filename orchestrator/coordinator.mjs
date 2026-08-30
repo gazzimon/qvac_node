@@ -267,6 +267,52 @@ export class Coordinator {
     return out
   }
 
+  // Wait until at least `want` workers are visible, or `timeoutMs` passes.
+  // Returns the pool as it stands when the wait ends — possibly short, possibly
+  // empty; the caller decides what that means.
+  //
+  // Polling rather than an event: the Coordinator is handed an already-built
+  // swarm and only requires three things of it (`peers`, `sendTask`,
+  // `addTaskListener`), which is what lets a fake stand in for a real one in
+  // the tests. Subscribing to a peer-change event would add a fourth
+  // requirement to that contract for no gain — a 250ms poll against an
+  // in-memory Map costs nothing next to a discovery measured in seconds.
+  async awaitWorkers(want = this.cfg.waitForWorkers, timeoutMs = this.cfg.waitForWorkersMs) {
+    let pool = this.workers()
+    if (pool.length >= want) return pool
+
+    this.log(
+      `waiting up to ${Math.round(timeoutMs / 1000)}s for ${want} worker(s)` +
+        ` — discovery takes seconds to a minute+, see NOTES.md`
+    )
+
+    const deadline = this.now() + timeoutMs
+    let lastReport = 0
+    while (this.now() < deadline) {
+      await new Promise((r) => {
+        const t = setTimeout(r, this.cfg.workerPollMs)
+        if (t.unref) t.unref()
+      })
+
+      pool = this.workers()
+      if (pool.length >= want) {
+        this.log(`${pool.length} worker(s) available, starting`)
+        return pool
+      }
+
+      // A line every 15s: silence during a two-minute wait is exactly what
+      // makes an operator think the process hung. Same reason progress.mjs
+      // exists for a slow generation.
+      const waited = timeoutMs - (deadline - this.now())
+      if (waited - lastReport >= 15000) {
+        lastReport = waited
+        this.log(`still waiting… ${Math.round(waited / 1000)}s, ${pool.length}/${want} worker(s)`)
+      }
+    }
+
+    return pool
+  }
+
   // Assign one ticket, once, to one worker. Resolves with the `task:result`
   // message, or rejects (no worker took it / it went silent / it refused). The
   // caller decides whether to retry with a fresh attemptId.
@@ -521,6 +567,23 @@ export class Coordinator {
       return this.summary()
     }
 
+    // THE DISCOVERY GATE — before publishing anything or touching a ticket.
+    // See the DEFAULTS block for why reading `workers()` immediately is wrong.
+    const pool = await this.awaitWorkers()
+    if (pool.length === 0) {
+      // Deliberately NOT marked as failed tickets. Nobody was there to do the
+      // work; the tickets are untouched and the next wake-up tries again. A
+      // run that found no workers is an infrastructure fact, not a project
+      // that is stuck, and the two must not look the same in the log.
+      this._noWorkers = true
+      this.log(
+        `no workers appeared in ${Math.round(this.cfg.waitForWorkersMs / 1000)}s — ` +
+          `nothing assigned, ${todo.length} ticket(s) left untouched for the next run`
+      )
+      this.endRun()
+      return this.summary()
+    }
+
     // Publish the workspace once for this run. A later run that changed the
     // tree re-publishes.
     this.context = await publishContext(this.store, this.workspace)
@@ -542,45 +605,42 @@ export class Coordinator {
     // hold two tasks gets two): one round of `Promise.all` per chunk, spread
     // round-robin, series across chunks — the same shape runBatch() uses on
     // one machine, now over the wire, nested one level inside the wave loop.
-    const pool = this.workers()
+    // `pool` is what the discovery gate settled on above, not a fresh snapshot.
     const slots = pool.flatMap((w) => Array(Math.max(1, w.maxConcurrentTasks)).fill(w))
-    if (slots.length === 0) {
-      this.log('no worker advertises acceptsTasks — nothing can be placed this run')
-    } else {
-      for (let w = 0; w < waves.length; w++) {
-        const wave = waves[w]
 
-        // A long run can cross the budget mid-way. Checked per wave (not per
-        // ticket) so a wave already in flight finishes, but no new wave
-        // starts — overshoot is bounded by one wave's worth of tokens.
-        if (this.overBudget()) {
-          this.state.append(EVENTS.BUDGET_EXCEEDED, {
-            tokensSpent: this.state.tokensSpent(),
-            budgetTokens: this.cfg.budgetTokens
-          })
-          this.log(
-            `budget exhausted mid-run at wave ${w + 1}/${waves.length}` +
-              ` (${this.state.tokensSpent()} / ${this.cfg.budgetTokens} tokens) — stopping`
-          )
-          break
-        }
+    for (let w = 0; w < waves.length; w++) {
+      const wave = waves[w]
 
-        // A later wave's tickets may need to read a file an earlier wave just
-        // wrote. Re-publish before assigning anything in this wave; without
-        // it, a worker here would still see the tree as it stood at the top
-        // of the run, dependency or not.
-        if (w > 0) {
-          const changed = await updateContext(this.context.drive, this.workspace)
-          this.log(
-            `context drive updated for wave ${w + 1}/${waves.length}` +
-              ` (${changed} file(s) changed, v${this.context.drive.version})`
-          )
-        }
+      // A long run can cross the budget mid-way. Checked per wave (not per
+      // ticket) so a wave already in flight finishes, but no new wave
+      // starts — overshoot is bounded by one wave's worth of tokens.
+      if (this.overBudget()) {
+        this.state.append(EVENTS.BUDGET_EXCEEDED, {
+          tokensSpent: this.state.tokensSpent(),
+          budgetTokens: this.cfg.budgetTokens
+        })
+        this.log(
+          `budget exhausted mid-run at wave ${w + 1}/${waves.length}` +
+            ` (${this.state.tokensSpent()} / ${this.cfg.budgetTokens} tokens) — stopping`
+        )
+        break
+      }
 
-        for (let i = 0; i < wave.length; i += slots.length) {
-          const group = wave.slice(i, i + slots.length)
-          await Promise.all(group.map((ticket, j) => this._placeTicket(ticket, slots, j)))
-        }
+      // A later wave's tickets may need to read a file an earlier wave just
+      // wrote. Re-publish before assigning anything in this wave; without
+      // it, a worker here would still see the tree as it stood at the top
+      // of the run, dependency or not.
+      if (w > 0) {
+        const changed = await updateContext(this.context.drive, this.workspace)
+        this.log(
+          `context drive updated for wave ${w + 1}/${waves.length}` +
+            ` (${changed} file(s) changed, v${this.context.drive.version})`
+        )
+      }
+
+      for (let i = 0; i < wave.length; i += slots.length) {
+        const group = wave.slice(i, i + slots.length)
+        await Promise.all(group.map((ticket, j) => this._placeTicket(ticket, slots, j)))
       }
     }
 
@@ -600,6 +660,10 @@ export class Coordinator {
       done: this.state.done().length,
       blocked: this.state.blocked().length,
       pendingAtStart: this._pendingAtStart ?? null,
+      // A run that never found a worker attempted nothing. Recorded so stall
+      // detection can skip it: two nights with the fleet down is not the
+      // project spinning in place, and must not accuse the tickets.
+      noWorkers: this._noWorkers === true,
       tokensSpent: this.state.tokensSpent()
     })
     if (this.state.isStalled()) {
@@ -639,6 +703,9 @@ export class Coordinator {
       blockedIds: blocked,
       pending: this.tickets.length - done.length - blocked.length,
       stalled: this.state.isStalled(),
+      // True when the discovery gate timed out with nobody there. Distinct
+      // from `stalled`: nothing was attempted, so nothing failed.
+      noWorkers: this._noWorkers === true,
       tokensSpent: this.state.tokensSpent(),
       budgetTokens: this.cfg.budgetTokens || null,
       overBudget: this.overBudget(),
@@ -647,6 +714,7 @@ export class Coordinator {
     this.log(
       `summary: ${r.done}/${r.total} closed` +
         (r.blocked ? `, ${r.blocked} blocked` : '') +
+        (r.noWorkers ? ', NO WORKERS FOUND' : '') +
         `, ${r.tokensSpent} tokens${r.budgetTokens ? ` / ${r.budgetTokens}` : ''}`
     )
     return r
@@ -713,17 +781,21 @@ async function main() {
       maxTokens: opts.maxTokens ? +opts.maxTokens : undefined
     },
     ...(opts.maxAttempts ? { maxAttempts: +opts.maxAttempts } : {}),
-    ...(opts.budget ? { budgetTokens: +opts.budget } : {})
+    ...(opts.budget ? { budgetTokens: +opts.budget } : {}),
+    ...(opts.waitWorkers ? { waitForWorkers: +opts.waitWorkers } : {}),
+    ...(opts.waitTimeout ? { waitForWorkersMs: +opts.waitTimeout * 1000 } : {})
   })
 
   try {
     const summary = await coord.run()
     // Exit code carries the state a nightly wrapper needs to branch on without
     // parsing the log: 0 = made progress or nothing to do, 2 = a ticket is
-    // blocked and needs a human, 3 = the budget stopped the run.
+    // blocked and needs a human, 3 = the budget stopped the run, 4 = no worker
+    // was reachable (an infrastructure problem, not a project problem).
     let code = 0
     if (summary.overBudget) code = 3
     else if (summary.blocked > 0) code = 2
+    else if (summary.noWorkers) code = 4
     process.exitCode = code
   } finally {
     await coord.close()
@@ -744,7 +816,9 @@ function parseCliArgv(argv) {
     '--max-steps': 'maxSteps',
     '--max-tokens': 'maxTokens',
     '--max-attempts': 'maxAttempts',
-    '--budget': 'budget'
+    '--budget': 'budget',
+    '--wait-workers': 'waitWorkers', // how many to wait for before assigning
+    '--wait-timeout': 'waitTimeout' // seconds; discovery can take a minute+
   }
   const opts = {}
   for (let i = 0; i < argv.length; i++) {

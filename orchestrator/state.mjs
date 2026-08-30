@@ -190,7 +190,10 @@ export class State {
           // carries the total ticket count, not the pending count, so this is
           // filled from `run:end`'s own bookkeeping below — a run that had
           // nothing to do is NOT the same as a run that tried and failed.
-          hadWork: null
+          hadWork: null,
+          // A run the discovery gate ended because no worker was reachable.
+          // It attempted nothing, so it proves nothing about the tickets.
+          noWorkers: false
         }
         runs.push(current)
       }
@@ -205,22 +208,30 @@ export class State {
       if (e.type === EVENTS.RUN_END) {
         current.end = e.ts
         if (Number.isFinite(e.pendingAtStart)) current.hadWork = e.pendingAtStart
+        if (e.noWorkers === true) current.noWorkers = true
       }
     }
 
     return runs
   }
 
-  // Spinning in place: `window` runs in a row that HAD pending tickets and
-  // closed none of them. A run with nothing left to do closes zero too, and
-  // that is success, not a stall — without that distinction a finished
-  // project raises a false alarm on every nightly wake-up, forever. Runs
-  // written before `run:end` carried `pendingAtStart` have `hadWork: null`
-  // and are treated the old way (any zero-close run counts), so an existing
-  // log does not silently change meaning.
+  // Spinning in place: `window` runs in a row that actually TRIED and closed
+  // nothing. Two kinds of zero-close run are excluded, because neither says
+  // anything about the tickets:
+  //
+  //   - nothing left to do (`hadWork === 0`) — that is a finished project,
+  //     and without this exclusion it raises a false alarm every night after
+  //     it succeeds, forever;
+  //   - no worker was reachable (`noWorkers`) — the fleet was down, nothing
+  //     was attempted. Blaming the tickets points at the wrong thing.
+  //
+  // Runs written before `run:end` carried these fields default to
+  // `hadWork: null` / `noWorkers: false` and are judged the old way, so an
+  // existing log does not silently change meaning.
   isStalled(window = 2) {
     const runs = this.runSummaries()
-    if (runs.length < window) return false
-    return runs.slice(-window).every((r) => r.done === 0 && r.hadWork !== 0)
+    const tried = runs.filter((r) => r.hadWork !== 0 && !r.noWorkers)
+    if (tried.length < window) return false
+    return tried.slice(-window).every((r) => r.done === 0)
   }
 }
