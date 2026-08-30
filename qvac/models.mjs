@@ -81,6 +81,25 @@ export const MODEL_INFO = {
     displayName: 'Gemma 4 31B Instruct',
     params: '31B',
     sizeGB: 19598488192 / 1024 ** 3
+  },
+  // The lightest 27B in the registry: the only other Qwen3.6-27B quant is
+  // Q6_K_XL at 23.9 GB, which leaves no room for context on a 25 GB box.
+  qwen27b: {
+    name: 'Qwen3.6-27B-UD-Q4_K_XL',
+    displayName: 'Qwen3.6 27B',
+    params: '27B',
+    sizeGB: 17612564704 / 1024 ** 3
+  },
+  // Same 35B coding model as katcoder35b, at an aggressive ~2-bit quant: less
+  // than half the size (9.1 GB vs 19.9 GB), so it fits with real headroom.
+  // Whether 35B at 2 bits beats a smaller model at 4 bits is a measurement
+  // nobody here has taken — it is in the catalog to make that measurement possible,
+  // not as a recommendation.
+  katcoder35b_iq2: {
+    name: 'Kwaipilot_KAT-Coder-V2.5-Dev-IQ2_XXS',
+    displayName: 'KAT-Coder 35B (IQ2_XXS)',
+    params: '35B',
+    sizeGB: 9778452896 / 1024 ** 3
   }
 }
 
