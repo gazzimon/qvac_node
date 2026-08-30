@@ -289,10 +289,11 @@ export class Coordinator {
     const deadline = this.now() + timeoutMs
     let lastReport = 0
     while (this.now() < deadline) {
-      await new Promise((r) => {
-        const t = setTimeout(r, this.cfg.workerPollMs)
-        if (t.unref) t.unref()
-      })
+      // NOT unref'd, deliberately. Waiting for the fleet is real work, and an
+      // unref'd timer here lets the process exit mid-wait whenever nothing
+      // else happens to be holding the event loop open — which is exactly the
+      // situation this gate exists for.
+      await new Promise((r) => setTimeout(r, this.cfg.workerPollMs))
 
       pool = this.workers()
       if (pool.length >= want) {

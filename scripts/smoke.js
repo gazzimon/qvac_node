@@ -1,28 +1,29 @@
 #!/usr/bin/env node
 'use strict'
 
-// Smoke test del artefacto que se publica: ¿este binario sirve un token?
+// Smoke test for the artifact that gets published: does this binary serve a token?
 //
-// Existe por un incidente concreto. El binario `linux-x64` se publico release
-// tras release sin poder cargar NINGUN modelo: el empaquetado standalone
-// registra solo el backend Vulkan y nunca enumera las variantes de CPU, asi que
-// `--gpu-layers 0` -la configuracion recomendada en iGPU- falla siempre. Ver
-// NOTES.md, "Nodo Linux 24/7".
+// Exists because of a concrete incident. The `linux-x64` binary got published
+// release after release without being able to load ANY model: the standalone
+// packaging only registers the Vulkan backend and never enumerates the CPU
+// variants, so `--gpu-layers 0` -the recommended setting on iGPU- always
+// fails. See NOTES.md, "Nodo Linux 24/7".
 //
-// No se descubrio en meses porque `release.js` compila los cinco targets, los
-// stagea y los publica SIN EJECUTAR NINGUNO. Compilar no es funcionar. Este
-// script cierra ese agujero: si el binario no produce un token, el release para.
+// It went undiscovered for months because `release.js` compiles all five
+// targets, stages them, and publishes them WITHOUT RUNNING ANY OF THEM.
+// Compiling isn't working. This script closes that hole: if the binary
+// doesn't produce a token, the release stops.
 //
-//   node scripts/smoke.js                     el binario del host, en ./out
-//   node scripts/smoke.js --bin <ruta>        otro binario (p.ej. el instalado)
-//   node scripts/smoke.js --bin <bare> --entry bin.mjs    el camino de dev
-//   node scripts/smoke.js --gpu-layers 0      pasandole flags al CLI
-//   node scripts/smoke.js --timeout 900       mas margen en frio
+//   node scripts/smoke.js                     the host's binary, in ./out
+//   node scripts/smoke.js --bin <path>        another binary (e.g. the installed one)
+//   node scripts/smoke.js --bin <bare> --entry bin.mjs    the dev path
+//   node scripts/smoke.js --gpu-layers 0      passing flags to the CLI
+//   node scripts/smoke.js --timeout 900       more headroom on a cold start
 //
-// LIMITE HONESTO: solo puede probar binarios que corran en ESTA maquina. Los
-// otros cuatro targets son cross-compilados y aca no se ejecutan. Cubrirlos
-// exige una matriz de CI (ubuntu/macos/windows) donde cada sistema corra el
-// suyo, o correr esto a mano en cada maquina antes de publicar.
+// HONEST LIMIT: it can only test binaries that run on THIS machine. The
+// other four targets are cross-compiled and don't run here. Covering them
+// requires a CI matrix (ubuntu/macos/windows) where each system runs its
+// own, or running this by hand on each machine before publishing.
 
 const os = require('os')
 const fs = require('fs')
@@ -42,8 +43,8 @@ const hostTarget = `${os.platform()}-${os.arch()}`
 const defaultBin = path.join(root, 'out', hostTarget, isWindows ? 'pyrusllm.exe' : 'pyrusllm')
 const bin = path.resolve(flag('--bin', defaultBin))
 
-// Generoso a proposito: en frio son 808 MB de pesos por hypercore. Lo que se
-// busca cazar es "no sirve un token", no "tardo mucho".
+// Generous on purpose: cold start is 808 MB of weights over hypercore.
+// What's being hunted for is "doesn't serve a token," not "took a while."
 const timeoutMs = Number(flag('--timeout', 600)) * 1000
 const gpuLayers = flag('--gpu-layers', null)
 const prompt = flag('--prompt', 'ping')
@@ -55,23 +56,24 @@ function fallar(porque, detalle) {
 }
 
 if (!fs.existsSync(bin)) {
-  fallar(`no existe el binario ${bin}`, 'Compilalo con `npm run make` o pasa --bin <ruta>.')
+  fallar(`binary does not exist: ${bin}`, 'Build it with `npm run make` or pass --bin <path>.')
 }
 
-// El binario NO puede escribir a un pipe de libuv: se cuelga para siempre.
-// Documentado en NOTES.md, "BUG: el binario se cuelga si stdout es un pipe".
-// Por eso la salida va a un archivo y se lee al final, igual que en soak.js.
+// The binary CANNOT write to a libuv pipe: it hangs forever. Documented in
+// NOTES.md, "BUG: the binary hangs if stdout is a pipe". That's why output
+// goes to a file and gets read at the end, same as in soak.js.
 const salida = path.join(os.tmpdir(), `pyrusllm-smoke-${process.pid}.log`)
 const fd = fs.openSync(salida, 'w+')
 
-// SIN --quiet, a proposito. El veredicto sale de la linea de TTFT que imprime
-// bin.mjs, y `--quiet` la silencia (bin.mjs:211). Ademas el logging nativo de
-// llama.cpp no se puede apagar (NOTES.md), asi que "hubo salida" no prueba
-// nada: la primera version de este script daba OK con puro ruido de log.
-// `--entry` cubre el camino de dev: `bare bin.mjs prompt ...`. No es un lujo,
-// es la configuracion de PRODUCCION del nodo Linux, que corre desde el fuente
-// porque el standalone no carga modelos. Sin esto el smoke solo sabria probar
-// el artefacto roto y no el que efectivamente sirve tokens.
+// NO --quiet, on purpose. The verdict comes from the TTFT line bin.mjs
+// prints, and `--quiet` silences it (bin.mjs:211). Also llama.cpp's native
+// logging can't be turned off (NOTES.md), so "there was output" proves
+// nothing: this script's first version gave OK on pure log noise.
+// `--entry` covers the dev path: `bare bin.mjs prompt ...`. It's not a
+// luxury, it's the Linux node's PRODUCTION configuration, which runs from
+// source because the standalone doesn't load models. Without this the smoke
+// test would only know how to test the broken artifact and not the one that
+// actually serves tokens.
 const entry = flag('--entry', null)
 const args = entry ? [entry, 'prompt', prompt] : ['prompt', prompt]
 if (gpuLayers !== null) args.push('--gpu-layers', String(gpuLayers))
@@ -92,7 +94,7 @@ const reloj = setTimeout(() => {
 child.on('error', (err) => {
   clearTimeout(reloj)
   fs.closeSync(fd)
-  fallar(`no se pudo ejecutar el binario: ${err.message}`)
+  fallar(`could not run the binary: ${err.message}`)
 })
 
 child.on('exit', (code) => {
@@ -104,50 +106,50 @@ child.on('exit', (code) => {
   fs.unlinkSync(salida)
 
   if (matado) {
-    fallar(`colgado: no termino en ${timeoutMs / 1000}s, hubo que matarlo`, texto)
+    fallar(`hung: did not finish in ${timeoutMs / 1000}s, had to be killed`, texto)
   }
 
-  // Las causas concretas van ANTES del exit code, no despues: un `exit code 1`
-  // como titular esconde el motivo que el propio log ya trae escrito. El codigo
-  // de salida es el ultimo recurso, para lo que no supimos clasificar.
+  // Concrete causes go BEFORE the exit code, not after: an "exit code 1" as
+  // the headline hides the reason the log itself already has written down.
+  // The exit code is the last resort, for what we couldn't classify.
 
-  // Otro nodo vivo tiene tomado el lock del registry. NO es una falla del
-  // artefacto y no puede reportarse como tal: solo hay un proceso por
-  // directorio de storage, asi que el smoke exige que el nodo este bajado.
+  // Another live node has the registry lock held. This is NOT a failure of
+  // the artifact and can't be reported as one: there's only one process per
+  // storage directory, so the smoke test requires the node to be down.
   if (/could not be locked/i.test(texto)) {
     fallar(
-      'hay otro nodo corriendo: el registry esta lockeado',
-      'Bajalo antes de correr el smoke (`systemctl stop pyrusllm`, o Ctrl+C\n' +
-        'en la terminal del `serve`) y volve a intentar. Esto NO dice nada\n' +
-        'sobre si el binario funciona.'
+      'another node is running: the registry is locked',
+      'Stop it before running the smoke test (`systemctl stop pyrusllm`, or\n' +
+        'Ctrl+C in the `serve` terminal) and try again. This does NOT say\n' +
+        'anything about whether the binary works.'
     )
   }
 
-  // Un exit 0 no alcanza. El CLI puede terminar limpio habiendo impreso el
-  // error de carga: es exactamente lo que hacia el binario linux-x64.
+  // An exit 0 isn't enough. The CLI can end cleanly after printing the load
+  // error: that's exactly what the linux-x64 binary used to do.
   if (/fallo la inferencia|failed to load model|Failed to initialize model/i.test(texto)) {
-    fallar('el binario arranco pero NO pudo cargar el modelo', texto)
+    fallar('the binary started but could NOT load the model', texto)
   }
 
   if (code !== 0) {
-    const como = code === null ? 'murio sin exit code (senal)' : `exit code ${code}`
-    fallar(`${como}, sin causa reconocida en el log`, texto)
+    const como = code === null ? 'died with no exit code (signal)' : `exit code ${code}`
+    fallar(`${como}, no recognized cause in the log`, texto)
   }
 
-  // El veredicto. `bin.mjs:293` imprime el TTFT medido, o el literal `n/d`
-  // cuando el stream termino sin un solo delta. Un modelo que carga pero no
-  // emite nada tiene que ser un FAIL igual que uno que no carga.
-  const ttft = texto.match(/primer token \(TTFT\)\s*:\s*(\S+)/)
+  // The verdict. `bin.mjs:293` prints the measured TTFT, or the literal
+  // `n/a` when the stream ended with not a single delta. A model that loads
+  // but emits nothing has to be a FAIL just like one that doesn't load.
+  const ttft = texto.match(/first token \(TTFT\)\s*:\s*(\S+)/)
   if (!ttft) {
     fallar(
-      'el binario termino con exit 0 pero nunca llego a medir el primer token',
+      'the binary exited 0 but never got to measure the first token',
       texto
     )
   }
-  if (ttft[1] === 'n/d') {
-    fallar('el modelo cargo pero NO emitio ningun token (TTFT n/d)', texto)
+  if (ttft[1] === 'n/a') {
+    fallar('the model loaded but did NOT emit a single token (TTFT n/a)', texto)
   }
 
   console.log(`  TTFT: ${ttft[1]}`)
-  console.log(`\n  SMOKE OK — token servido en ${(wallMs / 1000).toFixed(1)}s\n`)
+  console.log(`\n  SMOKE OK — token served in ${(wallMs / 1000).toFixed(1)}s\n`)
 })
