@@ -225,12 +225,20 @@ export class State {
   //   - no worker was reachable (`noWorkers`) — the fleet was down, nothing
   //     was attempted. Blaming the tickets points at the wrong thing.
   //
-  // Runs written before `run:end` carried these fields default to
-  // `hadWork: null` / `noWorkers: false` and are judged the old way, so an
-  // existing log does not silently change meaning.
+  // A run written before `run:end` carried `pendingAtStart` has
+  // `hadWork: null` — unknown — and is also excluded. Counting those as
+  // "tried" was the first thing tried here and it is worse than useless: a
+  // finished project whose history contains two such runs reports stalled on
+  // EVERY wake-up and never clears, because the new runs that would push them
+  // out of the window are themselves excluded for having nothing to do. An
+  // alarm that cannot turn off trains its reader to ignore it, which is
+  // exactly what it must not do on the night it is real. Excluding unknowns
+  // costs a missed stall in pre-existing history and buys correct signal from
+  // the next two real runs onward.
   isStalled(window = 2) {
-    const runs = this.runSummaries()
-    const tried = runs.filter((r) => r.hadWork !== 0 && !r.noWorkers)
+    const tried = this.runSummaries().filter(
+      (r) => Number.isFinite(r.hadWork) && r.hadWork > 0 && !r.noWorkers
+    )
     if (tried.length < window) return false
     return tried.slice(-window).every((r) => r.done === 0)
   }

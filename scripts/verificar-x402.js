@@ -1,47 +1,49 @@
 #!/usr/bin/env node
 'use strict'
 
-// ¿Se puede cobrar por x402 hoy, y en qué red? Todo de SOLO LECTURA.
+// Can x402 charge today, and on which network? Entirely READ-ONLY.
 //
 //   npm run verificar-x402
 //
 // -----------------------------------------------------------------------------
-// POR QUE EXISTE
+// WHY IT EXISTS
 //
-// El DoD de la Fase 9 pide un tx hash en un explorer. Antes de fondear una
-// wallet para ir a buscarlo hay que saber si el camino a la cadena existe, y esa
-// pregunta tiene TRES partes que se rompen por separado:
+// Phase 9's DoD asks for a tx hash on an explorer. Before funding a wallet
+// to go get one, it has to be known whether the path to the chain exists,
+// and that question has THREE parts that break independently:
 //
-//   1. la cadena responde y es la que decimos que es (chainId);
-//   2. hay un ERC-20 con EIP-3009 en la dirección con la que vamos a cobrar, y
-//      el dominio EIP-712 con el que FIRMAMOS es el que ese contrato VALIDA;
-//   3. hay un facilitator vivo que soporte esa red.
+//   1. the chain responds and is the one we say it is (chainId);
+//   2. there's an ERC-20 with EIP-3009 at the address we're going to charge
+//      with, and the EIP-712 domain we SIGN with is the one that contract
+//      VALIDATES;
+//   3. there's a live facilitator that supports that network.
 //
-// Las tres se contestan sin mover un peso. Descubrir la (3) DESPUES de fondear
-// es gastar plata real para enterarse de que no había a quién pedirle el
-// settlement — que es exactamente lo que estuvo a punto de pasar: el hosted de
-// D14 (`x402.semanticpay.io`) devolvía 500/503 en todos sus endpoints el
-// 2026-08-27, y un test que le pegó sin querer "pasó" igual porque el recibo se
-// guarda aunque la liquidación falle.
+// All three get answered without moving a cent. Discovering (3) AFTER
+// funding means spending real money to find out there was nobody to ask
+// for settlement — which is exactly what almost happened: D14's hosted one
+// (`x402.semanticpay.io`) was returning 500/503 on every one of its
+// endpoints on 2026-08-27, and a test that hit it by accident still
+// "passed" because the receipt gets saved even if settlement fails.
 //
-// La (2) es la que más callado falla. `version` NO se puede leer del contrato en
-// todos los casos —el USD₮0 de Plasma revierte en `version()`— pero el
-// `DOMAIN_SEPARATOR` sí se lee, y comparar el que devuelve el contrato contra el
-// que computamos con nuestros valores prueba la igualdad sin necesitar el
-// getter. Es más fuerte que leer el campo.
+// (2) is the one that fails the most quietly. `version` can't be read from
+// the contract in every case —Plasma's USD₮0 reverts on `version()`— but
+// `DOMAIN_SEPARATOR` can be read, and comparing what the contract returns
+// against what we compute with our own values proves the equality without
+// needing the getter. Stronger than reading the field.
 //
 // -----------------------------------------------------------------------------
-// TAMBIEN ES EL CRITERIO DE ACEPTACION DEL TOKEN QUE VAMOS A DESPLEGAR
+// IT'S ALSO THE ACCEPTANCE CRITERION FOR THE TOKEN WE'RE GOING TO DEPLOY
 //
-// En Plasma testnet (9746) no hay stablecoin: los faucets dan sólo XPL, que es
-// gas y no tiene contrato. Así que el activo con el que se pruebe hay que
-// desplegarlo. Cuando exista, se apunta acá con:
+// On Plasma testnet (9746) there's no stablecoin: the faucets only give
+// out XPL, which is gas and has no contract. So the asset to test with has
+// to be deployed. Once it exists, it gets pointed to here with:
 //
 //   PYRUS_X402_PLASMA_TESTNET_ASSET=0x… npm run verificar-x402
 //
-// y esto dice si quedó bien: si implementa EIP-3009 y si su dominio coincide con
-// el que vamos a firmar. Un token de prueba que pasa estos chequeos es
-// intercambiable con el de mainnet para todo lo que el gateway hace.
+// and this says whether it came out right: whether it implements EIP-3009
+// and whether its domain matches the one we're going to sign with. A test
+// token that passes these checks is interchangeable with mainnet's for
+// everything the gateway does.
 
 const https = require('https')
 const http = require('http')
@@ -50,16 +52,17 @@ const http = require('http')
 // Config
 // -----------------------------------------------------------------------------
 
-// El mismo nombre de variable que lee `qvac/x402.mjs`, para poder apuntar los
-// dos al mismo lado sin pensarlo dos veces.
+// The same variable name `qvac/x402.mjs` reads, so both can be pointed at
+// the same side without having to think about it twice.
 const VAR_FACILITATOR = 'PYRUS_X402_FACILITATOR'
 const FACILITATOR_DEFAULT = 'https://x402.semanticpay.io'
 
-// OJO: esta tabla duplica lo que `qvac/x402.mjs` declara, y lo hace a propósito.
-// Ese módulo corre bajo Bare (importa `bare-env`) y esto corre bajo node, así
-// que no se puede importar. Si divergen, este script miente — por eso compara
-// contra la CADENA y no contra sí mismo: un valor mal copiado acá se delata en
-// el `DOMAIN_SEPARATOR`, no pasa desapercibido.
+// NOTE: this table duplicates what `qvac/x402.mjs` declares, and does so on
+// purpose. That module runs under Bare (it imports `bare-env`) and this
+// runs under node, so it can't be imported. If they drift apart, this
+// script lies — that's why it compares against the CHAIN and not against
+// itself: a value copied wrong here gives itself away in the
+// `DOMAIN_SEPARATOR`, it doesn't go unnoticed.
 const REDES = [
   {
     nombre: 'plasma',
@@ -68,29 +71,29 @@ const REDES = [
     explorer: 'https://plasmascan.to',
     activo: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
     dominio: { name: 'USDT0', version: '1' },
-    rol: 'default de D15 — MAINNET, plata real'
+    rol: 'D15\'s default — MAINNET, real money'
   },
   {
     nombre: 'plasma-testnet',
     caip2: 'eip155:9746',
     rpc: 'https://testnet-rpc.plasma.to',
     explorer: 'https://testnet.plasmascan.to',
-    // No hay stablecoin desplegada: se declara por variable cuando exista.
+    // No stablecoin deployed: declared via variable once it exists.
     activo: process.env.PYRUS_X402_PLASMA_TESTNET_ASSET || null,
     dominio: {
       name: process.env.PYRUS_X402_PLASMA_TESTNET_NAME || null,
       version: process.env.PYRUS_X402_PLASMA_TESTNET_VERSION || '1'
     },
-    rol: 'donde se prueba — regla del proyecto: nunca se estrena en mainnet'
+    rol: 'where testing happens — project rule: never a first run on mainnet'
   },
   {
     nombre: 'stable',
     caip2: 'eip155:988',
-    rpc: null, // sin RPC público conocido en este árbol; se chequea sólo la tabla de x402
+    rpc: null, // no public RPC known in this tree; only x402's table gets checked
     explorer: null,
     activo: null,
     dominio: null,
-    rol: 'fallback de D15 — lo conoce @x402/evm de fábrica'
+    rol: 'D15\'s fallback — @x402/evm knows it out of the box'
   }
 ]
 
@@ -115,20 +118,20 @@ function rpc(url, method, params) {
           try {
             resolve(JSON.parse(d))
           } catch (e) {
-            reject(new Error(`respuesta no-JSON (HTTP ${res.statusCode}): ${d.slice(0, 120)}`))
+            reject(new Error(`non-JSON response (HTTP ${res.statusCode}): ${d.slice(0, 120)}`))
           }
         })
       }
     )
     req.on('error', reject)
-    req.setTimeout(20000, () => req.destroy(new Error('timeout de 20s')))
+    req.setTimeout(20000, () => req.destroy(new Error('20s timeout')))
     req.write(cuerpo)
     req.end()
   })
 }
 
-// Un string ABI-encodeado. Los tokens viejos devuelven bytes32 en vez de string,
-// así que se contempla el caso corto en vez de devolver basura.
+// An ABI-encoded string. Old tokens return bytes32 instead of string, so the
+// short case is handled instead of returning garbage.
 function leerString(hex) {
   if (!hex || hex === '0x') return null
   const b = Buffer.from(hex.slice(2), 'hex')
@@ -143,8 +146,8 @@ const SEL = {
   decimals: '0x313ce567',
   version: '0x54fd4d50',
   DOMAIN_SEPARATOR: '0x3644e515',
-  // authorizationState(address,bytes32) — si esto NO revierte, el contrato
-  // implementa EIP-3009, que es el esquema `exact` de x402.
+  // authorizationState(address,bytes32) — if this does NOT revert, the
+  // contract implements EIP-3009, which is x402's `exact` scheme.
   authorizationState: '0xe94a0102'
 }
 
@@ -155,7 +158,7 @@ async function llamar(url, to, data) {
 }
 
 // -----------------------------------------------------------------------------
-// Los chequeos
+// The checks
 // -----------------------------------------------------------------------------
 
 const ok = (s) => '  ✓ ' + s
@@ -167,43 +170,43 @@ async function verificarRed(red, viem) {
   let usable = false
 
   if (!red.rpc) {
-    lineas.push(dato('sin RPC en esta tabla; no se puede verificar contra la cadena desde acá'))
+    lineas.push(dato('no RPC in this table; cannot verify against the chain from here'))
     return { lineas, usable: null }
   }
 
-  // 1. La cadena es la que decimos.
+  // 1. The chain is the one we say it is.
   let chainId = null
   try {
     const r = await rpc(red.rpc, 'eth_chainId', [])
     chainId = parseInt(r.result, 16)
   } catch (err) {
-    lineas.push(no(`el RPC no responde: ${err.message}`))
+    lineas.push(no(`the RPC does not respond: ${err.message}`))
     return { lineas, usable: false }
   }
 
   const esperado = Number(red.caip2.split(':')[1])
   if (chainId !== esperado) {
-    lineas.push(no(`el RPC dice chainId ${chainId} y la config declara ${esperado}`))
+    lineas.push(no(`the RPC says chainId ${chainId} and the config declares ${esperado}`))
     return { lineas, usable: false }
   }
-  lineas.push(ok(`chainId ${chainId} — coincide con ${red.caip2}`))
+  lineas.push(ok(`chainId ${chainId} — matches ${red.caip2}`))
 
-  // 2. El activo.
+  // 2. The asset.
   if (!red.activo) {
-    lineas.push(no('no hay activo declarado: no hay con qué cobrar en esta red'))
+    lineas.push(no('no asset declared: nothing to charge with on this network'))
     if (red.nombre === 'plasma-testnet') {
-      lineas.push(dato('los faucets dan XPL, que es gas nativo y no tiene contrato'))
-      lineas.push(dato('cuando se despliegue uno: PYRUS_X402_PLASMA_TESTNET_ASSET=0x…'))
+      lineas.push(dato('the faucets give out XPL, which is native gas and has no contract'))
+      lineas.push(dato('once one is deployed: PYRUS_X402_PLASMA_TESTNET_ASSET=0x…'))
     }
     return { lineas, usable: false }
   }
 
   const code = await rpc(red.rpc, 'eth_getCode', [red.activo, 'latest'])
   if (!code.result || code.result === '0x') {
-    lineas.push(no(`no hay contrato en ${red.activo}`))
+    lineas.push(no(`no contract at ${red.activo}`))
     return { lineas, usable: false }
   }
-  lineas.push(ok(`contrato en ${red.activo} (${(code.result.length - 2) / 2} bytes)`))
+  lineas.push(ok(`contract at ${red.activo} (${(code.result.length - 2) / 2} bytes)`))
 
   const nombre = leerString((await llamar(red.rpc, red.activo, SEL.name)).valor)
   const simbolo = leerString((await llamar(red.rpc, red.activo, SEL.symbol)).valor)
@@ -213,7 +216,7 @@ async function verificarRed(red, viem) {
     dato(`name=${JSON.stringify(nombre)} symbol=${JSON.stringify(simbolo)} decimals=${decimals}`)
   )
 
-  // 3. EIP-3009. Sin esto el esquema `exact` de x402 no tiene sobre qué firmar.
+  // 3. EIP-3009. Without this x402's `exact` scheme has nothing to sign.
   const auth = await llamar(
     red.rpc,
     red.activo,
@@ -223,23 +226,23 @@ async function verificarRed(red, viem) {
       '00'.repeat(32)
   )
   if (auth.error) {
-    lineas.push(no(`NO implementa EIP-3009 (authorizationState revierte: ${auth.error})`))
+    lineas.push(no(`does NOT implement EIP-3009 (authorizationState reverts: ${auth.error})`))
     return { lineas, usable: false }
   }
-  lineas.push(ok('implementa EIP-3009 (authorizationState responde)'))
+  lineas.push(ok('implements EIP-3009 (authorizationState responds)'))
 
-  // 4. El dominio EIP-712 con el que FIRMAMOS es el que el contrato VALIDA.
-  //    Es el chequeo que más callado falla y el único que prueba que la firma
-  //    va a verificar del otro lado.
+  // 4. The EIP-712 domain we SIGN with is the one the contract VALIDATES.
+  //    This is the check that fails the most quietly and the only one that
+  //    proves the signature is going to verify on the other side.
   const ds = await llamar(red.rpc, red.activo, SEL.DOMAIN_SEPARATOR)
   if (!ds.valor || ds.error) {
-    lineas.push(dato('el contrato no expone DOMAIN_SEPARATOR: no se puede comparar el dominio'))
+    lineas.push(dato('the contract does not expose DOMAIN_SEPARATOR: cannot compare the domain'))
     usable = true
   } else if (!red.dominio || !red.dominio.name) {
-    lineas.push(dato(`DOMAIN_SEPARATOR on-chain: ${ds.valor}`))
+    lineas.push(dato(`on-chain DOMAIN_SEPARATOR: ${ds.valor}`))
     lineas.push(
       dato(
-        'sin `name` declarado no se puede comparar — declaralo con PYRUS_X402_PLASMA_TESTNET_NAME'
+        'with no `name` declared it cannot be compared — declare it with PYRUS_X402_PLASMA_TESTNET_NAME'
       )
     )
   } else {
@@ -254,13 +257,13 @@ async function verificarRed(red, viem) {
     if (computado.toLowerCase() === ds.valor.toLowerCase()) {
       lineas.push(
         ok(
-          `el dominio EIP-712 coincide (name="${red.dominio.name}" version="${red.dominio.version}")`
+          `the EIP-712 domain matches (name="${red.dominio.name}" version="${red.dominio.version}")`
         )
       )
       usable = true
     } else {
-      lineas.push(no('el dominio EIP-712 NO coincide: una firma nuestra no verificaría'))
-      lineas.push(dato(`  computado: ${computado}`))
+      lineas.push(no('the EIP-712 domain does NOT match: one of our signatures would not verify'))
+      lineas.push(dato(`  computed : ${computado}`))
       lineas.push(dato(`  on-chain : ${ds.valor}`))
     }
   }
@@ -275,15 +278,15 @@ async function verificarFacilitator(url) {
     const cliente = new HTTPFacilitatorClient({ url })
     const soportado = await cliente.getSupported()
     const kinds = (soportado && (soportado.kinds || soportado.supported)) || soportado
-    lineas.push(ok('responde /supported'))
+    lineas.push(ok('/supported responds'))
     lineas.push(dato(JSON.stringify(kinds).slice(0, 600)))
     return { lineas, vivo: true, kinds }
   } catch (err) {
-    lineas.push(no(`no responde: ${String((err && err.message) || err).slice(0, 200)}`))
+    lineas.push(no(`does not respond: ${String((err && err.message) || err).slice(0, 200)}`))
     lineas.push(
-      dato('sin facilitator NO hay settlement: se puede verificar un pago, no cobrarlo (D12)')
+      dato('with no facilitator there is NO settlement: a payment can be verified, not charged (D12)')
     )
-    lineas.push(dato('el plan B ya está escrito: D14(b), self-hosted — riesgo #5'))
+    lineas.push(dato('plan B is already written: D14(b), self-hosted — risk #5'))
     return { lineas, vivo: false, kinds: null }
   }
 }
@@ -295,13 +298,13 @@ async function main() {
   const facilitator = process.env[VAR_FACILITATOR] || FACILITATOR_DEFAULT
 
   console.log('')
-  console.log('  x402 — se puede cobrar hoy?   (todo de solo lectura, no mueve fondos)')
+  console.log('  x402 — can it charge today?   (all read-only, moves no funds)')
   console.log('  ' + '-'.repeat(70))
 
   console.log('')
   console.log(`  FACILITATOR  ${facilitator}`)
   if (facilitator === FACILITATOR_DEFAULT) {
-    console.log(dato(`(el default de D14; se cambia con ${VAR_FACILITATOR})`))
+    console.log(dato(`(D14's default; change it with ${VAR_FACILITATOR})`))
   }
   const fac = await verificarFacilitator(facilitator)
   for (const l of fac.lineas) console.log(l)
@@ -309,7 +312,7 @@ async function main() {
   const usables = []
   for (const red of REDES) {
     console.log('')
-    console.log(`  RED  ${red.nombre}  (${red.caip2})`)
+    console.log(`  NETWORK  ${red.nombre}  (${red.caip2})`)
     console.log(dato(red.rol))
     const r = await verificarRed(red, viem)
     for (const l of r.lineas) console.log(l)
@@ -319,17 +322,17 @@ async function main() {
   console.log('')
   console.log('  ' + '-'.repeat(70))
   if (usables.length === 0) {
-    console.log('  RESULTADO: ninguna red con activo verificado. No hay con qué cobrar.')
+    console.log('  RESULT: no network with a verified asset. Nothing to charge with.')
   } else {
-    console.log(`  RESULTADO: activo verificado en ${usables.join(', ')}.`)
+    console.log(`  RESULT: verified asset on ${usables.join(', ')}.`)
   }
   if (!fac.vivo) {
-    console.log('  Y NO hay facilitator: aunque el activo esté bien, el settlement no ocurre.')
+    console.log('  And there is NO facilitator: even if the asset is fine, settlement does not happen.')
   }
   console.log('')
 
-  // Sale distinto de cero cuando NO hay un camino completo a la cadena. Es la
-  // pregunta que el script existe para contestar, y hay que poder encadenarla.
+  // Exits nonzero when there is NO complete path to the chain. It's the
+  // question this script exists to answer, and it has to be chainable.
   process.exit(fac.vivo && usables.length > 0 ? 0 : 1)
 }
 
