@@ -224,14 +224,31 @@ await check('a project with work left that closes nothing twice IS stalled', () 
   assert.equal(s.isStalled(), true)
 })
 
-await check('an older log without pendingAtStart keeps the previous meaning', () => {
+// Found live, not reasoned about: the first version of this counted a run
+// with no `pendingAtStart` (written before that field existed) as "tried".
+// A finished project whose history holds two of those reported stalled on
+// every single wake-up and could never clear, because the newer runs that
+// would age them out are themselves excluded for having nothing to do.
+await check('runs from before pendingAtStart existed cannot raise a permanent alarm', () => {
   const { STORAGE } = scaffold('legacy', ONE_TICKET)
   const s = new State(path.join(STORAGE, 'runs.jsonl'))
   s.append(EVENTS.RUN_START, { tickets: 1 })
-  s.append(EVENTS.RUN_END, { done: 0 })
+  s.append(EVENTS.RUN_END, { done: 0 }) // legacy shape: provenance unknown
   s.append(EVENTS.RUN_START, { tickets: 1 })
   s.append(EVENTS.RUN_END, { done: 0 })
-  assert.equal(s.isStalled(), true, 'no pendingAtStart ⇒ fall back to the old rule')
+  assert.equal(s.isStalled(), false, 'unknown provenance must not be read as a stall')
+})
+
+await check('two real runs after a legacy history still detect a genuine stall', () => {
+  const { STORAGE } = scaffold('legacy-then-real', ONE_TICKET)
+  const s = new State(path.join(STORAGE, 'runs.jsonl'))
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.RUN_END, { done: 0 }) // legacy, ignored
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 1, noWorkers: false })
+  s.append(EVENTS.RUN_START, { tickets: 1 })
+  s.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 1, noWorkers: false })
+  assert.equal(s.isStalled(), true, 'the signal comes back as soon as real runs accumulate')
 })
 
 await check('budgetTokens: 0 means no limit', () => {

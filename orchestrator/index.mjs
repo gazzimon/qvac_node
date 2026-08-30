@@ -223,7 +223,11 @@ export class Orchestrator {
 
     if (pending.length === 0) {
       this.log('nothing left to do')
-      this.state.append(EVENTS.RUN_END, { done: 0 })
+      // `pendingAtStart` is what lets isStalled() tell "tried and got
+      // nowhere" from "nothing left to do" — a finished project closes zero
+      // tickets too, and without this it would raise a stall warning on every
+      // run from then on. See its comment in state.mjs.
+      this.state.append(EVENTS.RUN_END, { done: 0, pendingAtStart: 0 })
       return this.summary()
     }
 
@@ -235,13 +239,18 @@ export class Orchestrator {
 
     if (this.dryRun) {
       this.log('dry run: no worker is launched')
-      this.state.append(EVENTS.RUN_END, { dryRun: true })
+      // pendingAtStart: 0 — a dry run assigns nothing by design, so it must
+      // not be read as a run that tried and failed.
+      this.state.append(EVENTS.RUN_END, { dryRun: true, pendingAtStart: 0 })
       return this.summary()
     }
 
     await this.runBatch(dag.ready)
 
-    this.state.append(EVENTS.RUN_END, { done: this.state.done().length })
+    this.state.append(EVENTS.RUN_END, {
+      done: this.state.done().length,
+      pendingAtStart: pending.length
+    })
 
     if (this.state.isStalled()) {
       this.log('WARNING: two runs in a row closed no ticket — look before spending more')

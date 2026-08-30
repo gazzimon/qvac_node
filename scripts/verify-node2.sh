@@ -15,6 +15,9 @@
 set -u
 LINK="pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny"
 TARGET="$HOME/qvac-node-test"
+# Kept in Spanish on purpose — same benchmark prompt used verbatim in
+# docs/NOTES.md, scripts/soak.js and verify-node2.ps1 (see the note in
+# qvac/infer.mjs).
 PREGUNTA="Explica en dos frases que es una red peer-to-peer."
 
 step() { printf '\n\033[36m[%s] %s\033[0m\n' "$1" "$2"; }
@@ -113,8 +116,8 @@ TXT
 OUT=$("$BIN" prompt "$PREGUNTA" 2>&1)
 echo "$OUT" | sed 's/^/    | /'
 
-LOAD=$(echo "$OUT" | metric 'carga del modelo')
-TTFT=$(echo "$OUT" | metric 'primer token (TTFT)')
+LOAD=$(echo "$OUT" | metric 'model load')
+TTFT=$(echo "$OUT" | metric 'first token (TTFT)')
 
 if [ -z "$TTFT" ]; then
   fail 'there was no first token: inference did not run'
@@ -133,7 +136,7 @@ step 6 'GPU vs CPU on THIS machine'
 # shares the system RAM and pays for the copy without gaining compute. On a
 # Mac with Metal the GPU should win. It has to be measured, not assumed.
 OUT2=$("$BIN" prompt "$PREGUNTA" --gpu-layers 0 2>&1)
-TTFT2=$(echo "$OUT2" | metric 'primer token (TTFT)')
+TTFT2=$(echo "$OUT2" | metric 'first token (TTFT)')
 if [ -n "$TTFT2" ]; then
   ok "TTFT default ${TTFT}s   vs   --gpu-layers 0 ${TTFT2}s"
   echo '    Note which one wins here: that is the flag to use in the demo.'

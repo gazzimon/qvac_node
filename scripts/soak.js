@@ -47,7 +47,11 @@ const doInstall = has('--install')
 // over hypercore. What's being hunted for is the infinite hang, not slowness.
 const timeoutMs = Number(flag('--timeout', 600)) * 1000
 const gpuLayers = flag('--gpu-layers', null)
-const prompt = flag('--prompt', 'Explain in two sentences what a peer-to-peer network is.')
+// NOTE: kept in Spanish on purpose — this is the same benchmark prompt used
+// verbatim in docs/NOTES.md and scripts/verify-node2.sh/.ps1 (see the note
+// in qvac/infer.mjs); translating it here alone would break that
+// consistency.
+const prompt = flag('--prompt', 'Explica en dos frases que es una red peer-to-peer.')
 
 const hostTarget = `${os.platform()}-${os.arch()}`
 const defaultBin = path.join(root, 'out', hostTarget, isWindows ? 'qvac-node.exe' : 'qvac-node')
