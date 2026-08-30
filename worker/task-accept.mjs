@@ -165,7 +165,7 @@ async function runAssignment({ msg, reply, store, gateway, apiKey, model, log })
     }
   }
 
-  const callModel = makeGatewayCall({ gateway, apiKey, model })
+  const callModel = makeGatewayCall({ gateway, apiKey, model, onProgress })
 
   const r = await executeTicket({
     ticket: { id: msg.ticketId, spec: msg.spec, allowedFiles: msg.allowedFiles },
@@ -222,7 +222,18 @@ async function runAssignment({ msg, reply, store, gateway, apiKey, model, log })
 
 // A model call that POSTs the OpenAI protocol to the local gateway. Returns the
 // shape executeTicket expects: { text, tokens, tokenSource }.
-function makeGatewayCall({ gateway, apiKey, model }) {
+//
+// Streams (`stream: true`) instead of waiting for the whole response, and
+// forwards each SSE delta to `onProgress`. Measured: a non-streaming call only
+// resolves once generation is fully done, so executeTicket's own one-shot
+// onProgress(text) call (task-runner.mjs) never fires until the ticket is
+// already finished — and the coordinator's progressGraceMs watchdog (120s,
+// coordinator.mjs) abandons the attempt as "worker went silent" well before
+// that, even while the model is genuinely generating (a landing-page ticket on
+// qwen4b was still producing chunks past 60s with zero heartbeats sent). The
+// gateway does not emit `usage` on stream (qvac/gateway.mjs), so token count
+// stays the same byte-estimate fallback the non-streaming path already used.
+function makeGatewayCall({ gateway, apiKey, model, onProgress = null }) {
   return async ({ system, user, maxTokens }) => {
     const headers = { 'content-type': 'application/json' }
     if (apiKey) headers.authorization = `Bearer ${apiKey}`
@@ -244,7 +255,7 @@ function makeGatewayCall({ gateway, apiKey, model }) {
           { role: 'system', content: system },
           { role: 'user', content: user }
         ],
-        stream: false,
+        stream: true,
         max_tokens: maxTokens
       })
     })
@@ -254,10 +265,35 @@ function makeGatewayCall({ gateway, apiKey, model }) {
       throw err
     }
 
-    const data = await res.json()
-    const text = data.choices?.[0]?.message?.content || ''
-    const real = data.usage?.total_tokens
-    if (Number.isFinite(real) && real > 0) return { text, tokens: real, tokenSource: 'provider' }
+    let text = ''
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const rawEvent = buf.slice(0, idx)
+        buf = buf.slice(idx + 2)
+        const line = rawEvent.trim()
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (payload === '[DONE]') continue
+        let evt
+        try {
+          evt = JSON.parse(payload)
+        } catch {
+          continue // a malformed chunk is not fatal to the stream, just skipped
+        }
+        const delta = evt.choices?.[0]?.delta?.content
+        if (delta) {
+          text += delta
+          if (onProgress) onProgress(delta)
+        }
+      }
+    }
 
     const bytes = Buffer.byteLength(system) + Buffer.byteLength(user) + Buffer.byteLength(text)
     return { text, tokens: Math.ceil(bytes / 4), tokenSource: 'gateway' }

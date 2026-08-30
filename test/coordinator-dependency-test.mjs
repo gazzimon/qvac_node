@@ -92,13 +92,16 @@ function fakeGateway() {
           const content = isDerived
             ? '```file path=src/derived.js\nexport const derived = 2\n```'
             : '```file path=src/base.js\nexport const base = 1\n```'
-          res.writeHead(200, { 'content-type': 'application/json' })
-          res.end(
-            JSON.stringify({
-              choices: [{ message: { role: 'assistant', content } }],
-              usage: { total_tokens: 50 }
-            })
+          // task-accept.mjs's makeGatewayCall streams (SSE) so it can forward
+          // task:progress heartbeats during generation — a JSON body here
+          // would leave the SSE parser with nothing to read.
+          res.writeHead(200, { 'content-type': 'text/event-stream' })
+          res.write(
+            `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`
           )
+          res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`)
+          res.write('data: [DONE]\n\n')
+          res.end()
         })
         return
       }

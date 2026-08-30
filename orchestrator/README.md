@@ -207,6 +207,32 @@ outside this repo) has no room for them yet:
   honestly; until then, being on the topic is still not enough on its own —
   each side only acts on a key it was explicitly told about.
 
+## Checking what a run actually produced
+
+`orchestrator/ci.mjs`'s `runCI()` is not only what the coordinator calls after
+every mirror — it is a plain function over a workspace directory, so anyone
+can call it again by hand against the same tree. `scripts/inspect-run.mjs`
+does exactly that: read a coordinator's `runs.jsonl`, print a per-ticket
+summary (attempts, which worker did it, tokens spent, the hash of every file
+it delivered), and re-run CI from scratch against the workspace as it stands
+right now — the same gate, called again, not a second opinion from a
+different mechanism. `--files` additionally hashes what is actually on disk
+and compares it against what the run log recorded, so a hand-edited or stale
+file shows up as a mismatch instead of silently passing.
+
+```
+node scripts/inspect-run.mjs \
+  --storage .qvac/demo-cross/coordinator \
+  --workspace .qvac/demo-cross/workspace \
+  --requirement .qvac/demo-cross/requirements.md \
+  --files
+```
+
+Run against the real K16 cross-machine test from `NOTES.md` ("El coordinador
+cross-machine, probado contra un worker real"), this confirms both files —
+written by qwen4b, over the wire, mirrored through the whole protocol — hash-
+match on disk and independently pass CI again from a cold re-run.
+
 ## What is not built
 
 - **The cron.** `state.mjs` supports resuming across runs and `isStalled()`
