@@ -522,13 +522,87 @@ export class Coordinator {
     return this.tickets.filter((t) => !settled.has(t.id))
   }
 
+  // A ticket's CI verdict can go stale, and acting on a stale one is actively
+  // destructive. Measured on the K16, two waves over one file:
+  //
+  //   wave 1  `base`   writes calc.js with add()      → CI red: the gate also
+  //                                                     wants mul(), which no
+  //                                                     ticket has written yet
+  //   wave 2  `extend` rewrites calc.js with add+mul  → CI green, closes
+  //   next run: `base` is still ci-failed, so it is reassigned — and its model,
+  //   whose spec says nothing about mul, returns a file with only add(),
+  //   OVERWRITING extend's work. CI goes red again, and `base` can never pass
+  //   on its own. Silent loss of a ticket that had already succeeded.
+  //
+  // So before spending an inference to retry a ticket that already delivered,
+  // run the gate again. It costs under a second against a 30-100s generation,
+  // and a ticket whose failure another ticket has since fixed closes without
+  // being touched. This is also what the sum/mul race in NOTES.md needed.
+  //
+  // CI is one pass over the whole workspace, not per ticket, so one run
+  // settles every stale verdict at once. Only tickets that actually delivered
+  // are eligible: one that never produced a file has nothing for the gate to
+  // be judging.
+  async recheckStaleFailures() {
+    const stale = this.pending().filter(
+      (t) => this.state.ticketStates()[t.id] === 'ci-failed' && this.state.deliveredOk(t.id)
+    )
+    if (stale.length === 0) return 0
+
+    this.log(`re-running CI before retrying ${stale.length} ticket(s) that already delivered`)
+    const ci = await runCI(this.workspace, stale[0], { timeout: this.cfg.ciTimeoutMs })
+    if (!ci.passed) {
+      this.log(`still red (${ci.status}) — they will be retried`)
+      return 0
+    }
+
+    for (const t of stale) {
+      this.state.append(EVENTS.CI_PASS, { ticketId: t.id, ms: ci.duration, recheck: true })
+      this.state.append(EVENTS.TICKET_DONE, { ticketId: t.id })
+      this.log(`${t.id}: CI green on re-check — closed without reassigning`)
+    }
+    return stale.length
+  }
+
   async run() {
     await this.init()
     this.state.append(EVENTS.RUN_START, { tickets: this.tickets.length })
 
     await this.resume()
 
+    // Before anything is retried: a stale CI verdict must not send a ticket
+    // back out to overwrite work that has since been done on the same file.
+    await this.recheckStaleFailures()
+
     let todo = this.pending()
+
+    // A ticket that shares a file with a DONE ticket depending on it cannot be
+    // safely retried: its model only knows its own spec, so the whole file it
+    // returns would overwrite the dependent's contribution — measured, see
+    // recheckStaleFailures. If the re-check above did not clear it, the file
+    // genuinely does not pass and reassigning is destructive, not merely
+    // useless. Escalate instead of silently eating the dependent's work.
+    //
+    // Redoing the dependent as well (cascade invalidation) is the fuller
+    // answer and is not built; blocking is the honest floor until it is.
+    const doneNow = new Set(this.state.done())
+    const clobbering = todo.filter((t) =>
+      this.tickets.some(
+        (other) =>
+          other.id !== t.id &&
+          doneNow.has(other.id) &&
+          other.deps.includes(t.id) &&
+          other.allowedFiles.some((f) => t.allowedFiles.includes(f))
+      )
+    )
+    for (const t of clobbering) {
+      this.state.append(EVENTS.TICKET_BLOCKED, { ticketId: t.id, reason: 'would-clobber-dependent' })
+      this.log(
+        `${t.id}: BLOCKED — retrying it would overwrite a completed ticket that edited the same` +
+          ` file. Fix the gate or the spec so ${t.id} can pass on its own, then reopen it.`
+      )
+    }
+    todo = todo.filter((t) => !clobbering.includes(t))
 
     // Retry ceiling: a ticket that has failed CI (or produced nothing usable)
     // maxAttempts times stops being reassigned. Logged as `ticket:blocked`,

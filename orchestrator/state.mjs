@@ -150,6 +150,16 @@ export class State {
     ).length
   }
 
+  // Did this ticket ever deliver files a worker believed were usable? Tells a
+  // ticket that produced something and then failed the gate from one that
+  // never produced anything at all — only the first can be closed by a later
+  // re-check of CI.
+  deliveredOk(ticketId) {
+    return this.events.some(
+      (e) => e.ticketId === ticketId && e.type === EVENTS.RESULT_RECEIVED && e.ok === true
+    )
+  }
+
   // Cumulative token spend across every result ever logged for this project —
   // what the global budget is measured against. Uses the number the worker
   // reported (`usage.tokens`), provider-counted or gateway-estimated.

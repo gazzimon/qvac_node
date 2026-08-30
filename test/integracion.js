@@ -1931,28 +1931,28 @@ test('D4 looks at what the CLIENT saw, not at what the provider generated', asyn
     maxConcurrentRequests: 1
   })
 
-  // El orden tiene que ser determinista: con los dos en carga 0 el desempate de
-  // pickCandidate es al azar. Se ocupa el unico slot del sano para que quede
-  // segundo -- saturado no significa descartado, significa ultimo.
+  // The order has to be deterministic: with both at load 0, pickCandidate's
+  // tiebreaker is random. The healthy one's only slot gets occupied so it
+  // ends up second -- saturated does not mean discarded, it means last.
   store.beginRequest('upstream:' + ups[1].id)
 
-  // SIN stream: el contenido se junta y no sale hasta el final, asi que al
-  // cliente no le llego un byte y el reintento es legitimo.
+  // WITHOUT streaming: the content gets assembled and doesn't go out until
+  // the end, so the client did not receive a single byte and the retry is legitimate.
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: 'se-corta', messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  t.is(r.status, 200, 'se reintenta: el cliente no habia visto nada')
-  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Sano', 'contesto el segundo')
+  t.is(r.status, 200, 'it gets retried: the client had seen nothing')
+  t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Sano', 'the second one answered')
   t.is(
     r.json.choices[0].message.content,
     'hola desde afuera',
-    'y la respuesta NO trae pegado el pedazo del que se cayo'
+    'and the response does NOT carry the piece from the one that dropped'
   )
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
-  t.is(log.json.log[0].intentos.length, 2, 'los dos intentos quedan en el rastro')
+  t.is(log.json.log[0].intentos.length, 2, 'both attempts stay on the trail')
 
   cortaModelo = null
   store.endRequest('upstream:' + ups[1].id)
@@ -1960,13 +1960,13 @@ test('D4 looks at what the CLIENT saw, not at what the provider generated', asyn
   gw.setUpstreams([])
 })
 
-test('un 429 del proveedor se trata como saturacion, no como error del request', async (t) => {
+test('a 429 from the provider is treated as saturation, not as a request error', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const gw = await import('../qvac/gateway.mjs')
 
-  // La cuota diaria del primero, agotada. Es el limite que budget.mjs NO puede
-  // ver, porque no se mide en dolares: se cuenta en requests por dia.
+  // The first one's daily quota, exhausted. It's the limit budget.mjs CANNOT
+  // see, because it isn't measured in dollars: it's counted in requests per day.
   cuotaAgotadaModelo = 'sin-cuota'
 
   const ups = upstream.cargarDesde({
@@ -1998,30 +1998,30 @@ test('un 429 del proveedor se trata como saturacion, no como error del request',
       maxConcurrentRequests: u.id === ups[0].id ? 4 : 1
     })
   }
-  store.beginRequest('upstream:' + ups[1].id) // el otro, segundo y determinista
+  store.beginRequest('upstream:' + ups[1].id) // the other one, second and deterministic
 
   const r = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: 'con-cuota', messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  t.is(r.status, 200, 'el request se salva con el otro candidato')
+  t.is(r.status, 200, 'the request gets saved by the other candidate')
   t.is(decodeURIComponent(r.headers['x-pyrus-operator']), 'Con cuota')
 
   const log = await pedir('GET', '/v1/routing-log', { key: KEY })
   t.is(
     log.json.log[0].intentos[0].code,
     'at_capacity',
-    'el 429 se lee como "lleno", no como "roto"'
+    'the 429 reads as "full", not as "broken"'
   )
 
-  // Y queda marcado lleno: el proximo request no vuelve a gastar el intento
-  // contra un proveedor que ya dijo que no. S5 de NOTES-SATURACION.md.
+  // And it stays marked full: the next request does not spend the attempt
+  // again against a provider that already said no. S5 of NOTES-SATURACION.md.
   const fila = store.getNode('upstream:' + ups[0].id)
   t.is(
     fila.activeRequests,
     fila.maxConcurrentRequests,
-    'marcado saturado hasta que se sepa otra cosa'
+    'marked saturated until something else is known'
   )
 
   cuotaAgotadaModelo = null
@@ -2031,29 +2031,29 @@ test('un 429 del proveedor se trata como saturacion, no como error del request',
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 — el 402 en el borde (D8, D9, D10, D16)
+// PHASE 9 — the 402 at the edge (D8, D9, D10, D16)
 //
-// D16 decide tres caminos que no se pisan: `local: true` gratis, una API key
-// del panel, y -- para el desconocido -- 402. El tercero es la fase: es lo que
-// permite que un agente consuma sin registrarse en nada.
+// D16 decides three paths that don't overlap: `local: true` free, a panel
+// API key, and -- for the unknown caller -- 402. The third one is the
+// phase: it's what lets an agent consume without registering anywhere.
 //
-// El 402 se arma DESPUES de elegir candidato, porque tiene que decir cuanto y a
-// quien, y las dos cosas dependen de quien vaya a contestar.
+// The 402 gets built AFTER choosing a candidate, because it has to say how
+// much and to whom, and both depend on who's going to answer.
 // ---------------------------------------------------------------------------
 
-test('sin credencial y con wallet, el nodo pide pago en vez de negar acceso', async (t) => {
+test('without a credential and with a wallet, the node asks for payment instead of denying access', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
 
-  // Antes de tener wallet, un request sin key es 401: no hay a quien pagarle,
-  // asi que el unico camino que queda es la credencial.
+  // Before having a wallet, a request without a key is 401: there's nobody
+  // to pay, so the only path left is the credential.
   gw.setEconomic(null)
   const sinWallet = await pedir('POST', '/v1/chat/completions', {
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   })
-  t.is(sinWallet.status, 401, 'sin wallet no se puede cobrar: sigue siendo 401')
+  t.is(sinWallet.status, 401, 'without a wallet nothing can be charged: it stays 401')
 
-  // Con wallet, el mismo request es un 402.
+  // With a wallet, the same request is a 402.
   const direccion = '0x' + 'ab'.repeat(20)
   gw.setEconomic(wallet.economicDe(direccion))
 
@@ -2061,36 +2061,37 @@ test('sin credencial y con wallet, el nodo pide pago en vez de negar acceso', as
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   })
 
-  t.is(r.status, 402, 'no le falta credencial: le falta pagar, y son cosas distintas')
+  t.is(r.status, 402, 'it isn\'t missing a credential: it\'s missing payment, and those are different things')
   t.is(r.json.x402Version, 2)
-  t.ok(Array.isArray(r.json.accepts) && r.json.accepts.length > 0, 'trae al menos una opcion')
+  t.ok(Array.isArray(r.json.accepts) && r.json.accepts.length > 0, 'it carries at least one option')
 
   const a = r.json.accepts[0]
-  // Los cuatro datos que el DoD pide que el 402 diga.
-  t.is(a.payTo, direccion, 'A QUIEN: la wallet de quien va a contestar (D10)')
-  t.is(a.network, 'eip155:988', 'EN QUE CADENA: Stable, la unica usable sin verificar Plasma')
-  // `amount` y no `maxAmountRequired`: el segundo es el nombre de x402 v1 y es
-  // el que sale en media documentacion, pero el cliente de v2 lee `amount`. Con
-  // el nombre viejo el cliente firma BigInt(undefined) y ni llega a mandar nada.
-  t.is(a.amount, '1000', 'CUANTO: el minimo de USD 0,001 en unidades de USDT0')
-  t.absent(a.maxAmountRequired, 'y no se manda el nombre v1, que nadie lee')
-  t.ok(a.outputTokenLimit > 0, 'HASTA CUANTOS TOKENS: ' + a.outputTokenLimit + ' (D9)')
+  // The four pieces of data the DoD requires the 402 to state.
+  t.is(a.payTo, direccion, 'TO WHOM: the wallet of whoever is going to answer (D10)')
+  t.is(a.network, 'eip155:988', 'ON WHICH CHAIN: Stable, the only one usable without verifying Plasma')
+  // `amount` and not `maxAmountRequired`: the second is x402 v1's name and
+  // the one that shows up in half the documentation, but the v2 client
+  // reads `amount`. With the old name the client signs BigInt(undefined)
+  // and doesn't even get to send anything.
+  t.is(a.amount, '1000', 'HOW MUCH: the USD 0.001 minimum in USDT0 units')
+  t.absent(a.maxAmountRequired, 'and the v1 name, which nobody reads, does not get sent')
+  t.ok(a.outputTokenLimit > 0, 'UP TO HOW MANY TOKENS: ' + a.outputTokenLimit + ' (D9)')
 
-  t.is(a.scheme, 'exact', 'D9(a): esquema exact')
-  t.ok(a.resource.includes('/v1/chat/completions'), 'y sobre que recurso')
-  t.ok(a.extra && a.extra.name, 'con el dominio EIP-712 que el cliente necesita para firmar')
+  t.is(a.scheme, 'exact', 'D9(a): exact scheme')
+  t.ok(a.resource.includes('/v1/chat/completions'), 'and over which resource')
+  t.ok(a.extra && a.extra.name, 'with the EIP-712 domain the client needs to sign')
 
-  // La key sigue funcionando: el 402 CONVIVE, no reemplaza (D16).
+  // The key still works: the 402 COEXISTS, it does not replace it (D16).
   const conKey = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   })
-  t.is(conKey.status, 200, 'quien ya tiene key no se entera de nada de esto')
+  t.is(conKey.status, 200, 'whoever already has a key notices none of this')
 
   gw.setEconomic(null)
 })
 
-test('el 402 no promete una red cuyo contrato no verifico nadie', async (t) => {
+test('the 402 does not promise a network whose contract nobody verified', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   const x402 = await import('../qvac/x402.mjs')
@@ -2098,10 +2099,10 @@ test('el 402 no promete una red cuyo contrato no verifico nadie', async (t) => {
 
   gw.setEconomic(wallet.economicDe('0x' + 'cd'.repeat(20)))
 
-  // D15 puso Plasma de default, pero x402 no la trae y su direccion de contrato
-  // la declaramos nosotros, sin verificar. Sin la confirmacion explicita del
-  // operador NO se ofrece: el cliente firmaria una autorizacion contra un
-  // contrato que nadie miro.
+  // D15 set Plasma as the default, but x402 doesn't ship it and we declare
+  // its contract address ourselves, unverified. Without the operator's
+  // explicit confirmation it does NOT get offered: the client would be
+  // signing an authorization against a contract nobody looked at.
   delete env[x402.VAR_PLASMA_OK]
   const sinPlasma = await pedir('POST', '/v1/chat/completions', {
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
@@ -2109,7 +2110,7 @@ test('el 402 no promete una red cuyo contrato no verifico nadie', async (t) => {
   t.alike(
     sinPlasma.json.accepts.map((a) => a.network),
     ['eip155:988'],
-    'solo Stable, que es la que x402 conoce de fabrica'
+    'only Stable, which is the one x402 knows out of the box'
   )
 
   env[x402.VAR_PLASMA_OK] = '1'
@@ -2119,7 +2120,7 @@ test('el 402 no promete una red cuyo contrato no verifico nadie', async (t) => {
   t.alike(
     conPlasma.json.accepts.map((a) => a.network),
     ['eip155:9745', 'eip155:988'],
-    'con la confirmacion entra, y va primera como dice D15'
+    'with confirmation it gets in, and goes first as D15 says'
   )
 
   delete env[x402.VAR_PLASMA_OK]
@@ -2127,18 +2128,20 @@ test('el 402 no promete una red cuyo contrato no verifico nadie', async (t) => {
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 — pagar de verdad: firmar el X-PAYMENT y recibir tokens
+// PHASE 9 — actually paying: signing the X-PAYMENT and receiving tokens
 //
-// El cliente es el de x402 (`ExactEvmScheme`) firmando con una wallet WDK real.
-// Lo unico que NO se ejercita es la cadena: D12 decide que la verificacion es
-// sincronica y NO la toca -- se comprueba que la autorizacion este bien firmada
-// y diga lo que tiene que decir. Que haya saldo se sabe al liquidar.
+// The client is x402's own (`ExactEvmScheme`) signing with a real WDK
+// wallet. The only thing NOT exercised is the chain: D12 decides that
+// verification is synchronous and does NOT touch it -- it checks that the
+// authorization is properly signed and says what it has to say. Whether
+// there's balance is known when settling.
 //
-// Esa es exactamente la propiedad que hace que este test valga sin fondear
-// nada: la mitad que protege al proveedor de gastar GPU gratis es offline.
+// That's exactly the property that makes this test worth something without
+// funding anything: the half that protects the provider from spending free
+// GPU is offline.
 // ---------------------------------------------------------------------------
 
-// Un pagador: wallet WDK de prueba, publica y conocida, que nunca se fondea.
+// A payer: a well-known public test WDK wallet, never funded.
 async function pagador() {
   const wdk = await import('@tetherto/wdk-wallet-evm')
   const WM = wdk.default || wdk
@@ -2151,7 +2154,7 @@ async function pagador() {
   }
 }
 
-// Firma el `accepts[0]` de un 402 y devuelve el header X-PAYMENT.
+// Signs a 402's `accepts[0]` and returns the X-PAYMENT header.
 async function firmarPago(desafio, { pisar = {} } = {}) {
   const x402 = await import('../qvac/x402.mjs')
   const { evm } = await x402.cargar()
@@ -2168,7 +2171,7 @@ async function firmarPago(desafio, { pisar = {} } = {}) {
   return Buffer.from(JSON.stringify(sobre), 'utf8').toString('base64')
 }
 
-test('con el X-PAYMENT firmado, el desconocido recibe tokens', async (t) => {
+test('with a signed X-PAYMENT, the unknown caller receives tokens', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
@@ -2184,13 +2187,13 @@ test('con el X-PAYMENT firmado, el desconocido recibe tokens', async (t) => {
     headers: { 'X-PAYMENT': pago }
   })
 
-  t.is(r.status, 200, 'pago verificado -> se sirve, sin API key de por medio')
-  t.ok(r.json.choices[0].message.content.length > 0, 'y contesta algo')
+  t.is(r.status, 200, 'payment verified -> it gets served, no API key involved')
+  t.ok(r.json.choices[0].message.content.length > 0, 'and it answers something')
 
   gw.setEconomic(null)
 })
 
-test('un X-PAYMENT manoseado no compra nada', async (t) => {
+test('a tampered X-PAYMENT does not buy anything', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20)))
@@ -2198,28 +2201,29 @@ test('un X-PAYMENT manoseado no compra nada', async (t) => {
   const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   const desafio = (await pedir('POST', '/v1/chat/completions', { body: cuerpo })).json
 
-  // 1. Firmado por menos de lo que se pidio.
+  // 1. Signed for less than what was requested.
   const barato = await firmarPago(desafio, { pisar: { amount: '1' } })
   const r1 = await pedir('POST', '/v1/chat/completions', {
     body: cuerpo,
     headers: { 'X-PAYMENT': barato }
   })
-  t.is(r1.status, 402, 'pagar de menos no alcanza')
+  t.is(r1.status, 402, 'underpaying is not enough')
   t.ok(String(r1.json.error).includes('se pidieron'), r1.json.error)
 
-  // 2. Firmado a OTRA direccion. Es el ataque que importa: quien reenvia el 402
-  //    de otro nodo con su propia wallet adentro se estaria cobrando el trabajo
-  //    ajeno -- del lado del pagador, mandar la plata a otro lado.
+  // 2. Signed to ANOTHER address. This is the attack that matters: whoever
+  //    forwards another node's 402 with their own wallet inside would be
+  //    billing themselves for someone else's work -- on the payer's side,
+  //    sending the money elsewhere.
   const aOtro = await firmarPago(desafio, { pisar: { payTo: '0x' + 'cd'.repeat(20) } })
   const r2 = await pedir('POST', '/v1/chat/completions', {
     body: cuerpo,
     headers: { 'X-PAYMENT': aOtro }
   })
-  t.is(r2.status, 402, 'una autorizacion a otra direccion no paga a esta')
+  t.is(r2.status, 402, 'an authorization to another address does not pay this one')
   t.ok(String(r2.json.error).includes('otra direccion'), r2.json.error)
 
-  // 3. La firma cambiada: el monto de la autorizacion se edita DESPUES de
-  //    firmar. Es lo unico que no se puede falsificar, y es el corazon de D12.
+  // 3. The signature changed: the authorization's amount gets edited AFTER
+  //    signing. It's the one thing that can't be forged, and it's D12's core.
   const bueno = await firmarPago(desafio)
   const sobre = JSON.parse(Buffer.from(bueno, 'base64').toString('utf8'))
   sobre.payload.authorization.value = '999999999'
@@ -2228,10 +2232,10 @@ test('un X-PAYMENT manoseado no compra nada', async (t) => {
     body: cuerpo,
     headers: { 'X-PAYMENT': editado }
   })
-  t.is(r3.status, 402, 'editar la autorizacion despues de firmar la invalida')
+  t.is(r3.status, 402, 'editing the authorization after signing invalidates it')
   t.ok(String(r3.json.error).includes('firma no corresponde'), r3.json.error)
 
-  // 4. Basura.
+  // 4. Garbage.
   const r4 = await pedir('POST', '/v1/chat/completions', {
     body: cuerpo,
     headers: { 'X-PAYMENT': 'no-es-base64-de-nada' }
@@ -2242,15 +2246,17 @@ test('un X-PAYMENT manoseado no compra nada', async (t) => {
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 — la liquidacion (D12, D14)
+// PHASE 9 — settlement (D12, D14)
 //
-// El facilitator es falso, igual que el proveedor externo: un bare-http1 local
-// que habla el protocolo de x402. Lo real -- x402.semanticpay.io -- mueve plata
-// contra una wallet fondeada, asi que no puede estar en `npm test`.
+// The facilitator is fake, same as the external provider: a local
+// bare-http1 that speaks x402's protocol. The real one --
+// x402.semanticpay.io -- moves money against a funded wallet, so it can't
+// be in `npm test`.
 //
-// Lo que SI se ejercita de verdad: que se liquide DESPUES de servir, que el
-// recibo llegue por el camino que corresponde a cada forma de respuesta, y que
-// una liquidacion fallida no se lleve puesta una respuesta que ya salio bien.
+// What DOES get genuinely exercised: that it settles AFTER serving, that
+// the receipt arrives through the path that matches each response shape,
+// and that a failed settlement does not take down a response that already
+// went out fine.
 // ---------------------------------------------------------------------------
 
 let PUERTO_FACILITATOR = 8897
@@ -2297,11 +2303,11 @@ function levantarFacilitatorFalso() {
   })
 }
 
-// Decodifica el X-PAYMENT-RESPONSE sin reventar si no esta.
+// Decodes X-PAYMENT-RESPONSE without blowing up if it's absent.
 //
-// Un `Buffer.from(undefined, 'base64')` seguido de JSON.parse tira un
-// SyntaxError que ABORTA la corrida, y entonces el test no dice que se rompio
-// -- es la misma leccion de B18. Devuelve null y que el assert hable.
+// A `Buffer.from(undefined, 'base64')` followed by JSON.parse throws a
+// SyntaxError that ABORTS the run, and then the test doesn't say what broke
+// -- it's the same B18 lesson. Return null and let the assert speak.
 function reciboDe(r) {
   const h = r && r.headers && r.headers['x-payment-response']
   if (!h) return null
@@ -2312,7 +2318,7 @@ function reciboDe(r) {
   }
 }
 
-test('el pago se liquida DESPUES de servir, y el recibo llega', async (t) => {
+test('payment settles AFTER serving, and the receipt arrives', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   const x402 = await import('../qvac/x402.mjs')
@@ -2321,9 +2327,10 @@ test('el pago se liquida DESPUES de servir, y el recibo llega', async (t) => {
   await levantarFacilitatorFalso()
   ultimoSettle = null
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
-  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
-  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  // `onchain-per-job`: IMMEDIATE per-request settlement. The project's
+  // default is `batch-receipts` (defers to the batch); that's covered by
+  // 'a batch-receipts node does NOT settle per request'. The schema
+  // decides, not a flag.
   gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
 
   const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
@@ -2336,20 +2343,21 @@ test('el pago se liquida DESPUES de servir, y el recibo llega', async (t) => {
   })
   t.is(r.status, 200)
 
-  // D12 — sin stream la respuesta se arma entera antes de escribir un byte, asi
-  // que el recibo va en el header como manda el spec, SIN desviacion.
+  // D12 — without streaming the response is fully assembled before writing
+  // a single byte, so the receipt goes in the header as the spec mandates,
+  // with NO deviation.
   const recibo = reciboDe(r)
-  t.ok(recibo, 'X-PAYMENT-RESPONSE en el camino sin stream')
+  t.ok(recibo, 'X-PAYMENT-RESPONSE on the non-streaming path')
   t.is(recibo && recibo.success, true)
   t.ok(
     recibo && String(recibo.transaction).startsWith('0x'),
-    'con el tx hash: ' + (recibo && recibo.transaction)
+    'with the tx hash: ' + (recibo && recibo.transaction)
   )
 
-  // Se liquido contra EL MISMO requisito que se ofrecio, no contra uno
-  // recalculado: liquidar contra otros numeros seria cobrar algo distinto de lo
-  // que el cliente acepto.
-  t.ok(ultimoSettle, 'el facilitator recibio la liquidacion')
+  // It settled against THE SAME requirement that was offered, not a
+  // recalculated one: settling against different numbers would mean
+  // charging for something other than what the client accepted.
+  t.ok(ultimoSettle, 'the facilitator received the settlement')
   const reqs = (ultimoSettle && ultimoSettle.paymentRequirements) || {}
   t.is(reqs.amount, desafio.accepts[0].amount)
   t.is(reqs.payTo, desafio.accepts[0].payTo)
@@ -2358,16 +2366,17 @@ test('el pago se liquida DESPUES de servir, y el recibo llega', async (t) => {
   delete env[x402.VAR_FACILITATOR]
 })
 
-test('con stream el recibo va como evento SSE, y dice por que no esta en el header', async (t) => {
+test('with streaming the receipt goes as an SSE event, and it says why it isn\'t in the header', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   const x402 = await import('../qvac/x402.mjs')
   const env = (await import('bare-env')).default
 
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
-  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
-  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  // `onchain-per-job`: IMMEDIATE per-request settlement. The project's
+  // default is `batch-receipts` (defers to the batch); that's covered by
+  // 'a batch-receipts node does NOT settle per request'. The schema
+  // decides, not a flag.
   gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
 
   const cuerpo = {
@@ -2384,8 +2393,8 @@ test('con stream el recibo va como evento SSE, y dice por que no esta en el head
   })
   t.is(r.status, 200)
 
-  // En SSE los headers salen ANTES del primer token, asi que ahi no puede ir.
-  t.absent(r.headers['x-payment-response'], 'no esta en el header, y no puede estarlo')
+  // With SSE the headers go out BEFORE the first token, so the receipt can't go there.
+  t.absent(r.headers['x-payment-response'], 'it is not in the header, and it can\'t be')
 
   const evento = r.body
     .split('\n\n')
@@ -2393,36 +2402,37 @@ test('con stream el recibo va como evento SSE, y dice por que no esta en el head
     .filter((l) => l.indexOf('paymentResponse') !== -1)
     .map((l) => JSON.parse(l))[0]
 
-  t.ok(evento, 'el recibo viaja como evento SSE final')
+  t.ok(evento, 'the receipt travels as the final SSE event')
   t.is(evento && evento.paymentResponse && evento.paymentResponse.success, true)
-  // La condicion de D12: la desviacion se tiene que poder descubrir desde la
-  // respuesta misma. Un cliente que busque el header y no lo encuentre tiene
-  // que enterarse de POR QUE, no quedarse esperando.
+  // D12's condition: the deviation has to be discoverable from the response
+  // itself. A client that looks for the header and doesn't find it has to
+  // find out WHY, not just keep waiting.
   t.ok(
     evento && evento.x402Note && evento.x402Note.indexOf('TTFT') !== -1,
-    'y explica la desviacion'
+    'and it explains the deviation'
   )
-  t.ok(evento && evento.receiptUrl, 'con un lugar de donde recuperarlo')
+  t.ok(evento && evento.receiptUrl, 'with a place to retrieve it from')
 
-  // Y ese lugar existe, para el cliente que corto antes del ultimo evento.
+  // And that place exists, for a client that cuts off before the last event.
   const rec = evento && evento.receiptUrl ? await pedir('GET', evento.receiptUrl) : { status: 0 }
-  t.is(rec.status, 200, 'el recibo se puede recuperar despues')
+  t.is(rec.status, 200, 'the receipt can be retrieved afterward')
   t.is(rec.json && rec.json.transaction, evento && evento.paymentResponse.transaction)
 
   gw.setEconomic(null)
   delete env[x402.VAR_FACILITATOR]
 })
 
-test('si la liquidacion falla, la respuesta que ya salio no se cae', async (t) => {
+test('if settlement fails, the response that already went out does not fall over', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   const x402 = await import('../qvac/x402.mjs')
   const env = (await import('bare-env')).default
 
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
-  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
-  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  // `onchain-per-job`: IMMEDIATE per-request settlement. The project's
+  // default is `batch-receipts` (defers to the batch); that's covered by
+  // 'a batch-receipts node does NOT settle per request'. The schema
+  // decides, not a flag.
   gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
   facilitatorFalla = true
 
@@ -2435,16 +2445,16 @@ test('si la liquidacion falla, la respuesta que ya salio no se cae', async (t) =
     headers: { 'X-PAYMENT': pago }
   })
 
-  // El cliente ya recibio sus tokens. Ese es el precio de liquidar despues, y
-  // esta aceptado por D12: la alternativa es una transaccion on-chain delante
-  // del TTFT. Lo que NO puede pasar es que el request se caiga.
-  t.is(r.status, 200, 'la respuesta sale igual: el trabajo ya se hizo')
+  // The client already received its tokens. That's the price of settling
+  // afterward, and it's accepted by D12: the alternative is an on-chain
+  // transaction ahead of the TTFT. What CANNOT happen is the request falling over.
+  t.is(r.status, 200, 'the response goes out the same way: the work was already done')
   t.ok(r.json.choices[0].message.content.length > 0)
 
   const recibo = reciboDe(r)
-  t.ok(recibo, 'el recibo llega igual')
-  t.is(recibo && recibo.success, false, 'pero el recibo dice que NO se cobro')
-  t.ok(recibo && (recibo.errorReason || recibo.errorMessage), 'y por que')
+  t.ok(recibo, 'the receipt still arrives')
+  t.is(recibo && recibo.success, false, 'but the receipt says it did NOT get charged')
+  t.ok(recibo && (recibo.errorReason || recibo.errorMessage), 'and why')
 
   facilitatorFalla = false
   gw.setEconomic(null)
@@ -2452,23 +2462,24 @@ test('si la liquidacion falla, la respuesta que ya salio no se cae', async (t) =
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 / D24, D25, D27 — la atestacion del proveedor, colgada del recibo
+// PHASE 9 / D24, D25, D27 — the provider's attestation, hanging off the receipt
 //
-// El recibo de x402 que los tests de arriba verifican prueba que alguien PAGO.
-// Lo que falta es el otro lado: QUE SIRVIO el que cobro. D24 lo cuelga del mismo
-// recibo que D12 ya obliga a construir, firmado con la WALLET y no con la clave
-// de red -- mismo criterio que la Fase 10 y que manifest-v0.json:84.
+// The x402 receipt the tests above verify proves someone PAID. What's
+// missing is the other side: WHAT the one who got paid actually served.
+// D24 hangs it off the same receipt D12 already forces to be built, signed
+// with the WALLET and not the network key -- same criterion as Phase 10 and
+// as manifest-v0.json:84.
 //
-// En esta fase el artefacto solo se emite y se guarda. Nada lo consume: eso es
-// la Fase 10. Es deliberado -- hacia atras no se firma, y cada dia de la Fase 9
-// sin esto es historia que no vuelve.
+// In this phase the artifact only gets emitted and stored. Nothing
+// consumes it: that's Phase 10. It's deliberate -- there's no retroactive
+// signing, and every day of Phase 9 without this is history that doesn't come back.
 // ---------------------------------------------------------------------------
 
-// El proveedor firma con la cuenta 1, NO con la 0.
+// The provider signs with account 1, NOT with account 0.
 //
-// La 0 es la del `pagador()` de los tests de arriba. Si las dos puntas usaran la
-// misma direccion, un bug que confundiera al que paga con el que cobra pasaria
-// desapercibido: todo verificaria igual porque serian el mismo.
+// 0 is the one the tests above use for `pagador()`. If both ends used the
+// same address, a bug that confused payer with payee would go unnoticed:
+// everything would still verify because they'd be the same one.
 async function proveedorFirmante() {
   const wdk = await import('@tetherto/wdk-wallet-evm')
   const WM = wdk.default || wdk
@@ -2481,9 +2492,9 @@ async function proveedorFirmante() {
   }
 }
 
-// Deja el gateway con wallet Y firmante. Las dos cosas: con direccion y sin
-// firmante hay 402 y no hay atestacion, que es un caso legitimo y se prueba
-// aparte.
+// Leaves the gateway with a wallet AND a signer. Both things: with an
+// address and no signer there's a 402 and no attestation, which is a
+// legitimate case tested separately.
 async function conProveedorQueFirma() {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
@@ -2492,10 +2503,10 @@ async function conProveedorQueFirma() {
 
   const p = await proveedorFirmante()
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  // `onchain-per-job`: estos tests (D12, D24, D25, D27) ejercitan la liquidacion
-  // INMEDIATA por request. El default del proyecto es `batch-receipts`, que
-  // difiere al lote — eso tiene su propio test ('un nodo batch-receipts NO
-  // liquida por request'). El schema decide el modo, no un flag.
+  // `onchain-per-job`: these tests (D12, D24, D25, D27) exercise IMMEDIATE
+  // per-request settlement. The project's default is `batch-receipts`,
+  // which defers to the batch — that has its own test ('a batch-receipts
+  // node does NOT settle per request'). The schema decides the mode, not a flag.
   gw.setEconomic(wallet.economicDe(p.address, 'onchain-per-job'))
   gw.setWalletSigner(p.firmar)
   return p
@@ -2510,7 +2521,7 @@ async function soltarProveedor() {
   delete env[x402.VAR_FACILITATOR]
 }
 
-// Paga y sirve en un paso: 402, firma, reenvia. Devuelve la respuesta servida.
+// Pays and serves in one step: 402, sign, resend. Returns the served response.
 async function pagarYPedir(cuerpo) {
   const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
   if (desafio.status !== 402) return { desafio, r: desafio }
@@ -2522,7 +2533,7 @@ async function pagarYPedir(cuerpo) {
   return { desafio, r }
 }
 
-// El id de la completion, sacado de un cuerpo SSE. Es la clave de /v1/receipts.
+// The completion's id, pulled from an SSE body. It's the key for /v1/receipts.
 function idDeSSE(body) {
   for (const bloque of String(body || '').split('\n\n')) {
     const s = bloque.replace(/^data: /, '').trim()
@@ -2531,16 +2542,16 @@ function idDeSSE(body) {
       const o = JSON.parse(s)
       if (o && o.id) return o.id
     } catch (e) {
-      /* el evento del recibo no trae id: se sigue */
+      /* the receipt event doesn't carry an id: keep going */
     }
   }
   return null
 }
 
-// Un POST que CORTA la conexion apenas ve el primer delta con contenido.
+// A POST that CUTS the connection as soon as it sees the first delta with content.
 //
-// `pedir` lee hasta el final, asi que no sirve para D27 caso 1: el caso es
-// justamente el cliente que se va antes. Resuelve con lo que alcanzo a leer.
+// `pedir` reads to the end, so it's no good for D27 case 1: the case is
+// exactly the client that leaves early. Resolves with whatever it managed to read.
 function pedirYCortar(ruta, opts) {
   const o = opts || {}
   return new Promise((resolve, reject) => {
@@ -2578,7 +2589,7 @@ function pedirYCortar(ruta, opts) {
   })
 }
 
-test('D24: el recibo lleva la atestacion de lo que se sirvio, firmada con la wallet', async (t) => {
+test('D24: the receipt carries the attestation of what got served, signed with the wallet', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   const p = await conProveedorQueFirma()
 
@@ -2587,32 +2598,32 @@ test('D24: el recibo lleva la atestacion de lo que se sirvio, firmada con la wal
   t.is(r.status, 200)
 
   const rec = await pedir('GET', '/v1/receipts/' + r.json.id)
-  t.is(rec.status, 200, 'el recibo se recupera por el id de la completion')
+  t.is(rec.status, 200, 'the receipt gets retrieved by the completion\'s id')
 
   const a = rec.json.attestation
-  t.ok(a, 'y lleva la atestacion del proveedor (D24)')
+  t.ok(a, 'and it carries the provider\'s attestation (D24)')
 
-  // La firma es de la WALLET, no de la clave de red, y la verificacion usa la
-  // MISMA canonicalizacion que el firmado -- que es la unica forma de que no
-  // puedan divergir.
+  // The signature is the WALLET's, not the network key's, and verification
+  // uses the SAME canonicalization as signing -- which is the only way they
+  // can't diverge.
   const v = await at.verificar(a)
-  t.ok(v.ok, 'verifica: ' + (v.reason || ''))
-  t.is(a.providerPubkey, p.address, 'firmada por la direccion de cobro de este nodo')
+  t.ok(v.ok, 'verifies: ' + (v.reason || ''))
+  t.is(a.providerPubkey, p.address, 'signed by this node\'s payout address')
 
-  // ESTE es el campo que cierra el agujero de D24: el hash es del TEXTO, y el
-  // texto es exactamente el que recibio el cliente.
+  // THIS is the field that closes D24's hole: the hash is of the TEXT, and
+  // the text is exactly what the client received.
   t.is(
     a.outputHash,
     at.hashDe(r.json.choices[0].message.content),
-    'el outputHash es el de lo que el cliente efectivamente recibio'
+    'the outputHash is that of what the client actually received'
   )
-  t.is(a.promptHash, at.hashDeMensajes(messages), 'y el promptHash, el de la conversacion entera')
+  t.is(a.promptHash, at.hashDeMensajes(messages), 'and the promptHash, that of the whole conversation')
 
-  // Un mock firmado con una wallet real sigue siendo un mock. Que lo diga el
-  // artefacto, y no solo el README, es la regla del proyecto sobre los mocks.
-  t.is(a.runtime, 'mock', 'el artefacto dice con que se genero: ' + a.runtime)
+  // A mock signed with a real wallet is still a mock. That the artifact
+  // says so, and not just the README, is the project's rule about mocks.
+  t.is(a.runtime, 'mock', 'the artifact says what it was generated with: ' + a.runtime)
   t.is(a.finishReason, 'stop')
-  t.ok(a.nonce && a.ts > 0, 'con nonce y timestamp')
+  t.ok(a.nonce && a.ts > 0, 'with nonce and timestamp')
 
   await soltarProveedor()
 })
@@ -2663,19 +2674,19 @@ test('D24: troceando el stream cambia el conteo del gateway y NO cambia el hash'
   const recTroceado = await pedir('GET', '/v1/receipts/' + troceado.r.json.id)
   const logTroceado = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
 
-  t.is(entero.r.json.choices[0].message.content, TEXTO, 'los dos sirvieron el mismo texto')
+  t.is(entero.r.json.choices[0].message.content, TEXTO, 'both served the same text')
   t.is(troceado.r.json.choices[0].message.content, TEXTO)
 
-  // El ataque funciona contra el contador: 1 delta contra 24.
-  t.is(logEntero.tokens, 1, 'entero: el gateway conto 1')
-  t.is(logTroceado.tokens, TEXTO.length, 'troceado: conto ' + TEXTO.length + ' por el mismo texto')
+  // The attack works against the counter: 1 delta against 24.
+  t.is(logEntero.tokens, 1, 'whole: the gateway counted 1')
+  t.is(logTroceado.tokens, TEXTO.length, 'chunked: it counted ' + TEXTO.length + ' for the same text')
 
-  // Y no funciona contra el hash, que es toda la razon por la que D24 lo pide.
-  // Cualquiera puede recontar los tokens desde el texto atestiguado.
+  // And it does not work against the hash, which is the entire reason D24
+  // requires it. Anyone can recount the tokens from the attested text.
   t.is(
     recEntero.json.attestation.outputHash,
     recTroceado.json.attestation.outputHash,
-    'el outputHash es el mismo: el texto no depende de en cuantos pedazos viajo'
+    'the outputHash is the same: the text does not depend on how many pieces it traveled in'
   )
 
   respuestaModelo = null
@@ -2684,14 +2695,14 @@ test('D24: troceando el stream cambia el conteo del gateway y NO cambia el hash'
   await soltarProveedor()
 })
 
-test('D25: el rastro separa prefill de decode, y dice de donde salio cada numero', async (t) => {
+test('D25: the trail separates prefill from decode, and says where each number came from', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const gw = await import('../qvac/gateway.mjs')
 
-  // 1. Con `usage` del proveedor: son los tokens REALES, contados por SU
-  //    tokenizador. El proveedor falso manda 1000/500 a proposito, numeros que
-  //    no coinciden con nada que se pueda contar de este lado.
+  // 1. With `usage` from the provider: these are the REAL tokens, counted
+  //    by ITS tokenizer. The fake provider sends 1000/500 on purpose, numbers
+  //    that don't match anything that can be counted on this side.
   const ups = upstream.cargarDesde({
     upstreams: [
       {
@@ -2720,22 +2731,22 @@ test('D25: el rastro separa prefill de decode, y dice de donde salio cada numero
   t.is(conUsage.status, 200)
 
   const e1 = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
-  t.is(e1.tokensPrefill, 1000, 'prefill del proveedor')
-  t.is(e1.tokensDecode, 500, 'decode del proveedor')
-  t.is(e1.tokensFuente, 'proveedor', 'y el rastro dice que fue medido, no estimado')
+  t.is(e1.tokensPrefill, 1000, 'the provider\'s prefill')
+  t.is(e1.tokensDecode, 500, 'the provider\'s decode')
+  t.is(e1.tokensFuente, 'proveedor', 'and the trail says it was measured, not estimated')
 
-  // Los campos VIEJOS no cambian de significado. Hay panel e historial leyendo
-  // `tokens`, y redefinirlo convertiria las entradas anteriores en otra cosa sin
-  // que nadie se entere. D25 AGREGA.
+  // The OLD fields do not change meaning. There's a panel and history
+  // reading `tokens`, and redefining it would turn earlier entries into
+  // something else without anyone noticing. D25 ADDS.
   t.is(typeof e1.tokens, 'number', '`tokens` sigue siendo lo que era')
   t.absent(e1.tokens === e1.tokensDecode, 'y sigue sin ser lo mismo que el decode real')
 
   store.clearUpstreams()
   gw.setUpstreams([])
 
-  // 2. Sin `usage`: lo que queda es una ESTIMACION del prompt y un conteo de
-  //    DELTAS, que no son tokens. Decirle 'proveedor' a eso seria hacer creer
-  //    que hay una medicion donde hay una cuenta de chunks de SSE.
+  // 2. Without `usage`: what's left is an ESTIMATE of the prompt and a
+  //    count of DELTAS, which are not tokens. Calling that 'proveedor'
+  //    would suggest there's a measurement where there's a count of SSE chunks.
   const sinUsage = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
@@ -2743,62 +2754,63 @@ test('D25: el rastro separa prefill de decode, y dice de donde salio cada numero
   t.is(sinUsage.status, 200)
 
   const e2 = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
-  t.is(e2.tokensFuente, 'gateway', 'un mock no manda usage: la fuente lo dice')
-  t.ok(e2.tokensPrefill > 0, 'el prefill sale del estimador del prompt')
-  t.is(e2.tokensDecode, e2.tokens, 'y el decode es el conteo de deltas, que es lo unico que hay')
+  t.is(e2.tokensFuente, 'gateway', 'a mock does not send usage: the source says so')
+  t.ok(e2.tokensPrefill > 0, 'the prefill comes from the prompt estimator')
+  t.is(e2.tokensDecode, e2.tokens, 'and the decode is the delta count, which is all there is')
 })
 
-test('D9/D27 caso 3: el tope que declara el 402 ahora se APLICA, y dice length', async (t) => {
+test('D9/D27 case 3: the cap the 402 declares now gets APPLIED, and it says length', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   await conProveedorQueFirma()
 
   const messages = [{ role: 'user', content: 'hola' }]
 
-  // Sin tope pedido, el 402 declara el techo del nodo y la respuesta sale
-  // entera. Es el control: sin el, un test del tope pasaria aunque el mock
-  // contestara corto por su cuenta.
+  // Without a requested cap, the 402 declares the node's ceiling and the
+  // response comes out whole. This is the control: without it, a cap test
+  // would pass even if the mock answered short on its own.
   const libre = await pagarYPedir({ model: 'facturas-ar', messages })
   t.is(libre.r.status, 200)
-  t.is(libre.r.json.choices[0].finish_reason, 'stop', 'sin tope, termina normal')
+  t.is(libre.r.json.choices[0].finish_reason, 'stop', 'without a cap, it finishes normally')
   const largoEntero = libre.r.json.choices[0].message.content.length
 
-  // Con tope. El numero que se DECLARA en el accepts[] y el que se APLICA son
-  // el mismo: declarar uno y recortar con otro es cobrar por un trabajo
-  // distinto del que se acordo.
+  // With a cap. The number DECLARED in accepts[] and the one APPLIED are
+  // the same: declaring one and trimming with another means charging for
+  // work different from what was agreed.
   const cortado = await pagarYPedir({ model: 'facturas-ar', messages, max_tokens: 4 })
-  t.is(cortado.desafio.json.accepts[0].outputTokenLimit, 4, 'el 402 declara el tope')
+  t.is(cortado.desafio.json.accepts[0].outputTokenLimit, 4, 'the 402 declares the cap')
   t.is(cortado.r.status, 200)
 
   const texto = cortado.r.json.choices[0].message.content
-  t.ok(texto.length > 0, 'algo sirvio')
+  t.ok(texto.length > 0, 'something got served')
   t.ok(
     texto.length < largoEntero,
-    'y se corto: ' + texto.length + ' contra ' + largoEntero + ' sin tope'
+    'and it got cut off: ' + texto.length + ' against ' + largoEntero + ' without a cap'
   )
 
-  // La condicion que D9 llama NO NEGOCIABLE. Cobrar por un tope y reportar
-  // terminacion normal es mentir en el unico campo que el cliente mira para
-  // saber si le falta texto -- y el que mira un agente para decidir si pedir la
-  // continuacion.
-  t.is(cortado.r.json.choices[0].finish_reason, 'length', 'y lo DICE: length, no stop')
+  // The condition D9 calls NON-NEGOTIABLE. Charging for a cap and reporting
+  // normal termination lies in the only field the client checks to know
+  // whether it's missing text -- and the one an agent checks to decide
+  // whether to request a continuation.
+  t.is(cortado.r.json.choices[0].finish_reason, 'length', 'and it SAYS SO: length, not stop')
 
-  // D27 caso 3: atestacion COMPLETA, y se cobra.
+  // D27 case 3: COMPLETE attestation, and it gets charged.
   const rec = await pedir('GET', '/v1/receipts/' + cortado.r.json.id)
-  t.is(rec.json.success, true, 'se cobra: la respuesta termino como se acordo')
-  t.is(rec.json.attestation.finishReason, 'length', 'la atestacion dice lo mismo')
-  t.is(rec.json.attestation.outputHash, at.hashDe(texto), 'sobre el prefijo servido')
+  t.is(rec.json.success, true, 'it gets charged: the response finished as agreed')
+  t.is(rec.json.attestation.finishReason, 'length', 'the attestation says the same')
+  t.is(rec.json.attestation.outputHash, at.hashDe(texto), 'over the served prefix')
 
   await soltarProveedor()
 })
 
-test('D27 caso 2: el proveedor cae a mitad de stream y NO se cobra', async (t) => {
+test('D27 case 2: the provider drops mid-stream and does NOT get charged', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const gw = await import('../qvac/gateway.mjs')
   await conProveedorQueFirma()
 
-  // Un solo candidato para este modelo: con otro atras el request se salvaria
-  // por el reintento y no se estaria probando la caida.
+  // A single candidate for this model: with another one behind it the
+  // request would get saved by the retry and the failure wouldn't be
+  // getting tested.
   const ups = upstream.cargarDesde({
     upstreams: [
       {
@@ -2834,7 +2846,7 @@ test('D27 caso 2: el proveedor cae a mitad de stream y NO se cobra', async (t) =
   const cuerpo = {
     model: 'cae-9',
     messages: [{ role: 'user', content: 'hola' }],
-    // Con stream, D4 ya no puede reintentar: al cliente le salio un token.
+    // With streaming, D4 can no longer retry: the client already got a token.
     stream: true
   }
   const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
@@ -2846,18 +2858,18 @@ test('D27 caso 2: el proveedor cae a mitad de stream y NO se cobra', async (t) =
   })
 
   const id = idDeSSE(r.body)
-  t.ok(id, 'el stream alcanzo a abrir, asi que hay un id')
-  t.absent(r.body.indexOf('paymentResponse') !== -1, 'NO hay recibo: no se liquido nada')
+  t.ok(id, 'the stream did manage to open, so there is an id')
+  t.absent(r.body.indexOf('paymentResponse') !== -1, 'NO receipt: nothing got settled')
 
-  // Este es el DoD de la Fase 9 que mas importa y el que mas facil se rompe:
-  // la verificacion protege al proveedor de gastar GPU gratis, la falta de
-  // liquidacion protege al cliente de pagar por lo que no recibio.
+  // This is Phase 9's most important DoD, and the easiest one to break:
+  // verification protects the provider from spending free GPU, the absence
+  // of settlement protects the client from paying for what it did not receive.
   const rec = await pedir('GET', '/v1/receipts/' + id)
-  t.is(rec.status, 404, 'y no hay nada que recuperar: no se cobro')
+  t.is(rec.status, 404, 'and there is nothing to retrieve: nothing was charged')
 
-  // D27: ninguna atestacion tampoco. El nodo no puede comprometerse con una
-  // respuesta que no termino de entregar.
-  t.absent(r.body.indexOf('attestation') !== -1, 'ni atestacion')
+  // D27: no attestation either. The node cannot commit to a response it
+  // did not finish delivering.
+  t.absent(r.body.indexOf('attestation') !== -1, 'nor an attestation')
 
   errorEnStreamModelo = null
   store.clearUpstreams()
@@ -2865,7 +2877,7 @@ test('D27 caso 2: el proveedor cae a mitad de stream y NO se cobra', async (t) =
   await soltarProveedor()
 })
 
-test('D27 caso 1: el cliente corta, se atestigua el prefijo emitido y SI se cobra', async (t) => {
+test('D27 case 1: the client cuts off, the emitted prefix gets attested and it DOES get charged', async (t) => {
   const at = await import('../qvac/atestacion.mjs')
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
@@ -2912,29 +2924,29 @@ test('D27 caso 1: el cliente corta, se atestigua el prefijo emitido y SI se cobr
     headers: { 'X-PAYMENT': pago }
   })
   const id = idDeSSE(parcial.body)
-  t.ok(id, 'el cliente alcanzo a ver el primer delta antes de irse')
-  t.ok(parcial.body.indexOf(PRIMERO) !== -1, 'y ese delta es el primer pedazo')
+  t.ok(id, 'the client did manage to see the first delta before leaving')
+  t.ok(parcial.body.indexOf(PRIMERO) !== -1, 'and that delta is the first piece')
 
-  // La liquidacion y la firma ocurren DESPUES de que el socket ya se cerro.
+  // Settlement and signing happen AFTER the socket has already closed.
   await esperar(1600)
 
   const rec = await pedir('GET', '/v1/receipts/' + id)
-  t.is(rec.status, 200, 'hay recibo: el trabajo se hizo y el prefijo llego (D27 caso 1)')
-  t.is(rec.json.success, true, 'y SI se cobra, hasta ahi')
+  t.is(rec.status, 200, 'there is a receipt: the work got done and the prefix arrived (D27 case 1)')
+  t.is(rec.json.success, true, 'and it DOES get charged, up to that point')
 
   const a = rec.json.attestation
-  t.ok(a, 'con atestacion PARCIAL')
-  t.ok((await at.verificar(a)).ok, 'firmada y verificable como cualquier otra')
-  t.is(a.finishReason, 'client_cancelled', 'que dice como termino, sin aplanarlo a stop')
+  t.ok(a, 'with a PARTIAL attestation')
+  t.ok((await at.verificar(a)).ok, 'signed and verifiable like any other')
+  t.is(a.finishReason, 'client_cancelled', 'which says how it finished, without flattening it to stop')
 
-  // Lo que hace verificable a la parcial: el hash es del prefijo que el cliente
-  // EFECTIVAMENTE recibio, no el de la respuesta que se hubiera generado. Antes
-  // el gateway seguia acumulando en `contenido` lo que llegaba despues del
-  // corte, asi que el hash cubria texto que nadie vio.
-  t.is(a.outputHash, at.hashDe(PRIMERO), 'sobre el prefijo emitido, no sobre la respuesta entera')
+  // What makes the partial one verifiable: the hash is of the prefix the
+  // client ACTUALLY received, not the one the whole response would have
+  // had. The gateway used to keep accumulating in `contenido` whatever
+  // arrived after the cutoff, so the hash covered text nobody saw.
+  t.is(a.outputHash, at.hashDe(PRIMERO), 'over the emitted prefix, not over the entire response')
   t.absent(
     a.outputHash === at.hashDe(PRIMERO + SEGUNDO),
-    'y NO sobre lo que el proveedor mando despues de que el cliente se fue'
+    'and NOT over what the provider sent after the client left'
   )
 
   pausaModelo = null
@@ -2943,19 +2955,20 @@ test('D27 caso 1: el cliente corta, se atestigua el prefijo emitido y SI se cobr
   await soltarProveedor()
 })
 
-test('D24: sin firmante NO sale una atestacion, y el recibo dice por que', async (t) => {
+test('D24: without a signer NO attestation comes out, and the receipt says why', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   const x402 = await import('../qvac/x402.mjs')
   const env = (await import('bare-env')).default
 
-  // Con wallet -- asi que se cobra -- y sin firmante. Es el estado real de un
-  // nodo cuya passphrase no abrio el keystore: puede anunciar direccion desde el
-  // manifiesto viejo y no puede firmar nada.
+  // With a wallet -- so it gets charged -- and no signer. It's the real
+  // state of a node whose passphrase did not open the keystore: it can
+  // announce an address from the old manifest and cannot sign anything.
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
-  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
-  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  // `onchain-per-job`: IMMEDIATE per-request settlement. The project's
+  // default is `batch-receipts` (defers to the batch); that's covered by
+  // 'a batch-receipts node does NOT settle per request'. The schema
+  // decides, not a flag.
   gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
   gw.setWalletSigner(null)
 
@@ -2963,42 +2976,42 @@ test('D24: sin firmante NO sale una atestacion, y el recibo dice por que', async
     model: 'facturas-ar',
     messages: [{ role: 'user', content: 'hola' }]
   })
-  t.is(r.status, 200, 'el request se sirve igual: la atestacion no es una puerta')
+  t.is(r.status, 200, 'the request gets served the same way: the attestation is not a gate')
 
   const rec = await pedir('GET', '/v1/receipts/' + r.json.id)
-  t.is(rec.json.attestation, null, 'y no sale una atestacion sin firma')
-  t.ok(rec.json.attestationMissing, 'la ausencia viene con motivo: ' + rec.json.attestationMissing)
+  t.is(rec.json.attestation, null, 'and no unsigned attestation comes out')
+  t.ok(rec.json.attestationMissing, 'the absence comes with a reason: ' + rec.json.attestationMissing)
   t.ok(
     String(rec.json.attestationMissing).indexOf('firm') !== -1,
-    'que dice cual de los motivos posibles fue'
+    'which says which of the possible reasons it was'
   )
 
   await soltarProveedor()
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 — el DoD contra un PAR, no contra un upstream
+// PHASE 9 — the DoD against a PEER, not against an upstream
 //
-// Los tres casos de D27 de mas arriba corren contra el asistente externo, que es
-// HTTP. El DoD de la Fase 9 habla de "matar EL NODO a mitad de stream", y un
-// nodo no es HTTP: es el canal del swarm, con su propio framing y su propio
-// chat:cancel. Son dos transportes con garantias distintas y hace falta
-// ejercitar los dos.
+// The three D27 cases above run against the external assistant, which is
+// HTTP. Phase 9's DoD talks about "killing THE NODE mid-stream", and a node
+// is not HTTP: it's the swarm channel, with its own framing and its own
+// chat:cancel. These are two transports with different guarantees and both
+// need exercising.
 //
-// El swarm falso es el minimo que `streamFromPeer` le pide -- chatRequest,
-// cancelChat, y los cuatro callbacks --, y existe sobre todo por UNA propiedad
-// que HTTP no puede reproducir: **un chat:cancel tarda un round trip, y el par
-// sigue generando mientras tanto**. Los chunks que ya venian en camino llegan
-// DESPUES de que el gateway decidio cortar, y lo que se haga con ellos decide si
-// el outputHash de D27 caso 1 vale o no.
+// The fake swarm is the minimum `streamFromPeer` asks of it -- chatRequest,
+// cancelChat, and the four callbacks --, and it exists above all for ONE
+// property HTTP can't reproduce: **a chat:cancel takes a round trip, and
+// the peer keeps generating in the meantime**. Chunks already in flight
+// arrive AFTER the gateway decided to cut, and what gets done with them
+// decides whether D27 case 1's outputHash is trustworthy or not.
 // ---------------------------------------------------------------------------
 
 const PEER_KEY = 'ee'.repeat(32)
 const MODELO_PAR = 'par-9'
-// La wallet del par es REAL: se deriva de una cuenta WDK de prueba (index 2, ni
-// el pagador ni el proveedor local). Asi el par puede FIRMAR su atestacion
-// parcial y el gateway la puede VERIFICAR contra la wallet del manifiesto —
-// que es lo que registrarRuteado exige para colgarla (D27 caso 1).
+// The peer's wallet is REAL: derived from a test WDK account (index 2,
+// neither the payer nor the local provider). This way the peer can SIGN
+// its partial attestation and the gateway can VERIFY it against the
+// manifest's wallet — which is what registrarRuteado requires to attach it (D27 case 1).
 let _parFirmante = null
 async function parFirmante() {
   if (_parFirmante) return _parFirmante
@@ -3011,15 +3024,15 @@ async function parFirmante() {
   return _parFirmante
 }
 
-// Se llena la primera vez que `conParRegistrado` corre; los tests lo comparan
-// contra el `payTo` del 402.
+// Filled in the first time `conParRegistrado` runs; the tests compare it
+// against the 402's `payTo`.
 let WALLET_DEL_PAR = '0x' + '5c'.repeat(20)
 
 function manifiestoDelPar() {
   return {
     metadata: { operator: 'Par de prueba', tags: ['general'] },
-    // D10 — el payTo del 402 sale de ACA, del manifiesto firmado del par, no de
-    // una constante nuestra. Es la wallet DEL PAR, no la de este gateway.
+    // D10 — the 402's payTo comes from HERE, from the peer's signed
+    // manifest, not from a constant of ours. It's the PEER's wallet, not this gateway's.
     economic: { walletAddress: WALLET_DEL_PAR, chains: ['stable'], settlement: 'batch-receipts' },
     models: [
       { modelId: MODELO_PAR, displayName: 'Modelo del par', qos: { maxConcurrentRequests: 4 } }
@@ -3027,9 +3040,9 @@ function manifiestoDelPar() {
   }
 }
 
-// La atestacion D24 PARCIAL que el par firma sobre el prefijo que alcanzo a
-// servir antes de que el cliente cortara. Es lo que su `chat:done` tardio lleva
-// de vuelta para que el gateway lo cuelgue del rastro del ruteado.
+// The PARTIAL D24 attestation the peer signs over the prefix it managed to
+// serve before the client cut off. It's what its late `chat:done` carries
+// back so the gateway can attach it to the routed trail.
 async function atestacionParcialDelPar({ requestId, contenido, deltas }) {
   const at = await import('../qvac/atestacion.mjs')
   const p = await parFirmante()
@@ -3048,8 +3061,9 @@ async function atestacionParcialDelPar({ requestId, contenido, deltas }) {
   return at.firmar(sinFirmar, p.firmar)
 }
 
-// `guion` recibe los callbacks y un objeto con el que puede colgar un chunk
-// "en vuelo": el que va a llegar cuando el cancel ya salio.
+// `guion` (script) receives the callbacks and an object it can hang an
+// "in-flight" chunk off of: the one that's going to arrive once the cancel
+// has already gone out.
 function swarmFalso(guion) {
   let n = 0
   const enVuelo = new Map()
@@ -3062,8 +3076,8 @@ function swarmFalso(guion) {
       const id = 'req-' + ++n
       const estado = { cbs, tardio: null }
       enVuelo.set(id, estado)
-      // Asincronico como el de verdad: el par contesta despues de que
-      // chatRequest devolvio, no adentro.
+      // Asynchronous like the real thing: the peer answers after
+      // chatRequest has returned, not inside it.
       const t = setTimeout(() => guion(cbs, estado), 0)
       if (t.unref) t.unref()
       return id
@@ -3072,15 +3086,16 @@ function swarmFalso(guion) {
       const e = enVuelo.get(id)
       if (!e || e.cortado) return
       e.cortado = true
-      // EL PUNTO DE TODO ESTO. En una red real el chat:cancel tarda un round
-      // trip y el par no para en seco: lo que ya habia salido llega igual,
-      // DESPUES de que este lado decidio cortar. Aca eso es sincronico y
-      // deterministico en vez de una carrera.
+      // THE WHOLE POINT OF THIS. On a real network chat:cancel takes a
+      // round trip and the peer doesn't stop dead: whatever already went
+      // out still arrives, AFTER this side decided to cut. Here that's
+      // synchronous and deterministic instead of a race.
       if (e.tardio) e.cbs.onChunk(e.tardio)
-      // FASE 10 / D27 caso 1 — y despues el par manda su `chat:done` tardio: el
-      // swarm real mantiene el chat vivo esperandolo (con la atestacion parcial
-      // firmada por el par, o el motivo si falta). `e.doneTardio` deja que un
-      // test lo defina; por defecto es una ausencia con motivo.
+      // PHASE 10 / D27 case 1 — and afterward the peer sends its late
+      // `chat:done`: the real swarm keeps the chat alive waiting for it
+      // (with the peer-signed partial attestation, or the reason if it's
+      // missing). `e.doneTardio` lets a test define it; by default it's an
+      // absence with a reason.
       const t = setTimeout(
         () =>
           e.cbs.onDone(
@@ -3101,10 +3116,10 @@ async function conParRegistrado(guion) {
   const gw = await import('../qvac/gateway.mjs')
   const x402 = await import('../qvac/x402.mjs')
   const env = (await import('bare-env')).default
-  // El facilitator falso se apunta ACA y no en cada test: sin esto `liquidar`
-  // sale al de verdad por internet, el test pasa por el motivo equivocado -- el
-  // recibo se guarda igual cuando la liquidacion falla -- y ademas `npm test`
-  // deja de correr sin red.
+  // The fake facilitator gets pointed HERE and not in each test: without
+  // this `liquidar` goes out to the real one over the internet, the test
+  // passes for the wrong reason -- the receipt still gets saved when
+  // settlement fails -- and on top of that `npm test` stops running without a network.
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
   WALLET_DEL_PAR = (await parFirmante()).address
   store.upsertFromManifest(PEER_KEY, manifiestoDelPar())
@@ -3121,11 +3136,11 @@ async function soltarPar() {
   delete env[x402.VAR_FACILITATOR]
 }
 
-test('FASE 9 DoD: matar el nodo a mitad de stream NO cobra', async (t) => {
-  // El par acepta, manda un token, y se muere. Es la tercera linea del DoD de la
-  // Fase 9 y la que el propio roadmap marca como la que mas facil se rompe:
-  // la verificacion protege al proveedor de gastar GPU gratis, la FALTA de
-  // liquidacion protege al cliente de pagar por lo que no recibio.
+test('PHASE 9 DoD: killing the node mid-stream does NOT charge', async (t) => {
+  // The peer accepts, sends a token, and dies. It's Phase 9's DoD third
+  // line, and the one the roadmap itself flags as the easiest to break:
+  // verification protects the provider from spending free GPU, the ABSENCE
+  // of settlement protects the client from paying for what it did not receive.
   await conParRegistrado((cbs) => {
     cbs.onAccepted()
     cbs.onChunk('empiezo a contestar')
@@ -3138,8 +3153,8 @@ test('FASE 9 DoD: matar el nodo a mitad de stream NO cobra', async (t) => {
     stream: true
   }
   const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpo })
-  t.is(desafio.status, 402, 'el 402 sale con la wallet DEL PAR (D10)')
-  t.is(desafio.json.accepts[0].payTo, WALLET_DEL_PAR, 'no la de este gateway')
+  t.is(desafio.status, 402, 'the 402 comes out with the PEER\'s wallet (D10)')
+  t.is(desafio.json.accepts[0].payTo, WALLET_DEL_PAR, 'not this gateway\'s')
 
   const pago = await firmarPago(desafio.json)
   const r = await pedir('POST', '/v1/chat/completions', {
@@ -3147,23 +3162,23 @@ test('FASE 9 DoD: matar el nodo a mitad de stream NO cobra', async (t) => {
     headers: { 'X-PAYMENT': pago }
   })
 
-  t.ok(r.body.indexOf('empiezo a contestar') !== -1, 'el cliente vio lo que alcanzo a llegar')
-  t.absent(r.body.indexOf('paymentResponse') !== -1, 'y NO hay recibo: no se liquido')
+  t.ok(r.body.indexOf('empiezo a contestar') !== -1, 'the client saw what managed to arrive')
+  t.absent(r.body.indexOf('paymentResponse') !== -1, 'and there is NO receipt: nothing settled')
 
   const id = idDeSSE(r.body)
   const rec = await pedir('GET', '/v1/receipts/' + id)
-  t.is(rec.status, 404, 'no hay nada que recuperar, porque no se cobro')
+  t.is(rec.status, 404, 'there is nothing to retrieve, because nothing was charged')
 
   await soltarPar()
 })
 
-test('D27 caso 1: el chat:done tardio del par trae la atestacion parcial y se cuelga del rastro', async (t) => {
+test('D27 case 1: the peer\'s late chat:done carries the partial attestation and gets attached to the trail', async (t) => {
   const VISTO = 'esto lo recibio el cliente'
   const TARDIO = ' y esto llego despues del cancel'
 
-  // Lo que el par firma sobre lo que ALCANZO a servir: VISTO, un delta. El chunk
-  // tardio no entra —el cliente no lo recibio—, igual que el outputHash de una
-  // parcial servida por este mismo nodo.
+  // What the peer signs over what it MANAGED to serve: VISTO, one delta.
+  // The late chunk doesn't count in —the client never received it—, same
+  // as the outputHash of a partial served by this same node.
   const attParcial = await atestacionParcialDelPar({
     requestId: 'chatcmpl-parcial',
     contenido: VISTO,
@@ -3173,11 +3188,11 @@ test('D27 caso 1: el chat:done tardio del par trae la atestacion parcial y se cu
   await conParRegistrado((cbs, estado) => {
     cbs.onAccepted()
     cbs.onChunk(VISTO)
-    // Cuelga el chunk tardio: sale cuando el gateway mande el chat:cancel.
+    // Hangs the late chunk: goes out when the gateway sends the chat:cancel.
     estado.tardio = TARDIO
-    // FASE 10 / D27 caso 1 — y su `chat:done` tardio, con la atestacion firmada.
-    // Antes se descartaba porque `cancelChat` borraba el chat en el acto; ahora
-    // lo mantiene vivo una ventana corta justo para recibir esto.
+    // PHASE 10 / D27 case 1 — and its late `chat:done`, with the signed
+    // attestation. It used to get discarded because `cancelChat` deleted
+    // the chat on the spot; now it keeps it alive for a short window just to receive this.
     estado.doneTardio = { attestation: attParcial }
   })
 
@@ -3195,67 +3210,69 @@ test('D27 caso 1: el chat:done tardio del par trae la atestacion parcial y se cu
     headers: { 'X-PAYMENT': pago }
   })
   const id = idDeSSE(parcial.body)
-  t.ok(id, 'el cliente vio el primer chunk y se fue')
-  t.absent(parcial.body.indexOf(TARDIO) !== -1, 'el tardio NUNCA se le escribio al cliente')
+  t.ok(id, 'the client saw the first chunk and left')
+  t.absent(parcial.body.indexOf(TARDIO) !== -1, 'the late one was NEVER written out to the client')
 
   await esperar(1200)
 
   const rec = await pedir('GET', '/v1/receipts/' + id)
-  t.is(rec.status, 200, 'queda rastro del ruteo (D27 caso 1)')
-  // FASE 10 — el handoff: el gateway NO liquida un ruteado, lo cobra el par
-  // desde su lote. Por eso no hay `success`/`transaction` de este lado.
-  t.is(rec.json.settledBy, 'peer-batch', 'el settlement es del par, diferido')
-  t.absent(rec.json.success, 'este gateway no muestra una liquidacion que no hizo')
+  t.is(rec.status, 200, 'a trail of the routing remains (D27 case 1)')
+  // PHASE 10 — the handoff: the gateway does NOT settle a routed request,
+  // the peer charges it from its own batch. That's why there's no
+  // `success`/`transaction` on this side.
+  t.is(rec.json.settledBy, 'peer-batch', 'the settlement is the peer\'s, deferred')
+  t.absent(rec.json.success, 'this gateway does not show a settlement it did not do')
 
-  // Y AHORA la mitad que faltaba: el `chat:done` tardio del par llego, su
-  // atestacion parcial verifico contra la wallet del manifiesto del par, y quedo
-  // colgada del rastro del ruteado en vez de un `attestationMissing`.
-  t.ok(rec.json.attestation, 'la atestacion parcial del par SI llego al rastro')
+  // AND NOW the half that was missing: the peer's late `chat:done` arrived,
+  // its partial attestation verified against the peer's manifest wallet,
+  // and it ended up attached to the routed trail instead of an `attestationMissing`.
+  t.ok(rec.json.attestation, 'the peer\'s partial attestation DID reach the trail')
   t.is(
     (rec.json.attestation || {}).finishReason,
     'client_cancelled',
-    'y dice que corto el cliente (D27)'
+    'and it says the client cut off (D27)'
   )
   t.is(
     String((rec.json.attestation || {}).providerPubkey || '').toLowerCase(),
     WALLET_DEL_PAR.toLowerCase(),
-    'firmada por la wallet DEL PAR, no la de este gateway'
+    'signed by the PEER\'s wallet, not this gateway\'s'
   )
-  t.absent(rec.json.attestationMissing, 'ya no hay motivo de ausencia: la atestacion esta')
+  t.absent(rec.json.attestationMissing, 'there is no longer a reason for absence: the attestation is there')
 
-  // Y el rastro no cuenta el chunk tardio: lo que se registra es lo que el
-  // cliente recibio, no lo que el proveedor siguio mandando despues de que se fue.
+  // And the trail does not count the late chunk: what gets logged is what
+  // the client received, not what the provider kept sending after it left.
   const e = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0] || {}
-  t.is(e.finishReason, 'client_cancelled', 'el rastro dice quien corto')
-  t.is(e.tokens, 1, 'y conto UN chunk, no dos: el tardio se descarto')
+  t.is(e.finishReason, 'client_cancelled', 'the trail says who cut off')
+  t.is(e.tokens, 1, 'and it counted ONE chunk, not two: the late one got discarded')
 
   await soltarPar()
 })
 
 // ---------------------------------------------------------------------------
-// FASE 10 — recibos y lote
+// PHASE 10 — receipts and batch
 //
-// La Fase 9 verifica, sirve, y liquida DESPUES (D12). La Fase 10 hace lo mismo
-// con el settlement DIFERIDO: los pagos verificados se acumulan y se liquidan de
-// a muchos. Estos tests prueban que el gateway acumula lo que sirvio EL, que un
-// recibo de un par no entra a NUESTRO lote (D10), que el lote se arma y se
-// firma con la wallet, y que el protocolo con el facilitator es el declarado.
+// Phase 9 verifies, serves, and settles AFTERWARD (D12). Phase 10 does the
+// same with DEFERRED settlement: verified payments accumulate and get
+// settled in bulk. These tests prove the gateway accumulates what IT
+// served, that a peer's receipt does not enter OUR batch (D10), that the
+// batch gets built and signed with the wallet, and that the protocol with
+// the facilitator is the declared one.
 //
-// La liquidacion inmediata de la Fase 9 no se toca: el lote guarda como salio y
-// `liquidarLote` reintenta las que fallaron. Reabre la Fase 9 por la entrada
-// `plasma-testnet` que se le agrego a x402.mjs.
+// Phase 9's immediate settlement is not touched: the batch stores how it went and
+// `liquidarLote` retries the ones that failed. It reopens Phase 9 for the
+// `plasma-testnet` entry added to x402.mjs.
 // ---------------------------------------------------------------------------
 
-test('FASE 10 / D10: el lote acumula recibos al payTo del NODO, y los de un par NO', async (t) => {
+test('PHASE 10 / D10: the batch accumulates receipts under the NODE\'s payTo, and a peer\'s do NOT', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const x402 = await import('../qvac/x402.mjs')
-  // El facilitator falso ya esta arriba desde el primer test de settlement y se
-  // cierra al final; conProveedorQueFirma apunta VAR_FACILITATOR ahi.
+  // The fake facilitator is already up from the first settlement test and
+  // gets closed at the end; conProveedorQueFirma points VAR_FACILITATOR there.
   lote.limpiar()
 
   const p = await conProveedorQueFirma()
 
-  // Dos requests locales pagados: los sirve este nodo, el payTo es su wallet.
+  // Two paid local requests: this node serves them, the payTo is its wallet.
   const cuerpo = { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   const a = await pagarYPedir(cuerpo)
   const b = await pagarYPedir(cuerpo)
@@ -3263,25 +3280,25 @@ test('FASE 10 / D10: el lote acumula recibos al payTo del NODO, y los de un par 
   t.is(b.r.status, 200)
 
   const mios = lote.pendientes()
-  t.is(mios.length, 2, 'los dos pagos verificados entraron al lote')
+  t.is(mios.length, 2, 'both verified payments entered the batch')
   t.ok(
     mios.every((r) => r.payTo.toLowerCase() === p.address.toLowerCase()),
-    'y todos pagan a la wallet de ESTE nodo (D10)'
+    'and all pay THIS node\'s wallet (D10)'
   )
   t.ok(
     mios.every((r) => r.nonce && r.authorization && r.signature),
-    'con la autorizacion EIP-3009 entera'
+    'with the full EIP-3009 authorization'
   )
   t.ok(
     mios.every((r) => r.liquidacion && r.liquidacion.success),
-    'y con como salio la liquidacion inmediata'
+    'and with how the immediate settlement went'
   )
   t.ok(
     mios.every((r) => r.attestation && r.attestation.signature),
-    'y la atestacion de D24 colgada'
+    'and the D24 attestation attached'
   )
 
-  // Ahora un request servido por un PAR: el payTo apunto a SU wallet.
+  // Now a request served by a PEER: the payTo pointed at ITS wallet.
   await soltarProveedor()
   await conParRegistrado((cbs) => {
     cbs.onAccepted()
@@ -3294,51 +3311,51 @@ test('FASE 10 / D10: el lote acumula recibos al payTo del NODO, y los de un par 
     stream: true
   }
   const desafio = await pedir('POST', '/v1/chat/completions', { body: cuerpoPar })
-  t.is(desafio.json.accepts[0].payTo, WALLET_DEL_PAR, 'el 402 paga al par (D10)')
+  t.is(desafio.json.accepts[0].payTo, WALLET_DEL_PAR, 'the 402 pays the peer (D10)')
   const pago = await firmarPago(desafio.json)
   await pedir('POST', '/v1/chat/completions', { body: cuerpoPar, headers: { 'X-PAYMENT': pago } })
   await esperar(400)
 
   t.absent(
     lote.pendientes().some((r) => r.payTo.toLowerCase() === WALLET_DEL_PAR.toLowerCase()),
-    'el recibo del par NO entra a nuestro lote: es de el, viaja por Protomux firmado por el'
+    'the peer\'s receipt does NOT enter our batch: it\'s theirs, it travels over Protomux signed by them'
   )
 
   await soltarPar()
   lote.limpiar()
 })
 
-test('FASE 10: el protocolo nodo<->facilitator es el que x402 declara', async (t) => {
+test('PHASE 10: the node<->facilitator protocol is the one x402 declares', async (t) => {
   const x402 = await import('../qvac/x402.mjs')
   ultimoSettle = null
   const p = await conProveedorQueFirma()
 
   await pagarYPedir({ model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] })
 
-  t.ok(ultimoSettle, 'el facilitator recibio la liquidacion')
+  t.ok(ultimoSettle, 'the facilitator received the settlement')
   const dec = x402.PROTOCOLO_FACILITATOR
-  for (const campo of dec.envia) t.ok(campo in ultimoSettle, `manda ${campo}`)
+  for (const campo of dec.envia) t.ok(campo in ultimoSettle, `sends ${campo}`)
   const pp = ultimoSettle.paymentPayload
-  for (const campo of dec.paymentPayload) t.ok(campo in pp, `el paymentPayload trae ${campo}`)
+  for (const campo of dec.paymentPayload) t.ok(campo in pp, `paymentPayload carries ${campo}`)
   for (const campo of dec.paymentPayloadPayload) {
-    t.ok(campo in pp.payload, `y adentro, ${campo}`)
+    t.ok(campo in pp.payload, `and inside it, ${campo}`)
   }
   t.is(pp.scheme, 'exact')
   t.is(
     pp.network,
     ultimoSettle.paymentRequirements.network,
-    'la red del pago y la del requisito coinciden'
+    'the payment\'s network and the requirement\'s match'
   )
   t.is(
     ultimoSettle.paymentRequirements.payTo.toLowerCase(),
     p.address.toLowerCase(),
-    'y el requisito liquida contra la wallet del nodo, no una recalculada'
+    'and the requirement settles against the node\'s wallet, not a recalculated one'
   )
 
   await soltarProveedor()
 })
 
-test('FASE 10: el lote se arma, se firma con la wallet, y se puede liquidar diferido', async (t) => {
+test('PHASE 10: the batch gets built, signed with the wallet, and can settle deferred', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const x402 = await import('../qvac/x402.mjs')
   lote.limpiar()
@@ -3348,54 +3365,55 @@ test('FASE 10: el lote se arma, se firma con la wallet, y se puede liquidar dife
   await pagarYPedir(cuerpo)
   await pagarYPedir(cuerpo)
 
-  // `armar` tira si el acumulador esta vacio -- lo que pasa si el gateway dejo
-  // de acumular. Se atrapa para que eso salga como un assert y no como un
-  // Uncaught que se lleva puesta la corrida (misma leccion que B18).
+  // `armar` throws if the accumulator is empty -- which happens if the
+  // gateway stopped accumulating. It gets caught so that comes out as a
+  // failed assert and not an Uncaught that takes the run down with it
+  // (same lesson as B18).
   let l = null
   try {
     l = lote.armar({})
   } catch (err) {
-    /* l queda null y el assert de abajo habla */
+    /* l stays null and the assert below speaks */
   }
-  t.ok(l, 'hay recibos acumulados y el lote se arma')
+  t.ok(l, 'there are accumulated receipts and the batch gets built')
   if (!l) {
     await soltarProveedor()
     return
   }
-  t.is(l.count, 2, 'el lote junta los dos recibos acumulados')
-  t.is(l.network, 'eip155:988', 'de una sola red')
-  t.is(l.payTo.toLowerCase(), p.address.toLowerCase(), 'a una sola wallet')
+  t.is(l.count, 2, 'the batch gathers the two accumulated receipts')
+  t.is(l.network, 'eip155:988', 'from a single network')
+  t.is(l.payTo.toLowerCase(), p.address.toLowerCase(), 'to a single wallet')
   t.is(
     l.totalAmount,
     (BigInt(l.recibos[0].amount) + BigInt(l.recibos[1].amount)).toString(),
-    'con el total sumado'
+    'with the total summed up'
   )
 
   const firmado = await lote.firmarLote(l, p.firmar)
-  t.ok(firmado && firmado.signature.startsWith('0x'), 'lo firma la wallet del nodo')
+  t.ok(firmado && firmado.signature.startsWith('0x'), 'signed by the node\'s wallet')
 
   const v = await lote.verificarLote(firmado)
-  t.ok(v.ok, 'y verifica entero: ' + (v.reason || ''))
-  t.is(v.firmante.toLowerCase(), p.address.toLowerCase(), 'el firmante es la wallet del nodo')
-  t.is(v.recibosMal.length, 0, 'y las autorizaciones EIP-3009 de adentro recuperan a quien pago')
+  t.ok(v.ok, 'and it verifies whole: ' + (v.reason || ''))
+  t.is(v.firmante.toLowerCase(), p.address.toLowerCase(), 'the signer is the node\'s wallet')
+  t.is(v.recibosMal.length, 0, 'and the EIP-3009 authorizations inside recover whoever paid')
 
-  // Liquidacion diferida: recorre el lote llamando al MISMO x402.liquidar contra
-  // el facilitator falso. Es el flujo de la Fase 9 con el settlement diferido.
+  // Deferred settlement: walks the batch calling the SAME x402.liquidar
+  // against the fake facilitator. It's Phase 9's flow with deferred settlement.
   const res = await lote.liquidarLote({ lote: firmado, liquidar: x402.liquidar })
-  t.is(res.liquidados.length, 2, 'los dos se liquidan en el lote')
+  t.is(res.liquidados.length, 2, 'both settle within the batch')
   t.is(res.fallidos.length, 0)
   lote.marcarLiquidados(res.liquidados)
   t.is(
     lote.pendientes({ soloPendientes: true }).length,
     0,
-    'y quedan marcados: un corte y reanudar no recobra'
+    'and they stay marked: a crash-and-resume does not charge again'
   )
 
   await soltarProveedor()
   lote.limpiar()
 })
 
-test('FASE 10: un nodo batch-receipts NO liquida por request, difiere al lote', async (t) => {
+test('PHASE 10: a batch-receipts node does NOT settle per request, it defers to the batch', async (t) => {
   const lote = await import('../qvac/lote.mjs')
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
@@ -3404,8 +3422,8 @@ test('FASE 10: un nodo batch-receipts NO liquida por request, difiere al lote', 
   lote.limpiar()
   ultimoSettle = null
 
-  // El nodo con su settlement por DEFECTO — batch-receipts, lo que declara el
-  // manifiesto firmado del proyecto. El schema decide: no hay flag.
+  // The node with its DEFAULT settlement — batch-receipts, what the
+  // project's signed manifest declares. The schema decides: there's no flag.
   const p = await proveedorFirmante()
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
   gw.setEconomic(wallet.economicDe(p.address)) // <- settlement: 'batch-receipts'
@@ -3417,12 +3435,12 @@ test('FASE 10: un nodo batch-receipts NO liquida por request, difiere al lote', 
     stream: true
   }
   const { r } = await pagarYPedir(cuerpo)
-  t.is(r.status, 200, 'se sirve igual: el pago se verifico, solo el settlement se difiere')
+  t.is(r.status, 200, 'it gets served the same: payment got verified, only settlement is deferred')
   t.absent(
     r.headers['x-payment-response'],
-    'y no hay X-PAYMENT-RESPONSE: no se liquido por request'
+    'and there is no X-PAYMENT-RESPONSE: nothing settled per request'
   )
-  t.absent(ultimoSettle, 'el facilitator NO recibio ninguna liquidacion por request')
+  t.absent(ultimoSettle, 'the facilitator did NOT receive any per-request settlement')
 
   const evento = r.body
     .split('\n\n')
@@ -3436,26 +3454,26 @@ test('FASE 10: un nodo batch-receipts NO liquida por request, difiere al lote', 
       }
     })
     .filter(Boolean)[0]
-  t.ok(evento, 'el evento SSE final describe el settlement')
-  t.is(evento && evento.settledBy, 'batch', 'que es diferido: settledBy = batch')
-  t.is(evento && evento.paymentResponse, null, 'sin recibo de liquidacion todavia')
+  t.ok(evento, 'the final SSE event describes the settlement')
+  t.is(evento && evento.settledBy, 'batch', 'which is deferred: settledBy = batch')
+  t.is(evento && evento.paymentResponse, null, 'no settlement receipt yet')
   t.ok(
     evento && evento.x402Note && evento.x402Note.indexOf('batch-receipts') !== -1,
-    'y lo explica: ' + (evento && evento.x402Note)
+    'and it explains it: ' + (evento && evento.x402Note)
   )
-  // La atestacion D24 SI viaja: es independiente del modo de settlement.
-  t.ok(evento && evento.attestation && evento.attestation.signature, 'la atestacion D24 igual sale')
+  // The D24 attestation DOES travel: it's independent of the settlement mode.
+  t.ok(evento && evento.attestation && evento.attestation.signature, 'the D24 attestation still comes out')
 
-  // El recibo quedo en el lote SIN liquidar: es el flush lo que lo cobra.
+  // The receipt stayed in the batch UNSETTLED: it's the flush that charges it.
   const pend = lote.pendientes({ soloPendientes: true })
-  t.is(pend.length, 1, 'el pago verificado quedo pendiente en el lote')
-  t.is((pend[0] || {}).liquidacion, null, 'sin liquidacion inmediata: eso es el flush')
+  t.is(pend.length, 1, 'the verified payment stayed pending in the batch')
+  t.is((pend[0] || {}).liquidacion, null, 'no immediate settlement: that\'s the flush\'s job')
 
-  // Y el flush lo liquida — el mismo x402.liquidar, ahora en lote.
+  // And the flush settles it — the same x402.liquidar, now in a batch.
   const res = await lote.flushTodo({ firmar: p.firmar, liquidar: x402.liquidar })
-  t.is((res[0] || {}).liquidados, 1, 'el flush liquida el recibo diferido')
-  t.ok(ultimoSettle, 'y RECIEN ahi el facilitator recibe la liquidacion')
-  t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'no queda nada pendiente')
+  t.is((res[0] || {}).liquidados, 1, 'the flush settles the deferred receipt')
+  t.ok(ultimoSettle, 'and ONLY NOW does the facilitator receive the settlement')
+  t.is(lote.pendientes({ soloPendientes: true }).length, 0, 'nothing left pending')
 
   gw.setEconomic(null)
   gw.setWalletSigner(null)
@@ -3463,30 +3481,30 @@ test('FASE 10: un nodo batch-receipts NO liquida por request, difiere al lote', 
   lote.limpiar()
 })
 
-test('FASE 10 / precondicion: x402 arma un accepts[] para plasma-testnet (9746)', async (t) => {
+test('PHASE 10 / precondition: x402 builds an accepts[] for plasma-testnet (9746)', async (t) => {
   const x402 = await import('../qvac/x402.mjs')
   const env = (await import('bare-env')).default
 
-  t.is(x402.CAIP2['plasma-testnet'], 'eip155:9746', 'la red esta en la tabla')
+  t.is(x402.CAIP2['plasma-testnet'], 'eip155:9746', 'the network is in the table')
 
-  // Sin ASSET/NAME declarados no se ofrece: un cliente no firma un EIP-712 a medias.
+  // Without ASSET/NAME declared it does not get offered: a client does not sign a half EIP-712.
   delete env[x402.VAR_PLASMA_TESTNET_ASSET]
   delete env[x402.VAR_PLASMA_TESTNET_NAME]
-  t.is(await x402.activoDe('plasma-testnet'), null, 'sin declarar, la red queda afuera')
+  t.is(await x402.activoDe('plasma-testnet'), null, 'without declaring it, the network stays out')
 
   env[x402.VAR_PLASMA_TESTNET_ASSET] = '0x' + 'a1'.repeat(20)
   env[x402.VAR_PLASMA_TESTNET_NAME] = 'PyrusLLM Test USD'
   const activo = (await x402.activoDe('plasma-testnet')) || {}
-  t.is(activo.network, 'eip155:9746', 'con ASSET y NAME declarados, la red se ofrece')
+  t.is(activo.network, 'eip155:9746', 'with ASSET and NAME declared, the network gets offered')
   t.is(activo.asset, '0x' + 'a1'.repeat(20))
   t.is(
     activo.name,
     'PyrusLLM Test USD',
-    'con el dominio EIP-712 que el cliente necesita para firmar'
+    'with the EIP-712 domain the client needs to sign'
   )
   t.ok(
     (await x402.redesDisponibles()).includes('plasma-testnet'),
-    'y entra a las redes disponibles'
+    'and it enters the available networks'
   )
 
   delete env[x402.VAR_PLASMA_TESTNET_ASSET]
@@ -3494,21 +3512,21 @@ test('FASE 10 / precondicion: x402 arma un accepts[] para plasma-testnet (9746)'
 })
 
 // ---------------------------------------------------------------------------
-// FASE 9 — QUE LO EMITIDO LLEGUE AL PANEL
+// PHASE 9 — THAT WHAT GETS EMITTED REACHES THE PANEL
 //
-// Los tests de arriba prueban que el gateway EMITE los cuatro artefactos. Estos
-// prueban lo otro, que es lo que faltaba: que ese dato, tal como sale por HTTP,
-// llega al panel CON SU SIGNIFICADO. No alcanza con que el HTML se sirva -- eso
-// ya lo miraba "los cuatro paneles siguen renderizando", y se seguia sirviendo
-// perfecto con los cuatro artefactos invisibles adentro.
+// The tests above prove the gateway EMITS the four artifacts. These prove
+// the other thing, which was missing: that that data, exactly as it goes
+// out over HTTP, reaches the panel WITH ITS MEANING. It's not enough for
+// the HTML to get served -- that's what "all four panels still render"
+// already checked, and it kept serving perfectly with the four artifacts invisible inside.
 //
-// Se ejercita `qvac/panel-x402.mjs`, que es literalmente el codigo que pages.mjs
-// pega adentro del <script> de cada pagina. Alimentado, aca, con las respuestas
-// REALES del gateway y no con fixtures escritos a mano: un fixture que envejece
-// mal es exactamente como se pierde de vista que un campo cambio de forma.
+// `qvac/panel-x402.mjs` gets exercised, which is literally the code
+// pages.mjs pastes inside each page's <script>. Fed, here, with the
+// gateway's REAL responses and not hand-written fixtures: a fixture that
+// ages badly is exactly how a field's shape change goes unnoticed.
 // ---------------------------------------------------------------------------
 
-test('FASE 9 visible: el 402 real llega al panel con los CUATRO datos', async (t) => {
+test('PHASE 9 visible: the real 402 reaches the panel with the FOUR pieces of data', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   const px = await import('../qvac/panel-x402.mjs')
@@ -3519,27 +3537,27 @@ test('FASE 9 visible: el 402 real llega al panel con los CUATRO datos', async (t
   const r = await pedir('POST', '/v1/chat/completions', {
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
   })
-  t.is(r.status, 402, 'el nodo pide pago')
+  t.is(r.status, 402, 'the node asks for payment')
 
-  // Antes de esto, el chat aplanaba el 402 a "[error] HTTP 402" y los cuatro
-  // datos del DoD se perdian en el camino.
+  // Before this, the chat flattened the 402 to "[error] HTTP 402" and the
+  // DoD's four pieces of data got lost along the way.
   const v = px.vistaDeDesafio(r.json)
-  t.ok(v.esDesafio, 'el panel lo reconoce como un cobro y no como un error')
+  t.ok(v.esDesafio, 'the panel recognizes it as a charge and not as an error')
   const o = v.opciones[0]
-  t.is(o.monto, r.json.accepts[0].amount, 'CUANTO, tal como salio del endpoint')
-  t.is(o.payTo, direccion, 'A QUIEN')
-  t.is(o.red.id, r.json.accepts[0].network, 'EN QUE CADENA, con el CAIP-2 crudo')
-  t.is(o.tope, r.json.accepts[0].outputTokenLimit, 'HASTA CUANTOS TOKENS')
+  t.is(o.monto, r.json.accepts[0].amount, 'HOW MUCH, exactly as it came out of the endpoint')
+  t.is(o.payTo, direccion, 'TO WHOM')
+  t.is(o.red.id, r.json.accepts[0].network, 'ON WHICH CHAIN, with the raw CAIP-2')
+  t.is(o.tope, r.json.accepts[0].outputTokenLimit, 'UP TO HOW MANY TOKENS')
 
   const html = px.htmlDeDesafio(v)
-  t.ok(html.indexOf(direccion) !== -1, 'la direccion se dibuja entera, no recortada')
-  t.ok(html.indexOf(String(o.tope)) !== -1, 'y el tope tambien')
-  t.ok(html.indexOf(o.red.id) !== -1, 'con el id de la red, no solo el nombre')
+  t.ok(html.indexOf(direccion) !== -1, 'the address gets drawn whole, not truncated')
+  t.ok(html.indexOf(String(o.tope)) !== -1, 'and the cap too')
+  t.ok(html.indexOf(o.red.id) !== -1, 'with the network\'s id, not just the name')
 
   gw.setEconomic(null)
 })
 
-test('FASE 9 visible: el recibo y la atestacion, con el outputHash comparado', async (t) => {
+test('PHASE 9 visible: the receipt and the attestation, with the outputHash compared', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
   const p = await conProveedorQueFirma()
 
@@ -3553,50 +3571,51 @@ test('FASE 9 visible: el recibo y la atestacion, con el outputHash comparado', a
   const contenido = r.json.choices[0].message.content
   const vista = px.vistaDeAtestacion(rec.json, { textoRecibido: contenido, messages })
 
-  // ESTO es lo que hace que la atestacion sea evidencia y no un campo: el hash
-  // se recomputa en el panel sobre el texto que el cliente recibio. Que el
-  // gateway lo haya calculado bien ya se probaba; que una persona lo pueda
-  // COMPROBAR mirando, no.
+  // THIS is what makes the attestation evidence and not just a field: the
+  // hash gets recomputed in the panel over the text the client received.
+  // That the gateway computed it correctly was already tested; that a
+  // person can CHECK it by looking, wasn't.
   const out = vista.hashes.filter((h) => h.campo === 'outputHash')[0]
-  t.is(out.estado, 'coincide', 'el outputHash recomputado en el panel coincide')
+  t.is(out.estado, 'coincide', 'the outputHash recomputed in the panel matches')
   t.is(out.declarado, rec.json.attestation.outputHash)
   const prompt = vista.hashes.filter((h) => h.campo === 'promptHash')[0]
-  t.is(prompt.estado, 'coincide', 'y el promptHash, sobre la conversacion entera')
+  t.is(prompt.estado, 'coincide', 'and the promptHash, over the whole conversation')
 
-  // Regla 2: la corrida es en modo --demo, o sea que el texto es inventado y la
-  // firma es de una wallet real. El panel tiene que decir las dos cosas.
-  t.is(rec.json.attestation.runtime, 'mock', 'el artefacto lo declara')
-  t.ok(vista.esMock, 'y el panel lo levanta')
-  t.is(vista.providerPubkey, p.address, 'firmada por la direccion de cobro de este nodo')
+  // Rule 2: the run is in --demo mode, meaning the text is made up and the
+  // signature is from a real wallet. The panel has to say both things.
+  t.is(rec.json.attestation.runtime, 'mock', 'the artifact declares it')
+  t.ok(vista.esMock, 'and the panel flags it')
+  t.is(vista.providerPubkey, p.address, 'signed by this node\'s payout address')
 
   const html = px.htmlDeRecibo(rec.json, { textoRecibido: contenido, messages })
-  t.ok(html.indexOf('runtime: mock') !== -1, 'un mock se VE como mock en la pantalla')
-  t.ok(html.indexOf('coincide') !== -1, 'y la comparacion de hash se dibuja')
+  t.ok(html.indexOf('runtime: mock') !== -1, 'a mock LOOKS like a mock on screen')
+  t.ok(html.indexOf('coincide') !== -1, 'and the hash comparison gets drawn')
 
-  // Regla 4: contra el facilitator falso el tx es 0xfe...fe, y en el explorer no
-  // existe. Es el estado REAL de este arbol -- el item del DoD que quedo afuera
-  // (0-quater) -- y el panel no lo puede presentar como una transaccion.
+  // Rule 4: against the fake facilitator the tx is 0xfe...fe, and it does
+  // not exist on the explorer. This is this tree's REAL state -- the DoD
+  // item that got left out (0-quater) -- and the panel cannot present it as a transaction.
   const liq = px.vistaDeLiquidacion(px.liquidacionDe(rec.json))
-  t.ok(liq.liquidado, 'el facilitator informo exito')
-  t.ok(liq.txSintetico, 'pero el hash es el sello de un facilitator de pruebas')
-  t.ok(html.indexOf('facilitator de PRUEBAS') !== -1, 'y eso se dibuja al lado del hash')
+  t.ok(liq.liquidado, 'the facilitator reported success')
+  t.ok(liq.txSintetico, 'but the hash is a test facilitator\'s stamp')
+  t.ok(html.indexOf('facilitator de PRUEBAS') !== -1, 'and that gets drawn next to the hash')
 
   await soltarProveedor()
 })
 
-test('FASE 9 visible: la atestacion que falta llega al panel CON el motivo', async (t) => {
+test('PHASE 9 visible: a missing attestation reaches the panel WITH the reason', async (t) => {
   const gw = await import('../qvac/gateway.mjs')
   const wallet = await import('../qvac/wallet.mjs')
   const x402 = await import('../qvac/x402.mjs')
   const px = await import('../qvac/panel-x402.mjs')
   const env = (await import('bare-env')).default
 
-  // Con wallet -- asi que cobra -- y sin firmante: el estado real de un nodo
-  // cuya passphrase no abrio el keystore. No se emite una atestacion sin firma.
+  // With a wallet -- so it charges -- and no signer: a node's real state
+  // when its passphrase did not open the keystore. No unsigned attestation gets emitted.
   env[x402.VAR_FACILITATOR] = 'http://127.0.0.1:' + PUERTO_FACILITATOR
-  // `onchain-per-job`: liquidacion INMEDIATA por request. El default del
-  // proyecto es `batch-receipts` (difiere al lote); eso lo cubre 'un nodo
-  // batch-receipts NO liquida por request'. El schema decide, no un flag.
+  // `onchain-per-job`: IMMEDIATE per-request settlement. The project's
+  // default is `batch-receipts` (defers to the batch); that's covered by
+  // 'a batch-receipts node does NOT settle per request'. The schema
+  // decides, not a flag.
   gw.setEconomic(wallet.economicDe('0x' + 'ab'.repeat(20), 'onchain-per-job'))
   gw.setWalletSigner(null)
 
@@ -3609,23 +3628,23 @@ test('FASE 9 visible: la atestacion que falta llega al panel CON el motivo', asy
 
   const vista = px.vistaDeAtestacion(rec.json, {})
   t.absent(vista.hay)
-  t.is(vista.motivo, rec.json.attestationMissing, 'el motivo del endpoint viaja SIN resumir')
-  t.ok(vista.motivoDeclarado, 'y consta que alguien lo declaro')
+  t.is(vista.motivo, rec.json.attestationMissing, 'the endpoint\'s reason travels WITHOUT summarizing')
+  t.ok(vista.motivoDeclarado, 'and it is on record that someone declared it')
 
   const html = px.htmlDeAtestacion(vista)
-  t.ok(html.indexOf(rec.json.attestationMissing) !== -1, 'el motivo se dibuja completo')
-  t.absent(html.indexOf('coincide') !== -1, 'y no se afirma nada sobre hashes que no existen')
+  t.ok(html.indexOf(rec.json.attestationMissing) !== -1, 'the reason gets drawn in full')
+  t.absent(html.indexOf('coincide') !== -1, 'and nothing gets asserted about hashes that do not exist')
 
   await soltarProveedor()
 })
 
-test('FASE 9 visible: el rastro llega al panel con el split Y su procedencia', async (t) => {
+test('PHASE 9 visible: the trail reaches the panel with the split AND its provenance', async (t) => {
   const store = await import('../qvac/store.mjs')
   const upstream = await import('../qvac/upstream.mjs')
   const gw = await import('../qvac/gateway.mjs')
   const px = await import('../qvac/panel-x402.mjs')
 
-  // 1. Un proveedor que manda `usage`: son tokens contados por SU tokenizador.
+  // 1. A provider that sends `usage`: these are tokens counted by ITS tokenizer.
   const ups = upstream.cargarDesde({
     upstreams: [
       {
@@ -3656,15 +3675,15 @@ test('FASE 9 visible: el rastro llega al panel con el split Y su procedencia', a
   const e1 = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
   const medido = px.vistaDeConteo(e1)
   t.is(medido.fuente, 'proveedor')
-  t.ok(medido.medido, 'el panel lo levanta como medido')
-  t.is(medido.prefill, e1.tokensPrefill, 'y muestra los numeros del rastro, no otros')
+  t.ok(medido.medido, 'the panel flags it as measured')
+  t.is(medido.prefill, e1.tokensPrefill, 'and shows the trail\'s numbers, not other ones')
   t.is(medido.decode, e1.tokensDecode)
 
   store.clearUpstreams()
   gw.setUpstreams([])
 
-  // 2. Un mock no manda `usage`. Lo que queda es una estimacion del prompt y un
-  //    conteo de deltas: NO se puede dibujar igual que lo de arriba.
+  // 2. A mock does not send `usage`. What's left is a prompt estimate and a
+  //    delta count: it CANNOT be drawn the same as the above.
   const sinUsage = await pedir('POST', '/v1/chat/completions', {
     key: KEY,
     body: { model: 'facturas-ar', messages: [{ role: 'user', content: 'hola' }] }
@@ -3674,32 +3693,32 @@ test('FASE 9 visible: el rastro llega al panel con el split Y su procedencia', a
   const e2 = (await pedir('GET', '/v1/routing-log', { key: KEY })).json.log[0]
   const estimado = px.vistaDeConteo(e2)
   t.is(estimado.fuente, 'gateway')
-  t.absent(estimado.medido, 'un conteo de chunks de SSE no es una medicion')
+  t.absent(estimado.medido, 'an SSE chunk count is not a measurement')
 
   t.absent(
     px.htmlDeConteo(medido) === px.htmlDeConteo(estimado),
-    'y los dos rastros REALES no se dibujan igual'
+    'and the two REAL trails are not drawn the same'
   )
   t.ok(px.htmlDeConteo(estimado).indexOf('tono-estimado') !== -1)
   t.ok(px.htmlDeConteo(medido).indexOf('tono-medido') !== -1)
 
-  // D27 tambien viaja en el rastro: sin esto, un corte del cliente y una
-  // respuesta completa se ven identicos en el panel.
-  t.ok(e2.finishReason, 'el rastro declara como termino: ' + e2.finishReason)
-  t.ok(px.textoDeFinishReason(e2.finishReason).length > 0, 'y el panel lo dice en palabras')
+  // D27 also travels in the trail: without this, a client cutoff and a
+  // complete response look identical in the panel.
+  t.ok(e2.finishReason, 'the trail declares how it finished: ' + e2.finishReason)
+  t.ok(px.textoDeFinishReason(e2.finishReason).length > 0, 'and the panel says it in words')
 })
 
-test('FASE 9 visible: los paneles servidos LLEVAN el codigo que dibuja todo esto', async (t) => {
+test('PHASE 9 visible: the served panels CARRY the code that draws all of this', async (t) => {
   const px = await import('../qvac/panel-x402.mjs')
 
-  // El grep que abrio este trabajo: `receipts`, `attestation`, `x402`, `402`,
-  // `tokensPrefill`, `tokensDecode`, `tokensFuente`, `finishReason` y
-  // `outputHash` daban CERO sobre pages.mjs. Los cuatro artefactos se servian
-  // por HTTP y solo se veian con curl.
+  // The grep that opened this work: `receipts`, `attestation`, `x402`,
+  // `402`, `tokensPrefill`, `tokensDecode`, `tokensFuente`, `finishReason`
+  // and `outputHash` all gave ZERO hits over pages.mjs. The four artifacts
+  // got served over HTTP and could only be seen with curl.
   //
-  // Se mira el HTML SERVIDO y no el modulo: entre los dos hay una interpolacion
-  // que puede quedar afuera sin que nada falle, y el panel se serviria igual --
-  // completo, y sin nada de la Fase 9 adentro.
+  // The SERVED HTML gets checked, not the module: between the two there's
+  // an interpolation that can get left out without anything failing, and
+  // the panel would keep serving fine -- complete, and with none of Phase 9 inside.
   const chat = await pedir('GET', '/')
   const node = await pedir('GET', '/node')
   const admin = await pedir('GET', '/admin')
@@ -3712,59 +3731,60 @@ test('FASE 9 visible: los paneles servidos LLEVAN el codigo que dibuja todo esto
   ]) {
     t.ok(
       p.body.indexOf(px.FUENTE_EMBEBIDA) !== -1,
-      nombre + ' lleva embebido el codigo de panel-x402.mjs, entero'
+      nombre + ' carries panel-x402.mjs\'s code embedded, whole'
     )
   }
 
-  // Y que ese codigo este CONECTADO a algo, que es lo que el HTML servido puede
-  // demostrar y el modulo solo no: pegarlo sin llamarlo seria pasar este test
-  // con los paneles igual de ciegos que antes.
+  // And that that code is CONNECTED to something, which is what the served
+  // HTML can prove and the module alone can't: pasting it without calling
+  // it would pass this test with the panels just as blind as before.
   //
-  // Se busca cada LUGAR DE LLAMADA y no el nombre de la funcion pelado, y la
-  // diferencia no es cosmetica: `FUENTE_EMBEBIDA` contiene las definiciones, o
-  // sea que un `indexOf('htmlDeDesafio(')` da positivo aunque nadie la llame
-  // nunca. Un test que se satisface con la definicion no vigila el cable.
+  // Each CALL SITE is looked for and not the bare function name, and the
+  // difference isn't cosmetic: `FUENTE_EMBEBIDA` contains the definitions,
+  // meaning an `indexOf('htmlDeDesafio(')` gives a positive even if nobody
+  // ever calls it. A test satisfied by the definition isn't watching the wire.
   //
-  // EL LIMITE, dicho: esto comprueba que el cable existe en el HTML servido, no
-  // que el navegador lo ejecute. Lo que corre de verdad son las funciones, y eso
-  // lo prueba la suite unitaria contra la MISMA fuente que se embebe aca. Un
-  // browser headless seria la unica forma de cerrar el ultimo tramo y no entra
-  // en este arbol.
-  t.ok(chat.body.indexOf('htmlDeDesafio(m.x402)') !== -1, 'el chat dibuja el 402 del turno')
-  t.ok(chat.body.indexOf('htmlDeRecibo(m.recibo,') !== -1, 'y el recibo con su atestacion')
-  t.ok(chat.body.indexOf('slot.recibo = ev') !== -1, 'guardando el evento SSE final de D12')
+  // THE LIMIT, stated: this checks that the wire exists in the served
+  // HTML, not that the browser executes it. What actually runs are the
+  // functions, and that's what the unit suite tests against the SAME
+  // source embedded here. A headless browser would be the only way to
+  // close the last stretch and it isn't in this tree.
+  t.ok(chat.body.indexOf('htmlDeDesafio(m.x402)') !== -1, 'the chat draws the turn\'s 402')
+  t.ok(chat.body.indexOf('htmlDeRecibo(m.recibo,') !== -1, 'and the receipt with its attestation')
+  t.ok(chat.body.indexOf('slot.recibo = ev') !== -1, 'storing D12\'s final SSE event')
   t.ok(
     chat.body.indexOf('vistaDeDesafio(b)') !== -1,
-    'y leyendo el cuerpo del 402 en vez de aplanarlo'
+    'and reading the 402\'s body instead of flattening it'
   )
   t.ok(
     node.body.indexOf('htmlDeRecibo(await r.json(), ctx)') !== -1,
-    '/node dibuja el recibo que busca'
+    '/node draws the receipt it looks up'
   )
-  t.ok(node.body.indexOf('htmlDeConteo(vistaDeConteo(e))') !== -1, '/node pinta el split de D25')
-  t.ok(admin.body.indexOf('htmlDeConteo(vistaDeConteo(e))') !== -1, 'y el log de admin tambien')
+  t.ok(node.body.indexOf('htmlDeConteo(vistaDeConteo(e))') !== -1, '/node paints D25\'s split')
+  t.ok(admin.body.indexOf('htmlDeConteo(vistaDeConteo(e))') !== -1, 'and admin\'s log too')
 
-  // Y esta, que es una propiedad y no un detalle: `GET /v1/receipts/:id` es la
-  // UNICA ruta que no pide credencial, porque quien pago por 402 no tiene
-  // ninguna -- ese es todo el punto del 402. Si el panel la pidiera con
-  // `authFetch`, esconderia esa propiedad detras de un header que no hace falta,
-  // y el dia que alguien copie el patron el gate se le colaria a la ruta.
+  // And this one, which is a property and not a detail: `GET
+  // /v1/receipts/:id` is the ONLY route that does not ask for a
+  // credential, because whoever paid via 402 has none -- that's the
+  // entire point of the 402. If the panel requested it with `authFetch`,
+  // it would hide that property behind a header that isn't needed, and the
+  // day someone copies the pattern the gate would sneak into the route.
   t.ok(
     node.body.indexOf("await fetch('/v1/receipts/") !== -1,
-    '/node busca el recibo SIN credencial, que es la excepcion deliberada a B12'
+    '/node looks up the receipt WITHOUT a credential, which is the deliberate exception to B12'
   )
 
-  // Regla 5: el costo del header es el TECHO estimado -- con SSE los headers
-  // salen antes del primer token --, y el chat ya lo decia bien con "up to
-  // USD ..." / "no charge". Lo que cambia es que ahora esa regla vive en UN solo
-  // lugar, con las vistas nuevas: dos implementaciones de la misma frase es como
-  // una de las dos se afloja sin que nadie se entere.
+  // Rule 5: the header's cost is the estimated CEILING -- with SSE the
+  // headers go out before the first token --, and the chat already said it
+  // correctly with "up to USD ..." / "no charge". What changes is that now
+  // that rule lives in ONE single place, with the new views: two
+  // implementations of the same rule is how one of the two drifts without anyone noticing.
   t.ok(
     chat.body.indexOf('textoDeCostoEstimado(m.cost)') !== -1,
-    'el costo del turno usa la misma regla que las vistas nuevas'
+    'the turn\'s cost uses the same rule as the new views'
   )
 
-  // Los nueve terminos del grep, ahora en el HTML que se sirve.
+  // The grep's nine terms, now in the served HTML.
   const terminos = [
     'attestation',
     'x402',
@@ -3776,41 +3796,44 @@ test('FASE 9 visible: los paneles servidos LLEVAN el codigo que dibuja todo esto
     'outputHash'
   ]
   for (const term of terminos) {
-    t.ok(chat.body.indexOf(term) !== -1, 'el chat menciona ' + term)
-    t.ok(node.body.indexOf(term) !== -1, '/node menciona ' + term)
+    t.ok(chat.body.indexOf(term) !== -1, 'the chat mentions ' + term)
+    t.ok(node.body.indexOf(term) !== -1, '/node mentions ' + term)
   }
-  t.ok(node.body.indexOf('receipts') !== -1, '/node menciona receipts')
+  t.ok(node.body.indexOf('receipts') !== -1, '/node mentions receipts')
 })
 
-test('D30.4: los errores del facilitator sobreviven al CLIENTE OFICIAL, no solo a un curl', async (t) => {
-  // POR QUE ESTE TEST EXISTE, Y POR QUE MIRA CON OTRO CLIENTE.
+test('D30.4: the facilitator\'s errors survive the OFFICIAL CLIENT, not just a curl', async (t) => {
+  // WHY THIS TEST EXISTS, AND WHY IT CHECKS WITH ANOTHER CLIENT.
   //
-  // El test de arriba comprueba el JSON crudo con `pedirle`, que es un cliente
-  // escrito a mano. Eso alcanza para ver que hay un cuerpo, y NO alcanza para
-  // ver si ese cuerpo sirve: `@x402/core` parsea toda respuesta 200 contra un
-  // schema de zod, y ahi se pierden cosas que en el crudo se ven perfectas.
+  // The test above checks the raw JSON with `pedirle`, which is a
+  // hand-written client. That's enough to see there's a body, and NOT
+  // enough to see whether that body works: `@x402/core` parses every 200
+  // response against a zod schema, and things that look perfect in the raw
+  // response get lost there.
   //
-  // Pasaba de verdad, en las dos rutas y de dos formas distintas:
+  // It genuinely happened, on both routes and in two different ways:
   //
-  //   /verify  el cuerpo llevaba `errorReason`/`errorMessage` -- los nombres de
-  //            SETTLE --, zod los DESCARTA sin quejarse, y el gateway recibia
-  //            `{isValid:false}` pelado. El motivo no se perdia en la red: se
-  //            perdia en el parseo, que es peor porque no hace ruido.
-  //   /settle  el cuerpo no llevaba `transaction` ni `network`, que el schema
-  //            exige como string aunque la liquidacion haya fallado. Zod
-  //            rechazaba la respuesta ENTERA y el cliente tiraba
-  //            `FacilitatorResponseError`, con el motivo real anidado adentro
-  //            del texto de otra excepcion.
+  //   /verify  the body carried `errorReason`/`errorMessage` -- SETTLE's
+  //            names --, zod DROPS them without complaining, and the
+  //            gateway received a bare `{isValid:false}`. The reason
+  //            wasn't lost over the network: it was lost in parsing, which
+  //            is worse because it makes no noise.
+  //   /settle  the body didn't carry `transaction` or `network`, which the
+  //            schema requires as a string even when settlement failed.
+  //            Zod rejected the WHOLE response and the client threw
+  //            `FacilitatorResponseError`, with the real reason nested
+  //            inside another exception's text.
   //
-  // Las dos rompian lo unico que el bloque de errores del facilitator existe
-  // para sostener: del otro lado hay un gateway que YA sirvio los tokens -- D12
-  // liquida DESPUES -- y que tiene que poder registrar POR QUE no cobro. Ese
-  // campo termina en el recibo, en el panel, y es lo que la Fase 10 va a leer
-  // para decidir si un fallo se reintenta, se descarta, o acusa a alguien.
+  // Both broke the one thing the facilitator's error block exists to
+  // support: on the other side there's a gateway that ALREADY served the
+  // tokens -- D12 settles AFTERWARD -- and that has to be able to record
+  // WHY it didn't get paid. That field ends up in the receipt, in the
+  // panel, and is what Phase 10 will read to decide whether a failure gets
+  // retried, discarded, or blamed on someone.
   //
-  // Por eso el test usa `HTTPFacilitatorClient`: es EL MISMO cliente que usa
-  // `x402.liquidar()` en produccion. Un test que valida contra un cliente que no
-  // es el que corre es exactamente el agujero que dejo pasar esto.
+  // That's why the test uses `HTTPFacilitatorClient`: it's THE SAME client
+  // `x402.liquidar()` uses in production. A test that validates against a
+  // client other than the one that actually runs is exactly the hole that let this through.
   const base = 'http://127.0.0.1:' + (PUERTO_FACILITATOR_REAL + 2)
   const f = correrFacilitator({
     PYRUS_FACILITATOR_CLAVE: CLAVE_DE_PRUEBA,
@@ -3825,9 +3848,9 @@ test('D30.4: los errores del facilitator sobreviven al CLIENTE OFICIAL, no solo 
     const { HTTPFacilitatorClient } = await import('@x402/core/http')
     const cliente = new HTTPFacilitatorClient({ url: base })
 
-    // Un pago de LA RED CORRECTA -- asi pasa el guardia de red y llega adentro
-    // -- pero incompleto, que es lo que hace reventar al facilitator y lleva al
-    // camino de error. No hace falta tocar la cadena para provocarlo.
+    // A payment from THE CORRECT NETWORK -- so it passes the network guard
+    // and gets in -- but incomplete, which is what makes the facilitator
+    // blow up and hits the error path. No need to touch the chain to trigger it.
     const pago = { x402Version: 2, scheme: 'exact', network: 'eip155:9746', payload: {} }
     const requisitos = {
       scheme: 'exact',
@@ -3843,9 +3866,9 @@ test('D30.4: los errores del facilitator sobreviven al CLIENTE OFICIAL, no solo 
     }
 
     const v = await cliente.verify(pago, requisitos)
-    t.absent(v.isValid, 'no da por valido lo que no pudo procesar')
-    t.is(v.invalidReason, 'facilitator_error', 'y el MOTIVO llega al cliente')
-    t.ok(v.invalidMessage, 'con el detalle adentro: ' + v.invalidMessage)
+    t.absent(v.isValid, 'it does not treat as valid what it could not process')
+    t.is(v.invalidReason, 'facilitator_error', 'and the REASON reaches the client')
+    t.ok(v.invalidMessage, 'with the detail inside: ' + v.invalidMessage)
 
     // This is the one that used to throw. Caught on purpose instead of
     // letting it break the run: a throw here reads as "the test is broken"
@@ -3860,65 +3883,68 @@ test('D30.4: los errores del facilitator sobreviven al CLIENTE OFICIAL, no solo 
     }
     t.absent(
       tiro,
-      'settle no puede tirar: el cliente tiene que poder LEER el fallo. ' +
+      'settle cannot throw: the client has to be able to READ the failure. ' +
         ((tiro && tiro.name + ': ' + tiro.message.slice(0, 160)) || '')
     )
-    t.absent(s && s.success, 'no dice que cobro')
-    t.is(s && s.errorReason, 'facilitator_error', 'y el motivo llega')
-    t.ok(s && s.errorMessage, 'con el detalle: ' + (s && s.errorMessage))
-    // Los dos campos que el schema exige aunque no haya transaccion. Sin ellos
-    // se descarta TODO lo de arriba.
-    t.is(typeof (s && s.transaction), 'string', 'transaction presente aunque vacio')
-    t.is(s && s.network, 'eip155:9746', 'y la red del PAGO, que es la que sirve para debuggear')
+    t.absent(s && s.success, 'it does not say it got paid')
+    t.is(s && s.errorReason, 'facilitator_error', 'and the reason arrives')
+    t.ok(s && s.errorMessage, 'with the detail: ' + (s && s.errorMessage))
+    // The two fields the schema requires even when there is no
+    // transaction. Without them EVERYTHING above gets discarded.
+    t.is(typeof (s && s.transaction), 'string', 'transaction present even if empty')
+    t.is(s && s.network, 'eip155:9746', 'and the PAYMENT\'s network, which is what\'s useful for debugging')
   } finally {
     f.matar()
   }
 })
 
-test('cierra el facilitator falso', async (t) => {
+test('closes the fake facilitator', async (t) => {
   if (servidorFacilitator) servidorFacilitator.close()
-  t.pass('apagado')
+  t.pass('shut down')
 })
 
-test('cierra el proveedor externo de prueba', async (t) => {
+test('closes the test external provider', async (t) => {
   if (servidorExterno) servidorExterno.close()
-  t.pass('apagado')
+  t.pass('shut down')
 })
 
-test('cierra el gateway sin dejar el puerto tomado', async (t) => {
+test('closes the gateway without leaving the port taken', async (t) => {
   const { shutdownGateway } = await import('../qvac/gateway.mjs')
   await shutdownGateway()
   if (server) server.close()
-  t.pass('apagado ordenado')
+  t.pass('orderly shutdown')
 })
 
 // ---------------------------------------------------------------------------
-// D30.4 / D14(b) — EL FACILITATOR SELF-HOSTED
+// D30.4 / D14(b) — THE SELF-HOSTED FACILITATOR
 //
-// D14 habia elegido el hosted de Semantic "hasta la Fase 10". D30 lo adelanto
-// por dos hechos: el hosted devolvia 500/503 en TODOS sus endpoints el
-// 2026-08-27, y no soporta 9746 -- ni va a conocer un token que desplegamos
-// nosotros. Sin facilitator no hay settlement, asi que sin esto la Fase 10 se
-// puede escribir pero no demostrar.
+// D14 had chosen Semantic's hosted one "until Phase 10". D30 moved it up
+// because of two facts: the hosted one was returning 500/503 on ALL its
+// endpoints on 2026-08-27, and it doesn't support 9746 -- nor will it ever
+// know a token we deployed ourselves. Without a facilitator there is no
+// settlement, so without this Phase 10 can be written but not demonstrated.
 //
-// ESTO NO SALE A INTERNET, y no es por suerte: los tres endpoints que se prueban
-// (`/supported`, y los dos rechazos) se contestan SIN tocar la cadena. El RPC
-// que se le pasa apunta a un puerto donde no hay nada, a proposito -- si alguna
-// de estas respuestas necesitara la red, el test colgaria y eso seria la senal.
+// THIS DOES NOT REACH THE INTERNET, and not by luck: the three endpoints
+// under test (`/supported`, and the two rejections) get answered WITHOUT
+// touching the chain. The RPC it's given points at a port where there's
+// nothing, on purpose -- if any of these responses needed the network, the
+// test would hang and that would be the signal.
 //
-// Corre en un proceso NODE aparte porque el facilitator es Node y no Bare. Eso
-// tambien es parte de lo que se prueba: que sea un servicio separado es
-// exactamente por que no viola D11 (ver el encabezado de scripts/facilitator.js).
+// It runs in a separate NODE process because the facilitator is Node, not
+// Bare. That's also part of what's being tested: that it's a separate
+// service is exactly why it doesn't violate D11 (see the header of
+// scripts/facilitator.js).
 // ---------------------------------------------------------------------------
 
-// 8894 y 8895. NO 8897: ese es el del facilitator FALSO de mas arriba, y aunque
-// para entonces ya este cerrado, apoyarse en el orden de los tests para que dos
-// servidores no choquen es una intermitencia esperando a que alguien reordene.
+// 8894 and 8895. NOT 8897: that's the FAKE facilitator's from above, and
+// even though it's already closed by then, relying on test order so two
+// servers don't collide is an intermittent failure waiting for someone to
+// reorder them.
 let PUERTO_FACILITATOR_REAL = 8894
 
-// Una clave de prueba conocida y publica (la #2 de anvil). NUNCA se fondea, y
-// aca ni siquiera firma nada: solo hace falta para que el signer tenga una
-// direccion que poner en `/supported`.
+// A well-known public test key (anvil's #2). NEVER funded, and here it
+// doesn't even sign anything: it's only needed so the signer has an
+// address to put in `/supported`.
 const CLAVE_DE_PRUEBA = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
 
 function correrFacilitator(env) {
@@ -3943,9 +3969,9 @@ function correrFacilitator(env) {
   return {
     hijo,
     salida: () => salida,
-    // Se espera a que DIGA que esta escuchando en vez de dormir un rato fijo:
-    // un sleep que alcanza en esta maquina no alcanza en la de al lado, y el
-    // test se vuelve intermitente en vez de romperse.
+    // It waits for it to SAY it's listening instead of sleeping a fixed
+    // while: a sleep that's enough on this machine isn't enough on the one
+    // next to it, and the test becomes flaky instead of failing outright.
     async listo(marca, ms = 20000) {
       const hasta = Date.now() + ms
       while (Date.now() < hasta) {
@@ -3991,107 +4017,110 @@ function pedirle(url, metodo, cuerpo) {
   })
 }
 
-test('D30.4: el facilitator self-hosted levanta y declara 9746, que ninguno hosted conoce', async (t) => {
+test('D30.4: the self-hosted facilitator comes up and declares 9746, which no hosted one knows', async (t) => {
   const base = 'http://127.0.0.1:' + PUERTO_FACILITATOR_REAL
   const f = correrFacilitator({
     PYRUS_FACILITATOR_CLAVE: CLAVE_DE_PRUEBA,
     PYRUS_FACILITATOR_PUERTO: String(PUERTO_FACILITATOR_REAL),
     PYRUS_FACILITATOR_CHAINID: '9746',
-    // Un RPC que NO existe. Ver el encabezado: si algo de lo que se prueba
-    // necesitara la cadena, esto lo delata en vez de esconderlo.
+    // An RPC that does NOT exist. See the header: if anything under test
+    // needed the chain, this exposes it instead of hiding it.
     PYRUS_FACILITATOR_RPC: 'http://127.0.0.1:1/no-existe'
   })
 
   try {
-    t.ok(await f.listo('facilitator  http://'), 'arranco: ' + f.salida().slice(0, 200))
+    t.ok(await f.listo('facilitator  http://'), 'started: ' + f.salida().slice(0, 200))
 
     const sup = await pedirle(base + '/supported', 'GET')
-    t.is(sup.status, 200, 'GET /supported contesta 200 -- que es lo que el hosted NO hacia')
+    t.is(sup.status, 200, 'GET /supported answers 200 -- which the hosted one did NOT')
 
     const kinds = (sup.json && sup.json.kinds) || []
     t.ok(
       kinds.some((k) => k.network === 'eip155:9746' && k.scheme === 'exact'),
-      'y declara eip155:9746 con esquema exact: ' + JSON.stringify(kinds)
+      'and it declares eip155:9746 with an exact scheme: ' + JSON.stringify(kinds)
     )
 
-    // LO QUE ANUNCIA TIENE QUE SER LO QUE PUEDE CUMPLIR.
+    // WHAT IT ANNOUNCES HAS TO BE WHAT IT CAN ACTUALLY DELIVER.
     //
-    // `registerExactEvmScheme` no registra solo lo que se le pide: adentro llama
-    // a `registerV1` con su propia lista de fabrica, que trae `ethereum`, `base`
-    // y demas. Un `/supported` crudo anunciaria MAINNETS que este proceso no
-    // puede servir -- el signer y el RPC estan en 9746 -- y que D30 dice que no
-    // se tocan. Alguien lee eso, manda un pago, y nadie lo liquida.
+    // `registerExactEvmScheme` doesn't register only what it's asked for:
+    // internally it calls `registerV1` with its own factory list, which
+    // brings `ethereum`, `base` and others. A raw `/supported` would
+    // announce MAINNETS this process can't serve -- the signer and the RPC
+    // are on 9746 -- and that D30 says don't get touched. Someone reads
+    // that, sends a payment, and nobody settles it.
     t.is(
       kinds.filter((k) => k.network !== 'eip155:9746').length,
       0,
-      'y NADA MAS: no anuncia una sola red que no pueda servir'
+      'and NOTHING ELSE: it does not announce a single network it can\'t serve'
     )
     t.absent(
       JSON.stringify(kinds).indexOf('ethereum') !== -1,
-      'en particular, ninguna mainnet de la lista de fabrica'
+      'in particular, no mainnet from the factory list'
     )
 
-    // El nodo lo apunta con la MISMA variable con la que apunta al hosted, asi
-    // que cambiar de uno al otro es configuracion y no codigo (D14 -> D14(b)).
+    // The node points at it with the SAME variable it uses for the hosted
+    // one, so switching from one to the other is configuration, not code (D14 -> D14(b)).
     const x402 = await import('../qvac/x402.mjs')
-    t.is(x402.VAR_FACILITATOR, 'PYRUS_X402_FACILITATOR', 'se apunta sin tocar codigo')
+    t.is(x402.VAR_FACILITATOR, 'PYRUS_X402_FACILITATOR', 'it gets pointed without touching code')
 
-    // Un pago de OTRA red se rechaza ANTES de mirar la firma, y con motivo. Que
-    // el motivo diga las dos redes es lo que hace debuggeable un settlement que
-    // no ocurrio.
+    // A payment from ANOTHER network gets rejected BEFORE looking at the
+    // signature, and with a reason. That the reason names both networks is
+    // what makes a settlement that never happened debuggable.
     const otraRed = await pedirle(base + '/settle', 'POST', {
       paymentPayload: { x402Version: 2, scheme: 'exact', network: 'eip155:9745', payload: {} },
       paymentRequirements: { network: 'eip155:9745' }
     })
     t.is(otraRed.status, 200)
-    t.absent(otraRed.json && otraRed.json.success, 'un pago de mainnet no se liquida aca')
+    t.absent(otraRed.json && otraRed.json.success, 'a mainnet payment does not settle here')
     t.is(otraRed.json && otraRed.json.errorReason, 'unsupported_network')
     t.ok(
       String(otraRed.json.errorMessage).indexOf('eip155:9746') !== -1,
-      'y el motivo nombra las dos redes: ' + otraRed.json.errorMessage
+      'and the reason names both networks: ' + otraRed.json.errorMessage
     )
 
-    // Y basura no tira un 500 pelado: del otro lado hay un gateway que YA sirvio
-    // los tokens (D12 liquida despues) y necesita poder registrar por que no se
-    // liquido. Un 500 sin cuerpo se convierte en "settlement_failed" sin motivo.
+    // And garbage does not throw a bare 500: on the other side there's a
+    // gateway that ALREADY served the tokens (D12 settles afterward) and
+    // needs to be able to record why it didn't settle. A bodyless 500
+    // turns into "settlement_failed" with no reason.
     //
-    // El nombre del campo NO es indistinto, y este assert pedia el equivocado:
-    // `/verify` habla `invalidReason`/`invalidMessage` y `/settle` habla
-    // `errorReason`/`errorMessage`. Pedir `errorMessage` en una respuesta de
-    // verify pasaba mirando el JSON crudo y fallaba donde importa, porque el
-    // schema de `@x402/core` descarta las claves de la otra ruta sin quejarse.
-    // Eso se ve con el cliente oficial, no con esto -- ver el test de abajo.
+    // The field's name is NOT interchangeable, and this assert used to ask
+    // for the wrong one: `/verify` speaks `invalidReason`/`invalidMessage`
+    // and `/settle` speaks `errorReason`/`errorMessage`. Asking for
+    // `errorMessage` on a verify response passed when looking at the raw
+    // JSON and failed where it matters, because `@x402/core`'s schema
+    // drops the other route's keys without complaining. That shows up with
+    // the official client, not with this -- see the test below.
     const basura = await pedirle(base + '/verify', 'POST', '{no soy json')
-    t.is(basura.status, 200, 'contesta estructurado, no un 500 pelado')
-    t.absent(basura.json && basura.json.isValid, 'y no da por valido lo que no pudo leer')
+    t.is(basura.status, 200, 'it answers structured, not a bare 500')
+    t.absent(basura.json && basura.json.isValid, 'and it does not treat as valid what it could not read')
     t.ok(
       basura.json && basura.json.invalidMessage,
-      'con el motivo adentro, en el campo que verify declara: ' + basura.crudo.slice(0, 120)
+      'with the reason inside, in the field verify declares: ' + basura.crudo.slice(0, 120)
     )
   } finally {
     f.matar()
   }
 })
 
-test('D30.4: el facilitator NO se levanta contra mainnet, y no hay flag que lo saltee', async (t) => {
-  // Un facilitator es, literalmente, el componente que mueve valor: es el que
-  // difunde la transaccion. Si hay un solo lugar donde el guardia de D30 no
-  // puede faltar, es este.
+test('D30.4: the facilitator does NOT come up against mainnet, and there is no flag to skip it', async (t) => {
+  // A facilitator is, literally, the component that moves value: it's the
+  // one that broadcasts the transaction. If there's one single place where
+  // D30's guard cannot be missing, it's this one.
   const f = correrFacilitator({
     PYRUS_FACILITATOR_CLAVE: CLAVE_DE_PRUEBA,
     PYRUS_FACILITATOR_PUERTO: String(PUERTO_FACILITATOR_REAL + 1),
-    // 9745 es el default de D15, o sea el error mas facil de cometer.
+    // 9745 is D15's default, i.e. the easiest mistake to make.
     PYRUS_FACILITATOR_CHAINID: '9745',
     PYRUS_FACILITATOR_RPC: 'http://127.0.0.1:1/no-existe'
   })
 
   try {
     const arranco = await f.listo('facilitator  http://', 8000)
-    t.absent(arranco, 'no levanta contra 9745')
-    t.ok(f.salida().indexOf('MAINNET') !== -1, 'y dice por que: ' + f.salida().slice(0, 220))
+    t.absent(arranco, 'it does not come up against 9745')
+    t.ok(f.salida().indexOf('MAINNET') !== -1, 'and it says why: ' + f.salida().slice(0, 220))
     t.ok(
       f.salida().indexOf('D30') !== -1,
-      'nombrando la decision, para que se pueda discutir en vez de parchear'
+      'naming the decision, so it can be discussed instead of patched around'
     )
   } finally {
     f.matar()
