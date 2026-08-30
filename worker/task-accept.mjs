@@ -34,6 +34,7 @@ import { INLINE_CEILING } from '../orchestrator/mirror.mjs'
 import {
   TYPES,
   validateInbound,
+  timeoutsForAssignment,
   buildAccept,
   buildReject,
   buildProgress,
@@ -110,13 +111,25 @@ export function attachTaskAccept({
 }
 
 async function runAssignment({ msg, reply, store, gateway, apiKey, model, log }) {
+  // `deadline` made real: if the coordinator's ceiling has already passed by
+  // the time this runs (the assignment sat somewhere in transit), refuse
+  // before spending anything, instead of starting a harness with essentially
+  // no budget left. Otherwise the harness gets the TIGHTER of its own
+  // `limits` and what is left before the deadline — see
+  // timeoutsForAssignment's header for why the clamp lives there and not here.
+  const timeouts = timeoutsForAssignment(msg)
+  if (!timeouts) {
+    log(`${msg.ticketId}: deadline already passed on arrival — refusing ${msg.attemptId}`)
+    return reply(buildResult({ attemptId: msg.attemptId, ok: false, reason: 'timed-out' }))
+  }
+
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'pyrus-task-'))
 
   const harness = new Harness({
     maxSteps: msg.limits?.maxSteps || 10,
     maxTokens: msg.limits?.maxTokens || 8000,
-    toolTimeoutMs: msg.limits?.toolTimeoutMs || 600000,
-    taskTimeoutMs: msg.limits?.taskTimeoutMs || 1800000
+    toolTimeoutMs: timeouts.toolTimeoutMs,
+    taskTimeoutMs: timeouts.taskTimeoutMs
   })
 
   // Pull the context files the coordinator flagged. Sparse, by path, over the

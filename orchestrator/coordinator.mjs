@@ -31,11 +31,11 @@
 
 import fs from 'fs'
 import path from 'path'
-import { parseRequirements } from './split.mjs'
+import { parseRequirements, buildDAG, dependencyWaves } from './split.mjs'
 import { detectOverlap } from './index.mjs'
 import { runCI } from './ci.mjs'
 import { applyResult } from './mirror.mjs'
-import { openContext, publishContext } from './context-drive.mjs'
+import { openContext, publishContext, updateContext } from './context-drive.mjs'
 import { State, EVENTS } from './state.mjs'
 import {
   TYPES,
@@ -64,6 +64,11 @@ export class Coordinator {
     requirementFile = './requirements.md',
     model = null,
     limits = {},
+    // Per-ticket override for which context-drive paths are worth reading
+    // first: { [ticketId]: string[] }. Merged on top of the default derived
+    // in init() — see the comment there. A hint, not a limit: the worker may
+    // still open anything else in the drive.
+    contextHints = {},
     // Hex keys of the workers this run is configured to use. This is node
     // config (--worker on the CLI), not the signed manifest: the manifest
     // schema is frozen (manifest-v0.json, additionalProperties:false,
@@ -84,6 +89,7 @@ export class Coordinator {
     this.requirementFile = requirementFile
     this.model = model
     this.limits = limits
+    this.contextHints = contextHints
     this.workerKeys = workerKeys.map((k) => String(k).toLowerCase())
     this.now = now
     this.cfg = { ...DEFAULTS, ...opts }
@@ -100,7 +106,13 @@ export class Coordinator {
     console.log(`[coord] ${m}`)
   }
 
+  // Idempotent: run() always calls this, and a caller that wants to inspect
+  // or adjust `this.tickets` before run() (tests do; see contextHints) can
+  // call it once themselves first without run() undoing that by re-parsing
+  // and, worse, attaching a second task listener over the first.
   async init() {
+    if (this._detach) return
+
     fs.mkdirSync(this.storageDir, { recursive: true })
     fs.mkdirSync(this.workspace, { recursive: true })
 
@@ -116,6 +128,30 @@ export class Coordinator {
     if (clashes.length > 0) {
       const detail = clashes.map((c) => `${c.file} (${c.tickets.join(' and ')})`).join('; ')
       throw new Error(`two tickets declare the same file: ${detail}`)
+    }
+
+    // Validates `Depends on:` against the WHOLE ticket graph, once, here —
+    // not against whatever subset happens to be pending on a given run. A
+    // typo in a dependency id is a mistake in requirements.md; it has to fail
+    // loud on the run that introduces it, not resolve itself the day the
+    // typo'd ticket happens to already be done. `dependencyWaves()` in run()
+    // trusts this validation already ran and does not repeat it.
+    buildDAG(this.tickets)
+
+    // Default contextPaths: what a ticket declared its OWN dependencies
+    // produce. A worker can open anything in the context drive, but nothing
+    // tells it there is something worth reading unless a path is named — and
+    // "the files my declared dependency was allowed to write" is the one hint
+    // the coordinator can derive for free, no model or heuristics involved. An
+    // explicit `contextHints` entry replaces it outright, it does not merge.
+    const byId = new Map(this.tickets.map((t) => [t.id, t]))
+    for (const ticket of this.tickets) {
+      if (this.contextHints[ticket.id]) {
+        ticket.contextPaths = this.contextHints[ticket.id]
+        continue
+      }
+      const fromDeps = ticket.deps.flatMap((depId) => byId.get(depId)?.allowedFiles || [])
+      if (fromDeps.length > 0) ticket.contextPaths = fromDeps
     }
 
     // One inbound path for every task: message from a worker. Branch by type,
@@ -190,7 +226,18 @@ export class Coordinator {
       attempt: this.state.attemptsFor(ticket.id) + 1
     })
 
-    const deadline = this.now() + this.cfg.progressGraceMs * 3
+    // Derived from the SAME taskTimeoutMs advertised in `limits`, not from the
+    // progress watchdog: those are two different clocks. `progressGraceMs` is
+    // about a missing HEARTBEAT and can renew indefinitely as long as
+    // task:progress keeps arriving (armWatchdog() below); `deadline` is the
+    // one absolute ceiling on the whole attempt, and the worker actually reads
+    // it now (worker/task-accept.mjs, timeoutsForAssignment) to clamp its own
+    // harness. The +30s is headroom for the worker's own timeout to fire and
+    // its task:result to arrive BEFORE the coordinator's deadline lapses — in
+    // the normal case this never clamps anything on the worker's side; it only
+    // bites if the message sat in transit long enough to eat into the budget.
+    const taskTimeoutMs = this.limits.taskTimeoutMs || 1800000
+    const deadline = this.now() + taskTimeoutMs + 30000
     const assign = buildAssign({
       attemptId,
       ticketId: ticket.id,
@@ -384,23 +431,46 @@ export class Coordinator {
     this.context = await publishContext(this.store, this.workspace)
     this.log(`context drive ${this.context.key.slice(0, 12)}… (v${this.context.drive.version})`)
 
-    // Requirements.md declares no ordering here beyond `Depends on:`, and
-    // detectOverlap already guarantees every ticket's files are disjoint from
-    // every other's — the same invariant orchestrator/index.mjs relies on to
-    // run a batch in parallel with no merge step. Chunked by total capacity
-    // across the connected pool (one slot per `maxConcurrentTasks` a worker
-    // advertises, so a single worker willing to hold two tasks gets two): one
-    // round of `Promise.all` per chunk, spread round-robin, series across
-    // chunks — the same shape runBatch() uses on one machine, now over the
-    // wire.
+    // `Depends on:` IS respected here, by wave: nothing in wave N depends on
+    // anything else in wave N (dependencyWaves() guarantees that), so a wave's
+    // tickets run in parallel with no merge step — detectOverlap already
+    // guarantees their files are disjoint too. Waves run in series, and only
+    // a ticket already closed BEFORE this run (`doneIds`) counts as satisfied
+    // going in; a dependency this same run has not gotten to yet holds its
+    // dependents in a later wave.
+    const doneIds = new Set(this.state.done())
+    const waves = dependencyWaves(todo, { doneIds })
+    this.log(`${waves.length} wave(s): ${waves.map((w) => w.length).join(', ')}`)
+
+    // Chunked by total capacity across the connected pool (one slot per
+    // `maxConcurrentTasks` a worker advertises, so a single worker willing to
+    // hold two tasks gets two): one round of `Promise.all` per chunk, spread
+    // round-robin, series across chunks — the same shape runBatch() uses on
+    // one machine, now over the wire, nested one level inside the wave loop.
     const pool = this.workers()
     const slots = pool.flatMap((w) => Array(Math.max(1, w.maxConcurrentTasks)).fill(w))
     if (slots.length === 0) {
       this.log('no worker advertises acceptsTasks — nothing can be placed this run')
     } else {
-      for (let i = 0; i < todo.length; i += slots.length) {
-        const group = todo.slice(i, i + slots.length)
-        await Promise.all(group.map((ticket, j) => this._placeTicket(ticket, slots, j)))
+      for (let w = 0; w < waves.length; w++) {
+        const wave = waves[w]
+
+        // A later wave's tickets may need to read a file an earlier wave just
+        // wrote. Re-publish before assigning anything in this wave; without
+        // it, a worker here would still see the tree as it stood at the top
+        // of the run, dependency or not.
+        if (w > 0) {
+          const changed = await updateContext(this.context.drive, this.workspace)
+          this.log(
+            `context drive updated for wave ${w + 1}/${waves.length}` +
+              ` (${changed} file(s) changed, v${this.context.drive.version})`
+          )
+        }
+
+        for (let i = 0; i < wave.length; i += slots.length) {
+          const group = wave.slice(i, i + slots.length)
+          await Promise.all(group.map((ticket, j) => this._placeTicket(ticket, slots, j)))
+        }
       }
     }
 

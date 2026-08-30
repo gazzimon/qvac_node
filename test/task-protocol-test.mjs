@@ -14,9 +14,11 @@ import {
   buildReject,
   buildProgress,
   buildResult,
-  validateInbound
+  validateInbound,
+  timeoutsForAssignment
 } from '../orchestrator/task-protocol.mjs'
 import { hashContent } from '../orchestrator/hash.mjs'
+import { Harness } from '../orchestrator/harness.mjs'
 
 let ok = 0
 let bad = 0
@@ -142,6 +144,68 @@ check('validateInbound ignores an unknown task type without throwing', () => {
   const v = validateInbound({ type: 'task:teleport', protocol: TASK_PROTOCOL, attemptId: 'a' })
   assert.equal(v.ok, false)
   assert.equal(v.reason, 'unknown-task-type')
+})
+
+check('timeoutsForAssignment falls back to limits when there is no deadline', () => {
+  const t = timeoutsForAssignment({ limits: { taskTimeoutMs: 90000, toolTimeoutMs: 30000 } })
+  assert.deepEqual(t, { taskTimeoutMs: 90000, toolTimeoutMs: 30000 })
+})
+
+check('timeoutsForAssignment does not tighten anything when the deadline is generous', () => {
+  const now = 1000
+  const t = timeoutsForAssignment(
+    { limits: { taskTimeoutMs: 90000, toolTimeoutMs: 30000 }, deadline: now + 10 * 90000 },
+    { now }
+  )
+  assert.deepEqual(t, { taskTimeoutMs: 90000, toolTimeoutMs: 30000 })
+})
+
+check('timeoutsForAssignment clamps taskTimeoutMs to whatever is actually left', () => {
+  const now = 1000
+  const t = timeoutsForAssignment(
+    { limits: { taskTimeoutMs: 90000, toolTimeoutMs: 30000 }, deadline: now + 20000 },
+    { now }
+  )
+  assert.equal(t.taskTimeoutMs, 20000)
+  // toolTimeoutMs must stay strictly under the clamped taskTimeoutMs, or a
+  // Harness built from this would refuse to construct at all.
+  assert.ok(t.toolTimeoutMs < t.taskTimeoutMs)
+})
+
+check('timeoutsForAssignment returns null once the deadline has already passed', () => {
+  const now = 5000
+  assert.equal(timeoutsForAssignment({ limits: {}, deadline: now - 1 }, { now }), null)
+  assert.equal(timeoutsForAssignment({ limits: {}, deadline: now }, { now }), null)
+})
+
+check('timeoutsForAssignment keeps toolTimeoutMs strictly below a razor-thin taskTimeoutMs', () => {
+  // Only ~500ms of real budget left — small enough that a naive fixed floor
+  // for toolTimeoutMs (e.g. 1000ms) would land AT OR OVER taskTimeoutMs and
+  // make the Harness this feeds refuse to construct at all.
+  const t = timeoutsForAssignment({ limits: {}, deadline: 1500 }, { now: 1000 })
+  assert.equal(t.taskTimeoutMs, 500)
+  assert.ok(t.toolTimeoutMs < t.taskTimeoutMs, `${t.toolTimeoutMs} must be < ${t.taskTimeoutMs}`)
+  assert.ok(t.toolTimeoutMs >= 1)
+})
+
+check('a sub-2ms remaining budget is treated as already expired, not as a degenerate schedule', () => {
+  assert.equal(timeoutsForAssignment({ limits: {}, deadline: 1 }, { now: 0 }), null)
+})
+
+check('deadline: 0 is the documented sentinel for "no deadline", not "already expired"', () => {
+  // buildAssign() defaults to 0 for exactly this reason — 0 must mean unset,
+  // never a real Unix-ms timestamp in the past.
+  const t = timeoutsForAssignment({ limits: {}, deadline: 0 }, { now: 0 })
+  assert.notEqual(t, null)
+})
+
+check('every timeoutsForAssignment output actually builds a Harness, across a sweep of tight deadlines', () => {
+  for (let remaining = 2; remaining <= 5000; remaining += 137) {
+    const t = timeoutsForAssignment({ limits: {}, deadline: remaining }, { now: 0 })
+    assert.ok(t, `remaining=${remaining} should still be schedulable`)
+    // Must not throw — this IS the check.
+    new Harness({ ...t, maxSteps: 1, maxTokens: 1 })
+  }
 })
 
 console.log(`\n${ok} ok, ${bad} failed`)

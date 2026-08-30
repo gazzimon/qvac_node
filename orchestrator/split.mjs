@@ -117,6 +117,67 @@ export function buildDAG(tickets) {
   return { ready, waiting }
 }
 
+// A dependency-safe schedule: an array of WAVES, each wave an array of
+// tickets whose dependencies are all satisfied by an EARLIER wave. Every
+// ticket in one wave can run in parallel with every other ticket in that same
+// wave; the caller must not start wave N+1 until wave N's tickets are done.
+//
+// WHY THIS IS NOT JUST buildDAG(tickets).ready CHUNKED BY WINDOW SIZE
+//
+// `buildDAG().ready` is a flat topological ORDER, not a level structure: it
+// guarantees a dependency appears somewhere earlier in the array than its
+// dependent, nothing more. Slicing that flat array into fixed-size windows (as
+// `assignTickets` does, for the single-machine case) can put a ticket in the
+// SAME window as its own dependency if they happen to land on the same side of
+// a window boundary — the window is picked by position count, not by whether
+// everything in it is actually independent. On one machine the two tickets
+// still run as separate child processes and the race is at least contained to
+// one disk; across machines it means a worker reading the coordinator's
+// context drive before the file it depends on was ever written to it. Real
+// levels close that: nothing in wave N can depend on anything in wave N, by
+// construction.
+//
+// `doneIds` lets the caller pass a SUBSET of tickets (the still-pending ones —
+// a cron's second run, say) without every already-closed dependency being
+// mistaken for a typo: a dep missing from `tickets` is either in `doneIds`
+// (fine, it already happened) or was never a valid id (buildDAG already
+// throws on that, against the FULL ticket list, before this is ever called).
+export function dependencyWaves(tickets, { doneIds = new Set() } = {}) {
+  if (!Array.isArray(tickets)) {
+    throw new Error('dependencyWaves: expects an array of tickets')
+  }
+
+  const byId = new Map(tickets.map((t) => [t.id, t]))
+  const level = new Map()
+  const visiting = new Set()
+
+  function levelOf(id) {
+    if (doneIds.has(id)) return -1 // closed in an earlier run — contributes nothing to a wave
+    if (level.has(id)) return level.get(id)
+    const ticket = byId.get(id)
+    if (!ticket) return -1 // not in this batch and not marked done: already closed, same as above
+    if (visiting.has(id)) {
+      throw new Error(`circular dependency involving ticket ${id}`)
+    }
+
+    visiting.add(id)
+    const lv = ticket.deps.length === 0 ? 0 : 1 + Math.max(...ticket.deps.map(levelOf))
+    visiting.delete(id)
+
+    level.set(id, lv)
+    return lv
+  }
+
+  for (const ticket of tickets) levelOf(ticket.id)
+
+  const maxLevel = tickets.length === 0 ? -1 : Math.max(...tickets.map((t) => level.get(t.id)))
+  const waves = []
+  for (let l = 0; l <= maxLevel; l++) {
+    waves.push(tickets.filter((t) => level.get(t.id) === l))
+  }
+  return waves
+}
+
 export function assignTickets(dag, numWorkers) {
   if (numWorkers < 1) throw new Error('numWorkers must be >= 1')
 

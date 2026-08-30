@@ -166,6 +166,31 @@ What actually happens on a ticket:
   to the run log **before** the mirror, so a coordinator that dies between
   accepting a result and closing the ticket resumes from the log on restart —
   the inference is not paid for twice.
+- **`Depends on:` is respected across machines.** `split.mjs`'s
+  `dependencyWaves()` turns the pending tickets into real dependency LEVELS —
+  not the flat topological order `buildDAG().ready` gives, chunked by a fixed
+  worker-count window the way the single-machine `runBatch()` does. That
+  distinction matters here specifically: chunking a flat order by window size
+  does not guarantee two tickets in the same window are mutually independent,
+  only that the whole list is globally ordered. A wave does guarantee it, by
+  construction. `Coordinator.run()` assigns one wave at a time and
+  re-publishes the context drive (`updateContext`) between waves, so a
+  dependent ticket's worker reads what the wave before it actually wrote, not
+  a stale snapshot from the top of the run. `Coordinator.init()` also derives
+  each ticket's `contextPaths` from its declared dependencies' `allowedFiles`
+  by default (overridable via the constructor's `contextHints`), so the
+  downstream worker gets pointed at the file it depends on without anyone
+  hand-wiring a hint. Tested in `test/split-waves-test.mjs` and
+  `test/coordinator-dependency-test.mjs` — the latter checks the model prompt
+  the downstream worker actually sent, to prove the read went through the
+  drive and returned the upstream ticket's real, post-mirror content.
+- **`deadline` is enforced, not decorative.** `task-protocol.mjs`'s
+  `timeoutsForAssignment()` clamps the worker's `Harness` timeouts to
+  whatever is actually left before `task:assign.deadline`, and refuses the
+  assignment outright if the deadline has already lapsed by the time it
+  arrives. The coordinator derives `deadline` from the same `taskTimeoutMs` it
+  advertises in `limits` (plus headroom for the result to travel back), so the
+  two numbers cannot quietly drift apart the way an unread field could.
 
 Two decisions that differ from the earliest sketch of this protocol, both
 because the frozen manifest schema (`manifest-v0.json`,

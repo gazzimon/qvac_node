@@ -102,6 +102,52 @@ export function ticketIdOf(attemptId) {
 }
 
 // -----------------------------------------------------------------------------
+// Turning a `task:assign` into the timeouts a worker's Harness can use.
+//
+// `deadline` used to be sent and never read: the worker was bound only by its
+// OWN `limits.taskTimeoutMs`, so a coordinator that needed a tighter ceiling
+// had no way to enforce it, and nothing would ever notice the two numbers
+// drifting apart. This is the one place that reads `deadline` and turns it
+// into real timeouts, so worker/task-accept.mjs never has to reimplement the
+// clamping logic (or, worse, skip it).
+//
+// `Harness` requires `toolTimeoutMs` strictly less than `taskTimeoutMs` — see
+// its constructor — so the tool timeout here is always DERIVED from the
+// already-clamped task timeout, never handed through separately clamped.
+// -----------------------------------------------------------------------------
+
+// Returns { taskTimeoutMs, toolTimeoutMs }, or `null` if `now` is already past
+// `msg.deadline` — the caller's cue to refuse the assignment outright rather
+// than start work against a budget of zero or negative time.
+// toolTimeoutMs is always strictly under the (possibly clamped)
+// taskTimeoutMs — never a fixed floor, which could exceed a deadline-clamped
+// taskTimeoutMs on a razor-thin deadline and violate that invariant.
+export function timeoutsForAssignment(msg, { now = Date.now() } = {}) {
+  const defaultTask = msg.limits?.taskTimeoutMs || 1800000
+  const defaultTool = msg.limits?.toolTimeoutMs || 600000
+
+  if (!msg.deadline || msg.deadline <= 0) {
+    return { taskTimeoutMs: defaultTask, toolTimeoutMs: defaultTool }
+  }
+
+  const remaining = msg.deadline - now
+  // < 2, not <= 0: with 1ms of nominal budget there is no integer pair
+  // (taskTimeoutMs, toolTimeoutMs) with toolTimeoutMs strictly under
+  // taskTimeoutMs and both >= 1. Under 2ms is "no time to speak of" anyway —
+  // treated the same as an already-passed deadline.
+  if (remaining < 2) return null
+
+  const taskTimeoutMs = Math.min(defaultTask, remaining)
+  // Always strictly under taskTimeoutMs — Harness's constructor throws
+  // otherwise. No floor here: with a genuinely razor-thin deadline, an
+  // absurdly small tool timeout IS the correct answer (there just is not more
+  // time to give), not a case to special-case a floor for that could put it
+  // back over taskTimeoutMs and make the clamp self-defeating.
+  const toolTimeoutMs = Math.min(defaultTool, Math.max(1, Math.floor(taskTimeoutMs / 2)))
+  return { taskTimeoutMs, toolTimeoutMs }
+}
+
+// -----------------------------------------------------------------------------
 // Builders — the coordinator and the worker construct messages only through
 // these, so the required fields cannot drift between call sites.
 // -----------------------------------------------------------------------------
