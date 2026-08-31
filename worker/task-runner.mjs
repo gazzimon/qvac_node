@@ -128,7 +128,9 @@ export async function executeTicket({
     return { ok: false, files, rejected, usage: usageOf(harness), reason: 'reasoning-unclosed', text }
   }
 
-  const blocks = parseBlocks(delivered)
+  const blocks = parseBlocks(delivered, {
+    fallbackPath: ticket.allowedFiles.length === 1 ? ticket.allowedFiles[0] : null
+  })
   if (blocks.length === 0) {
     return { ok: false, files, rejected, usage: usageOf(harness), reason: 'no-blocks', text }
   }

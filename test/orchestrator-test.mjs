@@ -428,6 +428,33 @@ test('an empty block produces no file', () => {
   assert.equal(parseBlocks('```file path=src/x.js\n```').length, 0)
 })
 
+// KAT-Coder (35B, reasoning) ignores the ` ```file path= ` mould and fences its
+// whole answer as ```html. With one allowed file the destination is unambiguous.
+test('fallbackPath: a lone ```html block is taken when the ticket owns one file', () => {
+  const html = '```html\n<!doctype html>\n<title>x</title>\n```'
+  assert.equal(parseBlocks(html).length, 0, 'still 0 with no fallback path')
+  const b = parseBlocks(html, { fallbackPath: 'index.html' })
+  assert.equal(b.length, 1)
+  assert.equal(b[0].path, 'index.html')
+  assert.ok(b[0].content.includes('<!doctype html>'))
+})
+
+test('fallbackPath is ignored when the strict mould matched', () => {
+  const t = '```file path=a.html\n<x>\n```\n```html\n<y>\n```'
+  const b = parseBlocks(t, { fallbackPath: 'index.html' })
+  assert.equal(b.length, 1)
+  assert.equal(b[0].path, 'a.html')
+})
+
+// Only the first — a fallback block is a whole file, and a ticket with one
+// allowed path has one file to deliver.
+test('fallbackPath: only the first generic block is taken', () => {
+  const t = '```html\n<a>\n```\nprose\n```html\n<b>\n```'
+  const b = parseBlocks(t, { fallbackPath: 'index.html' })
+  assert.equal(b.length, 1)
+  assert.ok(b[0].content.includes('<a>'))
+})
+
 console.log('\nworker: reasoning models')
 
 // Measured on the K16: given a spec asking for three deliverables while the

@@ -43,6 +43,14 @@ const OPENING = /^```\s*file\b[:=\s]*(?:path\s*=\s*)?['"`]?([^'"`\s]+)['"`]?\s*$
 // noise, not content.
 const CLOSING = /^```[;,.\s]*$/
 
+// A GENERIC opening fence: ``` on its own, or with a bare language token
+// (```html, ```js). It carries NO path. Consulted only as a fallback, and only
+// when the ticket owns exactly one file — see parseBlocks. Measured need:
+// KAT-Coder (a 35B reasoning model) ignores the ` ```file path= ` mould the
+// system prompt gives it and fences its whole answer as ```html — a full page,
+// 3987 tokens, zero blocks under OPENING alone.
+const GENERIC_OPENING = /^```[ \t]*[A-Za-z0-9+#.-]*[ \t]*$/
+
 // Reasoning models (Qwen3 among them) wrap their scratch work in <think>…
 // </think>. Two consequences, both measured against qwen4b:
 //
@@ -70,15 +78,17 @@ export function stripReasoning(text) {
 // Parsed line by line rather than with a single regex because real output comes
 // out dirty — qwen4b emitted an extra fence right after opening a block — and a
 // regex covering that stops being readable.
-export function parseBlocks(text) {
-  const lines = String(text).split('\n')
+// Walk `lines` pulling out fenced blocks. `pathOf(line)` returns the path for a
+// line that opens a block, or a falsy value if the line is not an opening
+// fence. The scanning — skip a glued fence, read to the closing fence, drop an
+// empty block — is identical whichever opener is in play.
+function collectBlocks(lines, pathOf) {
   const blocks = []
 
   for (let i = 0; i < lines.length; i++) {
-    const m = OPENING.exec(lines[i])
-    if (!m) continue
+    const filePath = pathOf(lines[i])
+    if (!filePath) continue
 
-    const filePath = m[1].trim()
     const content = []
     i++
 
@@ -99,6 +109,26 @@ export function parseBlocks(text) {
   }
 
   return blocks
+}
+
+// `fallbackPath` — when the strict ` ```file path= ` mould matches NOTHING and
+// the ticket owns exactly one file, take the first plain ```lang block and
+// attribute it to that path. With a single allowed file there is no ambiguity
+// about where the block goes, and the path still goes through the jail either
+// way. Callers pass it as `allowedFiles.length === 1 ? allowedFiles[0] : null`;
+// with no fallback the behaviour is exactly what it was (a pathless fence is
+// not a file block).
+export function parseBlocks(text, { fallbackPath = null } = {}) {
+  const lines = String(text).split('\n')
+
+  const strict = collectBlocks(lines, (line) => {
+    const m = OPENING.exec(line)
+    return m ? m[1].trim() : null
+  })
+  if (strict.length > 0 || !fallbackPath) return strict
+
+  const loose = collectBlocks(lines, (line) => (GENERIC_OPENING.test(line) ? fallbackPath : null))
+  return loose.slice(0, 1)
 }
 
 // FOUR things measured, each against a real run. Removing any one of them
@@ -358,7 +388,9 @@ export class Worker {
     this.saveResponse(text)
 
     const { text: delivered, unclosedThink } = stripReasoning(text)
-    const blocks = parseBlocks(delivered)
+    const blocks = parseBlocks(delivered, {
+      fallbackPath: this.ticket.allowedFiles.length === 1 ? this.ticket.allowedFiles[0] : null
+    })
     const mark = tokenSource === 'provider' ? '' : ' (estimated: the gateway sends no usage)'
     this.log(`the model returned ${blocks.length} block(s), ${tokens} tokens${mark}`)
 
