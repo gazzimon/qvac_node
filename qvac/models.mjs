@@ -46,6 +46,19 @@ export const MODEL_INFO = {
     sizeGB: 5405168384 / 1024 ** 3
   },
 
+  // Medical QA / clinical-reasoning finetune of Qwen3-4B (Apache-2.0), from
+  // Tether's QVAC MedPsy family. Q8_0 GGUF: near-lossless at this size and
+  // fits the K16 (25 GB) with plenty of room. It does chain-of-thought, so
+  // serve it with --ctx 8192 — DEFAULT_CTX_SIZE (2048) truncates its
+  // reasoning before the answer. Not a generalist: weaker than a same-size
+  // Qwen outside medicine.
+  medpsy4b: {
+    name: 'medpsy-4b-q8_0',
+    displayName: 'MedPsy 4B',
+    params: '4B',
+    sizeGB: 4693670944 / 1024 ** 3
+  },
+
   // Added 2026-08-30 for machines well past K16's class (>=32GB RAM/VRAM
   // headroom). Verified against the real registry the same way as the rest
   // of this file (`node_modules/.bin/bare qvac/probe-registry.mjs`) — not
@@ -110,10 +123,12 @@ export const MODELS = Object.fromEntries(
   Object.entries(MODEL_INFO).map(([alias, info]) => [alias, info.name])
 )
 
-// Default chosen by measurement, not by preference: the 360M responds 0.72s
-// faster but produces incoherent Spanish, and the output is what gets read
-// on screen. The numbers are in NOTES.md.
-export const DEFAULT_MODEL = 'llama1b'
+// Default model this node serves and `prompt` uses when --model is omitted.
+// Set to the MedPsy medical finetune for the K16 24/7 node: the earlier
+// 'llama1b' pick was a demo-latency choice (360M vs 1B, see NOTES.md) and
+// its output is incoherent for anything real. Callers that need a
+// generalist still pass --model explicitly (orchestrator/worker use qwen4b).
+export const DEFAULT_MODEL = 'medpsy4b'
 
 export const DEFAULT_CTX_SIZE = 2048
 
