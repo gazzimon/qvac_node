@@ -37,6 +37,7 @@ import * as budget from './budget.mjs'
 import * as x402 from './x402.mjs'
 import * as atestacion from './atestacion.mjs'
 import * as lote from './lote.mjs'
+import * as payerStats from './payer-stats.mjs'
 import * as costs from './costs.mjs'
 import * as quota from './quota.mjs'
 import { pickCandidate, estaSaturado } from './routing.mjs'
@@ -1599,6 +1600,7 @@ async function liquidarYRegistrar(pago, id, extra = null) {
               }
         })
       )
+      payerStats.observePayment({ payer: pago.payer, network: pago.requisito.network })
     }
   } catch (err) {
     console.error(`[lote] could not accumulate the receipt for ${id}: ${(err && err.message) || err}`)

@@ -3553,8 +3553,10 @@ test('PHASE 10: a peer that serves a routed request attests and accumulates in i
   const lote = await import('../qvac/lote.mjs')
   const at = await import('../qvac/atestacion.mjs')
   const quota = await import('../qvac/quota.mjs')
+  const payerStats = await import('../qvac/payer-stats.mjs')
   quota.reset()
   lote.limpiar()
+  payerStats.reset()
 
   const { provider, address } = await parConWallet(4)
   const payment = await pagoReenviadoPara(address, { value: '1500', nonce: 42 })
@@ -3600,8 +3602,15 @@ test('PHASE 10: a peer that serves a routed request attests and accumulates in i
   t.ok(r0.attestation && r0.attestation.signature, 'and the attestation attached to the receipt')
   t.is(r0.liquidacion, null, 'not settled: that\'s the batch flush\'s job')
 
+  // provider.mjs's hook into payer-stats.mjs: the same call that fed the
+  // batch also recorded this as a payment from a distinct wallet.
+  const pagador = payerStats.getPayer(payment.authorization.from)
+  t.ok(pagador, 'the payer got recorded')
+  t.is(pagador.payments, 1)
+
   quota.reset()
   lote.limpiar()
+  payerStats.reset()
 })
 
 test('PHASE 10: the peer trims at the 402\'s cap and attests it as length (D9)', async (t) => {
@@ -6020,4 +6029,173 @@ test('network-stats: an eviction limit bounds storage against a Sybil minting ke
   t.ok(ns.getNode('4'.repeat(64)), 'the newest survives')
 
   ns.reset()
+})
+
+// ---------------------------------------------------------------------------
+// payer-stats.mjs — distinct wallets that PAID this node over x402
+//
+// Deliberately NOT built on lote.mjs's accumulator: that one is a queue
+// capped at MAX_PENDIENTES and prunes its OLDEST entries once full, so it
+// can't answer "how many distinct payers has this node EVER seen" once
+// traffic exceeds the cap. This is its own small, local, non-evicting-by-
+// volume record -- same shape as network-stats.mjs, one EVM address per row
+// instead of one Hyperswarm public key.
+// ---------------------------------------------------------------------------
+
+test('payer-stats: the same address (any casing) observed 10 times is one unique payer', async (t) => {
+  const ps = await import('../qvac/payer-stats.mjs')
+  ps.reset()
+
+  const addr = '0x' + 'ab'.repeat(20)
+  for (let i = 0; i < 10; i++) {
+    ps.observePayment({ payer: i % 2 === 0 ? addr : addr.toUpperCase().replace('0X', '0x') })
+  }
+
+  t.is(ps.listPayers().length, 1, 'checksum casing does not create a second row')
+  const fila = ps.getPayer(addr)
+  t.is(fila.payments, 10, 'every observation still counts as a payment')
+
+  ps.reset()
+})
+
+test('payer-stats: two different addresses are two unique payers', async (t) => {
+  const ps = await import('../qvac/payer-stats.mjs')
+  ps.reset()
+
+  ps.observePayment({ payer: '0x' + '1'.repeat(40) })
+  ps.observePayment({ payer: '0x' + '2'.repeat(40) })
+
+  t.is(ps.getPayerStats().totalEverSeen, 2)
+  ps.reset()
+})
+
+test('payer-stats: a malformed address is rejected, not silently stored', async (t) => {
+  const ps = await import('../qvac/payer-stats.mjs')
+  ps.reset()
+
+  t.is(ps.observePayment({ payer: 'not-an-address' }).ok, false)
+  t.is(ps.observePayment({ payer: '0x' + 'a'.repeat(39) }).ok, false, '39 chars, one short of 40')
+  t.is(ps.observePayment({ payer: '1'.repeat(40) }).ok, false, 'missing the 0x prefix')
+
+  t.is(ps.listPayers().length, 0)
+  ps.reset()
+})
+
+test('payer-stats: firstSeen is fixed, lastSeen moves, and networks accumulate without duplicates', async (t) => {
+  const ps = await import('../qvac/payer-stats.mjs')
+  ps.reset()
+
+  const addr = '0x' + '3'.repeat(40)
+  ps.observePayment({ payer: addr, network: 'eip155:9746', timestamp: 1000 })
+  ps.observePayment({ payer: addr, network: 'eip155:9746', timestamp: 2000 })
+  ps.observePayment({ payer: addr, network: 'eip155:988', timestamp: 3000 })
+
+  const fila = ps.getPayer(addr)
+  t.is(fila.firstSeen, 1000)
+  t.is(fila.lastSeen, 3000)
+  t.alike(fila.networks, ['eip155:9746', 'eip155:988'], 'no repeated network, in first-seen order')
+  t.is(fila.payments, 3)
+
+  ps.reset()
+})
+
+test('payer-stats: the 24h/7d/30d windows are read off lastSeen', async (t) => {
+  const ps = await import('../qvac/payer-stats.mjs')
+  ps.reset()
+
+  const now = Date.now()
+  const DIA = 24 * 60 * 60 * 1000
+  ps.observePayment({ payer: '0x' + '1'.repeat(40), timestamp: now - DIA / 2 }) // ~12h ago
+  ps.observePayment({ payer: '0x' + '2'.repeat(40), timestamp: now - 3 * DIA }) // ~3d ago
+  ps.observePayment({ payer: '0x' + '3'.repeat(40), timestamp: now - 20 * DIA }) // ~20d ago
+
+  const stats = ps.getPayerStats({ now })
+  t.is(stats.unique24h, 1)
+  t.is(stats.unique7d, 2)
+  t.is(stats.unique30d, 3)
+  t.is(stats.totalPayments, 3)
+
+  ps.reset()
+})
+
+test('payer-stats: survives a process restart', async (t) => {
+  const ps = await import('../qvac/payer-stats.mjs')
+  const tmp = dirStatsTmp()
+  const addr = '0x' + '4'.repeat(40)
+
+  ps.open(tmp.dir)
+  ps.observePayment({ payer: addr, network: 'eip155:9746' })
+  ps.close()
+
+  const reabierto = ps.open(tmp.dir)
+  t.is(reabierto.loaded, 1, 'the payer from before is still on disk')
+  t.ok(ps.getPayer(addr), 'and readable back')
+
+  ps.close()
+  tmp.limpiar()
+})
+
+test('payer-stats: a corrupt registry file does not crash the process', async (t) => {
+  const ps = await import('../qvac/payer-stats.mjs')
+  const fs = require('bare-fs')
+  const path = require('bare-path')
+  const tmp = dirStatsTmp()
+
+  fs.writeFileSync(path.join(tmp.dir, 'payer-stats.json'), '{ esto no es JSON valido')
+
+  t.execution(() => ps.open(tmp.dir), 'a corrupt file does not throw: it starts fresh')
+  t.is(ps.getPayerStats().totalEverSeen, 0)
+
+  ps.close()
+  tmp.limpiar()
+})
+
+test('payer-stats: an eviction limit bounds storage', async (t) => {
+  const ps = await import('../qvac/payer-stats.mjs')
+  ps.open(null, { maxPayers: 3 })
+
+  ps.observePayment({ payer: '0x' + '1'.repeat(40), timestamp: 1000 })
+  ps.observePayment({ payer: '0x' + '2'.repeat(40), timestamp: 2000 })
+  ps.observePayment({ payer: '0x' + '3'.repeat(40), timestamp: 3000 })
+  ps.observePayment({ payer: '0x' + '4'.repeat(40), timestamp: 4000 })
+
+  t.is(ps.getPayerStats().totalEverSeen, 3, 'never grows past maxPayers')
+  t.absent(ps.getPayer('0x' + '1'.repeat(40)), 'the oldest by lastSeen is the one that got evicted')
+
+  ps.reset()
+})
+
+// ---------------------------------------------------------------------------
+// apikeys.mjs — getKeyStats: lifetime issuance survives revocation
+// ---------------------------------------------------------------------------
+
+test('apikeys: totalEverIssued survives revocation, unlike a plain count of current keys', async (t) => {
+  const apikeys = await import('../qvac/apikeys.mjs')
+  apikeys.open(null)
+
+  const a = apikeys.createKey({ label: 'a' })
+  apikeys.createKey({ label: 'b' })
+
+  apikeys.revokeKey(a.id)
+
+  const stats = apikeys.getKeyStats()
+  t.is(stats.totalCurrent, 1, 'one key left')
+  t.is(stats.totalEverIssued, 2, 'but two were ever issued -- revoking does not erase history')
+
+  apikeys.reset()
+})
+
+test('apikeys: active windows come off lastUsedAt, an unused key counts toward none', async (t) => {
+  const apikeys = await import('../qvac/apikeys.mjs')
+  apikeys.open(null)
+
+  const used = apikeys.createKey({ label: 'used' })
+  apikeys.createKey({ label: 'never-used' })
+  apikeys.verifyKey(used.key) // touches lastUsedAt to now
+
+  const stats = apikeys.getKeyStats()
+  t.is(stats.active24h, 1, 'only the key that was actually used counts')
+  t.is(stats.totalCurrent, 2, 'both still exist though')
+
+  apikeys.reset()
 })

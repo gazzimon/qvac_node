@@ -42,6 +42,7 @@
 import * as quota from './quota.mjs'
 import * as atestacion from './atestacion.mjs'
 import * as lote from './lote.mjs'
+import * as payerStats from './payer-stats.mjs'
 
 const MAX_MESSAGES = 64
 const MAX_CONTENT_CHARS = 32000
@@ -428,6 +429,7 @@ export class Provider {
         liquidacion: null
       })
       lote.agregar(recibo)
+      payerStats.observePayment({ payer: p.authorization.from, network: p.requirements.network })
       console.log(
         `[provider] ${msg.requestId}: receipt added to the batch (nonce ${recibo.nonce})`
       )

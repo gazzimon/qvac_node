@@ -190,24 +190,30 @@ const walletCmd = command(
   }
 )
 
-// Reads the registry left behind by `peers`/`serve --swarm` -- doesn't join
-// the swarm itself. A "unique node" is a cryptographic identity (Hyperswarm
-// public key) that completed the PyrusLLM handshake with a manifest that
-// verified, not just any peer discovered on the DHT. No IP, hostname, MAC
-// address or geolocation is ever tracked: only the public key a node already
-// announces to any peer it connects to. One operator can run several nodes,
-// so this counts NODES, never "users".
+// Reads three local registries: network-stats.mjs (P2P nodes), apikeys.mjs
+// (this node's gateway clients) and payer-stats.mjs (wallets that paid this
+// node). None of it is joined live -- doesn't touch the swarm. A "unique
+// node" is a cryptographic identity (Hyperswarm public key) that completed
+// the PyrusLLM handshake with a manifest that verified, not just any peer
+// discovered on the DHT; a "payer" is an EVM address, not a verified human.
+// No IP, hostname, MAC address or geolocation is ever tracked. One operator
+// can run several nodes and hold several wallets, so none of this counts
+// "users" -- see the CLI's own output for the exact wording.
 const statsCmd = command(
   'stats',
-  summary('Show unique PyrusLLM nodes this machine has observed'),
+  summary('Show unique PyrusLLM nodes, gateway clients and payers this machine has observed'),
   description(
-    'Reads the node registry persisted locally by `peers` or `serve --swarm`\n' +
-      'and reports how many distinct, handshake-verified nodes were seen. Does\n' +
-      'NOT join the swarm or wait for discovery -- run `peers` or keep\n' +
-      '`serve --swarm` running first to have data to read.\n' +
+    'Reads what is already persisted locally by `peers`/`serve --swarm` --\n' +
+      'does NOT join the swarm or wait for discovery. Three separate counts:\n' +
       '\n' +
-      'Hyperswarm is decentralized: this is what THIS process has seen, not a\n' +
-      'census of the whole network.'
+      '  - Network: P2P nodes with a verified manifest (Hyperswarm identities,\n' +
+      '    not people -- one operator can run several).\n' +
+      '  - Gateway clients: API keys issued by THIS node to callers of its own\n' +
+      '    OpenAI-compatible endpoint.\n' +
+      '  - Payers: distinct EVM wallets that PAID this node over x402.\n' +
+      '\n' +
+      'All three are LOCAL: nothing gossips who used or paid another node, so\n' +
+      'this is what THIS node has seen, never a census of the network.'
   ),
   flag('--json', 'print machine-readable JSON instead of a formatted summary'),
   () => {
@@ -704,6 +710,11 @@ async function startGateway(opts = {}) {
     console.log(`  [lote] ${pendientesLote} receipt(s) pending from a previous run`)
   }
 
+  // Same directory as the batch accumulator (D30.1's persistent dir, not
+  // budgetDir): distinct paying wallets are payment data, same guarantee.
+  const payerStats = await import('./qvac/payer-stats.mjs')
+  payerStats.open(dirWallet)
+
   // This machine can answer with ITS OWN model without having joined
   // anything, and the registry has to say so from startup. If the local row
   // only appeared with --swarm, a gateway with no agent launched would have
@@ -848,6 +859,7 @@ async function startGateway(opts = {}) {
     } catch (err) {
       console.error(`[lote] on close: ${(err && err.message) || err}`)
     }
+    payerStats.close()
 
     // The two files that back the spending cap. apikeys' `close` is the only
     // thing that flushes `lastUsedAt` to disk -- `verifyKey` touches it on
@@ -1357,8 +1369,22 @@ async function runStats() {
   const stats = networkStats.getNetworkStats()
   networkStats.close()
 
+  // These two are DEMAND-side, not the P2P discovery layer above: who used
+  // THIS node's gateway (apikeys) and who PAID it (payer-stats). Neither
+  // travels the network -- a wallet that paid another node, or a key issued
+  // there, is invisible from here. See both modules' headers.
+  const apikeys = await import('./qvac/apikeys.mjs')
+  apikeys.open(swarmStorageDir())
+  const keyStats = apikeys.getKeyStats()
+  apikeys.close()
+
+  const payerStats = await import('./qvac/payer-stats.mjs')
+  payerStats.open(await walletStorageDir())
+  const payerStatsOut = payerStats.getPayerStats()
+  payerStats.close()
+
   if (statsCmd.flags.json) {
-    console.log(JSON.stringify(stats, null, 2))
+    console.log(JSON.stringify({ network: stats, gatewayClients: keyStats, payers: payerStatsOut }, null, 2))
     Bare.exit(0)
     return
   }
@@ -1367,21 +1393,44 @@ async function runStats() {
   console.log('PyrusLLM Network')
   console.log('')
   if (stats.totalEverSeen === 0) {
-    console.log('  No data yet. Run `pyrusllm peers` or `pyrusllm serve --swarm` first.')
+    console.log('  No P2P data yet. Run `pyrusllm peers` or `pyrusllm serve --swarm` first.')
+  } else {
+    console.log(`  Online now:        ${stats.onlineNow}`)
+    console.log(`  Unique seen 24h:   ${stats.uniqueSeen24h}`)
+    console.log(`  Unique seen 7d:    ${stats.uniqueSeen7d}`)
+    console.log(`  Unique seen 30d:   ${stats.uniqueSeen30d}`)
+    console.log(`  Total ever seen:   ${stats.totalEverSeen}`)
     console.log('')
-    Bare.exit(0)
-    return
+    console.log('  Models:')
+    for (const [modelId, count] of Object.entries(stats.models)) {
+      console.log(`    ${modelId}`.padEnd(21) + String(count))
+    }
   }
 
-  console.log(`  Online now:        ${stats.onlineNow}`)
-  console.log(`  Unique seen 24h:   ${stats.uniqueSeen24h}`)
-  console.log(`  Unique seen 7d:    ${stats.uniqueSeen7d}`)
-  console.log(`  Unique seen 30d:   ${stats.uniqueSeen30d}`)
-  console.log(`  Total ever seen:   ${stats.totalEverSeen}`)
   console.log('')
-  console.log('  Models:')
-  for (const [modelId, count] of Object.entries(stats.models)) {
-    console.log(`    ${modelId}`.padEnd(21) + String(count))
+  console.log('Gateway clients (this node only -- API keys issued, not the network)')
+  console.log('')
+  if (keyStats.totalEverIssued === 0) {
+    console.log('  None issued yet.')
+  } else {
+    console.log(`  Active 24h:        ${keyStats.active24h}`)
+    console.log(`  Active 7d:         ${keyStats.active7d}`)
+    console.log(`  Active 30d:        ${keyStats.active30d}`)
+    console.log(`  Currently valid:   ${keyStats.totalCurrent}`)
+    console.log(`  Total ever issued: ${keyStats.totalEverIssued}`)
+  }
+
+  console.log('')
+  console.log('Paying wallets (this node only -- x402 payers, not the network)')
+  console.log('')
+  if (payerStatsOut.totalEverSeen === 0) {
+    console.log('  None yet -- either no wallet configured, or nobody has paid this node.')
+  } else {
+    console.log(`  Unique seen 24h:   ${payerStatsOut.unique24h}`)
+    console.log(`  Unique seen 7d:    ${payerStatsOut.unique7d}`)
+    console.log(`  Unique seen 30d:   ${payerStatsOut.unique30d}`)
+    console.log(`  Total ever seen:   ${payerStatsOut.totalEverSeen}`)
+    console.log(`  Total payments:    ${payerStatsOut.totalPayments}`)
   }
   console.log('')
   Bare.exit(0)

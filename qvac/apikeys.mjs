@@ -39,6 +39,11 @@ const VERSION = 1
 
 const keys = new Map() // id -> { id, key, label, nodeId, createdAt, lastUsedAt }
 
+// Monotonic: only goes up, never decremented by revokeKey. `keys.size` alone
+// would undercount "how many clients have ever connected" once someone
+// revokes a key -- this is the lifetime count that survives that.
+let totalEverIssued = 0
+
 // base64url over real random bytes. +/= are avoided so the key can be pasted
 // into a URL, a YAML, or a JSON5 without escaping it.
 function randomToken(bytes) {
@@ -65,11 +70,15 @@ function guardar() {
   if (!archivo) return
   const tmp = archivo + '.tmp'
   try {
-    fs.writeFileSync(tmp, JSON.stringify({ version: VERSION, keys: [...keys.values()] }, null, 2), {
-      // Owner only. On Windows this is a no-op (the mode is ignored), but the
-      // file still ends up under the user's %LOCALAPPDATA%.
-      mode: 0o600
-    })
+    fs.writeFileSync(
+      tmp,
+      JSON.stringify({ version: VERSION, keys: [...keys.values()], totalEverIssued }, null, 2),
+      {
+        // Owner only. On Windows this is a no-op (the mode is ignored), but the
+        // file still ends up under the user's %LOCALAPPDATA%.
+        mode: 0o600
+      }
+    )
     fs.renameSync(tmp, archivo)
   } catch (err) {
     console.error(`[apikeys] could not save the registry: ${(err && err.message) || err}`)
@@ -83,6 +92,7 @@ function guardar() {
 export function open(dir) {
   archivo = dir ? path.join(dir, 'apikeys.json') : null
   keys.clear()
+  totalEverIssued = 0
   if (!archivo) return 0
 
   try {
@@ -104,6 +114,12 @@ export function open(dir) {
         lastUsedAt: Number(e.lastUsedAt) || null
       })
     }
+    // A file from before this counter existed has no way to know how many
+    // keys were issued and later revoked: `keys.size` is the best available
+    // floor, not a lie -- it just can't see revocations from the past.
+    totalEverIssued = Number.isFinite(Number(crudo.totalEverIssued))
+      ? Math.max(Number(crudo.totalEverIssued), keys.size)
+      : keys.size
   } catch {
     // Doesn't exist yet: first boot.
   }
@@ -125,6 +141,7 @@ export function createKey({ label = 'unnamed', nodeId = null } = {}) {
   const key = `qvac_sk_${randomToken(24)}`
   const entry = { id, key, label, nodeId, createdAt: Date.now(), lastUsedAt: null }
   keys.set(id, entry)
+  totalEverIssued += 1
   guardar()
   return entry
 }
@@ -173,6 +190,37 @@ export function listKeysFull() {
 
 export function count() {
   return keys.size
+}
+
+// Windowed activity off `lastUsedAt` -- same criterion as
+// network-stats.mjs's getNetworkStats: computed on read, not kept as
+// separate counters that could drift out of sync with the field they
+// describe. A key that was issued but never used has `lastUsedAt: null` and
+// doesn't count toward any window, only toward `totalEverIssued`.
+export function getKeyStats({ now = Date.now() } = {}) {
+  const DIA_MS = 24 * 60 * 60 * 1000
+  const SEMANA_MS = 7 * DIA_MS
+  const MES_MS = 30 * DIA_MS
+
+  let active24h = 0
+  let active7d = 0
+  let active30d = 0
+
+  for (const entry of keys.values()) {
+    if (!Number.isFinite(entry.lastUsedAt)) continue
+    const edad = now - entry.lastUsedAt
+    if (edad <= DIA_MS) active24h++
+    if (edad <= SEMANA_MS) active7d++
+    if (edad <= MES_MS) active30d++
+  }
+
+  return {
+    active24h,
+    active7d,
+    active30d,
+    totalCurrent: keys.size,
+    totalEverIssued
+  }
 }
 
 export function revokeKey(id) {
