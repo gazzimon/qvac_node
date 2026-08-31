@@ -1,0 +1,2194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PyrusLLM · Chat</title>
+  
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: ui-sans-serif, system-ui, sans-serif;
+    background: #0f1115; color: #e6e6e6;
+  }
+  .nav {
+    display: flex; align-items: center; gap: 1.25rem;
+    padding: .9rem 1.5rem; background: #171a21; border-bottom: 1px solid #262b36;
+  }
+  .nav .brand { font-weight: 700; margin-right: auto; color: #9fd6ff; }
+  .nav a { color: #cfd6e4; text-decoration: none; font-size: .92rem; }
+  .nav a:hover { color: #fff; }
+  main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
+  .sub { color: #8b93a7; font-size: .88rem; margin-bottom: 1.5rem; }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1rem;
+  }
+  .card {
+    background: #171a21; border: 1px solid #262b36; border-radius: 10px;
+    padding: 1rem; cursor: pointer; transition: border-color .15s;
+  }
+  .card:hover { border-color: #4a7dfc; }
+  .card.selected { border-color: #4a7dfc; box-shadow: 0 0 0 1px #4a7dfc; }
+  /* Hierarchy inverted on purpose: the headline is WHO provides, not which
+     model runs. With the model as the title, two cards from different
+     operators looked practically identical -the model name is the same on
+     both nodes- and the demo is exactly "I bought inference from the other
+     machine." overflow-wrap is mandatory: modelIds have no spaces and were
+     getting cut in half ("llama_3.2_1b_intruct_tool_calli"). */
+  .card h3 { margin: 0 0 .1rem; font-size: 1.05rem; overflow-wrap: anywhere; }
+  .card .model {
+    font-family: ui-monospace, monospace; font-size: .72rem; color: #8b93a7;
+    overflow-wrap: anywhere; line-height: 1.3;
+  }
+  .tags { display: flex; flex-wrap: wrap; gap: .3rem; margin: .4rem 0; }
+  .tag {
+    font-size: .72rem; background: #232838; color: #a9b4cc;
+    padding: .1rem .5rem; border-radius: 999px;
+  }
+  .op { color: #8b93a7; font-size: .8rem; }
+  .price { font-size: .82rem; color: #d7dbe4; margin-top: .5rem; }
+  .price b { display: block; font-size: 1rem; color: #e6e6e6; }
+  .price span { display: block; font-size: .74rem; color: #8b93a7; }
+
+  /* Replaces the bar at 0%: an empty bar with "0%" doesn't say whether the
+     node is free or hung. The state gets named instead. */
+  .state { font-size: .8rem; font-weight: 600; margin-top: .6rem; }
+  .state.libre { color: #4ade80; }
+  .state.busy { color: #fbbf24; }
+  .state.full { color: #f87171; }
+
+  /* The evidence line under the response: without this, the text shows up
+     and nothing says it traveled P2P from another machine. It's the proof,
+     not decoration. */
+  .meta {
+    display: flex; flex-wrap: wrap; gap: .25rem .75rem; margin-top: .5rem;
+    font-size: .76rem; color: #8b93a7; font-family: ui-monospace, monospace;
+  }
+  .meta b { color: #4ade80; font-weight: 600; }
+
+  /* DHT discovery takes ~17s measured. Without a loading state, that's 17
+     seconds of empty screen in front of the judges, which reads as broken. */
+  .hint { color: #8b93a7; font-size: .88rem; margin: 0 0 1rem; }
+  .hint b { color: #9fd6ff; font-weight: 600; font-family: ui-monospace, monospace; }
+  .skel { background: #171a21; border: 1px solid #262b36; border-radius: 10px; padding: 1rem; }
+  .skel div {
+    height: .7rem; border-radius: 999px; background: #232838; margin-bottom: .55rem;
+    animation: pulso 1.4s ease-in-out infinite;
+  }
+  .skel div:nth-child(2) { animation-delay: .2s; }
+  .skel div:nth-child(3) { animation-delay: .4s; }
+  @keyframes pulso { 0%, 100% { opacity: .35 } 50% { opacity: .8 } }
+  @media (prefers-reduced-motion: reduce) { .skel div { animation: none } }
+  .bar-row { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; }
+  .bar { flex: 1; height: 6px; background: #262b36; border-radius: 999px; overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 999px; transition: width .4s ease; }
+  .pct { font-size: .75rem; color: #a9b4cc; min-width: 3ch; text-align: right; }
+  /* My Node's two gauges (Phase 6.5 and 6.6). They stack on narrow screens:
+     they're two independent readings, not a side-by-side comparison that
+     breaks when it loses width. */
+  .econ-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem; }
+  @media (max-width: 700px) { .econ-grid { grid-template-columns: 1fr; } }
+  .econ-grid h4 { margin: 0 0 .3rem; font-size: .95rem; }
+  .econ-big { font-size: 1.5rem; font-weight: 600; margin: .4rem 0 .5rem; color: #e8ecf5; }
+  .bar-fill { height: 100%; border-radius: 999px; background: #5fa8ff; transition: width .4s ease; }
+  .econ-row {
+    display: flex; justify-content: space-between; gap: .8rem;
+    font-size: .82rem; color: #a9b4cc; padding: .35rem 0; border-top: 1px solid #262b36;
+  }
+  .econ-row code { color: #8b93a7; }
+
+  /* The external assistant's switch (Phase 8.5). Amber like the upstream
+     badge: the same color in the panel, in the node list, and in the chat's
+     provenance line, so "this leaves the network" only has to be learned
+     once. */
+  .up-switch {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    border: 1px solid #262b36; border-radius: 10px; padding: .9rem 1rem; margin-top: 1rem;
+  }
+  .up-switch button { margin: 0; white-space: nowrap; }
+  .up-switch.on { border-color: #3a2a10; background: #1a1509; }
+  .up-fila {
+    display: flex; justify-content: space-between; gap: 1rem;
+    padding: .45rem 0; border-bottom: 1px solid #1b1f27; font-size: .9rem;
+  }
+  .up-fila:last-child { border-bottom: 0; }
+  .up-fila .off { color: #f87171; }
+  .up-fila .ok { color: #fbbf24; }
+  .badge {
+    font-size: .7rem; padding: .1rem .5rem; border-radius: 999px; font-weight: 600;
+  }
+  .badge.online { background: #10331f; color: #4ade80; }
+  .badge.offline { background: #3a1414; color: #f87171; }
+  .badge.real { background: #1a2740; color: #7db8ff; }
+  .badge.mock { background: #2a2440; color: #c7a9ff; }
+  /* Green like 'online': a verified P2P peer is the good thing the demo
+     shows off, it can't look like a mock. */
+  .badge.peer { background: #10331f; color: #4ade80; }
+  /* Amber, the rest of the UI's warning color: the external one works, but
+     it's the only path where the prompt leaves the network and costs money.
+     Neither the verified peer's green nor this machine's blue. */
+  .badge.upstream { background: #3a2a10; color: #fbbf24; }
+  /* Per-card actions. "Chat" stays first and in blue: it's the action that
+     tells the demo's story on its own. "Connect" is secondary but it's what
+     proves this is a real gateway and not a chat with extra steps. */
+  .actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; }
+  .actions button { margin-top: 0; font-size: .8rem; padding: .4rem .75rem; }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(6, 8, 12, .78); z-index: 50;
+    display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+  }
+  .modal {
+    background: #171a21; border: 1px solid #2e3546; border-radius: 12px;
+    padding: 1.25rem 1.4rem 1.4rem; width: 100%; max-width: 700px;
+    max-height: 86vh; overflow-y: auto;
+  }
+  .modal h3 { margin: 0 0 .2rem; font-size: 1.1rem; }
+  .modal .sub { margin-bottom: .8rem; }
+  .tabs {
+    display: flex; flex-wrap: wrap; gap: .2rem;
+    border-bottom: 1px solid #262b36; margin: 1rem 0 1.1rem;
+  }
+  .tabs button {
+    background: none; color: #8b93a7; margin: 0; padding: .5rem .85rem;
+    border-radius: 8px 8px 0 0; font-size: .84rem;
+    border-bottom: 2px solid transparent;
+  }
+  .tabs button:hover { background: #1f2430; color: #cfd6e4; }
+  .tabs button.on { background: none; color: #9fd6ff; border-bottom-color: #4a7dfc; }
+
+  /* Numbered steps. Without the numbering, four command blocks in a row read
+     as alternatives instead of a sequence -happened with the Open WebUI
+     modal, where people ran them out of order-. */
+  .step { display: flex; gap: .65rem; margin-bottom: 1rem; }
+  .step .n {
+    flex: none; width: 1.55rem; height: 1.55rem; border-radius: 999px;
+    background: #232838; color: #9fd6ff; font-size: .76rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step .body { flex: 1; min-width: 0; }
+  .step p { margin: .2rem 0 .45rem; font-size: .86rem; color: #cfd6e4; line-height: 1.45; }
+  .step p a { color: #9fd6ff; }
+
+  .cmd { position: relative; }
+  .cmd pre {
+    background: #0c0f15; border: 1px solid #262b36; border-radius: 8px;
+    padding: .7rem 5rem .7rem .75rem; margin: 0; overflow-x: auto;
+    font-family: ui-monospace, monospace; font-size: .75rem; color: #d7dbe4;
+    line-height: 1.5;
+  }
+  .cmd button {
+    position: absolute; top: .4rem; right: .4rem; margin: 0;
+    padding: .25rem .55rem; font-size: .72rem; background: #2c3348;
+  }
+  .cmd button:hover { background: #3a445e; }
+
+  /* The external service's real status, not "let's assume it started." */
+  .dot { display: inline-flex; align-items: center; gap: .45rem; font-size: .82rem; color: #8b93a7; }
+  .dot i { width: .5rem; height: .5rem; border-radius: 999px; background: #6b7386; font-style: normal; }
+  .dot.up { color: #4ade80 } .dot.up i { background: #4ade80 }
+  .dot.down { color: #f87171 } .dot.down i { background: #f87171 }
+
+  /* Warning ahead of the steps. WhatsApp doesn't link a bot, it links the
+     operator's personal account: that has to be read before scanning the QR,
+     not after, so it goes at the top and not at the bottom of the recipe. */
+  .aviso {
+    background: #241d10; border: 1px solid #4a3a17; border-radius: 8px;
+    padding: .6rem .75rem; margin: 0 0 1.1rem;
+    font-size: .82rem; color: #e8c98a; line-height: 1.45;
+  }
+
+  .chat { margin-top: 1.5rem; border-top: 1px solid #262b36; padding-top: 1.5rem; }
+  textarea, input[type=text] {
+    width: 100%; background: #10131a; border: 1px solid #262b36; color: #e6e6e6;
+    border-radius: 8px; padding: .6rem; font-family: inherit; font-size: .9rem;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  button {
+    background: #4a7dfc; color: #fff; border: none; border-radius: 8px;
+    padding: .55rem 1.1rem; font-size: .88rem; cursor: pointer; margin-top: .6rem;
+  }
+  button:hover { background: #3a6ae8; }
+  button.danger { background: #d84343; }
+  button.danger:hover { background: #c22f2f; }
+  button.ghost { background: #232838; }
+  button.ghost:hover { background: #2c3348; }
+  pre.response {
+    white-space: pre-wrap; background: #10131a; border: 1px solid #262b36;
+    border-radius: 8px; padding: .8rem; margin-top: .8rem; min-height: 3em;
+    font-family: inherit; font-size: .9rem;
+  }
+  table { width: 100%; border-collapse: collapse; margin-top: .5rem; }
+  th, td { text-align: left; padding: .5rem .6rem; font-size: .85rem; border-bottom: 1px solid #1f2430; }
+  th { color: #8b93a7; font-weight: 600; font-size: .78rem; text-transform: uppercase; }
+  select { background: #10131a; color: #e6e6e6; border: 1px solid #262b36; border-radius: 8px; padding: .5rem; }
+  .field { margin-bottom: 1rem; }
+  .field label { display: block; font-size: .82rem; color: #a9b4cc; margin-bottom: .3rem; }
+  .log { font-family: ui-monospace, monospace; font-size: .78rem; color: #a9b4cc; }
+  .log div { padding: .25rem 0; border-bottom: 1px solid #1a1e28; }
+  .muted { color: #6b7386; }
+
+  /* Agent status, visible on all three pages: it's the condition that
+     decides whether the network is reachable or not, so it can't live on
+     just one screen. */
+  .nav .agent { margin-left: auto; display: inline-flex; align-items: center; gap: .45rem; font-size: .8rem; }
+  .nav .agent i { width: .5rem; height: .5rem; border-radius: 999px; background: #6b7386; display: block; flex: none; }
+  .nav .agent b { font-weight: 600; }
+  .nav .agent.offline { color: #8b93a7 }
+  .nav .agent.launching { color: #fbbf24 } .nav .agent.launching i { background: #fbbf24 }
+  .nav .agent.live { color: #4ade80 } .nav .agent.live i { background: #4ade80 }
+  .nav .agent.error { color: #f87171 } .nav .agent.error i { background: #f87171 }
+
+  /* ---------------------------------------------------------------- chat */
+  /* 'chatpage' and not 'chat': a .chat class already exists on the Network
+     panel (the old chat block) with margin-top, and the body inherited it. */
+  body.chatpage { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  body.chatpage main {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    max-width: 780px; width: 100%; padding: 0 1.25rem;
+  }
+  /* The JS sets display:flex when showing it; the direction and flex-1 have
+     to be here, or the thread and the composer end up side by side. */
+  #chat { flex: 1; min-height: 0; flex-direction: column; }
+  #thread { flex: 1; min-height: 0; overflow-y: auto; padding: 1.5rem 0 1rem; }
+
+  /* The gate. The first thing seen while the agent is off. */
+  .gate { max-width: 30rem; margin: auto; padding: 3rem 0; text-align: center; }
+  .gate h1 { font-size: 1.5rem; margin-bottom: .6rem; }
+  .gate p { color: #8b93a7; font-size: .92rem; line-height: 1.6; margin: 0 0 1.5rem; }
+  .gate button { font-size: .95rem; padding: .7rem 1.5rem; }
+  .gate .alt {
+    display: inline-block; margin-top: 1.1rem; font-size: .84rem;
+    color: #8b93a7; background: none; border: none; cursor: pointer; text-decoration: underline;
+  }
+  .gate .alt:hover { color: #cfd6e4; }
+  .gate .err { color: #f87171; font-size: .84rem; margin-top: .9rem; }
+
+  .msg { margin-bottom: 1.4rem; }
+  .msg .who {
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
+    color: #8b93a7; margin-bottom: .35rem;
+  }
+  .msg.user .body {
+    background: #171a21; border: 1px solid #262b36; border-radius: 10px;
+    padding: .7rem .9rem;
+  }
+  .msg .body { font-size: .95rem; line-height: 1.65; overflow-wrap: anywhere; }
+  .msg .body p { margin: 0 0 .7rem; }
+  .msg .body p:last-child { margin-bottom: 0; }
+  .msg .body h3, .msg .body h4 { margin: 1rem 0 .5rem; font-size: 1rem; }
+  .msg .body ul, .msg .body ol { margin: 0 0 .7rem; padding-left: 1.3rem; }
+  .msg .body li { margin-bottom: .25rem; }
+  .msg .body code {
+    font-family: ui-monospace, monospace; font-size: .85em;
+    background: #10131a; border: 1px solid #262b36; border-radius: 4px; padding: .05rem .3rem;
+  }
+  .msg .body pre {
+    background: #0c0f15; border: 1px solid #262b36; border-radius: 8px;
+    padding: .8rem; overflow-x: auto; margin: 0 0 .7rem;
+  }
+  .msg .body pre code { background: none; border: none; padding: 0; font-size: .8rem; }
+  .msg .caret::after {
+    content: ''; display: inline-block; width: .5rem; height: 1em;
+    background: #4a7dfc; vertical-align: text-bottom; animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0 } }
+  @media (prefers-reduced-motion: reduce) { .msg .caret::after { animation: none } }
+
+  /* The provenance line: who answered, how long it took. Without this the
+     chat is indistinguishable from any other and the network stops being
+     visible. */
+  .prov {
+    display: flex; flex-wrap: wrap; gap: .25rem .7rem; margin-top: .5rem;
+    font-size: .74rem; color: #8b93a7; font-family: ui-monospace, monospace;
+    align-items: center;
+  }
+  .prov .peer { color: #4ade80; font-weight: 600; }
+  .prov .local { color: #7db8ff; font-weight: 600; }
+  .prov .upstream { color: #fbbf24; font-weight: 600; }
+  /* Cost isn't highlighted like the operator: it's data, not an alarm. It's
+     told apart from latency without shouting. */
+  .prov .cost { font-variant-numeric: tabular-nums; }
+
+  .composer { border-top: 1px solid #262b36; padding: .9rem 0 1.1rem; }
+  .composer .row { display: flex; gap: .5rem; align-items: flex-end; }
+  .composer textarea {
+    flex: 1; min-height: 2.6rem; max-height: 11rem; resize: none;
+    padding: .65rem .75rem;
+  }
+  .composer button { margin-top: 0; flex: none; }
+  .composer .opts {
+    display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
+    margin-bottom: .55rem; font-size: .8rem; color: #8b93a7;
+  }
+  .composer select {
+    background: #10131a; border: 1px solid #262b36; color: #e6e6e6;
+    border-radius: 6px; padding: .3rem .45rem; font-family: inherit; font-size: .8rem;
+  }
+  .composer select:disabled { opacity: .55; }
+  .composer label.chk { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+
+  /* Action palette (Ctrl+K). Lives in the chat and not in a separate panel
+     because what it does -- switching models, clearing, checking spend --
+     are decisions made WHILE writing, not before. */
+  .pal-overlay {
+    position: fixed; inset: 0; background: rgba(8,10,16,.72);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 12vh; z-index: 50;
+  }
+  .pal {
+    width: min(680px, 92vw); background: #161b28;
+    border: 1px solid #2c3348; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  }
+  .pal input.filtro {
+    width: 100%; box-sizing: border-box; background: transparent; border: 0;
+    border-bottom: 1px solid #2c3348; color: #e8ecf6;
+    padding: .85rem 1rem; font-size: .95rem; outline: none;
+  }
+  .pal-lista { max-height: 52vh; overflow-y: auto; padding: .35rem 0; }
+  .pal-grupo {
+    padding: .55rem 1rem .25rem; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .06em; color: #7c8699;
+  }
+  .pal-item {
+    display: flex; align-items: center; gap: .6rem; width: 100%;
+    padding: .5rem 1rem; background: transparent; border: 0; cursor: pointer;
+    color: #e8ecf6; font-size: .9rem; text-align: left; margin: 0; border-radius: 0;
+  }
+  .pal-item:hover, .pal-item.sel { background: #232838; }
+  .pal-item .der { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+  .pal-item .val { font-size: .8rem; color: #9aa4b8; }
+
+  /* The mock marker is NOT decorative: the project requires that everything
+     simulated be visible. A control that looks like it works and does
+     nothing is worse than an absent one, because whoever uses it thinks
+     they already configured it. */
+  .pal-item .mock {
+    font-size: .66rem; text-transform: uppercase; letter-spacing: .05em;
+    background: #3a2f16; color: #e0b95a; border: 1px solid #5a4a20;
+    padding: .1rem .4rem; border-radius: 4px;
+  }
+  .pal-item[disabled] { cursor: default; }
+  .pal-item[disabled]:hover { background: transparent; }
+
+  /* Switch and stepper: they're real-looking controls even though almost
+     all of them are mocked, because the point of the request is to see the
+     shape. */
+  .sw { width: 34px; height: 19px; border-radius: 999px; background: #2c3348; position: relative; flex: none; }
+  .sw.on { background: #4f7cff; }
+  .sw i { position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #e8ecf6; transition: left .12s; }
+  .sw.on i { left: 17px; }
+  .esf { display: flex; gap: 4px; align-items: center; }
+  .esf b { width: 7px; height: 7px; border-radius: 50%; background: #2c3348; display: block; }
+  .esf b.on { background: #9aa4b8; }
+  .esf b.pico { background: #a06cff; }
+
+  .pal-pie { border-top: 1px solid #2c3348; padding: .5rem 1rem; font-size: .72rem; color: #7c8699; }
+  .pal-vacio { padding: 1.2rem 1rem; color: #7c8699; font-size: .88rem; }
+
+  /* The composer's "+" */
+  .mas-menu {
+    position: absolute; bottom: calc(100% + .4rem); left: 0; min-width: 210px;
+    background: #161b28; border: 1px solid #2c3348; border-radius: 10px;
+    padding: .3rem 0; z-index: 40; box-shadow: 0 12px 30px rgba(0,0,0,.45);
+  }
+  .composer .row { position: relative; }
+  .adjuntos { display: flex; flex-wrap: wrap; gap: .35rem; padding: 0 0 .4rem; }
+  .adjunto {
+    display: inline-flex; align-items: center; gap: .35rem; font-size: .74rem;
+    background: #232838; border: 1px solid #2c3348; border-radius: 6px; padding: .15rem .45rem;
+  }
+  .adjunto button { all: unset; cursor: pointer; color: #7c8699; padding: 0 .1rem; }
+  .adjunto button:hover { color: #e8ecf6; }
+  .composer .note { margin-left: auto; font-size: .76rem; }
+  .composer .note a { color: #9fd6ff; }
+
+  /* -------------------------------------------------------------------------
+     PHASE 9 — the four artifacts the phase emits, which until now could only
+     be seen with curl. The HTML is built by qvac/panel-x402.mjs; here's how
+     it looks.
+
+     The three tones are the part that is NOT decoration, and that's why
+     they're kept together:
+
+       good    a fact verified RIGHT HERE (a recomputed hash that matches);
+       warm    data with a caveat that needs reading -- an absence with a
+               reason, a tx hash nobody verified against the chain, a
+               signature this page doesn't check;
+       bad     something that reads as proof and isn't: a mock, a hash that
+               doesn't match, a synthetic tx, a settlement that failed.
+
+     A mock painted green would be exactly the mock that looks functional
+     that the project's rule prohibits.
+     ------------------------------------------------------------------------- */
+  .x402 {
+    border: 1px solid #2c3348; border-left: 3px solid #5fa8ff; border-radius: 8px;
+    background: #141822; padding: .8rem .9rem; margin: .6rem 0; font-size: .8rem;
+  }
+  .x402.x-par { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; align-items: start; }
+  @media (max-width: 820px) { .x402.x-par { grid-template-columns: 1fr; } }
+  .x-tit {
+    font-weight: 600; color: #cfe0ff; margin-bottom: .5rem; font-size: .82rem;
+    letter-spacing: .01em;
+  }
+  .x-bloque { min-width: 0; }
+  .x-op { border-top: 1px solid #262b36; padding-top: .5rem; margin-top: .5rem; }
+  .x-fila {
+    display: flex; gap: .8rem; align-items: baseline; padding: .18rem 0;
+    border-bottom: 1px solid #1d2230;
+  }
+  .x-k {
+    color: #8b93a7; font-size: .72rem; min-width: 11ch; flex: 0 0 auto;
+    text-transform: none; letter-spacing: .02em;
+  }
+  /* overflow-wrap mandatory: addresses, hashes, and signatures have no
+     spaces and used to spill out of the card cut in half. */
+  .x-v { color: #dbe2ef; overflow-wrap: anywhere; min-width: 0; }
+  .x-v.mono, .x-pre { font-family: ui-monospace, monospace; font-size: .72rem; }
+  .x-v.malo { color: #f87171; }
+  .x-nota { color: #7c8699; font-size: .72rem; margin: .3rem 0 .1rem; line-height: 1.4; }
+  .x-aviso {
+    border-radius: 6px; padding: .35rem .5rem; margin: .35rem 0; font-size: .74rem;
+    line-height: 1.45; overflow-wrap: anywhere;
+  }
+  .x-aviso.bueno { background: #12291c; color: #86efac; border: 1px solid #1f4a31; }
+  .x-aviso.tibio { background: #2a2413; color: #fcd34d; border: 1px solid #4a3d18; }
+  .x-aviso.malo  { background: #2d1618; color: #fca5a5; border: 1px solid #542125; }
+  .x-det { margin-top: .5rem; }
+  .x-det summary { cursor: pointer; color: #8b93a7; font-size: .74rem; }
+  .x-pre {
+    background: #0f1218; border: 1px solid #262b36; border-radius: 6px; padding: .5rem;
+    margin: .4rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #a9b4cc;
+  }
+  /* D25 — "measured" and "estimated" do NOT share a color. That's the whole
+     rule: an SSE chunk count painted the same as a provider's usage is the
+     cheapest way to turn an estimate into a fact. */
+  .x-conteo {
+    font-family: ui-monospace, monospace; font-size: .71rem; white-space: nowrap;
+    border-radius: 999px; padding: .05rem .5rem; border: 1px solid transparent;
+  }
+  .x-conteo.tono-medido   { color: #86efac; background: #12291c; border-color: #1f4a31; }
+  .x-conteo.tono-estimado { color: #fcd34d; background: #2a2413; border-color: #4a3d18; }
+  .x-conteo.tono-ausente  { color: #7c8699; background: #1a1e28; border-color: #262b36; }
+  .x-buscar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .8rem 0; }
+  .x-buscar input {
+    flex: 1; min-width: 16rem; background: #0f1218; color: #e6e6e6; font-size: .82rem;
+    border: 1px solid #2c3348; border-radius: 8px; padding: .5rem .65rem;
+    font-family: ui-monospace, monospace;
+  }
+  .x-buscar button { margin: 0; white-space: nowrap; }
+</style>
+</head>
+<body class="chatpage">
+  
+<nav class="nav">
+  <span class="brand">PyrusLLM</span>
+  <a href="/">Chat</a>
+  <a href="/node">My Node</a>
+  <a href="/network">Network</a>
+  <span class="agent offline" id="agent-chip"><i></i><b data-agent-label>checking…</b></span>
+</nav>
+  
+<script>
+  // ---------------------------------------------------------------------
+  // The panel's credential.
+  //
+  // The gateway's gate stopped accepting requests without Authorization,
+  // and the page isn't exempt: it requests its own and sends it like any
+  // other client. A single authentication path, with no back door for the
+  // browser.
+  // ---------------------------------------------------------------------
+  window.__panelKey = null
+
+  async function panelKey() {
+    if (window.__panelKey) return window.__panelKey
+    try {
+      const r = await fetch('/v1/keys/panel')
+      const d = await r.json()
+      window.__panelKey = d.key
+    } catch (e) { /* with no key the gate answers 401 and the reason shows */ }
+    return window.__panelKey
+  }
+
+  window.authFetch = async function (url, opts) {
+    const k = await panelKey()
+    const o = Object.assign({}, opts || {})
+    o.headers = Object.assign({}, o.headers || {}, k ? { Authorization: 'Bearer ' + k } : {})
+    return fetch(url, o)
+  }
+
+  window.__agent = null
+  async function pollAgent() {
+    try {
+      const r = await fetch('/v1/agent')
+      const a = await r.json()
+      window.__agent = a
+      const chip = document.getElementById('agent-chip')
+      if (chip) {
+        chip.className = 'agent ' + a.status
+        const label = {
+          live: 'Live · serving',
+          launching: 'Launching…',
+          offline: 'Node offline',
+          error: 'Launch failed'
+        }
+        chip.querySelector('[data-agent-label]').textContent = label[a.status] || a.status
+      }
+      if (typeof window.onAgent === 'function') window.onAgent(a)
+    } catch (err) { /* the gateway went down: the chip stays as it was */ }
+  }
+  pollAgent()
+  setInterval(pollAgent, 2500)
+</script>
+  <main>
+  <div id="gate" class="gate" style="display:none">
+    <h1>Put your machine on the network</h1>
+    <p>Launching your local agent joins this machine to the P2P network: it starts
+      serving your model to other nodes, and that is what gets you access to
+      theirs. Until it is live the network stays out of reach — your own
+      model still answers.</p>
+    <button id="launch">Launch local agent</button>
+    <div class="err" id="gate-err" style="display:none"></div>
+    <div><button class="alt" id="skip">Just use my local model</button></div>
+  </div>
+
+  <div id="chat" style="display:none">
+    <div id="thread"></div>
+    <div class="composer">
+      <div class="opts">
+        <select id="model"></select>
+        <button class="ghost" id="new" style="margin:0;padding:.25rem .6rem;font-size:.78rem">New chat</button>
+        <span class="note" id="routing"></span>
+      </div>
+      <div class="adjuntos" id="adjuntos"></div>
+      <div class="row">
+        <button class="ghost" id="mas" title="Add context" style="margin:0;padding:.35rem .6rem">+</button>
+        <button class="ghost" id="abrir-pal" title="Actions (Ctrl+K)" style="margin:0;padding:.35rem .6rem">&#9092;</button>
+        <textarea id="prompt" rows="1" placeholder="Ask anything..."></textarea>
+        <button id="send">Send</button>
+        <button id="stop" class="ghost" style="display:none">Stop</button>
+      </div>
+    </div>
+  <div id="modal"></div>
+  <div id="palette"></div>
+  </div>
+
+  <script>
+
+    function esc(v) {
+      return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+    }
+// ---- qvac/panel-x402.mjs, embedded as-is: see that file's note ----
+var MASCARA64 = 18446744073709551615n;
+var IV = [7640891576956012808n,13503953896175478587n,4354685564936845355n,11912009170470909681n,5840696475078001361n,11170449401992604703n,2270897969802886507n,6620516959819538809n];
+var SIGMA = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],[14,10,4,8,9,15,13,6,1,12,0,2,11,7,5,3],[11,8,12,0,5,2,15,13,10,14,3,6,7,1,9,4],[7,9,3,1,13,12,11,14,2,6,5,10,4,0,15,8],[9,0,5,7,2,4,10,15,14,1,11,12,6,8,3,13],[2,12,6,10,0,11,8,3,4,13,7,5,15,14,1,9],[12,5,1,15,14,13,4,10,0,7,6,3,9,2,8,11],[13,11,7,14,12,1,3,9,5,0,15,4,8,6,2,10],[6,15,14,9,11,3,0,8,12,2,13,7,1,4,10,5],[10,2,8,4,7,6,1,5,15,11,9,14,3,12,13,0],[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],[14,10,4,8,9,15,13,6,1,12,0,2,11,7,5,3]];
+var REDES = {"eip155:9745":{"nombre":"Plasma","prueba":false},"eip155:9746":{"nombre":"Plasma testnet","prueba":true},"eip155:988":{"nombre":"Stable","prueba":false}};
+var bytesUtf8 = function bytesUtf8(texto) {
+  const s = String(texto == null ? '' : texto)
+  const out = []
+  for (let i = 0; i < s.length; i++) {
+    let c = s.charCodeAt(i)
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const sig = i + 1 < s.length ? s.charCodeAt(i + 1) : 0
+      if (sig >= 0xdc00 && sig <= 0xdfff) {
+        c = 0x10000 + ((c - 0xd800) << 10) + (sig - 0xdc00)
+        i++
+      } else {
+        c = 0xfffd
+      }
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      c = 0xfffd
+    }
+    if (c < 0x80) out.push(c)
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63))
+    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63))
+    else
+      out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63))
+  }
+  return Uint8Array.from(out)
+};
+
+var rotarDerecha64 = function rotarDerecha64(x, n) {
+  return ((x >> n) | (x << (64n - n))) & MASCARA64
+};
+
+var comprimir = function comprimir(h, bloque, contados, ultimo) {
+  const v = new Array(16)
+  for (let i = 0; i < 8; i++) v[i] = h[i]
+  for (let i = 0; i < 8; i++) v[i + 8] = IV[i]
+
+  v[12] ^= BigInt(contados) & MASCARA64
+  v[13] ^= (BigInt(contados) >> 64n) & MASCARA64
+  if (ultimo) v[14] ^= MASCARA64
+
+  const m = new Array(16)
+  for (let i = 0; i < 16; i++) {
+    let x = 0n
+    // Little-endian: the highest byte goes in first and shifts its way down.
+    for (let b = 7; b >= 0; b--) x = (x << 8n) | BigInt(bloque[i * 8 + b])
+    m[i] = x
+  }
+
+  function mezclar(a, b, c, d, x, y) {
+    v[a] = (v[a] + v[b] + x) & MASCARA64
+    v[d] = rotarDerecha64(v[d] ^ v[a], 32n)
+    v[c] = (v[c] + v[d]) & MASCARA64
+    v[b] = rotarDerecha64(v[b] ^ v[c], 24n)
+    v[a] = (v[a] + v[b] + y) & MASCARA64
+    v[d] = rotarDerecha64(v[d] ^ v[a], 16n)
+    v[c] = (v[c] + v[d]) & MASCARA64
+    v[b] = rotarDerecha64(v[b] ^ v[c], 63n)
+  }
+
+  for (let r = 0; r < 12; r++) {
+    const s = SIGMA[r]
+    mezclar(0, 4, 8, 12, m[s[0]], m[s[1]])
+    mezclar(1, 5, 9, 13, m[s[2]], m[s[3]])
+    mezclar(2, 6, 10, 14, m[s[4]], m[s[5]])
+    mezclar(3, 7, 11, 15, m[s[6]], m[s[7]])
+    mezclar(0, 5, 10, 15, m[s[8]], m[s[9]])
+    mezclar(1, 6, 11, 12, m[s[10]], m[s[11]])
+    mezclar(2, 7, 8, 13, m[s[12]], m[s[13]])
+    mezclar(3, 4, 9, 14, m[s[14]], m[s[15]])
+  }
+
+  for (let i = 0; i < 8; i++) h[i] = h[i] ^ v[i] ^ v[i + 8]
+};
+
+var blake2b256Hex = function blake2b256Hex(bytes) {
+  const h = IV.slice()
+  // Parameters: fanout 1, depth 1, keylen 0, 32-byte digest -> 0x01010020.
+  h[0] ^= 0x01010020n
+
+  const n = bytes.length
+  let contados = 0
+  let i = 0
+  // Strictly `>`, not `>=`: the last full block has to be processed as FINAL
+  // and not as intermediate. With `>=` the hash of an input of exactly 128
+  // bytes comes out wrong, and it's the classic bug in this function.
+  while (n - i > 128) {
+    contados += 128
+    comprimir(h, bytes.subarray(i, i + 128), contados, false)
+    i += 128
+  }
+  const cola = new Uint8Array(128)
+  cola.set(bytes.subarray(i))
+  contados += n - i
+  comprimir(h, cola, contados, true)
+
+  let hex = ''
+  for (let k = 0; k < 4; k++) {
+    let x = h[k]
+    for (let b = 0; b < 8; b++) {
+      hex += (Number(x & 0xffn) + 256).toString(16).slice(1)
+      x >>= 8n
+    }
+  }
+  return hex
+};
+
+var hashDeTexto = function hashDeTexto(texto) {
+  return 'blake2b-256:' + blake2b256Hex(bytesUtf8(texto))
+};
+
+var canonicalizarJCS = function canonicalizarJCS(valor) {
+  if (valor === null) return 'null'
+  const t = typeof valor
+  if (t === 'boolean') return valor ? 'true' : 'false'
+  if (t === 'number') {
+    if (!Number.isFinite(valor)) throw new Error('JCS: non-finite number')
+    return JSON.stringify(valor)
+  }
+  if (t === 'string') return JSON.stringify(valor)
+  if (Array.isArray(valor)) return '[' + valor.map(canonicalizarJCS).join(',') + ']'
+  if (t === 'object') {
+    const claves = Object.keys(valor)
+      .filter(function (k) {
+        return valor[k] !== undefined
+      })
+      .sort()
+    return (
+      '{' +
+      claves
+        .map(function (k) {
+          return JSON.stringify(k) + ':' + canonicalizarJCS(valor[k])
+        })
+        .join(',') +
+      '}'
+    )
+  }
+  throw new Error('JCS: non-serializable type (' + t + ')')
+};
+
+var hashDeMensajes = function hashDeMensajes(messages) {
+  return hashDeTexto(canonicalizarJCS(messages || []))
+};
+
+var bytesFirmados = function bytesFirmados(atestacion) {
+  const copia = {}
+  const claves = Object.keys(atestacion || {})
+  for (let i = 0; i < claves.length; i++) {
+    if (claves[i] !== 'signature') copia[claves[i]] = atestacion[claves[i]]
+  }
+  return canonicalizarJCS(copia)
+};
+
+var etiquetaDeRed = function etiquetaDeRed(caip2) {
+  const id = String(caip2 || '')
+  const r = REDES[id]
+  return {
+    id,
+    nombre: r ? r.nombre : null,
+    // A network not in the table doesn't get invented: the bare id is shown.
+    texto: r ? r.nombre + ' · ' + id : id || 'undeclared network',
+    esPrueba: !!(r && r.prueba)
+  }
+};
+
+var vistaDeDesafio = function vistaDeDesafio(cuerpo) {
+  const body = cuerpo || {}
+  const accepts = Array.isArray(body.accepts) ? body.accepts : []
+  if (!accepts.length) return { esDesafio: false, error: null, opciones: [] }
+
+  return {
+    esDesafio: true,
+    x402Version: body.x402Version == null ? null : body.x402Version,
+    // When the 402 is a RETRY -- the previous payment didn't verify -- the
+    // gateway adds `error` with the reason. Make it visible: without that, a
+    // client that signed wrong gets the same 402 twice and doesn't know what
+    // changed.
+    error: body.error && body.error !== 'X-PAYMENT header is required' ? String(body.error) : null,
+    opciones: accepts.map(function (a) {
+      return {
+        // HOW MUCH
+        monto: String(a.amount == null ? '' : a.amount),
+        activo: String(a.asset || ''),
+        activoNombre: (a.extra && a.extra.name) || null,
+        // `accepts[]` doesn't declare `decimals`, so the amount isn't
+        // converted to USD without inventing it. It's stated, instead of
+        // dividing by 1e6 and hoping.
+        // NOTE: this string is asserted verbatim by test/index.js (checks
+        // for the substring "no declara los decimales") — left in Spanish.
+        avisoMonto:
+          'en unidades minimas del activo — el 402 no declara los decimales, ' +
+          'asi que esta pagina no lo convierte a USD',
+        // TO WHOM
+        payTo: String(a.payTo || ''),
+        // ON WHICH CHAIN
+        red: etiquetaDeRed(a.network),
+        // UP TO HOW MANY TOKENS
+        tope: Number.isFinite(Number(a.outputTokenLimit)) ? Number(a.outputTokenLimit) : null,
+        esquema: String(a.esquema || a.scheme || ''),
+        recurso: String(a.resource || ''),
+        descripcion: String(a.description || ''),
+        validezSeg: Number.isFinite(Number(a.maxTimeoutSeconds))
+          ? Number(a.maxTimeoutSeconds)
+          : null
+      }
+    })
+  }
+};
+
+var vistaDeLiquidacion = function vistaDeLiquidacion(recibo) {
+  const r = recibo || {}
+  const tx = String(r.transaction || '')
+  const cuerpo = tx.indexOf('0x') === 0 ? tx.slice(2) : tx
+  const bytes = cuerpo.length >= 2 ? cuerpo.toLowerCase().match(/../g) || [] : []
+  const todosIguales =
+    bytes.length > 1 &&
+    bytes.every(function (b) {
+      return b === bytes[0]
+    })
+
+  return {
+    liquidado: r.success === true,
+    // A `success: false` is NOT a formality: the node served and didn't get
+    // paid. D12 accepts that in exchange for not putting an on-chain
+    // transaction in front of TTFT, and it's what Phase 10 fixes by
+    // accumulating receipts.
+    error:
+      r.success === true
+        ? null
+        : [r.errorReason, r.errorMessage].filter(Boolean).join(': ') ||
+          // NOTE: not asserted by the test suite — safe to translate.
+          'settlement did not report success',
+    tx: tx || null,
+    txSintetico: todosIguales,
+    // The origin always goes along, whether the hash is real or a toy one. A
+    // hash with no provenance reads as a confirmed transaction, and nothing
+    // was confirmed here.
+    // NOTE: both branches below are asserted verbatim by the test suite
+    // (checks for the substrings "PRUEBAS" and "verificaron contra la
+    // cadena") — left in Spanish.
+    txOrigen: tx
+      ? todosIguales
+        ? 'sus 32 bytes son todos iguales: es el sello de un facilitator de PRUEBAS, ' +
+          'no existe en ningun explorer'
+        : 'lo devolvio el facilitator que liquido; ni el nodo ni esta pagina lo ' +
+          'verificaron contra la cadena'
+      : null,
+    red: etiquetaDeRed(r.network),
+    payer: r.payer ? String(r.payer) : null
+  }
+};
+
+var comparacionDeHash = function comparacionDeHash(campo, declarado, material, recomputar) {
+  const dec = declarado == null ? null : String(declarado)
+  if (!dec) {
+    return { campo, declarado: null, estado: 'sin-dato', texto: 'the attestation does not carry it' }
+  }
+  if (material === undefined || material === null) {
+    return {
+      campo,
+      declarado: dec,
+      estado: 'sin-material',
+      texto: 'no se recomputo: esta vista no tiene contra que compararlo'
+    }
+  }
+  let calculado = null
+  try {
+    calculado = recomputar(material)
+  } catch (err) {
+    return {
+      campo,
+      declarado: dec,
+      estado: 'error',
+      texto: 'could not recompute: ' + ((err && err.message) || err)
+    }
+  }
+  const coincide = calculado === dec
+  return {
+    campo,
+    declarado: dec,
+    calculado,
+    estado: coincide ? 'coincide' : 'no-coincide',
+    texto: coincide
+      ? 'recomputado sobre lo que se recibio: coincide'
+      : 'recomputado sobre lo que se recibio: NO coincide'
+  }
+};
+
+var textoDeFinishReason = function textoDeFinishReason(reason) {
+  const r = String(reason || '')
+  if (r === 'stop') return 'termino sola'
+  if (r === 'length') return 'se corto en el tope de tokens que declaro el 402 (D9)'
+  if (r === 'client_cancelled') {
+    return 'lo corto el cliente: se atestigua el prefijo emitido (D27 caso 1)'
+  }
+  return r || 'no declarado'
+};
+
+var vistaDeConteo = function vistaDeConteo(entrada) {
+  const e = entrada || {}
+  const fuente = e.tokensFuente == null ? null : String(e.tokensFuente)
+  const prefill = Number.isFinite(Number(e.tokensPrefill)) ? Number(e.tokensPrefill) : null
+  const decode = Number.isFinite(Number(e.tokensDecode)) ? Number(e.tokensDecode) : null
+
+  if (fuente === null) {
+    return {
+      fuente: null,
+      medido: false,
+      prefill,
+      decode,
+      // Entries from before D25 don't have the field, and the attestation
+      // never carries it. Saying "gateway" here would claim something the
+      // data doesn't say.
+      etiqueta: 'sin procedencia',
+      texto: 'does not declare where these numbers came from: the routing trail (D25) is what says that',
+      tono: 'ausente'
+    }
+  }
+  if (fuente === 'proveedor') {
+    return {
+      fuente,
+      medido: true,
+      prefill,
+      decode,
+      etiqueta: 'medido',
+      texto: 'both numbers came from the provider\'s `usage`: they are tokens counted by its tokenizer',
+      tono: 'medido'
+    }
+  }
+  return {
+    fuente,
+    medido: false,
+    prefill,
+    decode,
+    etiqueta: 'estimado',
+    texto:
+      'these are NOT measured tokens: the prefill is an estimate of the prompt (bytes/4) and the ' +
+      'decode is a count of CHUNKS DE SSE, which are not tokens — who decides how the stream ' +
+      'gets chopped up is the provider',
+    tono: 'estimado'
+  }
+};
+
+var vistaDeAtestacion = function vistaDeAtestacion(recibo, contexto) {
+  const r = recibo || {}
+  const ctx = contexto || {}
+  const a = r.attestation || null
+
+  if (!a) {
+    const motivo = r.attestationMissing ? String(r.attestationMissing) : null
+    return {
+      hay: false,
+      // No attestation AND no reason means the response is incomplete, and
+      // that's stated as such: it's different from "there was nothing to
+      // sign."
+      // NOTE: asserted verbatim by the test suite (checks for the substring
+      // "incompleta") — left in Spanish.
+      motivo:
+        motivo ||
+        'el recibo no trae atestacion NI el motivo por el que falta: es una respuesta ' +
+          'incompleta, no una ausencia justificada',
+      motivoDeclarado: !!motivo,
+      // The one case where the absence is CORRECT and not a failure: a peer
+      // served it, its wallet got paid, and its attestation is the one that
+      // signs it (Phase 10).
+      // NOTE: 'otro nodo' ("other node") here is compared against Spanish
+      // text produced elsewhere (attestationMissing, outside this file's
+      // scope) via indexOf — a data comparison, not display prose. Left
+      // untranslated; translating it would silently break `esDelPar`.
+      esDelPar: !!(motivo && motivo.indexOf('otro nodo') !== -1)
+    }
+  }
+
+  const runtime = String(a.runtime || 'unknown')
+  // A mock signed with a REAL wallet is still a mock. The artifact is genuine
+  // and the text is made up, and the two have to be visible together.
+  const esMock = runtime === 'mock' || runtime.indexOf('mock') === 0
+
+  const hashes = [
+    comparacionDeHash('outputHash', a.outputHash, ctx.textoRecibido, hashDeTexto),
+    comparacionDeHash('promptHash', a.promptHash, ctx.messages, hashDeMensajes)
+  ]
+
+  return {
+    hay: true,
+    version: a.v == null ? null : a.v,
+    requestId: String(a.requestId || ''),
+    nonce: String(a.nonce || ''),
+    ts: Number(a.ts) || null,
+    modelId: a.modelId == null ? null : String(a.modelId),
+    // DECLARED, not measured (D26). There's no published black-box way to
+    // verify quantization: what backs these two fields is that they're
+    // signed and there's stake behind them, not a measurement.
+    quantization: String(a.quantization || 'unknown'),
+    runtime,
+    // NOTE: asserted verbatim by the test suite (checks for the substring
+    // "DECLARACIONES") — left in Spanish.
+    declarados: 'quantization y runtime son DECLARACIONES firmadas, no mediciones (D26)',
+    esMock,
+    // NOTE: asserted via `.indexOf('demo')` — the literal flag name `--demo`
+    // (never translated per rule 2) already guarantees that substring, so
+    // the surrounding prose is safe to translate.
+    avisoMock: esMock
+      ? 'MOCK: the text was made up by --demo mode. The signature is from a REAL wallet ' +
+        'over text no model generated — the artifact is genuine and the content is theater'
+      : null,
+    finishReason: String(a.finishReason || ''),
+    finishTexto: textoDeFinishReason(a.finishReason),
+    // The attestation does NOT carry `tokensFuente`: what declares it is the
+    // routing trail (D25). It's still run through `vistaDeConteo` so the two
+    // numbers never get drawn as a measurement when nobody said they were.
+    conteo: vistaDeConteo({
+      tokensPrefill: a.tokensPrefill,
+      tokensDecode: a.tokensDecode,
+      tokensFuente: ctx.tokensFuente
+    }),
+    providerPubkey: String(a.providerPubkey || ''),
+    signature: String(a.signature || ''),
+    // The bytes it was signed against, so it can be verified EXTERNALLY.
+    firmadoSobre: bytesFirmados(a),
+    firmaVerificada: false,
+    // NOTE: asserted verbatim by the test suite (checks for the substring
+    // "NO verifica la firma") — left in Spanish.
+    avisoFirma:
+      'esta pagina NO verifica la firma — recuperar el firmante de un EIP-191 pide ' +
+      'keccak256 y secp256k1, y aca no entra un CDN. Los hashes SI se recomputan; ' +
+      'para verificar la firma, los bytes firmados estan abajo',
+    hashes
+  }
+};
+
+var textoDeCostoEstimado = function textoDeCostoEstimado(micros) {
+  const n = Number(micros)
+  if (!Number.isFinite(n)) return { texto: 'sin dato de costo', techo: false }
+  if (n <= 0) return { texto: 'no charge', techo: false }
+  // Six decimals and not four: with four, any turn under 50 micros shows as
+  // "USD 0.0000," i.e. identical to free, which is exactly the distinction
+  // this line exists to make.
+  const s = (n / 1000000).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
+  return { texto: 'up to USD ' + s, techo: true }
+};
+
+var escaparHtml = function escaparHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+};
+
+var filaDato = function filaDato(etiqueta, valor, clase) {
+  return (
+    '<div class="x-fila"><span class="x-k">' +
+    escaparHtml(etiqueta) +
+    '</span><span class="x-v ' +
+    (clase || '') +
+    '">' +
+    escaparHtml(valor) +
+    '</span></div>'
+  )
+};
+
+var htmlDeDesafio = function htmlDeDesafio(vista) {
+  const v = vista || {}
+  if (!v.esDesafio) return ''
+  const partes = [
+    '<div class="x402">',
+    '<div class="x-tit">402 · this node requires payment before generating a single token</div>'
+  ]
+  if (v.error) {
+    partes.push(
+      '<div class="x-aviso malo">the previous payment did not verify: ' + escaparHtml(v.error) + '</div>'
+    )
+  }
+  for (let i = 0; i < v.opciones.length; i++) {
+    const o = v.opciones[i]
+    partes.push('<div class="x-op">')
+    partes.push(filaDato('CUANTO', o.monto + (o.activoNombre ? ' ' + o.activoNombre : ''), 'mono'))
+    partes.push('<div class="x-nota">' + escaparHtml(o.avisoMonto) + '</div>')
+    partes.push(filaDato('activo', o.activo, 'mono'))
+    partes.push(filaDato('A QUIEN', o.payTo, 'mono'))
+    partes.push(
+      filaDato('EN QUE RED', o.red.texto + (o.red.esPrueba ? ' — TEST network' : ''), 'mono')
+    )
+    partes.push(
+      filaDato(
+        'HASTA CUANTOS TOKENS',
+        o.tope === null ? 'not declared' : o.tope + ' output tokens'
+      )
+    )
+    partes.push(
+      filaDato(
+        'scheme',
+        o.esquema + (o.validezSeg === null ? '' : ' · the signature is valid for ' + o.validezSeg + ' s')
+      )
+    )
+    partes.push('</div>')
+  }
+  partes.push(
+    '<div class="x-nota">The output cap is the same number the gateway applies afterward, ' +
+      'which is why the fixed price is honest (D9). Paying means re-sending the request with ' +
+      'the signed X-PAYMENT header.</div>'
+  )
+  partes.push('</div>')
+  return partes.join('')
+};
+
+var htmlDeConteo = function htmlDeConteo(vista) {
+  const c = vista || {}
+  const n = function (x) {
+    return x === null ? '?' : String(x)
+  }
+  return (
+    '<span class="x-conteo tono-' +
+    escaparHtml(c.tono) +
+    '" title="' +
+    escaparHtml(c.texto) +
+    '">prefill ' +
+    escaparHtml(n(c.prefill)) +
+    ' · decode ' +
+    escaparHtml(n(c.decode)) +
+    ' · <b>' +
+    escaparHtml(c.etiqueta) +
+    '</b></span>'
+  )
+};
+
+var htmlDeLiquidacion = function htmlDeLiquidacion(vista) {
+  const v = vista || {}
+  const partes = ['<div class="x-bloque">', '<div class="x-tit">Settlement receipt (x402)</div>']
+  // NOTE: the failure branch's opening "NO se cobro" is asserted verbatim by
+  // the test suite (indexOf) — that literal prefix is kept in Spanish, the
+  // rest of the sentence is translated.
+  partes.push(
+    v.liquidado
+      ? '<div class="x-aviso bueno">the facilitator reported the settlement as successful</div>'
+      : '<div class="x-aviso malo">NO se cobro: ' +
+          escaparHtml(v.error) +
+          ' — the node served anyway, which is what D12 accepts in exchange for not putting ' +
+          'an on-chain transaction in front of the first token</div>'
+  )
+  partes.push(filaDato('red', v.red.texto + (v.red.esPrueba ? ' — TEST network' : ''), 'mono'))
+  if (v.payer) partes.push(filaDato('payer', v.payer, 'mono'))
+  if (v.tx) {
+    partes.push(filaDato('tx hash', v.tx, 'mono'))
+    // Rule 4: the hash NEVER goes out without saying where it came from.
+    partes.push(
+      '<div class="x-aviso ' +
+        (v.txSintetico ? 'malo' : 'tibio') +
+        '">' +
+        escaparHtml(v.txOrigen) +
+        '</div>'
+    )
+  } else {
+    partes.push(filaDato('tx hash', 'the facilitator did not return one'))
+  }
+  partes.push('</div>')
+  return partes.join('')
+};
+
+var htmlDeAtestacion = function htmlDeAtestacion(vista) {
+  const v = vista || {}
+  if (!v.hay) {
+    // Rule 1: the absence goes WITH THE REASON. The peer's case is not a
+    // failure and is stated as such; any other case is flagged more strongly.
+    // NOTE: "no hay atestacion" is asserted verbatim by the test suite
+    // (indexOf) — left in Spanish.
+    return (
+      '<div class="x-bloque">' +
+      '<div class="x-tit">Provider attestation (D24)</div>' +
+      '<div class="x-aviso ' +
+      (v.esDelPar ? 'tibio' : v.motivoDeclarado ? 'tibio' : 'malo') +
+      '"><b>no hay atestacion</b> — ' +
+      escaparHtml(v.motivo) +
+      '</div>' +
+      (v.esDelPar
+        ? '<div class="x-nota">This is correct: this node did not run the model, and the 402 ' +
+          'paid the peer\'s wallet. Signing here would be the artifact that looks like proof ' +
+          'and is not.</div>'
+        : '') +
+      '</div>'
+    )
+  }
+
+  const partes = [
+    '<div class="x-bloque">',
+    '<div class="x-tit">Provider attestation (D24)</div>'
+  ]
+
+  // Rule 2: the mock shows, above everything else and not in a footnote.
+  if (v.esMock) {
+    partes.push(
+      '<div class="x-aviso malo"><b>runtime: mock</b> — ' + escaparHtml(v.avisoMock) + '</div>'
+    )
+  }
+
+  partes.push(filaDato('model', v.modelId === null ? 'not declared' : v.modelId, 'mono'))
+  partes.push(filaDato('runtime', v.runtime, v.esMock ? 'mono malo' : 'mono'))
+  partes.push(filaDato('quantization', v.quantization, 'mono'))
+  partes.push('<div class="x-nota">' + escaparHtml(v.declarados) + '</div>')
+  partes.push(filaDato('finished', v.finishReason + ' — ' + v.finishTexto))
+  partes.push(
+    '<div class="x-fila"><span class="x-k">tokens</span><span class="x-v">' +
+      htmlDeConteo(v.conteo) +
+      '</span></div>'
+  )
+  partes.push(filaDato('requestId', v.requestId, 'mono'))
+  partes.push(filaDato('nonce', v.nonce, 'mono'))
+  partes.push(filaDato('signed by', v.providerPubkey, 'mono'))
+
+  // The hashes: the heart of D24. Each one says whether it was recomputed
+  // and against what.
+  for (let i = 0; i < v.hashes.length; i++) {
+    const h = v.hashes[i]
+    partes.push(filaDato(h.campo, h.declarado === null ? '—' : h.declarado, 'mono'))
+    partes.push(
+      '<div class="x-aviso ' +
+        (h.estado === 'coincide' ? 'bueno' : h.estado === 'no-coincide' ? 'malo' : 'tibio') +
+        '">' +
+        escaparHtml(h.texto) +
+        (h.estado === 'no-coincide' ? ' — recomputed: ' + escaparHtml(h.calculado) : '') +
+        '</div>'
+    )
+  }
+
+  partes.push(filaDato('signature', v.signature, 'mono'))
+  partes.push('<div class="x-aviso tibio">' + escaparHtml(v.avisoFirma) + '</div>')
+  partes.push(
+    '<details class="x-det"><summary>the bytes that were signed (JCS without the signature field)</summary>' +
+      '<pre class="x-pre">' +
+      escaparHtml(v.firmadoSobre) +
+      '</pre></details>'
+  )
+  partes.push('</div>')
+  return partes.join('')
+};
+
+var liquidacionDe = function liquidacionDe(recibo) {
+  const r = recibo || {}
+  return r.paymentResponse ? r.paymentResponse : r
+};
+
+var htmlDeRecibo = function htmlDeRecibo(recibo, contexto) {
+  return (
+    '<div class="x402 x-par">' +
+    htmlDeLiquidacion(vistaDeLiquidacion(liquidacionDe(recibo))) +
+    htmlDeAtestacion(vistaDeAtestacion(recibo, contexto)) +
+    '</div>'
+  )
+};
+
+
+    // navigator.clipboard does NOT exist outside a secure context. The
+    // panel opens over http://localhost (secure) but also over
+    // http://192.168.x.x from another machine on the LAN, where the API
+    // isn't there and the "Copy" button silently did nothing. Hence the
+    // execCommand fallback.
+    async function copiar(texto, btn) {
+      let ok = false
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(texto)
+          ok = true
+        }
+      } catch { /* cae al fallback */ }
+      if (!ok) {
+        const ta = document.createElement('textarea')
+        ta.value = texto
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        try { ok = document.execCommand('copy') } catch { ok = false }
+        document.body.removeChild(ta)
+      }
+      const antes = btn.textContent
+      btn.textContent = ok ? 'Copied' : 'Copy by hand'
+      setTimeout(() => { btn.textContent = antes }, 1600)
+    }
+
+    let estadoPoll = null
+
+    function cerrarModal() {
+      clearInterval(estadoPoll)
+      estadoPoll = null
+      document.getElementById('modal').innerHTML = ''
+      document.removeEventListener('keydown', onEsc)
+    }
+
+    function onEsc(ev) { if (ev.key === 'Escape') cerrarModal() }
+
+    // Simple modal for content that's already built. Panels that need one
+    // with tabs and polling still write #modal by hand; this one is for the
+    // common case -- a title and a body -- which used to force repeating
+    // the overlay, the Esc close, and the click-outside close everywhere.
+    function abrirModal(titulo, cuerpoHtml) {
+      document.getElementById('modal').innerHTML =
+        '<div class="modal-overlay" id="modal-overlay"><div class="modal">' +
+        '<h3>' + esc(titulo) + '</h3>' + cuerpoHtml +
+        '<div style="margin-top:1rem"><button class="ghost" id="modal-cerrar">Close</button></div>' +
+        '</div></div>'
+      document.getElementById('modal-cerrar').addEventListener('click', cerrarModal)
+      document.getElementById('modal-overlay').addEventListener('click', function (ev) {
+        if (ev.target.id === 'modal-overlay') cerrarModal()
+      })
+      document.addEventListener('keydown', onEsc)
+    }
+
+    function formatBytes(n) {
+      if (!n) return '0 B'
+      if (n < 1024) return n + ' B'
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+      return (n / 1024 / 1024).toFixed(1) + ' MB'
+    }
+
+
+    var msgs = []
+    var nodes = []
+    var streaming = false
+    var ctrl = null
+    var userPicked = false
+    var skipped = sessionStorage.getItem('pyrus.skipGate') === '1'
+
+    // Backticks and sentinels built at runtime: this script travels inside
+    // one of pages.mjs's template literals, and a loose backtick would
+    // close it in the middle.
+    var BT = String.fromCharCode(96)
+    var S = String.fromCharCode(1)
+    var fenceRe = new RegExp(BT + BT + BT + '(\w*)\n?([\s\S]*?)' + BT + BT + BT, 'g')
+    var codeRe = new RegExp(BT + '([^' + BT + '\n]+)' + BT, 'g')
+    var slotRe = new RegExp(S + 'C(\d+)' + S, 'g')
+
+    // Minimal, hand-rolled markdown. No CDN on purpose: these pages travel
+    // as a string inside the standalone binary -- see the note at the top
+    // of the file --, and an external dependency doesn't travel with them.
+    //
+    // Escaped FIRST and marked up afterward: the other way around, any
+    // model response with a "<script>" inside would become real HTML on the
+    // page.
+    function md(src) {
+      var blocks = []
+      var t = esc(src)
+      t = t.replace(fenceRe, function (m, lang, code) {
+        blocks.push(code.replace(/\n$/, ''))
+        return S + 'C' + (blocks.length - 1) + S
+      })
+      t = t.replace(codeRe, '<code>$1</code>')
+      t = t.replace(/^#{3,} (.+)$/gm, '<h4>$1</h4>')
+      t = t.replace(/^#{1,2} (.+)$/gm, '<h3>$1</h3>')
+      t = t.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+      t = t.replace(/(?:^[-*] .+(?:\n|$))+/gm, function (m) {
+        return '<ul>' + m.trim().split('\n').map(function (l) {
+          return '<li>' + l.replace(/^[-*] /, '') + '</li>'
+        }).join('') + '</ul>'
+      })
+      t = t.replace(/(?:^\d+\. .+(?:\n|$))+/gm, function (m) {
+        return '<ol>' + m.trim().split('\n').map(function (l) {
+          return '<li>' + l.replace(/^\d+\. /, '') + '</li>'
+        }).join('') + '</ol>'
+      })
+      t = t.split(/\n{2,}/).map(function (p) {
+        var x = p.trim()
+        if (!x) return ''
+        if (/^<(h3|h4|ul|ol)/.test(x)) return x
+        return '<p>' + x.replace(/\n/g, '<br>') + '</p>'
+      }).join('')
+      return t.replace(slotRe, function (m, i) {
+        return '<pre><code>' + blocks[+i] + '</code></pre>'
+      })
+    }
+
+    function agentLive() {
+      return window.__agent && window.__agent.status === 'live'
+    }
+
+    function peersOnline() {
+      return nodes.filter(function (n) { return n.kind === 'peer' && n.status === 'online' })
+    }
+
+    function localNode() {
+      return nodes.filter(function (n) { return n.kind === 'real' })[0] || null
+    }
+
+    // "Auto" = the best one available. Names the MODEL and lets the gateway
+    // choose the machine: since Phase 8 that's decided by pickCandidate on
+    // load, so Auto finally means something. It used to rely on
+    // findAllByModelId preferring the peer, which was a demo preference.
+    function autoModelId() {
+      var p = peersOnline()[0]
+      var l = localNode()
+      return (p && p.modelId) || (l && l.modelId) || 'llama1b'
+    }
+
+    // Every candidate that can be pinned by hand, one per MACHINE and not
+    // per model. It used to deduplicate by modelId and two peers serving
+    // llama1b collapsed into a single option: there was no way to choose
+    // which.
+    function fijables() {
+      return nodes.filter(function (n) {
+        return (
+          n.status === 'online' &&
+          (n.kind === 'peer' || n.kind === 'real' || n.kind === 'mock' || n.kind === 'upstream')
+        )
+      })
+    }
+
+    // The node pinned from /network ("Use this node").
+    function pinGuardado() {
+      try { return sessionStorage.getItem('pyrus.pin') } catch (e) { return null }
+    }
+
+    function guardarPin(id) {
+      try {
+        if (id) sessionStorage.setItem('pyrus.pin', id)
+        else sessionStorage.removeItem('pyrus.pin')
+      } catch (e) { /* private mode: the pin only lives in the selector */ }
+    }
+
+    // -------------------------------------------------------------- the gate
+    window.onAgent = function (a) {
+      var gate = document.getElementById('gate')
+      var chat = document.getElementById('chat')
+      var mostrarGate = a.status !== 'live' && !skipped
+
+      gate.style.display = mostrarGate ? 'block' : 'none'
+      chat.style.display = mostrarGate ? 'none' : 'flex'
+
+      var btn = document.getElementById('launch')
+      btn.disabled = a.status === 'launching'
+      btn.textContent = a.status === 'launching' ? 'Joining the network...' : 'Launch local agent'
+
+      var err = document.getElementById('gate-err')
+      if (!a.canLaunch && a.status !== 'live') {
+        err.style.display = ''
+        err.textContent = 'This gateway was started without launch support. Restart it with: pyrusllm serve --swarm'
+      } else if (a.status === 'error') {
+        err.style.display = ''
+        err.textContent = a.message || 'could not launch the agent'
+      } else {
+        err.style.display = 'none'
+      }
+      paintOptions()
+    }
+
+    document.getElementById('launch').addEventListener('click', async function () {
+      var btn = this
+      btn.disabled = true
+      btn.textContent = 'Joining the network...'
+      try {
+        await fetch('/v1/agent/launch', { method: 'POST' })
+      } catch (e) { /* the chip's poll repaints the real state */ }
+      pollAgent()
+    })
+
+    // There's still a way out: your own model doesn't depend on the
+    // network, and a first launch that doesn't let you produce a single
+    // token against the machine already in front of you is a wall with
+    // nothing behind it.
+    document.getElementById('skip').addEventListener('click', function () {
+      skipped = true
+      sessionStorage.setItem('pyrus.skipGate', '1')
+      if (window.__agent) window.onAgent(window.__agent)
+      document.getElementById('prompt').focus()
+    })
+
+    // ------------------------------------------------------------- options
+    // The selector has THREE modes, which are two different questions:
+    // which model is wanted and on which machine. Until now only the first
+    // could be answered.
+    //
+    //   local        -> this machine, and nothing leaves it   (local:true)
+    //   auto         -> the best one available, the gateway decides by load
+    //   node:<id>    -> a specific machine                    (node:<id>)
+    //
+    // The "Local only" checkbox got absorbed into the first option. With
+    // both existing separately they could contradict each other -- picking
+    // a peer's model AND checking local only gave a 404, because the
+    // gateway filters peers out after choosing.
+    function paintOptions() {
+      var sel = document.getElementById('model')
+      var vivo = agentLive()
+      var loc = localNode()
+      var elegido = sel.value || pinGuardado() && 'node:' + pinGuardado()
+
+      var opts = []
+      if (loc) {
+        opts.push('<option value="local">' + esc(loc.displayName) + ' - this machine only</option>')
+      }
+      opts.push('<option value="auto"' + (vivo ? '' : ' disabled') + '>Auto - best available node</option>')
+
+      // One option per MACHINE, with its load: this is what makes it
+      // possible to choose between two peers serving the same model.
+      var lista = fijables()
+      if (lista.length) {
+        opts.push('<optgroup label="Specific node">')
+        lista.forEach(function (n) {
+          var carga = typeof n.loadPct === 'number' ? ' - ' + n.loadPct + '% busy' : ''
+          opts.push(
+            '<option value="node:' + esc(n.id) + '">' +
+            esc(n.operator) + ' - ' + esc(n.displayName) + carga +
+            '</option>'
+          )
+        })
+        opts.push('</optgroup>')
+      }
+      sel.innerHTML = opts.join('')
+
+      var sigue = false
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === elegido && !sel.options[i].disabled) sigue = true
+      }
+
+      // A pin that arrived from /network overrides the default, but only if
+      // that node is still around: if it's gone, it falls back to Auto and
+      // gets cleared, instead of leaving the selector pointing at a ghost.
+      var pin = pinGuardado()
+      if (pin && !sigue) {
+        var vivoPin = false
+        for (var j = 0; j < sel.options.length; j++) {
+          if (sel.options[j].value === 'node:' + pin) vivoPin = true
+        }
+        // A pin only gets discarded when we KNOW the node isn't there: with
+        // the grid still empty -- the first paint happens before /v1/nodes
+        // answers -- no pin shows up, and clearing it there would always
+        // throw away the one that had just arrived from /network.
+        if (!vivoPin && lista.length) { guardarPin(null); pin = null }
+      }
+
+      // If nobody chose by hand, Auto wins as soon as it becomes available:
+      // it used to be that the node went live and the selector stayed stuck
+      // on the local model because it was the only valid option when it was
+      // first painted.
+      if (sigue) sel.value = elegido
+      else if (pin) sel.value = 'node:' + pin
+      else if (!userPicked && vivo) sel.value = 'auto'
+      else sel.value = vivo ? 'auto' : (loc ? 'local' : 'auto')
+
+      var nota = document.getElementById('routing')
+      var pares = peersOnline()
+      if (sel.value === 'local') {
+        nota.textContent = 'Nothing leaves this machine.'
+      } else if (sel.value.indexOf('node:') === 0) {
+        nota.textContent = 'Pinned to one machine - no fallback if it is busy.'
+      } else if (!vivo) {
+        nota.textContent = 'Node offline - the network is out of reach.'
+      } else {
+        nota.textContent = pares.length + (pares.length === 1 ? ' node' : ' nodes') + ' reachable'
+      }
+    }
+
+    // Translates the selector's mode into the request's three fields.
+    function destino() {
+      var v = document.getElementById('model').value
+      if (v === 'local') {
+        var l = localNode()
+        return { model: (l && l.modelId) || autoModelId(), local: true, node: null }
+      }
+      if (v.indexOf('node:') === 0) {
+        var id = v.slice(5)
+        var n = nodes.filter(function (x) { return x.id === id })[0]
+        return { model: (n && n.modelId) || autoModelId(), local: false, node: id }
+      }
+      return { model: autoModelId(), local: false, node: null }
+    }
+
+    // --------------------------------------------------------------- the thread
+    function render() {
+      var el = document.getElementById('thread')
+      if (!msgs.length) {
+        el.innerHTML = '<div class="hint" style="margin-top:2rem">Ask your node anything. ' +
+          'Every answer says which machine produced it.</div>'
+        return
+      }
+      el.innerHTML = msgs.map(function (m) {
+        var quien = m.role === 'user' ? 'You' : 'Assistant'
+        var cuerpo = m.role === 'user' ? '<p>' + esc(m.content).replace(/\n/g, '<br>') + '</p>' : md(m.content)
+        var clase = 'body' + (m.streaming && !m.content ? ' caret' : '')
+        return '<div class="msg ' + m.role + '">' +
+          '<div class="who">' + quien + '</div>' +
+          '<div class="' + clase + '">' + cuerpo + '</div>' +
+          (m.meta ? prov(m.meta) : '') +
+          // PHASE 9 — the challenge and the receipt stay ATTACHED to the
+          // turn that produced them. On a separate tab they'd be two loose
+          // artifacts that need correlating by hand; here the evidence sits
+          // right next to the response it talks about.
+          //
+          // outputHash gets recomputed against m.content, which is exactly
+          // the text this browser accumulated delta by delta. That's D24's
+          // entire point: the hash is over the TEXT and doesn't depend on
+          // chunking, so comparing it here genuinely proves what's attested
+          // to is what was received -- not that two fields of the same JSON
+          // match.
+          (m.x402 ? htmlDeDesafio(m.x402) : '') +
+          (m.recibo
+            ? htmlDeRecibo(m.recibo, { textoRecibido: m.content, messages: m.enviado })
+            : '') +
+          '</div>'
+      }).join('')
+      el.scrollTop = el.scrollHeight
+    }
+
+    // The provenance line. It's what sets this apart from any other chat:
+    // the node that answered is named, not assumed.
+    function prov(m) {
+      // What decides is scope (the X-Pyrus-Scope header), not kind: an
+      // upstream can be a third party or an engine of our own behind HTTP,
+      // and that difference is exactly what this line exists to declare.
+      var afuera = m.scope === 'external'
+      var clase = m.kind === 'peer' ? 'peer' : afuera ? 'upstream' : 'local'
+      // "(this machine)" is a claim, not decoration: hanging it on a third
+      // party's API would say the prompt didn't leave here when it did. And
+      // the other way around, putting "(external API)" on a localhost
+      // llama-server would accuse it of a leak that never happened.
+      var quien =
+        m.kind === 'peer'
+          ? m.operator
+          : afuera
+            ? m.operator + ' (external API)'
+            : m.operator + ' (this machine)'
+      // Each part in its own span: joined into a single text node, the
+      // flex's gap doesn't apply and it read as "18150ms1 tok/s20.2s".
+      var partes = ['<span class="' + clase + '">' + esc(quien) + '</span>']
+      if (m.ttft !== null) partes.push('<span>first token ' + m.ttft + 'ms</span>')
+      if (m.tps) partes.push('<span>' + m.tps + ' tok/s</span>')
+      partes.push('<span>' + m.secs + 's total</span>')
+      // Cost is ALWAYS shown, zero included, and zero is spelled out in
+      // words. "USD 0.0000" reads as "it came out really cheap," and that's
+      // not it: it's that nobody gets charged, because P2P payment doesn't
+      // exist yet. And "up to" isn't decoration either: this number is the
+      // cap the spend was authorized with, not what it actually came out to.
+      //
+      // The text is built by textoDeCostoEstimado, in panel-x402.mjs, and
+      // not by a function here: it's the SAME rule Phase 9's new views
+      // apply, and with two implementations one of the two drifts on its
+      // own. The six decimals live there for the usual reason -- with four,
+      // a turn under 50 micros shows as "USD 0.0000," identical to free,
+      // which is exactly the distinction this line exists to make.
+      //
+      // An OLD turn, with no field, draws nothing: saying "no charge" would
+      // claim it was free when the only truth is that it wasn't recorded.
+      if (m.cost === undefined || m.cost === null) { /* old turn, no data */ }
+      else partes.push('<span class="cost">' + esc(textoDeCostoEstimado(m.cost).texto) + '</span>')
+      return '<div class="prov">' + partes.join('') + '</div>'
+    }
+
+    function toggleButtons() {
+      document.getElementById('send').style.display = streaming ? 'none' : ''
+      document.getElementById('stop').style.display = streaming ? '' : 'none'
+      document.getElementById('prompt').disabled = streaming
+    }
+
+    async function send() {
+      if (streaming) return
+      var ta = document.getElementById('prompt')
+      var texto = ta.value.trim()
+      if (!texto) return
+
+      var dest = destino()
+
+      msgs.push({ role: 'user', content: texto })
+      // x402 and recibo start null and almost always stay that way: they
+      // only exist when the request went through the payment path. enviado
+      // stores the messages EXACTLY as they traveled, which is what the
+      // attestation's promptHash gets recomputed against -- the hash is
+      // over the whole canonicalized conversation, not the last turn.
+      var slot = {
+        role: 'assistant',
+        content: '',
+        meta: null,
+        streaming: true,
+        x402: null,
+        recibo: null,
+        enviado: null
+      }
+      msgs.push(slot)
+      ta.value = ''
+      ta.style.height = 'auto'
+      streaming = true
+      toggleButtons()
+      render()
+
+      var t0 = Date.now()
+      var ttft = null
+      var toks = 0
+      ctrl = new AbortController()
+
+      try {
+        // The FULL history, minus the empty slot being filled. Without this
+        // every turn started from scratch and the model remembered nothing.
+        var historial = msgs.filter(function (m) { return !m.streaming }).map(function (m) {
+          return { role: m.role, content: m.content }
+        })
+        slot.enviado = historial
+
+        var resp = await authFetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            model: dest.model,
+            messages: historial,
+            stream: true,
+            local: dest.local,
+            // The node field only travels when the user pinned a machine:
+            // sending it null on every request would dirty the contract
+            // for clients that never use it.
+            node: dest.node || undefined
+          })
+        })
+
+        if (!resp.ok) {
+          var msj = 'HTTP ' + resp.status
+          var b = null
+          try {
+            b = await resp.json()
+            if (b && b.error && b.error.message) msj = b.error.message
+          } catch (e) { /* the body wasn't JSON: the status stays */ }
+
+          // PHASE 9 — a 402 with accepts[] is NOT a plain-text error: it's
+          // the node saying how much it charges, to whom, on which network,
+          // and up to how many tokens. Flattening it to "[error] HTTP 402"
+          // threw away the four pieces of data the phase's DoD requires the
+          // challenge to carry.
+          //
+          // This gets reached when the request goes out with NO valid
+          // credential against a node with a wallet: the panel's key
+          // revoked from /node, or a /v1/keys/panel bootstrap that didn't
+          // answer. It's the same 402 a stranger with curl sees, and now it
+          // reads the same.
+          //
+          // The other 402 that exists -- budget exhausted (B13) -- carries
+          // no accepts and goes down the plain-text path, which is correct
+          // for that case: there's nothing to pay, a cap got hit.
+          var vistaDesafio = vistaDeDesafio(b)
+          if (resp.status === 402 && vistaDesafio.esDesafio) {
+            slot.x402 = vistaDesafio
+            slot.content = ''
+            return
+          }
+
+          slot.content = '[error] ' + msj
+          return
+        }
+
+        // Who answered travels in headers, not in the body: see
+        // provenanceHeaders() in gateway.mjs.
+        var operador = decodeURIComponent(resp.headers.get('X-Pyrus-Operator') || '') || 'unknown node'
+        var tipo = resp.headers.get('X-Pyrus-Kind') || 'real'
+        var alcance = resp.headers.get('X-Pyrus-Scope') || 'local'
+        // PHASE 8 — what this turn might end up costing. It's the CAP the
+        // spend was authorized with, not what it came out to: in SSE the
+        // headers go out before the first token, so the real one doesn't
+        // exist yet.
+        var costo = parseInt(resp.headers.get('X-Pyrus-Cost-Estimate-Micros') || '0', 10) || 0
+
+        var reader = resp.body.getReader()
+        var dec = new TextDecoder()
+        var buf = ''
+        while (true) {
+          var r = await reader.read()
+          if (r.done) break
+          buf += dec.decode(r.value, { stream: true })
+          var trozos = buf.split('\n\n')
+          buf = trozos.pop()
+          for (var i = 0; i < trozos.length; i++) {
+            var linea = trozos[i]
+            if (linea.indexOf('data: ') !== 0) continue
+            var carga = linea.slice(6)
+            if (carga === '[DONE]') continue
+            var ev = JSON.parse(carga)
+            if (ev.error) {
+              slot.content += '\n[error] ' + (ev.error.message || ev.error)
+              continue
+            }
+            // PHASE 9 / D12 — the receipt travels as a FINAL SSE EVENT and
+            // not in X-PAYMENT-RESPONSE, because with streaming the headers
+            // already went out before the first token. Recognized by
+            // paymentResponse, the key the gateway attaches to it; it's not
+            // a completion chunk and has no choices.
+            //
+            // Stored whole (receipt + attestation + the reason when it's
+            // missing) and drawn below the response. receiptUrl stays
+            // around so it can be looked up again from /node later.
+            if (ev.paymentResponse || ev.attestation || ev.attestationMissing) {
+              slot.recibo = ev
+              continue
+            }
+            var d = ev.choices && ev.choices[0] && ev.choices[0].delta
+            var pedazo = (d && d.content) || ''
+            if (pedazo) {
+              if (ttft === null) ttft = Date.now() - t0
+              toks++
+              slot.content += pedazo
+              render()
+            }
+          }
+        }
+
+        var total = (Date.now() - t0) / 1000
+        slot.meta = {
+          operator: operador,
+          kind: tipo,
+          scope: alcance,
+          ttft: ttft,
+          tps: ttft !== null && total > 0 ? Math.round(toks / total) : 0,
+          secs: total.toFixed(1),
+          cost: costo
+        }
+      } catch (err) {
+        if (err && err.name === 'AbortError') slot.content += '\n[stopped]'
+        else slot.content += '\n[error] ' + ((err && err.message) || err)
+      } finally {
+        slot.streaming = false
+        streaming = false
+        ctrl = null
+        toggleButtons()
+        render()
+        save()
+      }
+    }
+
+    function save() {
+      try {
+        sessionStorage.setItem('pyrus.chat', JSON.stringify(msgs.slice(-40)))
+      } catch (e) { /* with no storage the chat still works, it just doesn't survive a reload */ }
+    }
+
+    function load() {
+      try {
+        var raw = sessionStorage.getItem('pyrus.chat')
+        if (raw) msgs = JSON.parse(raw).filter(function (m) { return m && m.content })
+      } catch (e) { msgs = [] }
+    }
+
+    document.getElementById('send').addEventListener('click', send)
+    document.getElementById('stop').addEventListener('click', function () {
+      if (ctrl) ctrl.abort()
+    })
+    document.getElementById('model').addEventListener('change', function () {
+      userPicked = true
+      // Choosing by hand discards the pin that came from /network: the
+      // selector is the last word, otherwise the chip would say one thing
+      // and the request would do another.
+      if (this.value.indexOf('node:') !== 0) guardarPin(null)
+      else guardarPin(this.value.slice(5))
+      paintOptions()
+    })
+    document.getElementById('new').addEventListener('click', function () {
+      msgs = []
+      save()
+      render()
+    })
+
+    var ta = document.getElementById('prompt')
+    ta.addEventListener('input', function () {
+      ta.style.height = 'auto'
+      ta.style.height = Math.min(ta.scrollHeight, 176) + 'px'
+    })
+    ta.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault()
+        send()
+      }
+    })
+
+    async function refreshNodes() {
+      try {
+        var r = await authFetch('/v1/nodes')
+        var j = await r.json()
+        nodes = j.nodes || []
+        paintOptions()
+      } catch (e) { /* the next poll retries */ }
+    }
+
+    // ======================================================================
+    // Action palette (Ctrl+K) and the composer's "+" menu.
+    //
+    // Half of these actions are WIRED to endpoints that already exist; the
+    // other half is form with no substance yet. The second kind carries a
+    // visible MOCK label, not just a comment: a control that looks like it
+    // works and does nothing is worse than an absent one, because whoever
+    // touches it walks away thinking they already configured it.
+    // ======================================================================
+
+    var opciones = { thinking: false, esfuerzo: 2, rapido: false, cambiarSiFlag: false, modo: 'auto' }
+    try {
+      var guardadas = JSON.parse(sessionStorage.getItem('pyrus.opts') || 'null')
+      if (guardadas) opciones = Object.assign(opciones, guardadas)
+    } catch (e) { /* no session, defaults stay */ }
+
+    function guardarOpts() {
+      try { sessionStorage.setItem('pyrus.opts', JSON.stringify(opciones)) } catch (e) {}
+    }
+
+    var adjuntos = []
+
+    function pintarAdjuntos() {
+      var cont = document.getElementById('adjuntos')
+      cont.innerHTML = adjuntos.map(function (a, i) {
+        return '<span class="adjunto">' + esc(a.nombre) +
+          ' <button data-quita="' + i + '" title="Remove">&times;</button></span>'
+      }).join('')
+      cont.querySelectorAll('[data-quita]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          adjuntos.splice(Number(b.dataset.quita), 1)
+          pintarAdjuntos()
+        })
+      })
+    }
+
+    function interruptor(on) { return '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>' }
+
+    function escalon(n) {
+      var out = '<span class="esf">'
+      for (var i = 0; i < 5; i++) {
+        var cls = i === 4 ? (n >= 4 ? 'pico' : '') : (i <= n ? 'on' : '')
+        out += '<b class="' + cls + '"></b>'
+      }
+      return out + '</span>'
+    }
+
+    var NIVELES = ['Minimal', 'Low', 'Medium', 'High', 'Max']
+
+    // Every action declares whether it's wired up. mock:true paints the label.
+    function acciones() {
+      return [
+        { g: 'Context', t: 'Attach file...', d: 'Uploads to this node\\'s drive and inserts its name', f: adjuntarArchivo },
+        { g: 'Context', t: 'Mention file from this node...', d: 'Lists what this node publishes', f: mencionarArchivo },
+        { g: 'Context', t: 'Clear conversation', f: function () { document.getElementById('new').click() } },
+        { g: 'Context', t: 'Rewind', d: 'Undoes the last exchange', f: rebobinar, off: msgs.length < 2 },
+        { g: 'Context', t: 'Browse the web', mock: true, d: 'No web tool yet' },
+
+        { g: 'Model', t: 'Switch model...', v: etiquetaModelo(), f: function () {
+          cerrarPal()
+          var sel = document.getElementById('model')
+          sel.focus()
+          if (sel.showPicker) { try { sel.showPicker() } catch (e) {} }
+        } },
+        { g: 'Model', t: 'Effort', v: NIVELES[opciones.esfuerzo], extra: escalon(opciones.esfuerzo), mock: true,
+          f: function () { opciones.esfuerzo = (opciones.esfuerzo + 1) % 5; guardarOpts(); repintarPal() } },
+        { g: 'Model', t: 'Thinking', extra: interruptor(opciones.thinking), mock: true,
+          d: 'Measured: turning it on in nemotron-3.5 costs 100x tokens. The toggle does not reach the upstream yet',
+          f: function () { opciones.thinking = !opciones.thinking; guardarOpts(); repintarPal() } },
+        { g: 'Model', t: 'Switch models when a message is flagged', extra: interruptor(opciones.cambiarSiFlag), mock: true,
+          f: function () { opciones.cambiarSiFlag = !opciones.cambiarSiFlag; guardarOpts(); repintarPal() } },
+        { g: 'Model', t: 'Toggle fast mode', extra: interruptor(opciones.rapido), mock: true,
+          f: function () { opciones.rapido = !opciones.rapido; guardarOpts(); repintarPal() } },
+        { g: 'Model', t: 'Account & usage...', d: 'This node\\'s real spend and quota', f: verCuenta },
+
+        { g: 'Modes', t: 'Manual', d: 'Asks for approval before every action', mock: true,
+          v: opciones.modo === 'manual' ? 'active' : '',
+          f: function () { opciones.modo = 'manual'; guardarOpts(); repintarPal() } },
+        { g: 'Modes', t: 'Plan', d: 'Explores and proposes before touching anything', mock: true,
+          v: opciones.modo === 'plan' ? 'active' : '',
+          f: function () { opciones.modo = 'plan'; guardarOpts(); repintarPal() } },
+        { g: 'Modes', t: 'Auto', d: 'Approves what is safe and stops on what is risky', mock: true,
+          v: opciones.modo === 'auto' ? 'active' : '',
+          f: function () { opciones.modo = 'auto'; guardarOpts(); repintarPal() } }
+      ]
+    }
+
+    function etiquetaModelo() {
+      var sel = document.getElementById('model')
+      if (!sel || sel.selectedIndex < 0) return ''
+      var t = sel.options[sel.selectedIndex].textContent
+      return t.length > 34 ? t.slice(0, 33) + '…' : t
+    }
+
+    // ---------------------------------------------------- real actions
+
+    function rebobinar() {
+      // Removes the last user/assistant pair. Local and exact: the FULL
+      // history is sent on every request, so undoing it here genuinely
+      // undoes what the model is going to see on the next turn.
+      cerrarPal()
+      while (msgs.length && msgs[msgs.length - 1].role !== 'user') msgs.pop()
+      if (msgs.length) msgs.pop()
+      save()
+      render()
+    }
+
+    async function verCuenta() {
+      cerrarPal()
+      abrirModal('Account & usage', '<p class="hint">Loading...</p>')
+      try {
+        var res = await Promise.all([
+          authFetch('/v1/budget').then(function (x) { return x.json() }),
+          authFetch('/v1/quota').then(function (x) { return x.json() })
+        ])
+        var b = res[0]
+        var q = res[1]
+        abrirModal('Account & usage',
+          '<p class="sub">This node\\'s real numbers, not an example.</p>' +
+          '<h4 style="margin:.6rem 0 .3rem">External API spend (' + esc(b.period || '') + ')</h4>' +
+          '<p>Spent <b>' + esc(b.spent || '-') + '</b> of a cap of <b>' + esc(b.cap || '-') +
+          '</b> &middot; ' + esc(b.remaining || '-') + ' left</p>' +
+          '<h4 style="margin:.9rem 0 .3rem">Quota this node GIVES AWAY to its peers</h4>' +
+          '<p><b>' + esc(String(q.given_tokens != null ? q.given_tokens : 0)) + '</b> tokens given &middot; ' +
+          esc(String(q.quota_tokens || 0)) + ' per peer every ' + esc(String(q.window_hours || 0)) + ' h &middot; ' +
+          esc(String((q.peers || []).length)) + ' peer(s) consuming</p>')
+      } catch (e) {
+        abrirModal('Account & usage', '<p class="hint">Could not read: ' + esc(e.message) + '</p>')
+      }
+    }
+
+    async function mencionarArchivo() {
+      cerrarPal()
+      abrirModal('Mention a file', '<p class="hint">Reading this node\\'s drive...</p>')
+      try {
+        var res = await authFetch('/v1/files')
+        var j = await res.json()
+        var fs = j.files || []
+        if (!fs.length) {
+          abrirModal('Mention a file', '<p class="hint">This node does not publish any files yet. ' +
+            'Upload one with "Attach file" or from <a href="/node">my node</a>.</p>')
+          return
+        }
+        abrirModal('Mention a file', '<div class="pal-lista">' + fs.map(function (f) {
+          var nombre = f.name || f.path || ''
+          return '<button class="pal-item" data-men="' + esc(nombre) + '">' + esc(nombre) +
+            '<span class="der"><span class="val">' + esc(String(f.size != null ? f.size : '')) +
+            '</span></span></button>'
+        }).join('') + '</div>')
+        document.querySelectorAll('[data-men]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var ta = document.getElementById('prompt')
+            ta.value = (ta.value ? ta.value + ' ' : '') + '@' + b.dataset.men
+            cerrarModal()
+            ta.focus()
+          })
+        })
+      } catch (e) {
+        abrirModal('Mention a file', '<p class="hint">Could not list: ' + esc(e.message) + '</p>')
+      }
+    }
+
+    function adjuntarArchivo() {
+      cerrarPal()
+      var inp = document.createElement('input')
+      inp.type = 'file'
+      inp.addEventListener('change', async function () {
+        var f = inp.files && inp.files[0]
+        if (!f) return
+        adjuntos.push({ nombre: f.name + ' (uploading...)' })
+        pintarAdjuntos()
+        var i = adjuntos.length - 1
+        try {
+          // Uploads FOR REAL to this node's Hyperdrive. What doesn't exist
+          // is a model that reads the file: that's why the name gets
+          // inserted into the prompt instead of sending the binary to the
+          // chat.
+          var res = await authFetch('/v1/files/upload?name=' + encodeURIComponent(f.name), {
+            method: 'POST',
+            body: f
+          })
+          if (!res.ok) throw new Error('HTTP ' + res.status)
+          adjuntos[i] = { nombre: f.name }
+          var ta = document.getElementById('prompt')
+          ta.value = (ta.value ? ta.value + ' ' : '') + '@' + f.name
+        } catch (e) {
+          adjuntos[i] = { nombre: f.name + ' (failed)' }
+        }
+        pintarAdjuntos()
+      })
+      inp.click()
+    }
+
+    // ------------------------------------------------------------ the palette
+
+    var palAbierta = false
+    var palFiltro = ''
+    var palSel = 0
+
+    function visibles() {
+      var q = palFiltro.toLowerCase()
+      return acciones().filter(function (a) {
+        return !q || (a.t + ' ' + (a.d || '') + ' ' + a.g).toLowerCase().indexOf(q) !== -1
+      })
+    }
+
+    function repintarPal() {
+      if (!palAbierta) return
+      var lista = visibles()
+      var html = ''
+      var grupo = null
+      lista.forEach(function (a, i) {
+        if (a.g !== grupo) {
+          grupo = a.g
+          html += '<div class="pal-grupo">' + esc(grupo) + '</div>'
+        }
+        html += '<button class="pal-item' + (i === palSel ? ' sel' : '') + '"' +
+          (a.off ? ' disabled' : '') + ' data-i="' + i + '"><span>' + esc(a.t) +
+          (a.d ? '<br><span class="val">' + esc(a.d) + '</span>' : '') + '</span><span class="der">' +
+          (a.v ? '<span class="val">' + esc(a.v) + '</span>' : '') +
+          (a.mock ? '<span class="mock">mock</span>' : '') +
+          (a.extra || '') + '</span></button>'
+      })
+      if (!html) html = '<div class="pal-vacio">Nothing matches that filter.</div>'
+
+      document.getElementById('pal-lista').innerHTML = html
+      document.querySelectorAll('#pal-lista .pal-item').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var a = visibles()[Number(b.dataset.i)]
+          if (a && a.f && !a.off) a.f()
+        })
+      })
+    }
+
+    function abrirPal() {
+      palAbierta = true
+      palFiltro = ''
+      palSel = 0
+      document.getElementById('palette').innerHTML =
+        '<div class="pal-overlay" id="pal-ov"><div class="pal">' +
+        '<input class="filtro" id="pal-filtro" placeholder="Filter actions..." autocomplete="off">' +
+        '<div class="pal-lista" id="pal-lista"></div>' +
+        '<div class="pal-pie">Enter to run &middot; Esc to close &middot; ' +
+        'anything marked <b>mock</b> does not do anything yet</div></div></div>'
+      repintarPal()
+      var inp = document.getElementById('pal-filtro')
+      inp.focus()
+      inp.addEventListener('input', function () {
+        palFiltro = inp.value
+        palSel = 0
+        repintarPal()
+      })
+      document.getElementById('pal-ov').addEventListener('click', function (ev) {
+        if (ev.target.id === 'pal-ov') cerrarPal()
+      })
+    }
+
+    function cerrarPal() {
+      palAbierta = false
+      document.getElementById('palette').innerHTML = ''
+    }
+
+    document.getElementById('abrir-pal').addEventListener('click', abrirPal)
+
+    document.addEventListener('keydown', function (ev) {
+      if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'k' || ev.key === 'K')) {
+        ev.preventDefault()
+        if (palAbierta) cerrarPal()
+        else abrirPal()
+        return
+      }
+      if (!palAbierta) return
+      if (ev.key === 'Escape') { ev.preventDefault(); cerrarPal(); return }
+      var lista = visibles()
+      if (ev.key === 'ArrowDown') {
+        ev.preventDefault()
+        palSel = Math.min(palSel + 1, lista.length - 1)
+        repintarPal()
+      }
+      if (ev.key === 'ArrowUp') {
+        ev.preventDefault()
+        palSel = Math.max(palSel - 1, 0)
+        repintarPal()
+      }
+      if (ev.key === 'Enter') {
+        ev.preventDefault()
+        var a = lista[palSel]
+        if (a && a.f && !a.off) a.f()
+      }
+    })
+
+    // --------------------------------------------------------- the "+" menu
+
+    document.getElementById('mas').addEventListener('click', function (ev) {
+      ev.stopPropagation()
+      var ya = document.getElementById('mas-menu')
+      if (ya) { ya.remove(); return }
+      var fila = document.getElementById('mas').parentNode
+      var m = document.createElement('div')
+      m.className = 'mas-menu'
+      m.id = 'mas-menu'
+      m.innerHTML =
+        '<button class="pal-item" data-m="subir">Upload from computer</button>' +
+        '<button class="pal-item" data-m="ctx">Add context</button>' +
+        '<button class="pal-item" data-m="web">Browse the web<span class="der">' +
+        '<span class="mock">mock</span></span></button>'
+      fila.appendChild(m)
+      m.querySelectorAll('[data-m]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          m.remove()
+          if (b.dataset.m === 'subir') adjuntarArchivo()
+          if (b.dataset.m === 'ctx') mencionarArchivo()
+        })
+      })
+      document.addEventListener('click', function cerrar() {
+        var el = document.getElementById('mas-menu')
+        if (el) el.remove()
+        document.removeEventListener('click', cerrar)
+      })
+    })
+
+    load()
+    render()
+    refreshNodes()
+    setInterval(refreshNodes, 3000)
+
+  </script>
+  </main>
+</body>
+</html>
