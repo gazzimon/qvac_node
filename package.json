@@ -1,6 +1,6 @@
 {
   "name": "pyrusllm",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "description": "LLM inference node distributed over Pear. Installs over P2P and updates itself over OTA.",
   "homepage": "https://fiuidao.web.app",
   "bugs": {
@@ -71,6 +71,8 @@
     }
   },
   "scripts": {
+    "prepack": "node scripts/npm-readme-swap.js swap",
+    "postpack": "node scripts/npm-readme-swap.js restore",
     "start": "bare bin.mjs --no-updates",
     "serve": "bare bin.mjs --no-updates serve --swarm",
     "format": "prettier . --write",
