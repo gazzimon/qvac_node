@@ -5711,3 +5711,313 @@ test('el logo de la fundacion viaja embebido y solo en el gate', async (t) => {
     t.is(html.indexOf('data:image/png;base64,'), -1, nombre + ' no repite la marca')
   }
 })
+
+// ---------------------------------------------------------------------------
+// network-stats.mjs — unique PyrusLLM nodes observed on the network
+//
+// A "unique node" is a cryptographic identity (the same hex public key
+// Hyperswarm hands back as `info.publicKey`, and that signs the manifest)
+// that completed the handshake with a manifest that verified -- never a
+// bare peer discovered on the topic. `observePeer` trusts its caller on
+// that: `swarm.mjs` only calls it AFTER `verifyManifest` succeeds, so the
+// "no manifest, not counted" case below is tested against `_dispatch`
+// itself, not against network-stats.mjs in isolation.
+// ---------------------------------------------------------------------------
+
+function dirStatsTmp() {
+  const fs = require('bare-fs')
+  const os = require('bare-os')
+  const path = require('bare-path')
+  const dir = path.join(
+    os.tmpdir(),
+    'qvac-stats-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  )
+  fs.mkdirSync(dir, { recursive: true })
+  return {
+    dir,
+    limpiar() {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true })
+      } catch {}
+    }
+  }
+}
+
+// Not a network-stats test on its own, but its DoD: the whole point of
+// tracking "unique nodes" depends on `loadOrCreateIdentity` actually
+// returning the same keypair across restarts, and nothing in this suite
+// tested that directly before now.
+test('identity: loadOrCreateIdentity returns the same keypair across restarts', async (t) => {
+  const { loadOrCreateIdentity } = await import('../qvac/identity.mjs')
+  const tmp = dirStatsTmp()
+
+  const primero = loadOrCreateIdentity(tmp.dir)
+  t.is(primero.created, true, 'first boot in an empty dir: a fresh key is generated')
+
+  const segundo = loadOrCreateIdentity(tmp.dir)
+  t.is(segundo.created, false, 'second call reads the same file back, it does not generate again')
+  t.alike(
+    segundo.publicKey.toString('hex'),
+    primero.publicKey.toString('hex'),
+    'same public key: this is the identity swarm.mjs presents to Hyperswarm and signs the manifest with'
+  )
+  t.alike(segundo.secretKey.toString('hex'), primero.secretKey.toString('hex'))
+
+  tmp.limpiar()
+})
+
+test('network-stats: the same publicKey observed 10 times is one unique node', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  const key = 'ab'.repeat(32)
+  for (let i = 0; i < 10; i++) {
+    ns.observePeer({ publicKey: key, newConnection: i === 0 })
+  }
+
+  t.is(ns.listNodes().length, 1, 'ten observations of the same key, one row')
+  t.is(ns.getNetworkStats().totalEverSeen, 1)
+  ns.reset()
+})
+
+test('network-stats: two different publicKeys are two unique nodes', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  ns.observePeer({ publicKey: 'ab'.repeat(32), newConnection: true })
+  ns.observePeer({ publicKey: 'cd'.repeat(32), newConnection: true })
+
+  t.is(ns.getNetworkStats().totalEverSeen, 2)
+  ns.reset()
+})
+
+test('network-stats: a peer whose manifest does not verify is never recorded', async (t) => {
+  const { NodeSwarm } = await import('../qvac/swarm.mjs')
+
+  const llamados = []
+  const fakeStats = { observePeer: (args) => llamados.push(args) }
+  const sw = new NodeSwarm({ models: [], networkStats: fakeStats })
+
+  const key = 'ab'.repeat(32)
+  const peer = { key, manifest: null, channel: { send: () => {} } }
+  sw.peers.set(key, peer)
+
+  // No signature at all: verifyManifest rejects it before networkStats is
+  // ever reached -- same gate store.upsertFromManifest sits behind.
+  sw._dispatch(peer, { type: 'manifest:announce', manifest: { schemaVersion: 0 } })
+
+  t.is(llamados.length, 0, 'networkStats.observePeer was never called')
+  t.absent(peer.manifest, 'and the peer never gets marked as verified either')
+})
+
+test('network-stats: node:info fills in version/platform without counting as a new connection', async (t) => {
+  const { NodeSwarm } = await import('../qvac/swarm.mjs')
+  const { createIdentity, buildManifest, signManifest } = await manifestMod()
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  const sw = new NodeSwarm({ models: [], networkStats: ns })
+  const id = createIdentity()
+  const key = id.publicKey.toString('hex')
+  const manifest = signManifest(
+    buildManifest({ publicKey: id.publicKey, models: MODELS, operator: 'Nodo A' }),
+    id.secretKey
+  )
+
+  const peer = { key, manifest: null, channel: { send: () => {} } }
+  sw.peers.set(key, peer)
+
+  sw._dispatch(peer, { type: 'manifest:announce', manifest })
+  sw._dispatch(peer, { type: 'node:info', version: '0.12.4', platform: 'linux' })
+
+  const nodo = ns.getNode(key)
+  t.ok(nodo, 'recorded off the manifest')
+  t.is(
+    nodo.connections,
+    1,
+    'node:info did not bump connections: manifest:announce already counted this handshake'
+  )
+  t.is(nodo.version, '0.12.4')
+  t.is(nodo.platform, 'linux')
+
+  ns.reset()
+})
+
+test('network-stats: a reconnection increments connections, a re-announce does not', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  const key = 'ab'.repeat(32)
+  ns.observePeer({ publicKey: key, newConnection: true })
+  // Same socket re-announcing (e.g. updateAnnouncement after a model change):
+  // NOT a new connection.
+  ns.observePeer({ publicKey: key, newConnection: false })
+  t.is(ns.getNode(key).connections, 1, 'still one real connection')
+
+  ns.disconnectPeer(key)
+  ns.observePeer({ publicKey: key, newConnection: true }) // a genuine reconnect
+  t.is(ns.getNode(key).connections, 2)
+
+  ns.reset()
+})
+
+test('network-stats: firstSeen never moves once set, lastSeen tracks the latest observation', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  const key = 'ab'.repeat(32)
+  ns.observePeer({ publicKey: key, timestamp: 1000, newConnection: true })
+  ns.observePeer({ publicKey: key, timestamp: 5000, newConnection: false })
+
+  const nodo = ns.getNode(key)
+  t.is(nodo.firstSeen, 1000, 'unchanged from the very first observation')
+  t.is(nodo.lastSeen, 5000, 'moved to the most recent one')
+
+  ns.reset()
+})
+
+test('network-stats: disconnectPeer flips online to false', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  const key = 'ab'.repeat(32)
+  ns.observePeer({ publicKey: key, newConnection: true })
+  t.is(ns.getNode(key).online, true)
+
+  ns.disconnectPeer(key)
+  t.is(ns.getNode(key).online, false)
+
+  ns.reset()
+})
+
+test('network-stats: the 24h/7d/30d windows are read off lastSeen, not kept as separate counters', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  const now = Date.now()
+  const HORA = 60 * 60 * 1000
+  const DIA = 24 * HORA
+
+  ns.observePeer({ publicKey: 'a'.repeat(64), timestamp: now - HORA, newConnection: true }) // ~1h ago
+  ns.observePeer({ publicKey: 'b'.repeat(64), timestamp: now - 3 * DIA, newConnection: true }) // ~3d ago
+  ns.observePeer({ publicKey: 'c'.repeat(64), timestamp: now - 20 * DIA, newConnection: true }) // ~20d ago
+
+  const stats = ns.getNetworkStats({ now })
+  t.is(stats.uniqueSeen24h, 1)
+  t.is(stats.uniqueSeen7d, 2)
+  t.is(stats.uniqueSeen30d, 3)
+  t.is(stats.totalEverSeen, 3)
+
+  ns.reset()
+})
+
+test('network-stats: survives a process restart, and online resets to false on load', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  const tmp = dirStatsTmp()
+  const key = 'ab'.repeat(32)
+
+  ns.open(tmp.dir)
+  ns.observePeer({
+    publicKey: key,
+    manifest: { models: [{ modelId: 'llama1b' }], metadata: { operator: 'Nodo A' } },
+    newConnection: true
+  })
+  ns.close()
+
+  // Simulates a fresh process: reopen the SAME directory.
+  const reabierto = ns.open(tmp.dir)
+  t.is(reabierto.loaded, 1, 'the node from before is still on disk')
+  t.is(reabierto.resettedOnline, 1, 'it was persisted as online, corrected on load')
+
+  const nodo = ns.getNode(key)
+  t.ok(nodo, 'the record survived the restart')
+  t.alike(nodo.modelIds, ['llama1b'])
+  t.is(nodo.operator, 'Nodo A')
+  t.is(
+    nodo.online,
+    false,
+    'no live socket exists right after a restart, no matter how it shut down before'
+  )
+
+  ns.close()
+  tmp.limpiar()
+})
+
+test('network-stats: getNetworkStats() output is valid, round-trippable JSON', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  ns.observePeer({
+    publicKey: 'ab'.repeat(32),
+    manifest: { models: [{ modelId: 'llama1b' }] },
+    newConnection: true
+  })
+  const stats = ns.getNetworkStats()
+
+  const vuelta = JSON.parse(JSON.stringify(stats))
+  t.alike(vuelta, stats, 'what `pyrusllm stats --json` prints round-trips exactly')
+  t.ok(Number.isInteger(vuelta.onlineNow), 'onlineNow is a plain number, not NaN or a string')
+  t.alike(
+    Object.keys(vuelta).sort(),
+    [
+      'models',
+      'onlineNow',
+      'totalEverSeen',
+      'uniqueSeen24h',
+      'uniqueSeen30d',
+      'uniqueSeen7d'
+    ].sort()
+  )
+
+  ns.reset()
+})
+
+test('network-stats: a corrupt registry file does not crash the process', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  const fs = require('bare-fs')
+  const path = require('bare-path')
+  const tmp = dirStatsTmp()
+
+  fs.writeFileSync(path.join(tmp.dir, 'network-stats.json'), '{ esto no es JSON valido')
+
+  t.execution(
+    () => ns.open(tmp.dir),
+    'a corrupt file does not throw: it starts fresh, same as budget.mjs'
+  )
+  t.is(ns.getNetworkStats().totalEverSeen, 0)
+
+  ns.close()
+  tmp.limpiar()
+})
+
+test('network-stats: a malformed publicKey is rejected, not silently stored', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.reset()
+
+  t.is(ns.observePeer({ publicKey: 'no-es-hex' }).ok, false)
+  t.is(ns.observePeer({ publicKey: 'ab'.repeat(31) }).ok, false, '62 chars, one short of 64')
+  t.is(
+    ns.observePeer({ publicKey: 'AB'.repeat(32) }).ok,
+    false,
+    'uppercase hex: the rest of the project keys on lowercase'
+  )
+
+  t.is(ns.listNodes().length, 0, 'none of the rejected attempts left a trace')
+  ns.reset()
+})
+
+test('network-stats: an eviction limit bounds storage against a Sybil minting keypairs', async (t) => {
+  const ns = await import('../qvac/network-stats.mjs')
+  ns.open(null, { maxNodes: 3 })
+
+  ns.observePeer({ publicKey: '1'.repeat(64), timestamp: 1000, newConnection: true })
+  ns.observePeer({ publicKey: '2'.repeat(64), timestamp: 2000, newConnection: true })
+  ns.observePeer({ publicKey: '3'.repeat(64), timestamp: 3000, newConnection: true })
+  ns.observePeer({ publicKey: '4'.repeat(64), timestamp: 4000, newConnection: true })
+
+  t.is(ns.getNetworkStats().totalEverSeen, 3, 'never grows past maxNodes')
+  t.absent(ns.getNode('1'.repeat(64)), 'the oldest by lastSeen is the one that got evicted')
+  t.ok(ns.getNode('4'.repeat(64)), 'the newest survives')
+
+  ns.reset()
+})

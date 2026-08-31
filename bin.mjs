@@ -190,6 +190,31 @@ const walletCmd = command(
   }
 )
 
+// Reads the registry left behind by `peers`/`serve --swarm` -- doesn't join
+// the swarm itself. A "unique node" is a cryptographic identity (Hyperswarm
+// public key) that completed the PyrusLLM handshake with a manifest that
+// verified, not just any peer discovered on the DHT. No IP, hostname, MAC
+// address or geolocation is ever tracked: only the public key a node already
+// announces to any peer it connects to. One operator can run several nodes,
+// so this counts NODES, never "users".
+const statsCmd = command(
+  'stats',
+  summary('Show unique PyrusLLM nodes this machine has observed'),
+  description(
+    'Reads the node registry persisted locally by `peers` or `serve --swarm`\n' +
+      'and reports how many distinct, handshake-verified nodes were seen. Does\n' +
+      'NOT join the swarm or wait for discovery -- run `peers` or keep\n' +
+      '`serve --swarm` running first to have data to read.\n' +
+      '\n' +
+      'Hyperswarm is decentralized: this is what THIS process has seen, not a\n' +
+      'census of the whole network.'
+  ),
+  flag('--json', 'print machine-readable JSON instead of a formatted summary'),
+  () => {
+    pending = runStats()
+  }
+)
+
 const cmd = command(
   appName,
   summary(pkg.description),
@@ -207,6 +232,7 @@ const cmd = command(
   fetchCmd,
   filesCmd,
   walletCmd,
+  statsCmd,
   () => {
     pending = runNode()
   }
@@ -828,6 +854,10 @@ async function startGateway(opts = {}) {
     // every request and doesn't save, to avoid paying an fsync on the hot path.
     apikeys.close()
     budget.close()
+    // No-op if `--swarm` was never used (module never opened): same safe
+    // pattern as the two lines above.
+    const networkStats = await import('./qvac/network-stats.mjs')
+    networkStats.close()
 
     await shutdownGateway()
     server.close(() => {
@@ -1181,9 +1211,15 @@ async function runWallet() {
 async function joinSwarm({ operator, store = null, data = null }) {
   const { loadOrCreateIdentity } = await import('./qvac/identity.mjs')
   const { NodeSwarm, TOPIC_NAME } = await import('./qvac/swarm.mjs')
+  const networkStats = await import('./qvac/network-stats.mjs')
 
   const dir = swarmStorageDir()
   const identity = loadOrCreateIdentity(dir)
+
+  // Opened here, before join(): this is the only place a NodeSwarm gets
+  // constructed (both `peers` and `serve --swarm` go through it), so this
+  // is where the registry needs to exist regardless of which command called in.
+  networkStats.open(dir)
 
   const models = swarmModels()
   // Just the public block: the address goes into the manifest, never the
@@ -1199,7 +1235,9 @@ async function joinSwarm({ operator, store = null, data = null }) {
     corestore: data ? data.corestore : null,
     directory: data ? data.directory : null,
     files: data ? data.files : null,
-    economic
+    economic,
+    networkStats,
+    nodeInfo: { version: pkg.version, platform: os.platform() }
   })
 
   console.log('')
@@ -1286,6 +1324,8 @@ async function runPeers() {
     }
 
     await nodeSwarm.destroy()
+    const networkStats = await import('./qvac/network-stats.mjs')
+    networkStats.close()
     Bare.exit(code)
   }
 
@@ -1300,6 +1340,51 @@ async function runPeers() {
   process.on('SIGINT', () => finish(0))
   process.on('SIGQUIT', () => finish(131))
   process.on('SIGTERM', () => finish(143))
+}
+
+// ---------------------------------------------------------------------------
+// pyrusllm stats
+// ---------------------------------------------------------------------------
+
+// Reads the registry `peers`/`serve --swarm` already persisted locally --
+// does NOT join the swarm or wait for discovery, which is what makes this
+// instant instead of taking the ~17s a fresh join usually needs (see
+// NOTES-SATURACION.md). If nothing has ever run with a swarm on this
+// storage dir, the file simply doesn't exist yet and everything reads zero.
+async function runStats() {
+  const networkStats = await import('./qvac/network-stats.mjs')
+  networkStats.open(swarmStorageDir())
+  const stats = networkStats.getNetworkStats()
+  networkStats.close()
+
+  if (statsCmd.flags.json) {
+    console.log(JSON.stringify(stats, null, 2))
+    Bare.exit(0)
+    return
+  }
+
+  console.log('')
+  console.log('PyrusLLM Network')
+  console.log('')
+  if (stats.totalEverSeen === 0) {
+    console.log('  No data yet. Run `pyrusllm peers` or `pyrusllm serve --swarm` first.')
+    console.log('')
+    Bare.exit(0)
+    return
+  }
+
+  console.log(`  Online now:        ${stats.onlineNow}`)
+  console.log(`  Unique seen 24h:   ${stats.uniqueSeen24h}`)
+  console.log(`  Unique seen 7d:    ${stats.uniqueSeen7d}`)
+  console.log(`  Unique seen 30d:   ${stats.uniqueSeen30d}`)
+  console.log(`  Total ever seen:   ${stats.totalEverSeen}`)
+  console.log('')
+  console.log('  Models:')
+  for (const [modelId, count] of Object.entries(stats.models)) {
+    console.log(`    ${modelId}`.padEnd(21) + String(count))
+  }
+  console.log('')
+  Bare.exit(0)
 }
 
 // ---------------------------------------------------------------------------

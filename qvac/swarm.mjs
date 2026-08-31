@@ -15,6 +15,7 @@
 //   manifest:announce  node -> peer   the signed manifest
 //   node:status        node -> peer   { activeRequests, maxConcurrentRequests }
 //   files:announce      node -> peer   { driveKey }  <- added, see files.mjs
+//   node:info          node -> peer   { version, platform }  <- added, see network-stats.mjs
 //   chat:request       peer -> node   { requestId, model, messages, stream,
 //                                       payment?, maxTokens? }   <- Phase 10
 //   chat:chunk         node -> peer   { requestId, delta }
@@ -85,6 +86,15 @@ export class NodeSwarm {
     // knows about chains and settlement); here it just travels through to
     // buildManifest.
     economic = null,
+    // Local-only, never gossiped: how many distinct handshake-verified
+    // nodes this process has seen. Optional like store/directory/files --
+    // `peers` without it behaves exactly as before. See network-stats.mjs
+    // for why this is its own module instead of living in directory.mjs.
+    networkStats = null,
+    // What THIS node announces about itself over `node:info`: not part of
+    // the signed manifest (v0's schema is frozen with additionalProperties:
+    // false), so it's null unless the caller sets it.
+    nodeInfo = null,
     onPeerChange = () => {}
   } = {}) {
     this.identity = identity || crypto.keyPair()
@@ -101,6 +111,8 @@ export class NodeSwarm {
     this.directory = directory
     this.files = files
     this.economic = economic
+    this.networkStats = networkStats
+    this.nodeInfo = nodeInfo
 
     this.swarm = null
     // peer's hex key -> { channel, manifest, status, socket, filesKey }
@@ -335,6 +347,9 @@ export class NodeSwarm {
       // Without this, `sessions` in the directory stays stuck at 1 forever
       // (see the long note in directory.mjs, recordDisconnect).
       if (this.directory && peer.manifest) this.directory.recordDisconnect(key)
+      // Same rule: a node this process never validated was never counted as
+      // "online" in the first place, so there's nothing to flip here.
+      if (this.networkStats && peer.manifest) this.networkStats.disconnectPeer(key)
 
       // In-flight chats against this peer CANNOT keep waiting for a chunk
       // that will never arrive: the HTTP client on the other end would hang
@@ -369,6 +384,18 @@ export class NodeSwarm {
     // with the same level of trust as `node:status` — attributable, not
     // signed. See files.mjs.
     if (this.files) this._send(peer, { type: 'files:announce', driveKey: this.files.keyHex })
+
+    // Same reasoning as files:announce right above: the frozen schema has no
+    // field for software version or OS, so this rides its own message,
+    // unsigned, attributable over the already-authenticated Noise channel,
+    // sent once per connection (version/platform don't change mid-session).
+    if (this.nodeInfo) {
+      this._send(peer, {
+        type: 'node:info',
+        version: this.nodeInfo.version || null,
+        platform: this.nodeInfo.platform || null
+      })
+    }
   }
 
   _send(peer, msg) {
@@ -445,6 +472,14 @@ export class NodeSwarm {
         return
       }
 
+      // Computed BEFORE the assignment below: `peer.manifest` is still null
+      // the first time this socket's handshake completes, and already set
+      // on every later re-announce (`updateAnnouncement` re-sends the
+      // manifest to already-connected peers when tags/models change,
+      // without a new socket). That's the exact signal network-stats needs
+      // to count a CONNECTION once, not once per announcement.
+      const esConexionNueva = !peer.manifest
+
       peer.manifest = msg.manifest
       this.everVerified.add(peer.key)
 
@@ -469,7 +504,33 @@ export class NodeSwarm {
       // another node doesn't transfer that property — see directory.mjs.
       if (this.directory) this.directory.recordManifest(peer.key, msg.manifest)
 
+      if (this.networkStats) {
+        this.networkStats.observePeer({
+          publicKey: peer.key,
+          manifest: msg.manifest,
+          timestamp: Date.now(),
+          newConnection: esConexionNueva
+        })
+      }
+
       this.onPeerChange(this.peers)
+      return
+    }
+
+    if (msg.type === 'node:info') {
+      // Same rule as node:status and files:announce: nothing from a
+      // stranger who hasn't proven who it is gets recorded.
+      if (!peer.manifest) return
+      if (this.networkStats) {
+        this.networkStats.observePeer({
+          publicKey: peer.key,
+          version: typeof msg.version === 'string' ? msg.version : null,
+          platform: typeof msg.platform === 'string' ? msg.platform : null,
+          timestamp: Date.now()
+          // newConnection stays false (default): manifest:announce already
+          // counted this connection earlier in the same handshake.
+        })
+      }
       return
     }
 
@@ -675,6 +736,15 @@ export class NodeSwarm {
 
   async destroy() {
     this.stopStatusBroadcast()
+
+    // Belt-and-suspenders: don't rely solely on each socket's 'close' event
+    // firing in time during shutdown. disconnectPeer is idempotent, so
+    // calling it here and again from 'close' (if it still fires) is safe.
+    if (this.networkStats) {
+      for (const peer of this.peers.values()) {
+        if (peer.manifest) this.networkStats.disconnectPeer(peer.key)
+      }
+    }
 
     // Channels close before the swarm. The other way around,
     // `swarm.destroy()` breaks the socket underneath the multiplexer and
