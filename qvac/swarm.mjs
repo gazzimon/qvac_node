@@ -167,16 +167,20 @@ export class NodeSwarm {
   // array, see manifest.mjs buildManifest) and re-announces to peers that are
   // ALREADY connected, not just ones that connect later.
   //
-  // Identity does NOT change — it's the same key as always, only new content
-  // gets re-signed with `this.identity.secretKey`. Whoever calls this
-  // (gateway.mjs) is the one who builds the `models` array with the changed
-  // field already merged in, and decides whether a model change needs to wait
-  // for `Provider._ensureModel` to finish loading before getting here: this
-  // method assumes `models` is already what needs to be announced and doesn't
-  // trigger any loading on its own.
-  updateAnnouncement({ tags, models } = {}) {
+  // La identidad NO cambia -- es la misma clave de siempre, solo se re-firma
+  // contenido nuevo con `this.identity.secretKey`. Quien llama (gateway.mjs)
+  // es quien arma el array `models` con el campo que cambio ya mergeado, y
+  // quien decide si un cambio de modelo tiene que esperar a que
+  // `Provider._ensureModel` termine de cargar antes de llegar aca: este
+  // metodo asume que `models` ya es lo que hay que anunciar, no dispara
+  // ninguna carga por su cuenta.
+  updateAnnouncement({ tags, models, economic } = {}) {
     if (tags !== undefined) this.tags = tags
     if (models !== undefined) this.models = models
+    // Fase 11 — el bloque `economic` cambia cuando la wallet se crea DESPUES
+    // del join (onboarding desde el panel). `manifest()` lo lee fresco al
+    // re-armar, asi que alcanza con dejarlo aca antes de invalidar la cache.
+    if (economic !== undefined) this.economic = economic
 
     this._manifest = null // forces a re-sign on the next manifest()
     const fresh = this.manifest()

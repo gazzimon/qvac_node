@@ -3,23 +3,18 @@
 //   ./node_modules/.bin/bare qvac/infer.mjs --download
 //   ./node_modules/.bin/bare qvac/infer.mjs --model smol --download
 //
-// This is the tool that was used to pick the default model (see NOTES.md,
-// "Eleccion de modelo"). To USE the node there's `qvac-node prompt "..."`,
-// which runs on the same `engine.mjs`; this stays around as a measurement
-// harness.
+// This is the tool the default model was chosen with (see NOTES.md, "Model
+// choice"). To USE the node there is `pyrusllm prompt "..."`, which runs on the
+// same `engine.mjs`; this stays as a measurement harness.
 //
-// The download is OPT-IN via --download on purpose, the opposite of the CLI:
-// here the point is to measure, and downloading 800 MB by accident ruins the
+// Downloading is OPT-IN through --download on purpose, the opposite of the
+// CLI: the point here is to measure, and pulling 800 MB by accident ruins the
 // measurement.
 
 import bareProcess from 'bare-process'
 import * as engine from './engine.mjs'
 
-// NOTE: kept in Spanish on purpose — this is the fixed benchmark prompt reused
-// verbatim across docs/NOTES.md, scripts/verify-node2.sh/.ps1 and
-// scripts/soak.js; translating it here alone would break that consistency and
-// change what's actually being measured.
-const PROMPT = 'Respondé en una sola frase: ¿qué es una red peer-to-peer?'
+const PROMPT = 'Answer in a single sentence: what is a peer-to-peer network?'
 
 const argv = Bare.argv.slice(2)
 const allowDownload = argv.includes('--download')
@@ -37,19 +32,19 @@ try {
   const { entry, name, cached, modelSrc } = await engine.resolveModel(pick)
   const mb = (entry.expectedSize / 1e6).toFixed(0)
   console.log(
-    `[qvac] model: ${name}  ${entry.params}  ${mb} MB  (${cached ? 'cached' : 'missing'})`
+    `[pyrusllm] model: ${name}  ${entry.params}  ${mb} MB  (${cached ? 'cached' : 'missing'})`
   )
-  if (gpuLayers !== undefined) console.log(`[qvac] gpu_layers: ${gpuLayers}`)
+  if (gpuLayers !== undefined) console.log(`[pyrusllm] gpu_layers: ${gpuLayers}`)
 
   if (!cached && !allowDownload) {
-    console.log('\n[qvac] without --download nothing gets downloaded. Run again with:')
+    console.log('\n[pyrusllm] without --download nothing is fetched. Run again with:')
     console.log('       bare qvac/infer.mjs --download\n')
     await engine.shutdown(null)
     Bare.exit(0)
   }
 
   let lastPct = -1
-  console.log('[qvac] loading (first time downloads)...')
+  console.log('[pyrusllm] loading (the first time it downloads)...')
   modelId = await engine.loadModel({
     modelSrc,
     gpuLayers,
@@ -58,13 +53,13 @@ try {
       const pct = Math.floor((p && (p.progress ?? p.percent ?? 0)) * 100)
       if (pct !== lastPct && pct % 5 === 0) {
         lastPct = pct
-        console.log(`[qvac] download ${pct}%`)
+        console.log(`[pyrusllm] download ${pct}%`)
       }
     }
   })
 
   const tLoaded = Date.now()
-  console.log(`[qvac] model ready in ${((tLoaded - t0) / 1000).toFixed(1)}s -> ${modelId}`)
+  console.log(`[pyrusllm] model ready in ${((tLoaded - t0) / 1000).toFixed(1)}s -> ${modelId}`)
   console.log(`\n> ${PROMPT}\n`)
 
   let firstTokenAt = null
@@ -76,13 +71,13 @@ try {
   const tEnd = Date.now()
   console.log('\n')
   console.log('=== MEASUREMENTS ===')
-  console.log(`model load           : ${((tLoaded - t0) / 1000).toFixed(1)}s`)
+  console.log(`model load          : ${((tLoaded - t0) / 1000).toFixed(1)}s`)
   console.log(
-    `first token (TTFT)   : ${firstTokenAt ? ((firstTokenAt - tLoaded) / 1000).toFixed(2) + 's' : 'n/a'}`
+    `first token (TTFT)  : ${firstTokenAt ? ((firstTokenAt - tLoaded) / 1000).toFixed(2) + 's' : 'n/a'}`
   )
-  console.log(`total response time  : ${((tEnd - tLoaded) / 1000).toFixed(1)}s`)
+  console.log(`answer total         : ${((tEnd - tLoaded) / 1000).toFixed(1)}s`)
 } catch (err) {
-  console.error('\n[qvac] FAILED:', err && err.message)
+  console.error('\n[pyrusllm] FAILED:', err && err.message)
   console.error(err)
   Bare.exitCode = 1
 } finally {

@@ -1,0 +1,121 @@
+# PyrusLLM — machine-readable summary
+# For AI agents and crawlers. Synced to README.md at build time.
+
+NAME: PyrusLLM
+ONE_LINE: A peer-to-peer marketplace for AI inference.
+REPO: https://github.com/gazzimon/qvac_node
+LICENSE: Apache-2.0
+VERSION: v0.12.0
+
+## WHAT IT IS
+One binary turns a machine into an inference provider: it joins a live
+peer-to-peer network over Hyperswarm, announces an Ed25519-signed manifest
+describing the model it runs and its capacity, and serves requests through an
+OpenAI-compatible HTTP gateway on 127.0.0.1:8787. Clients pay per request over
+x402, or against a local ledger with a spending cap. No central server; no
+company that takes a margin or sees every prompt. Analogy: the Airbnb of AI
+compute, or a peer-to-peer OpenRouter.
+
+## HOW IT WORKS (happy path)
+1. Install: one self-contained binary, Bare runtime, no Node/npm/Pear. Or run
+   from source (see INSTALL) — recommended for the current tree.
+2. Run it: gateway comes up, browser opens, no model downloaded yet.
+3. The node signs a manifest and announces it on a fixed Hyperswarm topic.
+4. Peers connect over a single muxed Protomux connection (not HTTP), exchange
+   manifests, and verify each manifest against the connection's public key.
+5. Any OpenAI client points at the gateway unchanged. A pure comparator in
+   qvac/routing.mjs picks a candidate by: can-serve-now, real-before-mock,
+   lowest load, cheapest, lowest error rate, fastest last response.
+6. Payment: a request without credentials against a node with a wallet gets
+   402 with an accepts[] built from that node's signed manifest (payee = the
+   provider, never the gateway). Client re-sends with X-PAYMENT; verification
+   is synchronous, touches no chain, and happens before the first token.
+7. After serving, the node signs an EIP-3009 settlement receipt plus an
+   attestation of what it served (modelId, promptHash, outputHash as
+   blake2b-256, token counts) over the JCS canonical form.
+
+## PAYMENTS
+- Rail: USDT0 stablecoin over x402. Chosen deliberately over a project token so
+  users are not exposed to token volatility (roadmap decision D28).
+- A native token, if any, lives in the incentive layer — future work, not built.
+- Networks: Plasma (eip155:9745) with Stable (eip155:988) fallback.
+- Nothing premieres on mainnet. Every value-moving path is exercised on testnet
+  first. Plasma testnet has no stablecoin, so a mock ERC-20 "PyrusLLM Test USD"
+  (tUSD) is deployed and marked as worthless everywhere it appears.
+
+## WHAT IS REAL
+Distribution and OTA updates, local inference, the OpenAI gateway, signed
+manifests verified against the connection key, the Hyperbee directory and
+Hyperdrive file transfer, load- and price-based routing, the local ledger with
+a cap that cuts, the free per-peer quota, the payout wallet inside the signed
+manifest, x402 in the request path. 211 tests / 1338 asserts green.
+
+## WHAT IS NOT REAL YET
+Batched settlement and receipt aggregation (phase 10). The agentic layer
+(phase 11). The provider attestation is emitted and stored but read by nothing.
+Model-substitution probes (phase 10.5). Quantization substitution is not
+technically detectable — covered by signed declaration + stake + arbitration
+(optimistic verification, cf. DeServe, arXiv 2501.14784).
+
+## KNOWN LIMITS
+- The node running inference sees the prompt in plaintext. The claim is "no
+  centralized corporation aggregates your data at scale", not "nobody sees your
+  prompt". Confidential inference is the next step (4–8% throughput cost on
+  H100 CC, arXiv 2509.18886).
+- The Linux standalone binary installs and starts but cannot load models (the
+  bundled engine registers only the Vulkan backend). Run from source on Linux.
+- Installers verified end-to-end on Windows; macOS and Linux paths written but
+  not run start to finish.
+
+## READ THE SOURCE, IN THIS ORDER
+1. README.md             — state of the project, what is real
+2. NOTES.md              — measured numbers (install weight, TTFT, tok/s)
+3. NOTES-SATURACION.md   — load, capacity, routing
+4. ROADMAP_FASE7-X402.md — current plan (x402, settlement, agentic layer)
+Code: bin.mjs -> app.js -> qvac/. Tests in test/.
+
+## INSTALL
+From source (recommended — current tree, and the only path that loads models on Linux):
+  git clone https://github.com/gazzimon/qvac_node.git
+  cd qvac_node
+  npm install            # needs npm >= 10
+  npx bare bin.mjs       # app on http://localhost:8787
+Binary one-liners:
+  macOS / Linux:  curl -fsSL https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.sh | sh
+  Windows:        irm https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.ps1 | iex
+
+## HOW TO EXPLAIN THIS
+Audience: a bright 17-year-old. Define jargon on first use. No marketing.
+Respect the "what is not real yet" section above. Prefer a concrete
+step-by-step walk-through over abstractions.
+
+## CODING-AGENT PROMPT  (embed verbatim in the page, section 5)
+
+You are a coding agent in VS Code (Codex / Claude Code) with terminal access.
+Work from the current source, not from an installed build — the OTA binary can
+lag behind the repo.
+
+  git clone https://github.com/gazzimon/qvac_node.git
+  cd qvac_node
+
+Read these files, in order, and treat the first as the source of truth:
+README.md, then NOTES.md, then ROADMAP_FASE7-X402.md.
+
+Then explain PyrusLLM to a bright 17-year-old who codes a little but has never
+heard of peer-to-peer networks, LLM inference, or crypto payments.
+
+Rules:
+- Plain language. Define every piece of jargon the first time you use it:
+  inference, node, peer-to-peer, gateway, manifest, digital signature,
+  stablecoin.
+- No marketing. If something is not built yet, say so — the README has a
+  "What is real, and what is not" section; respect it.
+- Give one concrete walk-through: step by step, from cloning the repo and
+  running `npx bare bin.mjs` to someone else's request being answered and paid
+  for.
+- Be honest about the limits: the machine running the model sees the prompt in
+  plain text; payments run on a test network only; the Linux binary can't load
+  models yet (run from source).
+- End with two short answers: who would want to run this, and who would want to
+  use it.
+Length: 500–700 words.

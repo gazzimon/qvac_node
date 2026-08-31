@@ -44,6 +44,9 @@ storage/
 secrets/
 keys/
 wallet.json
+wallet.pass
+wallet.red
+wallet.tokens.json
 seed.txt
 mnemonic.txt
 
@@ -70,6 +73,9 @@ $RECYCLE.BIN/
 tmp/
 temp/
 *.log
+logs/
+# Lock files de MS Office (Word/Excel deja "~$nombre.docx" mientras el archivo esta abierto)
+~$*
 
 # Capturas y snapshots que deja el browser de prueba (MCP)
 .playwright-mcp/

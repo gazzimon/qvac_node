@@ -1,33 +1,34 @@
 // Marketplace gateway. Serves the 3 panels and an OpenAI-compatible API.
 //
 // WHAT IS COMPATIBLE (tested in test/index.js):
-//   POST /v1/chat/completions  accepts { model, messages[], stream } and responds
+//   POST /v1/chat/completions  accepts { model, messages[], stream } and answers
 //     - with stream:true  -> SSE of `chat.completion.chunk` (choices[].delta.content)
 //     - with stream:false -> a `chat.completion` (choices[].message.content)
 //   GET  /v1/models            returns { object:"list", data:[{id,object:"model",...}] }
-//   Errors travel as { error: { message, type, code } }, OpenAI's shape.
+//   Errors travel as { error: { message, type, code } }, the OpenAI shape.
 //
-// WHAT'S NOT THERE (said here so nobody discovers it in the demo):
-//   - `usage` (token count) is NOT emitted. The SDK doesn't expose it yet and
-//     a made-up count is worse than an absent field: a client billing by
-//     token would read a fake number. Absent is honest and doesn't break
-//     anyone using simple chat.
+// WHAT IS MISSING (said here so nobody discovers it during the demo):
+//   - `usage` (token count) is NOT emitted. The SDK does not expose it for now
+//     and an invented count is worse than an absent field: a client billing per
+//     token would read a false number. Absent is honest and breaks nobody using
+//     plain chat.
 //   - No `tools`/`function_call`, no `n`>1, no `logprobs`.
 //
-// OWN EXTENSIONS (don't clash with OpenAI, no OpenAI client sends these):
+// OUR OWN EXTENSIONS (they do not clash with OpenAI, no client of theirs sends
+// them):
 //   - The request also accepts the short form { modelId, prompt }.
-//   - GET /v1/nodes returns the marketplace's rich view (price, operator,
-//     load) that the panels consume. /v1/models stays for the protocol.
+//   - GET /v1/nodes returns the rich marketplace view (price, operator, load)
+//     the panels consume. /v1/models is left to the protocol.
 //
-// ROUTING: against the in-memory registry (store.mjs), which gets populated
-// from three different sources and treats them differently:
-//   kind 'peer' -> peer discovered via Hyperswarm with a verified signed
-//                  manifest. Inference travels over chat:request/chat:chunk
-//                  on the swarm's FramedStream (D1). Requires --swarm.
+// ROUTING: against the in-memory registry (store.mjs), populated from three
+// different sources and treating each differently:
+//   kind 'peer' -> peer discovered over Hyperswarm with a verified signed
+//                  manifest. Inference travels over chat:request/chat:chunk on
+//                  the swarm FramedStream (D1). Requires --swarm.
 //   kind 'real' -> this machine, via engine.mjs.
-//   kind 'mock' -> canned response. Only exists with --demo.
+//   kind 'mock' -> canned answer. Only exists with --demo.
 // For the same modelId the P2P peer is preferred (see findAllByModelId), and
-// the routing log states how many candidates there were.
+// the routing log says how many candidates there were.
 
 import http from 'bare-http1'
 import * as store from './store.mjs'
@@ -43,6 +44,7 @@ import { DEFAULT_MODEL } from './models.mjs'
 import { InferenceProgress } from './progress.mjs'
 // See the note in upstream.mjs: under Bare this isn't a global.
 import AbortController from 'bare-abort-controller'
+import env from 'bare-env'
 
 const MOCK_REPLIES = {
   'facturas-ar': (prompt) =>
@@ -63,14 +65,14 @@ function truncate(s, n = 60) {
   return s.length > n ? s.slice(0, n) + '…' : s
 }
 
-// Tokens per second of GENERATION, not of the request: TTFT is subtracted
-// out. Mixing them would give a number that drops when the model is slow to
-// start even if it then spits out tokens just as fast, and that's exactly the
+// Tokens per second of the GENERATION, not of the request: the TTFT is
+// subtracted. Mixing them would give a number that drops when the model is slow
+// to start even if it then spits tokens just as fast, and that is exactly the
 // confusion the pair of numbers (ttft + tok/s) exists to avoid.
 //
-// Returns null instead of 0 when there's nothing to measure: a request that
-// failed before the first token didn't generate "at zero tokens per second,"
-// it didn't generate.
+// Returns null instead of 0 when there is nothing to measure: a request that
+// failed before the first token did not generate "at zero tokens per second",
+// it did not generate.
 function tokensPerSec({ tokens, ttftMs, ms }) {
   if (!tokens || ttftMs === null) return null
   const genMs = ms - ttftMs
@@ -78,9 +80,9 @@ function tokensPerSec({ tokens, ttftMs, ms }) {
   return Number(((tokens / genMs) * 1000).toFixed(2))
 }
 
-// The real model loads ONCE, lazily -only on the first chat that needs
-// it-, same as the "zero model" Phase 3 already defines: the gateway starts
-// up without having downloaded or loaded anything.
+// The real model is loaded ONCE, lazily -only on the first chat that needs
+// it-, just like the "zero model" Phase 3 already defines: the gateway starts
+// without having downloaded or loaded anything.
 let engineMod = null
 let realModelId = null
 let realModelLoading = null
@@ -127,10 +129,10 @@ function ensureRealModel() {
         ...(Number.isFinite(ctxLocal) ? { ctxSize: ctxLocal } : {})
       })
 
-      // Lazy loading is the explanation for almost every anomalous TTFT: the
-      // first chat after startup pays for downloading and loading the model,
-      // and without this entry the trail shows a super-slow request with no
-      // visible cause next to it.
+      // Lazy loading explains nearly every anomalous TTFT: the first chat
+      // after starting pays for the download and the model load, and without
+      // this entry the trace shows an extremely slow request with no visible
+      // cause next to it.
       store.pushLog({
         kind: 'model_load',
         modelId: modeloLocal,
@@ -142,10 +144,10 @@ function ensureRealModel() {
       })
       return realModelId
     })()
-    // If loading fails, the rejected promise has to be LET GO. If it stays
+    // If the load fails, the rejected promise has to be RELEASED. Left
     // cached, every later request gets the same rejection instantly and the
-    // gateway never recovers without a restart -a registry timeout from bad
-    // wifi used to leave the real node dead for the whole session-.
+    // gateway never recovers without a restart -a registry timeout caused by
+    // bad wifi left the real node dead for the whole session-.
     realModelLoading.catch(() => {
       realModelLoading = null
     })
@@ -159,37 +161,35 @@ function ensureRealModel() {
 
 let idCounter = 0
 
-// `crypto.randomUUID` doesn't exist in bare, and the id only needs to be
-// unique WITHIN this process: it's the key the client uses to correlate the
-// chunks of ONE response, not a global identifier.
+// `crypto.randomUUID` does not exist in bare, and the id only has to be unique
+// within this process: it is the key the client correlates the chunks of ONE
+// answer with, not a global identifier.
 function completionId() {
   return 'chatcmpl-' + Date.now().toString(36) + (idCounter++).toString(36)
 }
 
 // B14 / D9 — the `finish_reason` the client sees.
 //
-// D9 declares it NON-NEGOTIABLE: if the response was cut off by the cap, it
-// has to say `length`. Charging for a cap and reporting normal completion is
-// lying in the one field the client looks at to know whether it's missing
-// text -- and the one an agent looks at to decide whether to ask for the
-// continuation.
+// D9 declares it NON-NEGOTIABLE: if the answer was cut off by the cap, it has
+// to say `length`. Charging for a cap and reporting a normal ending is lying in
+// the one field the client looks at to know whether text is missing -- and the
+// one an agent looks at to decide whether to ask for the continuation.
 //
-// The value comes from WHOEVER GENERATED: the external provider sends it in
-// the last chunk (upstream.mjs reads it and reports it via `onFinish`).
-// Counting it on this side wouldn't work: we count SSE deltas, not tokens, so
-// comparing them against the cap would give an approximate number, not the
-// fact.
+// The value comes from WHOEVER GENERATED: the external provider sends it in the
+// last chunk (upstream.mjs reads it and reports it through `onFinish`).
+// Counting it on this side would not work: we count SSE deltas, not tokens, so
+// comparing them against the cap would give a similar number and not the fact.
 //
-// With no value, `stop` is reported, which is what the gateway used to do for
-// ALL responses. The difference is that now it's the default for "nobody said
-// otherwise" and not a claim about every response.
+// With no value, `stop` is reported, which is what the gateway did for ALL
+// answers. The difference is that it is now the default for "nobody said" and
+// not a claim about all of them.
 function finishReasonDe(reportado) {
   if (typeof reportado !== 'string' || reportado === '') return 'stop'
-  // Passed through as-is with OpenAI's vocabulary, which is what the client
-  // expects: stop, length, content_filter, tool_calls. A value we don't know
-  // still travels through instead of getting flattened to 'stop': making up a
-  // known ending for something the provider named differently is the same
-  // lie, just smaller.
+  // The OpenAI vocabulary is passed through as-is, which is what the client
+  // expects: stop, length, content_filter, tool_calls. A value we do not know
+  // travels anyway instead of being flattened to 'stop': inventing a known
+  // ending for something the provider named differently is the same lie, only
+  // smaller.
   return reportado
 }
 
@@ -203,10 +203,22 @@ function chunkEvent({ id, created, model, delta, finishReason = null }) {
   }
 }
 
-// OpenAI's exact error shape. Clients (Hermes included) read `error.message`;
-// returning a plain string leaves them with no message to show.
-function sendError(res, statusCode, message, { type = 'invalid_request_error', code = null } = {}) {
-  const payload = JSON.stringify({ error: { message, type, code } })
+// The exact shape of an OpenAI error. Clients (Hermes included) read
+// `error.message`; returning a plain string leaves them with no message to
+// show.
+// PHASE 12 — `detalle` is optional and only shows up when there is something
+// longer than the message: the raw chain dump, which the panel leaves one click
+// away. One extra field breaks no OpenAI client —theirs read `message`— and it
+// avoids having to choose between a readable message and a complete one.
+function sendError(
+  res,
+  statusCode,
+  message,
+  { type = 'invalid_request_error', code = null, detalle = null } = {}
+) {
+  const payload = JSON.stringify({
+    error: { message, type, code, ...(detalle && detalle !== message ? { detalle } : {}) }
+  })
   res.writeHead(statusCode, { 'Content-Type': 'application/json' })
   res.end(payload)
 }
@@ -217,24 +229,24 @@ function sendJson(res, statusCode, body, extraHeaders = null) {
   res.end(payload)
 }
 
-// Who answered, in the response itself.
+// Who answered, in the answer itself.
 //
-// Goes in headers and not in the body on purpose: putting our own field
-// inside a `chat.completion.chunk` would dirty OpenAI's format, which is
-// exactly what this gateway promises to respect. No third-party client sees
-// an extra header, and our own chat reads it with headers.get().
+// It goes in headers and not in the body on purpose: putting a field of our own
+// inside a `chat.completion.chunk` would pollute the OpenAI format, which is
+// precisely what this gateway promises to respect. An extra header is invisible
+// to any third-party client and our own chat reads it with headers.get().
 //
-// encodeURIComponent because a header can't carry bytes outside latin-1 and
-// the operator name is chosen by a person ("Nodo de Ramón").
+// encodeURIComponent because a header cannot carry bytes outside latin-1 and
+// the operator name is chosen by a person ("Ramón's node").
 // An upstream running on this machine is NOT a third party. Everything that
-// decides privacy and spend -- the opt-in, the `local: true` filter, the "no
-// local capacity" condition -- asks this, not `kind`, which only says HOW
-// it's asked (over HTTP), not WHO it's asked of.
+// decides privacy and spending -- the opt-in, the `local: true` filter, the "no
+// local capacity" condition -- asks this and not the `kind`, which only says
+// HOW it is asked (over HTTP) and not WHO.
 function esTercero(node) {
   return !!node && node.kind === 'upstream' && node.local !== true
 }
 
-// What label this candidate's output enters the trail under.
+// Which label what this candidate generated enters the trace under.
 function targetDe(node) {
   if (!node) return 'none'
   if (node.kind === 'peer') return 'peer'
@@ -242,27 +254,27 @@ function targetDe(node) {
   return esTercero(node) ? 'upstream' : 'local'
 }
 
-// PHASE 8 — `costMicros` is the ESTIMATE, not the real cost, and the
+// PHASE 8 — `costMicros` is the ESTIMATE, not the real figure, and the
 // difference matters.
 //
-// The real one is known once it's finished; these headers go out BEFORE the
-// first token, because in SSE there's no other moment (roadmap's R4). So
-// what travels is the UPPER BOUND the spend was authorized with -- the same
-// number the reservation set aside -- and the chat displays it as a cap, not
-// a price.
+// The real one is known when it finishes; these headers go out BEFORE the first
+// token, because with SSE there is no other moment (R4 of the roadmap). So what
+// travels is the UPPER BOUND the spend was authorised against -- the same
+// number the reservation set aside -- and the chat shows it as a ceiling, not
+// as a price.
 //
 // Sending the real one would require an HTTP trailer or a second request
-// against the log, and both are worse than stating the truth of what's known
-// when it's known.
+// against the log, and both are worse than telling the truth about what is
+// known when it is known.
 function provenanceHeaders(node, costMicros = 0) {
   return {
     'X-Pyrus-Operator': encodeURIComponent((node && node.operator) || ''),
     'X-Pyrus-Kind': (node && node.kind) || 'unknown',
     'X-Pyrus-Cost-Estimate-Micros': String(Math.max(0, Math.ceil(Number(costMicros) || 0))),
-    // Which side of the machine's edge the response was generated on. `kind`
-    // isn't enough: an upstream can be a third party or our own engine
-    // behind HTTP, and the chat needs to know which so it doesn't promise
-    // too little or too much.
+    // Which side of the machine boundary the answer was generated on. `kind`
+    // is not enough: an upstream can be a third party or an engine of our own
+    // behind HTTP, and the chat needs to know which so it neither over- nor
+    // under-promises.
     'X-Pyrus-Scope': esTercero(node) ? 'external' : 'local',
     'X-Pyrus-Model': encodeURIComponent((node && node.modelId) || '')
   }
@@ -273,11 +285,12 @@ function sendHtml(res, html) {
   res.end(html)
 }
 
-// The name comes from the query, i.e. the browser, i.e. anyone who hits the
-// endpoint. Without this, a name of "../../.ssh/authorized_keys" writes
-// somewhere it shouldn't: the path gets built with join() and `..` walks it
-// out of the folder. Keeps ONLY the base name and characters that exist
-// across the three filesystems we care about.
+// The name arrives from the query, which is to say from the browser, which is
+// to say from anybody who hits the endpoint. Without this, a name of
+// "../../.ssh/authorized_keys" writes where it must not: the path is built with
+// join() and `..` takes it out of the folder.
+// It keeps ONLY the base name and only characters that exist on the three file
+// systems we care about.
 function sanitizeFilename(nombre) {
   const base = String(nombre).replace(/\\/g, '/').split('/').pop() || ''
   const limpio = base
@@ -298,16 +311,16 @@ function descargasDir() {
   return storageSubdir('descargas')
 }
 
-// Both folders hang off the node's storage, not the cwd: `serve` can start
-// from anywhere, and files have no reason to show up wherever the operator
-// happened to run the command from.
+// Both folders hang off the node storage and not off the cwd: `serve` can be
+// started from anywhere and the files have no reason to show up wherever the
+// operator ran the command.
 function storageSubdir(nombre) {
   const base = filesApi && filesApi.dir ? filesApi.dir : '.'
   return base.replace(/[\\/]+$/, '') + '/' + nombre
 }
 
-// Written via stream, not Buffer.concat: a large file buffered whole is
-// memory taken from a process that's also serving inference.
+// Written by stream, not with Buffer.concat: a large file buffered whole is
+// memory taken from the process that is also serving inference.
 async function recibirArchivo(req, nombre) {
   const fs = await import('bare-fs')
   const dir = uploadsDir()
@@ -317,11 +330,11 @@ async function recibirArchivo(req, nombre) {
   let total = 0
   const out = fs.default.createWriteStream(destino)
 
-  // Hooked up BEFORE writing anything. A stream 'error' with no listener is
-  // an uncaught exception that takes down the ENTIRE process -the same one
-  // that's also serving inference-, not just this upload. It's stored
-  // instead of reacted to on the spot: the for-await below is what decides
-  // when to cut off, so it doesn't stomp on the "too large" catch mid-write.
+  // Hooked up BEFORE writing anything. A stream 'error' with no listener is an
+  // uncaught exception that takes down the WHOLE process -the one also serving
+  // inference-, not just this upload. It is stored instead of reacted to on the
+  // spot: the for-await below is what decides when to stop, so the "too large"
+  // catch is not stepped on midway through a write.
   let streamErr = null
   out.on('error', (err) => {
     streamErr = streamErr || err
@@ -526,7 +539,131 @@ export function setEconomic(economic) {
   return economicPropio
 }
 
-// PHASE 9 / D24 — what signs the attestation for what this node served.
+// FASE 11 — la red donde vive la wallet, para que el panel /wallet pueda LEER
+// saldos. Llega ya resuelta desde bin.mjs (`wallet.redDe`): nombre, chainId,
+// caip2, rpc, explorer. Es dato PUBLICO — el mismo RPC contra el que se firma
+// el cobro — y no afloja la invariante de arriba: se lee con la direccion, que
+// viaja en el manifiesto, no con la seed. Sin esto el panel dice "sin wallet".
+let walletRed = null
+
+export function setWalletRed(red) {
+  walletRed = red && red.rpc ? red : null
+  return walletRed
+}
+
+// FASE 11 — crear o importar la wallet de cobro desde el panel, sin la CLI.
+//
+// Es una FUNCION que bin.mjs arma con dir + passphrase en su closure: el
+// gateway la invoca y no ve mas que `{ address, frase, restaurada }`. `null`
+// cuando falta PYRUS_WALLET_PASSPHRASE — sin esa clave no se puede cifrar la
+// seed ni volver a abrirla en el proximo arranque, y el panel lo dice en vez
+// de ofrecer el boton. El creator, ademas de escribir el keystore, re-cablea
+// `setEconomic`/`setWalletSigner`/`setWalletRed` para que este proceso sirva la
+// nueva direccion sin reiniciar.
+let walletCreator = null
+
+export function setWalletCreator(fn) {
+  walletCreator = typeof fn === 'function' ? fn : null
+  return !!walletCreator
+}
+
+// FASE 11 — el selector de red del panel. `bin.mjs` arma la función con
+// `dirWallet` y con la validación (nombre conocido + confirmar mainnet) en su
+// closure, así el gateway no importa `wallet.mjs`. Escribe `wallet.red` y NO
+// hace hot-swap: el cambio toma efecto al reiniciar.
+let walletNetworkSetter = null
+
+export function setWalletNetworkSetter(fn) {
+  walletNetworkSetter = typeof fn === 'function' ? fn : null
+  return !!walletNetworkSetter
+}
+
+// FASE 12 — los tokens que el panel vigila, administrados desde Settings.
+//
+// Mismo patron que `setWalletNetworkSetter`: `bin.mjs` arma las tres funciones
+// con `dirWallet` en su closure y las lee/escribe con `wallet.leerTokens` /
+// `wallet.guardarTokens`, asi el gateway sigue sin importar `wallet.mjs`.
+//
+// La clave es el CAIP-2 de la red: una address de token no vale cross-chain
+// (ver el bloque de `ARCHIVO_TOKENS` en wallet.mjs).
+let walletTokensStore = null
+
+export function setWalletTokensStore(store) {
+  walletTokensStore =
+    store && typeof store.listar === 'function' && typeof store.agregar === 'function'
+      ? store
+      : null
+  return !!walletTokensStore
+}
+
+// FASE 12 — datos de diagnostico para Settings. Solo lectura y nada secreto: la
+// ruta del keystore y la version ya estan en el log de arranque, que para
+// cuando algo no cuadra ya scrolleo.
+let walletInfo = null
+
+export function setWalletInfo(info) {
+  walletInfo = info || null
+  return walletInfo
+}
+
+// FASE 12 — mandar plata desde el panel. Es la MISMA invariante que
+// `setWalletSigner`, un paso mas lejos: bin.mjs abre el keystore, se queda con
+// la cuenta de WDK y le pasa acá dos funciones —`enviar` y `cotizar`—. El
+// gateway puede pedir una transferencia; no puede leer la seed ni la clave.
+//
+// El panel manda tres strings (destino, monto, activo) y este proceso arma,
+// firma y difunde. Del navegador NUNCA sale una clave.
+let walletSender = null
+
+// -----------------------------------------------------------------------------
+// EL TIC, Y POR QUE UN NODO CON WALLET LATE Y UNO SIN WALLET NO
+// -----------------------------------------------------------------------------
+//
+// Esto no es paranoia ni una espera "por las dudas": es un comportamiento
+// MEDIDO, aislado en las dos direcciones contra Plasma testnet.
+//
+// EL SINTOMA. Abrir /wallet y tocar "Revisar" dejaba el request colgado para
+// siempre. El MISMO request por `curl` contestaba en 220 ms. Y una vez colgado,
+// el proveedor de ethers quedaba trabado: ningun envio posterior contestaba
+// —tampoco por curl— hasta reiniciar el nodo.
+//
+// LO QUE LO AISLA. Con el request colgado, el gateway seguia contestando
+// `/v1/agent` en 2 ms: el loop NO estaba bloqueado. Pero un `setTimeout` armado
+// en ese momento NUNCA disparaba — timers muertos, IO viva. Y ahi esta la
+// prueba en las dos direcciones: dejando un `setInterval` cualquiera latiendo
+// en el proceso, el mismo flujo anduvo 3 de 3; sacandolo, volvio a colgarse.
+//
+// O sea: bajo Bare, cuando lo unico pendiente es un timer, el loop puede no
+// despertarse a atenderlo, y ethers —que adentro espera en un timer para
+// seguir— se queda ahi. La causa vive abajo de este archivo, entre el runtime y
+// ethers, y esto es un PALIATIVO, no el arreglo: lo unico que hace es no dejar
+// que el loop se duerma.
+//
+// TRES COSAS QUE SE PROBARON Y NO ALCANZAN, para que nadie las repita:
+//   1. Un tic creado al momento de la llamada, adentro de `conReloj`: no sirve.
+//      El timer tiene que estar YA latiendo de antes.
+//   2. El mismo tic con `unref()`: tampoco. `unref()` significa justamente "no
+//      despiertes el loop por esto", que es lo contrario de lo que hace falta.
+//   3. Darle cuerda a ethers una vez al arrancar (`calentar`): ayuda a saber si
+//      el RPC responde, pero no evita el cuelgue.
+//
+// Por eso late mientras hay wallet. Un nodo que solo consume no paga nada: el
+// tic arranca con `setWalletSender` y se apaga si la wallet se va.
+const TIC_MS = 250
+let tic = null
+
+export function setWalletSender(sender) {
+  walletSender = sender && typeof sender.enviar === 'function' ? sender : null
+  if (walletSender && !tic) {
+    tic = setInterval(() => {}, TIC_MS)
+  } else if (!walletSender && tic) {
+    clearInterval(tic)
+    tic = null
+  }
+  return !!walletSender
+}
+
+// FASE 9 / D24 — con que se firma la atestacion de lo que este nodo sirvio.
 //
 // It's a FUNCTION, not a key: bin.mjs opens the keystore, keeps the account,
 // and passes a `(message) => Promise<signature>` in here. The invariant
@@ -551,6 +688,169 @@ export function walletStatus() {
     address: economicPropio ? economicPropio.walletAddress : null,
     chains: economicPropio ? economicPropio.chains : [],
     settlement: economicPropio ? economicPropio.settlement : null
+  }
+}
+
+// FASE 11 — una llamada JSON-RPC cruda contra el RPC de la red de la wallet.
+// `bare-fetch` como en upstream.mjs. Solo para LEER (`eth_getBalance`,
+// `eth_call` a `balanceOf`): este gateway no arma ni firma transacciones.
+async function rpcCall(url, method, params) {
+  const mod = await import('bare-fetch')
+  const fetch = mod.default || mod.fetch || mod
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+  })
+  if (!r.ok) throw new Error('RPC HTTP ' + r.status)
+  const j = await r.json()
+  if (j && j.error) throw new Error(j.error.message || 'RPC error')
+  return j ? j.result : null
+}
+
+// `balanceOf(address)` — selector 0x70a08231, la direccion a 32 bytes.
+function balanceOfData(address) {
+  return (
+    '0x70a08231' + '000000000000000000000000' + String(address).toLowerCase().replace(/^0x/, '')
+  )
+}
+
+// FASE 12 — UN `eth_call` QUE DEVUELVE VACIO NO ES UN SALDO CERO.
+//
+// Llamar `balanceOf` contra una address donde NO hay contrato no revierte: el
+// nodo contesta `0x`, o sea "ningun dato". `BigInt('0x')` no parsea y el panel
+// terminaria dibujando "0", que se lee como "no tenes nada de este token"
+// cuando lo cierto es que ahi no hay token ninguno.
+//
+// Es el modo de falla mas probable de la lista de tokens a mano —una address
+// tipeada mal, o la del token de OTRA red— y es justo donde un cero tranquiliza
+// en vez de avisar. Un `uint256` son 32 bytes: menos que eso no es una
+// respuesta, y se dice.
+function balanceDelCall(raw) {
+  const s = String(raw == null ? '' : raw)
+  if (!/^0x[0-9a-fA-F]{64,}$/.test(s)) {
+    return {
+      raw: null,
+      error:
+        'the contract did not return a balance (it answered ' +
+        (s === '0x' || s === '' ? 'empty' : JSON.stringify(s.slice(0, 12) + '…')) +
+        '): there may be no token at that address on this network'
+    }
+  }
+  return { raw: s, error: null }
+}
+
+// FASE 12 — un GET contra una API HTTP que devuelve JSON (el explorer). Gemelo
+// de `rpcCall`, que es POST contra el RPC: son dos protocolos distintos y
+// mezclarlos en una funcion "generica" solo esconde cual de los dos fallo.
+async function httpGetJson(url) {
+  const mod = await import('bare-fetch')
+  const fetch = mod.default || mod.fetch || mod
+  const r = await fetch(url, { headers: { Accept: 'application/json' } })
+  if (!r.ok) throw new Error('HTTP ' + r.status)
+  return r.json()
+}
+
+// El topic0 de `Transfer(address,address,uint256)`, que es como se reconoce un
+// movimiento de ERC-20 en los logs. Es una constante de la ABI de ERC-20, no
+// una eleccion nuestra.
+const TOPIC_TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+
+// Una address como topic: 32 bytes, alineada a la derecha.
+function comoTopic(address) {
+  return '0x000000000000000000000000' + String(address).toLowerCase().replace(/^0x/, '')
+}
+
+// -----------------------------------------------------------------------------
+// FASE 12 — POR QUE HAY UN RELOJ ALREDEDOR DE LA WALLET
+// -----------------------------------------------------------------------------
+//
+// Medido contra Plasma testnet, no supuesto: la PRIMERA llamada de red que hace
+// ethers desde adentro del gateway a veces no vuelve nunca. Y cuando eso pasa,
+// no se cuelga solo ese request: ethers encola todo detras de su deteccion de
+// red, asi que el proveedor queda trabado y NINGUN envio posterior contesta
+// hasta reiniciar el nodo. Reproducido abriendo el panel y tocando "Revisar":
+// el request queda pendiente para siempre y un `curl` posterior tambien.
+//
+// El reloj no arregla la causa —vive abajo, entre ethers y el runtime— pero
+// convierte "la pantalla gira para siempre" en "esto tardo demasiado, y este es
+// el motivo", que es la diferencia entre un bug y una falla que se puede leer.
+//
+// LOS DOS TIEMPOS SON DISTINTOS PORQUE LAS DOS FALLAS SON DISTINTAS:
+//
+//   cotizar  no firma ni difunde nada. Si vence, no paso NADA, y se puede decir
+//            "no se pudo estimar" sin ninguna duda.
+//
+//   enviar   ya puede haber firmado y difundido cuando el reloj vence. Ahi
+//            "fallo" seria una MENTIRA peligrosa: alguien que lee "fallo"
+//            manda de nuevo y paga dos veces. Por eso el mensaje de ese caso
+//            dice que no se sabe, y manda a mirar el explorer. Es el unico
+//            lugar del panel donde la respuesta honesta es "no sé".
+// Se pueden pisar por entorno. No es un gancho para los tests —aunque la suite
+// los use para no tardar dos minutos—: un RPC lento de verdad existe, y el
+// operador que lo tiene no deberia tener que editar el codigo para darle aire.
+const TIMEOUT_COTIZAR_MS = Number(env.PYRUS_WALLET_TIMEOUT_COTIZAR_MS) || 20000
+const TIMEOUT_ENVIAR_MS = Number(env.PYRUS_WALLET_TIMEOUT_ENVIAR_MS) || 90000
+
+// El reloj propiamente dicho. Puede disparar gracias al tic de
+// `setWalletSender`: sin el, este mismo `setTimeout` tampoco se ejecutaba, que
+// es como se descubrio todo aquello.
+function conReloj(promesa, ms) {
+  let reloj = null
+  const vencer = new Promise((_, rechazar) => {
+    reloj = setTimeout(() => rechazar(new Error('__timeout__')), ms)
+    reloj.unref?.()
+  })
+  return Promise.race([promesa, vencer]).finally(() => {
+    clearTimeout(reloj)
+  })
+}
+
+// FASE 12 — el motivo por el que la cadena rechazo un envio, legible.
+//
+// Lo que tira ethers trae el mensaje util —"insufficient funds for gas * price
+// + value: have 0 want 500000000000000000"— ENTERRADO adentro de un volcado del
+// request completo, de 600 caracteres. Poner eso en la pantalla es cumplir la
+// letra de "el motivo viaja" y romper el espiritu: nadie lo lee.
+//
+// Se saca la frase de adentro y se devuelve TAMBIEN el texto completo, que el
+// panel deja a un click. No se descarta nada: se ordena.
+function motivoDeCadena(err) {
+  const completo = String((err && err.message) || err)
+  // El mensaje del nodo viene en `info.error.message` del volcado de ethers.
+  const m = completo.match(/"message":\s*"([^"]+)"/)
+  if (m && m[1]) return { motivo: m[1], detalle: completo }
+  // Sin volcado, la primera linea alcanza; el resto suele ser el stack.
+  const primera = completo.split('\n')[0].trim()
+  return { motivo: primera.length > 200 ? primera.slice(0, 200) + '…' : primera, detalle: completo }
+}
+
+// Un numero de bloque hex para ordenar. Lo que no parsee es 0 y no un throw:
+// ordenar mal una lista es feo, romper el endpoint por un log raro es peor.
+function aBigIntSeguro(v) {
+  try {
+    return Number(BigInt(String(v == null ? 0 : v)))
+  } catch {
+    return 0
+  }
+}
+
+// FASE 12 — los tokens guardados para la red que esta activa AHORA.
+//
+// Se pregunta por `walletRed.caip2` y no se cachea: cambiar de red y seguir
+// mostrando los tokens de la anterior es mostrar el balance de otro contrato
+// bajo el mismo simbolo. Sin red o sin store, lista vacia — no es un error, es
+// un nodo que todavia no agrego ninguno.
+function tokensDeLaRedActiva() {
+  if (!walletTokensStore || !walletRed || !walletRed.caip2) return []
+  try {
+    const l = walletTokensStore.listar(walletRed.caip2)
+    return Array.isArray(l) ? l : []
+  } catch (err) {
+    console.error(
+      `[wallet] no se pudieron leer los tokens guardados: ${(err && err.message) || err}`
+    )
+    return []
   }
 }
 
@@ -2189,7 +2489,7 @@ async function handleChat(req, res) {
   try {
     body = await readJsonBody(req)
   } catch {
-    return sendError(res, 400, 'invalid body, expected JSON')
+    return sendError(res, 400, 'invalid body, JSON expected')
   }
 
   const norm = normalizeRequest(body)
@@ -2455,9 +2755,13 @@ async function onRequest(req, res) {
       const { ADMIN_HTML } = await import('./pages.mjs')
       return sendHtml(res, ADMIN_HTML)
     }
-    // The old routes still resolve: there are commands, screenshots, and a
-    // README that name them, and a 404 after a rename is a regression for
-    // whoever had the link saved.
+    if (req.method === 'GET' && pathname === '/wallet') {
+      const { WALLET_HTML } = await import('./pages.mjs')
+      return sendHtml(res, WALLET_HTML)
+    }
+    // Las rutas viejas siguen resolviendo: hay comandos, capturas y un README
+    // que las nombran, y un 404 despues de un rename es una regresion para
+    // quien tenia el link guardado.
     if (req.method === 'GET' && (pathname === '/proveedor' || pathname === '/cliente')) {
       res.writeHead(302, { Location: pathname === '/proveedor' ? '/node' : '/' })
       return res.end()
@@ -2668,7 +2972,7 @@ async function onRequest(req, res) {
       try {
         cuerpo = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'invalid body, expected JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
       if (typeof cuerpo.enabled !== 'boolean') {
         return sendError(res, 400, 'missing "enabled" (boolean)')
@@ -2696,7 +3000,734 @@ async function onRequest(req, res) {
       if (motivoWallet) return sendError(res, 401, motivoWallet)
       return sendJson(res, 200, walletStatus())
     }
-    // PHASE 9 / D12 — recovering the receipt for a request that was paid for.
+    // FASE 11 — los saldos de la wallet de cobro, para el panel /wallet. SOLO
+    // LECTURA: `eth_getBalance` nativo + `balanceOf` de USD₮0 en Plasma. El
+    // gate es el mismo de /v1/wallet: la direccion no es secreta pero un
+    // tercero cualquiera no tiene por que sondear cuanto tiene esta maquina.
+    //
+    // Un RPC caido NO devuelve ceros: el campo se deja en null y el panel lo
+    // dibuja "—" con el motivo. Afirmar "0" seria decir que la wallet esta
+    // vacia cuando lo unico que pasa es que no se pudo mirar.
+    if (req.method === 'GET' && pathname === '/v1/wallet/balances') {
+      const motivoBal = rechazoPorKey(req)
+      if (motivoBal) return sendError(res, 401, motivoBal)
+
+      const address = economicPropio ? economicPropio.walletAddress : null
+      if (!address || !walletRed) {
+        return sendJson(res, 200, {
+          configurada: false,
+          address,
+          red: null,
+          nativo: null,
+          tokens: [],
+          error: null,
+          // FASE 11 — el creator está cableado salvo durante los ms del
+          // arranque previos a `setWalletCreator`; el panel lo usa para no
+          // ofrecer el botón antes de tiempo.
+          puedeCrear: !!walletCreator
+        })
+      }
+
+      const red = {
+        nombre: walletRed.nombre || null,
+        caip2: walletRed.caip2 || null,
+        chainId: walletRed.chainId || null,
+        explorer: walletRed.explorer || null,
+        mainnet: !!walletRed.mainnet,
+        // FASE 11 — si el entorno la fija, el selector del panel no tiene efecto
+        // y se dibuja como texto en vez de un <select>.
+        fijadaPorEnv: !!walletRed.fijadaPorEnv
+      }
+
+      let nativo = null
+      let error = null
+      try {
+        const wei = await rpcCall(walletRed.rpc, 'eth_getBalance', [address, 'latest'])
+        nativo = { decimals: 18, raw: String(wei == null ? '0x0' : wei) }
+      } catch (err) {
+        nativo = { decimals: 18, raw: null, error: (err && err.message) || String(err) }
+        error = 'no se pudo leer el balance nativo contra el RPC'
+      }
+
+      const tokens = []
+      // Solo el activo de Plasma, y desde la MISMA constante que usa x402: una
+      // sola fuente de verdad para una direccion de contrato (ver x402.mjs).
+      if (walletRed.caip2 === 'eip155:9745' && x402.PLASMA_USDT0_SIN_VERIFICAR) {
+        const t = x402.PLASMA_USDT0_SIN_VERIFICAR
+        const fila = {
+          symbol: t.symbol,
+          name: t.name,
+          address: t.asset,
+          decimals: t.decimals,
+          verificado: false
+        }
+        try {
+          const raw = await rpcCall(walletRed.rpc, 'eth_call', [
+            { to: t.asset, data: balanceOfData(address) },
+            'latest'
+          ])
+          const leido = balanceDelCall(raw)
+          fila.raw = leido.raw
+          if (leido.error) fila.error = leido.error
+        } catch (err) {
+          fila.raw = null
+          fila.error = (err && err.message) || String(err)
+        }
+        tokens.push(fila)
+      }
+
+      // FASE 12 — y los que el operador agrego a mano desde Settings, que son
+      // POR RED. Se leen con el MISMO `eth_call` a `balanceOf` que USD₮0: no hay
+      // un camino distinto para un token "de segunda", solo una marca distinta.
+      //
+      // `verificado:false` sin excepcion: nadie le pregunto nada a la cadena, ni
+      // siquiera si ahi vive un ERC-20. Y si el `eth_call` falla, `raw` queda en
+      // null con el motivo — un token que no se pudo leer no es un token vacio.
+      const guardados = tokensDeLaRedActiva()
+      for (const g of guardados) {
+        // Un token que ya esta en la lista (USD₮0 agregado tambien a mano) no se
+        // duplica: se mostraria dos veces el mismo saldo.
+        if (tokens.some((t) => String(t.address).toLowerCase() === g.address)) continue
+        const fila = {
+          symbol: g.symbol,
+          name: g.symbol,
+          address: g.address,
+          decimals: g.decimals,
+          verificado: false
+        }
+        try {
+          const raw = await rpcCall(walletRed.rpc, 'eth_call', [
+            { to: g.address, data: balanceOfData(address) },
+            'latest'
+          ])
+          const leido = balanceDelCall(raw)
+          fila.raw = leido.raw
+          if (leido.error) fila.error = leido.error
+        } catch (err) {
+          fila.raw = null
+          fila.error = (err && err.message) || String(err)
+        }
+        tokens.push(fila)
+      }
+
+      return sendJson(res, 200, {
+        configurada: true,
+        address,
+        red,
+        nativo,
+        tokens,
+        error,
+        // FASE 12 — la lista PELADA que administra Settings, aparte de `tokens`,
+        // que ya viene con balances y mezclada con el nativo.
+        tokensGuardados: guardados,
+        info: {
+          rpc: walletRed.rpc || null,
+          rpcFijadoPorEnv: !!walletRed.rpcPropio,
+          keystore: (walletInfo && walletInfo.keystore) || null,
+          version: (walletInfo && walletInfo.version) || null
+        }
+      })
+    }
+    // FASE 11 — crear o importar la wallet de cobro desde el panel /wallet, sin
+    // `pyrusllm wallet --create`. Cuerpo vacio -> wallet nueva; `{ frase }` ->
+    // importar 24 palabras.
+    //
+    // Localhost por el bind a 127.0.0.1 (ver server.listen), y ademas pide
+    // panel key como el resto de /v1. La frase de una wallet NUEVA vuelve en el
+    // cuerpo UNA vez — es trafico a 127.0.0.1, la misma maquina — para que el
+    // panel la muestre; el keystore ya quedo cifrado en disco.
+    if (req.method === 'POST' && pathname === '/v1/wallet/create') {
+      const motivoCrear = rechazoPorKey(req)
+      if (motivoCrear) return sendError(res, 401, motivoCrear)
+
+      if (!walletCreator) {
+        return sendError(
+          res,
+          503,
+          'the node is not ready to create the wallet yet, try again in a few seconds',
+          { code: 'no_listo', type: 'service_unavailable' }
+        )
+      }
+      if (economicPropio) {
+        return sendError(res, 409, 'this node already has a payout wallet', {
+          code: 'wallet_existe'
+        })
+      }
+
+      let body
+      try {
+        body = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'invalid body: JSON or an empty body expected')
+      }
+      const frase = typeof body.frase === 'string' && body.frase.trim() ? body.frase.trim() : null
+
+      try {
+        const r = await walletCreator({ frase })
+
+        // Los PARES ven la nueva direccion recien cuando el manifiesto FIRMADO
+        // se re-anuncia. El creator ya dejo economic/firmante nuevos en este
+        // gateway; aca se re-firma y se empuja a los pares conectados. Sin
+        // swarm, la wallet es solo local hasta el proximo `serve --swarm`.
+        let swarmReanunciado = false
+        if (swarmRef && economicPropio) {
+          try {
+            swarmRef.updateAnnouncement({ economic: economicPropio })
+            swarmReanunciado = true
+          } catch (err) {
+            console.error(
+              `[wallet] no se pudo re-anunciar el manifiesto: ${(err && err.message) || err}`
+            )
+          }
+        }
+
+        return sendJson(res, 200, {
+          address: r.address,
+          // `frase` SOLO en creacion nueva. En import no se devuelve: quien
+          // importa ya la tiene, y un eco de vuelta seria una copia de mas.
+          frase: r.restaurada ? null : r.frase || null,
+          restaurada: !!r.restaurada,
+          swarmActivo: !!swarmRef,
+          swarmReanunciado
+        })
+      } catch (err) {
+        const msg = (err && err.message) || String(err)
+        if (/ya hay una wallet/.test(msg)) {
+          return sendError(res, 409, msg, { code: 'wallet_existe' })
+        }
+        if (/BIP-39|invalid|no valida/i.test(msg)) {
+          return sendError(
+            res,
+            400,
+            'the words do not validate (BIP-39 checksum): check the order and the spelling',
+            { code: 'frase_invalida' }
+          )
+        }
+        console.error(`[wallet] creation from the panel failed: ${msg}`)
+        return sendError(res, 500, 'could not create the wallet: ' + msg)
+      }
+    }
+    // FASE 11 — cambiar la red de cobro desde el selector del panel. Escribe
+    // `wallet.red`; NO hace hot-swap. La respuesta dice "reiniciá el nodo",
+    // porque el aviso de mainnet, la re-derivación y el re-firmado del
+    // manifiesto viven en el arranque. Ir a mainnet pide `confirmar: "MAINNET"`.
+    if (req.method === 'POST' && pathname === '/v1/wallet/network') {
+      const motivoRed = rechazoPorKey(req)
+      if (motivoRed) return sendError(res, 401, motivoRed)
+
+      if (!walletNetworkSetter) {
+        return sendError(
+          res,
+          503,
+          'the node is not ready to switch networks yet, try again in a few seconds',
+          { code: 'no_listo', type: 'service_unavailable' }
+        )
+      }
+      if (walletRed && walletRed.fijadaPorEnv) {
+        return sendError(
+          res,
+          409,
+          'the network is pinned by PYRUS_WALLET_RED in the environment: remove that variable to choose from the panel',
+          { code: 'fijada_por_env' }
+        )
+      }
+
+      let body
+      try {
+        body = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'invalid body, JSON expected')
+      }
+
+      try {
+        const r = walletNetworkSetter(body.red, { confirmar: body.confirmar })
+        console.log(
+          `[wallet] red guardada: ${r.nombre} (eip155:${r.chainId}) — toma efecto al reiniciar`
+        )
+        return sendJson(res, 200, {
+          red: r.nombre,
+          chainId: r.chainId,
+          mainnet: r.mainnet,
+          aplicaEnReinicio: true,
+          // Mainnet en Plasma para x402 además necesita el flag verificado, que
+          // es un paso humano (mirar el contrato en el explorer). Se dice acá
+          // para que no se descubra el día que un 402 sale en Stable.
+          avisoX402: r.mainnet
+            ? 'to charge on Plasma mainnet over x402, PYRUS_X402_PLASMA_ASSET_VERIFICADO=1 is missing (verify the USD₮0 contract on the explorer first)'
+            : null
+        })
+      } catch (err) {
+        const code = (err && err.code) || null
+        if (code === 'confirmar_mainnet') {
+          return sendError(res, 400, (err && err.message) || 'confirm the switch to mainnet', {
+            code
+          })
+        }
+        if (code === 'red_desconocida') {
+          return sendError(res, 400, (err && err.message) || 'red desconocida', { code })
+        }
+        console.error(`[wallet] no se pudo guardar la red: ${(err && err.message) || err}`)
+        return sendError(res, 500, 'could not save the network: ' + ((err && err.message) || err))
+      }
+    }
+    // FASE 12 — mandar plata desde el panel.
+    //
+    // `/v1/wallet/send/quote` cotiza el gas y NO firma nada;
+    // `/v1/wallet/send` firma y difunde. Son dos rutas y no un flag porque la
+    // diferencia entre "mirar cuanto sale" y "mandarlo" no puede depender de un
+    // booleano en un body: un booleano que se pierde manda una transaccion.
+    //
+    // La FIRMA no pasa por acá. `walletSender` es un closure que bin.mjs armo
+    // con la cuenta de WDK; este proceso arma el monto y pide. La seed no cruza,
+    // igual que con las atestaciones de D24.
+    if (
+      req.method === 'POST' &&
+      (pathname === '/v1/wallet/send' || pathname === '/v1/wallet/send/quote')
+    ) {
+      const soloCotiza = pathname === '/v1/wallet/send/quote'
+      const motivoSend = rechazoPorKey(req)
+      if (motivoSend) return sendError(res, 401, motivoSend)
+
+      if (!walletSender || (soloCotiza && typeof walletSender.cotizar !== 'function')) {
+        return sendError(
+          res,
+          503,
+          'this node has no open wallet to send from: create it or check the passphrase',
+          { code: 'sin_wallet', type: 'service_unavailable' }
+        )
+      }
+      if (!walletRed) {
+        return sendError(res, 409, 'this node has no payout network resolved yet', {
+          code: 'sin_red'
+        })
+      }
+
+      let envio
+      try {
+        envio = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'invalid body, JSON expected')
+      }
+
+      const destino = String((envio && envio.destino) || '').trim()
+      if (!/^0x[0-9a-fA-F]{40}$/.test(destino)) {
+        return sendError(res, 400, 'the destination has to be an EVM address (0x + 40 hex)', {
+          code: 'destino'
+        })
+      }
+
+      // El activo: 'native' o la address de un token que ESTE NODO conoce. No se
+      // acepta una address cualquiera del body — mandar a un contrato que nadie
+      // declaro es la forma mas facil de perder los fondos, y "lo escribiste vos"
+      // no es un consentimiento cuando el campo se autocompleta.
+      const asset = String((envio && envio.asset) || 'native').trim()
+      let decimales = 18
+      let simbolo = null
+      if (asset !== 'native') {
+        if (!/^0x[0-9a-fA-F]{40}$/.test(asset)) {
+          return sendError(res, 400, 'the asset has to be "native" or a token address', {
+            code: 'asset'
+          })
+        }
+        const conocidos = tokensDeLaRedActiva().slice()
+        if (walletRed.caip2 === 'eip155:9745' && x402.PLASMA_USDT0_SIN_VERIFICAR) {
+          const u = x402.PLASMA_USDT0_SIN_VERIFICAR
+          conocidos.push({ address: u.asset.toLowerCase(), symbol: u.symbol, decimals: u.decimals })
+        }
+        const hallado = conocidos.find((tk) => tk.address.toLowerCase() === asset.toLowerCase())
+        if (!hallado) {
+          return sendError(
+            res,
+            400,
+            'that token is not in this network list: add it in the panel settings first',
+            { code: 'asset_desconocido' }
+          )
+        }
+        decimales = hallado.decimals
+        simbolo = hallado.symbol
+      } else {
+        simbolo =
+          walletRed.caip2 === 'eip155:9745' || walletRed.caip2 === 'eip155:9746' ? 'XPL' : null
+      }
+
+      // El monto llega como TEXTO decimal y se convierte a unidades base con
+      // BigInt. Nunca con `Number`: 0.1 en punto flotante no es 0.1, y a 18
+      // decimales esa diferencia es plata.
+      const montoTexto = String((envio && envio.monto) != null ? envio.monto : '').trim()
+      if (!/^\d+(\.\d+)?$/.test(montoTexto)) {
+        return sendError(res, 400, 'the amount has to be a positive decimal number', {
+          code: 'monto'
+        })
+      }
+      const partes = montoTexto.split('.')
+      const frac = (partes[1] || '').replace(/0+$/, '')
+      if (frac.length > decimales) {
+        return sendError(
+          res,
+          400,
+          `este activo tiene ${decimales} decimales y el monto trae ${frac.length}: ` +
+            'el resto no se puede mandar y no se redondea solo',
+          { code: 'monto_precision' }
+        )
+      }
+      const base =
+        BigInt(partes[0] || '0') * 10n ** BigInt(decimales) +
+        BigInt((partes[1] || '').padEnd(decimales, '0').slice(0, decimales) || '0')
+      if (base <= 0n) {
+        return sendError(res, 400, 'the amount has to be greater than zero', { code: 'monto' })
+      }
+
+      // D30 otra vez: mainnet no se toca sin que alguien lo escriba. Mismo
+      // patron que el selector de red — y acá pesa mas, porque esto no se puede
+      // deshacer reiniciando.
+      if (!soloCotiza && walletRed.mainnet && envio.confirmar !== 'MAINNET') {
+        return sendError(
+          res,
+          400,
+          `estás por mandar ${montoTexto} ${simbolo || 'unidades'} en ${walletRed.nombre}, ` +
+            'which is MAINNET and moves real money: send "confirmar":"MAINNET"',
+          { code: 'confirmar_mainnet' }
+        )
+      }
+
+      try {
+        if (soloCotiza) {
+          const q = await conReloj(
+            walletSender.cotizar({ destino, monto: base, asset }),
+            TIMEOUT_COTIZAR_MS
+          )
+          return sendJson(res, 200, {
+            // El gas se cobra SIEMPRE en el activo nativo, aunque lo que se
+            // mande sea un token. Decirlo evita la lectura de "sale 0.0001 tUSD".
+            fee: q && q.fee != null ? String(q.fee) : null,
+            feeDecimals: 18,
+            feeSymbol:
+              walletRed.caip2 === 'eip155:9745' || walletRed.caip2 === 'eip155:9746' ? 'XPL' : null,
+            monto: montoTexto,
+            simbolo,
+            destino,
+            // El activo vuelve NORMALIZADO para que el envio use el mismo sobre
+            // el que se cotizo: cotizar una cosa y mandar otra es el bug que
+            // esta forma de responder hace imposible.
+            asset,
+            red: walletRed.nombre,
+            mainnet: !!walletRed.mainnet,
+            // Un token que nadie verifico contra la cadena sigue sin verificar
+            // cuando se le manda plata, y ahi el costo del error es real.
+            assetVerificado: asset === 'native'
+          })
+        }
+
+        const r = await conReloj(
+          walletSender.enviar({ destino, monto: base, asset }),
+          TIMEOUT_ENVIAR_MS
+        )
+        const hash = r && r.hash ? String(r.hash) : null
+        console.log(
+          `[wallet] enviado ${montoTexto} ${simbolo || asset} a ${destino} en ` +
+            `${walletRed.nombre}: ${hash || 'sin hash'}`
+        )
+        return sendJson(res, 200, {
+          hash,
+          fee: r && r.fee != null ? String(r.fee) : null,
+          monto: montoTexto,
+          simbolo,
+          destino,
+          red: walletRed.nombre,
+          // `pendiente` y no `confirmada`: lo que devuelve el envio es que la
+          // transaccion se difundio, no que entro en un bloque. Decir
+          // "confirmada" acá seria afirmar algo que este nodo todavia no sabe.
+          estado: 'pendiente',
+          explorer: walletRed.explorer && hash ? walletRed.explorer + '/tx/' + hash : null
+        })
+      } catch (err) {
+        // El reloj vencio. Las dos mitades se contestan distinto porque lo que
+        // se sabe en cada una es distinto — ver la nota de `conReloj`.
+        if (err && err.message === '__timeout__') {
+          if (soloCotiza) {
+            console.error('[wallet] la estimacion de gas no volvio a tiempo')
+            return sendError(
+              res,
+              504,
+              'the chain did not answer the gas estimate in time. Nothing was signed and nothing was sent.',
+              { code: 'timeout_cotizar', type: 'upstream_error' }
+            )
+          }
+          // NO se dice "falló": puede haber salido. Decir que fallo hace que
+          // alguien mande de nuevo y pague dos veces.
+          console.error(
+            '[wallet] el envio no volvio a tiempo: PUEDE haberse difundido. ' +
+              'Restart the node before retrying and check the explorer first.'
+          )
+          return sendError(
+            res,
+            504,
+            'the chain did not answer in time and it is NOT known whether the transaction went out. ' +
+              'Check the address on the explorer BEFORE trying again: if it was ' +
+              'already broadcast, retrying sends it twice.',
+            { code: 'timeout_enviar', type: 'upstream_error' }
+          )
+        }
+        const { motivo, detalle } = motivoDeCadena(err)
+        console.error(`[wallet] no se pudo ${soloCotiza ? 'cotizar' : 'enviar'}: ${detalle}`)
+        // 502 y no 500: el que dijo que no fue la cadena o el RPC, no este nodo.
+        // El motivo va arriba y legible; el volcado completo viaja al lado, no
+        // se pierde — el panel lo deja a un click.
+        return sendError(res, 502, motivo, {
+          code: 'envio_fallido',
+          type: 'upstream_error',
+          detalle
+        })
+      }
+    }
+    // FASE 12 — los movimientos de la wallet de cobro, para el tab History.
+    //
+    // DOS FUENTES, Y EN ESTE ORDEN. La buena es la API del explorer
+    // (`walletRed.explorerApi`, ver la nota de `REDES` en wallet.mjs): devuelve
+    // las transacciones nativas y las transferencias de ERC-20 ya resueltas
+    // —con simbolo, decimales y timestamp—, que es lo que hace falta para
+    // dibujar una fila.
+    //
+    // El respaldo es `eth_getLogs` contra el RPC, que no depende de que haya un
+    // explorer. Ve MENOS y hay que decirlo: solo transferencias de ERC-20 (una
+    // transferencia nativa no emite log), solo de los ultimos bloques —el RPC
+    // de Plasma corta en 10.000 y lo dice con un error propio—, y sin simbolo
+    // salvo que el token este guardado. Sirve para "algo se movio", no para
+    // "esto es todo lo que paso".
+    //
+    // Si las DOS fallan, `ok:false` con el motivo. Una lista vacia diria "no
+    // hubo movimientos", que es una afirmacion sobre la cadena que nadie hizo.
+    if (req.method === 'GET' && pathname === '/v1/wallet/history') {
+      const motivoHist = rechazoPorKey(req)
+      if (motivoHist) return sendError(res, 401, motivoHist)
+
+      const address = economicPropio ? economicPropio.walletAddress : null
+      if (!address || !walletRed) {
+        return sendJson(res, 200, {
+          ok: true,
+          configurada: false,
+          address,
+          explorer: null,
+          items: [],
+          fuente: null,
+          error: null
+        })
+      }
+
+      const explorer = walletRed.explorer || null
+      // `caip2` viaja para que el panel sepa el simbolo del activo nativo sin
+      // tener que cruzar esta respuesta con la de balances.
+      const base = {
+        ok: true,
+        configurada: true,
+        address,
+        explorer,
+        caip2: walletRed.caip2 || null,
+        error: null
+      }
+      const fallos = []
+
+      // --- Fuente 1: la API del explorer ---
+      const api = walletRed.explorerApi ? String(walletRed.explorerApi).replace(/\/+$/, '') : null
+      if (api) {
+        try {
+          const raiz = api + '/address/' + address
+          // Las dos listas se piden juntas: son rutas distintas de la misma API
+          // y esperarlas en serie duplica la latencia del tab.
+          const [nativas, tokens] = await Promise.all([
+            httpGetJson(raiz + '/transactions?limit=25').catch((e) => ({ __err: e })),
+            httpGetJson(raiz + '/erc20-transfers?limit=25').catch((e) => ({ __err: e }))
+          ])
+          // Si fallaron las DOS es que la API no esta: se cae al respaldo. Si
+          // fallo una sola, lo que trajo la otra vale.
+          if (nativas && nativas.__err && tokens && tokens.__err) throw nativas.__err
+
+          const items = []
+          for (const tx of (nativas && nativas.items) || []) {
+            items.push({
+              tipo: 'native',
+              hash: tx.id || tx.txHash || null,
+              from: tx.from || null,
+              to: tx.to || null,
+              valor: tx.value == null ? null : String(tx.value),
+              decimals: 18,
+              symbol: null,
+              timestamp: tx.timestamp || null,
+              // `status` es booleano. Se traduce a las palabras que el panel
+              // dibuja y no se inventa una cuarta.
+              estado: tx.status === false ? 'fallida' : 'confirmada'
+            })
+          }
+          for (const tr of (tokens && tokens.items) || []) {
+            items.push({
+              tipo: 'erc20',
+              hash: tr.txHash || null,
+              from: tr.from || null,
+              to: tr.to || null,
+              valor: tr.amount == null ? null : String(tr.amount),
+              // Los decimales los dice el explorer, que los leyo del contrato.
+              // Sin ellos NO se formatea: el panel muestra unidades crudas.
+              decimals: tr.tokenDecimals == null ? null : Number(tr.tokenDecimals),
+              // OJO: el simbolo lo elige quien desplego el token, y en estas
+              // cadenas hay airdrops basura con nombres que son publicidad. Es
+              // texto de un tercero y el panel lo escapa como todo lo demas.
+              symbol: tr.tokenSymbol || null,
+              contrato: tr.tokenAddress || null,
+              timestamp: tr.timestamp || null,
+              estado: 'confirmada'
+            })
+          }
+
+          items.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
+          return sendJson(res, 200, {
+            ...base,
+            items: items.slice(0, 25),
+            fuente: 'explorer'
+          })
+        } catch (err) {
+          fallos.push('the explorer API did not answer: ' + ((err && err.message) || err))
+        }
+      } else {
+        fallos.push('esta red no tiene API de explorer configurada')
+      }
+
+      // --- Fuente 2: eth_getLogs ---
+      try {
+        const ultimo = await rpcCall(walletRed.rpc, 'eth_blockNumber', [])
+        const alto = Number(BigInt(ultimo))
+        // 10.000 bloques es el tope que declara el RPC de Plasma ("eth_getLogs
+        // is limited to a 10,000 range"), medido contra la red. Se pide uno
+        // menos para que el rango inclusivo entre justo: pasarse devuelve un
+        // error y deja al panel sin NADA en vez de con poco.
+        const bajo = Math.max(0, alto - 9999)
+        const rango = { fromBlock: '0x' + bajo.toString(16), toBlock: '0x' + alto.toString(16) }
+        const [salidas, entradas] = await Promise.all([
+          rpcCall(walletRed.rpc, 'eth_getLogs', [
+            { ...rango, topics: [TOPIC_TRANSFER, comoTopic(address)] }
+          ]),
+          rpcCall(walletRed.rpc, 'eth_getLogs', [
+            { ...rango, topics: [TOPIC_TRANSFER, null, comoTopic(address)] }
+          ])
+        ])
+
+        // Los tokens guardados dan simbolo y decimales a los logs que los
+        // tengan; para el resto se dice `null` y el panel muestra la address.
+        const conocidos = {}
+        for (const g of tokensDeLaRedActiva()) conocidos[g.address.toLowerCase()] = g
+
+        const items = []
+        for (const log of [].concat(salidas || [], entradas || [])) {
+          const contrato = String(log.address || '').toLowerCase()
+          const meta = conocidos[contrato] || null
+          items.push({
+            tipo: 'erc20',
+            hash: log.transactionHash || null,
+            from: log.topics && log.topics[1] ? '0x' + log.topics[1].slice(-40) : null,
+            to: log.topics && log.topics[2] ? '0x' + log.topics[2].slice(-40) : null,
+            valor: log.data == null ? null : String(log.data),
+            // Sin el token guardado no se sabe cuantos decimales tiene, y ahi el
+            // monto NO se puede formatear: `null` hace que el panel muestre las
+            // unidades crudas en vez de dividir por un numero inventado.
+            decimals: meta ? meta.decimals : null,
+            symbol: meta ? meta.symbol : null,
+            contrato,
+            timestamp: null,
+            bloque: log.blockNumber || null,
+            estado: 'confirmada'
+          })
+        }
+        items.sort((a, b) => aBigIntSeguro(b.bloque) - aBigIntSeguro(a.bloque))
+
+        return sendJson(res, 200, {
+          ...base,
+          items: items.slice(0, 25),
+          fuente: 'logs',
+          // El panel lo dibuja: lo que se ve por acá es un subconjunto, y esa
+          // diferencia no puede quedar entre el nodo y el que mira la pantalla.
+          parcial:
+            'read from the RPC, not the explorer: only token transfers from the ' +
+            'last 10,000 blocks, with no native-asset movements',
+          error: fallos.join(' · ') || null
+        })
+      } catch (err) {
+        fallos.push('el RPC tampoco: ' + ((err && err.message) || err))
+      }
+
+      // Las dos fallaron. Lista vacia con `ok:false` y el motivo: nadie afirma
+      // que no hubo movimientos.
+      return sendJson(res, 200, {
+        ...base,
+        ok: false,
+        items: [],
+        fuente: null,
+        error: 'no se pudo leer el historial — ' + fallos.join(' · ')
+      })
+    }
+    // FASE 12 — administrar los tokens que el panel vigila, desde Settings.
+    //
+    // POST agrega, DELETE quita, y las dos operan sobre la red ACTIVA: la
+    // address viaja sola porque la red la decide el nodo, no el navegador. Si
+    // el cliente pudiera elegir el CAIP-2, un panel abierto de antes podria
+    // escribir tokens en una red que ya no es la que esta corriendo.
+    if (pathname === '/v1/wallet/tokens' && (req.method === 'POST' || req.method === 'DELETE')) {
+      const motivoTok = rechazoPorKey(req)
+      if (motivoTok) return sendError(res, 401, motivoTok)
+
+      if (!walletTokensStore) {
+        return sendError(
+          res,
+          503,
+          'the node is not ready to save tokens yet, try again in a few seconds',
+          { code: 'no_listo', type: 'service_unavailable' }
+        )
+      }
+      if (!walletRed || !walletRed.caip2) {
+        return sendError(res, 409, 'this node has no payout network resolved yet', {
+          code: 'sin_red'
+        })
+      }
+
+      let cuerpoTok
+      try {
+        cuerpoTok = await readJsonBody(req)
+      } catch {
+        return sendError(res, 400, 'invalid body, JSON expected')
+      }
+
+      try {
+        if (req.method === 'DELETE') {
+          const address = String((cuerpoTok && cuerpoTok.address) || '').trim()
+          if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+            return sendError(res, 400, 'missing "address" (0x + 40 hex)', { code: 'forma' })
+          }
+          const lista = walletTokensStore.quitar(walletRed.caip2, address)
+          return sendJson(res, 200, { red: walletRed.caip2, tokens: lista || [] })
+        }
+
+        const lista = walletTokensStore.agregar(walletRed.caip2, {
+          address: cuerpoTok && cuerpoTok.address,
+          symbol: cuerpoTok && cuerpoTok.symbol,
+          decimals: cuerpoTok && cuerpoTok.decimals
+        })
+        // Se dice en el log: el operador acaba de declarar un contrato que nadie
+        // verifico, y eso es una decision suya que conviene que quede escrita.
+        console.log(
+          `[wallet] token agregado a ${walletRed.caip2}: ` +
+            `${cuerpoTok && cuerpoTok.symbol} ${cuerpoTok && cuerpoTok.address} — SIN VERIFICAR`
+        )
+        return sendJson(res, 200, { red: walletRed.caip2, tokens: lista || [] })
+      } catch (err) {
+        const msg = (err && err.message) || String(err)
+        // La validacion de forma vive en wallet.mjs y tira con el motivo
+        // adentro: se pasa tal cual, para que la persona sepa CUAL campo fallo.
+        if (/token invalido|no es un CAIP-2|array/.test(msg)) {
+          return sendError(res, 400, msg, { code: 'forma' })
+        }
+        console.error(`[wallet] no se pudo guardar el token: ${msg}`)
+        return sendError(res, 500, 'could not save the token: ' + msg)
+      }
+    }
+    // FASE 9 / D12 — recuperar el recibo de un request que se pago.
     //
     // Exists because with streaming the receipt travels as a final SSE
     // event, and a client that cut the connection before the last event
@@ -2708,7 +3739,7 @@ async function onRequest(req, res) {
       const id = decodeURIComponent(pathname.slice('/v1/receipts/'.length))
       const guardado = recibos.get(id)
       if (!guardado) {
-        return sendError(res, 404, 'no receipt for that id', { code: 'receipt_not_found' })
+        return sendError(res, 404, 'there is no receipt for that id', { code: 'receipt_not_found' })
       }
       // The settlement receipt is still returned FLATTENED at the root: it's
       // the shape clients and the test already read, and nesting it now
@@ -2908,11 +3939,11 @@ async function onRequest(req, res) {
         try {
           body = await readJsonBody(req)
         } catch {
-          return sendError(res, 400, 'invalid body, expected JSON')
+          return sendError(res, 400, 'invalid body, JSON expected')
         }
 
         const current = currentModelEntry()
-        if (!current) return sendError(res, 500, 'this node has no model announced')
+        if (!current) return sendError(res, 500, 'this node announces no model at all')
 
         // A model change is the only thing that triggers a heavy load -- it
         // responds right away with "loading" and the panel polls the GET
@@ -3029,14 +4060,9 @@ async function onRequest(req, res) {
     // -----------------------------------------------------------------------
     if (pathname === '/v1/files' || pathname.startsWith('/v1/files/')) {
       if (!filesApi) {
-        return sendError(
-          res,
-          503,
-          'files require "serve --swarm" (the Corestore is needed)',
-          {
-            type: 'service_unavailable'
-          }
-        )
+        return sendError(res, 503, 'files require "serve --swarm" (the Corestore is needed)', {
+          type: 'service_unavailable'
+        })
       }
     }
 
@@ -3056,7 +4082,7 @@ async function onRequest(req, res) {
           // its own via files:announce (swarm.mjs) and only the swarm
           // knows how to tie it to the peer.
           if (!swarmRef) {
-            return sendError(res, 503, 'a peer\'s files require "serve --swarm"', {
+            return sendError(res, 503, 'a peer files require "serve --swarm"', {
               type: 'service_unavailable'
             })
           }
@@ -3065,7 +4091,7 @@ async function onRequest(req, res) {
             return sendError(
               res,
               404,
-              'that peer has not announced any files (has not connected yet, or published nothing)'
+              'that peer announced no files (it has not connected yet, or it publishes nothing)'
             )
           }
           const files = await filesApi.listRemote(par.driveKey, '/', { timeoutMs: 20000 })
@@ -3075,7 +4101,7 @@ async function onRequest(req, res) {
           const { parseLink } = await import('./files.mjs')
           const keyHex = key || parseLink(link).keyHex
           if (!/^[0-9a-f]{64}$/.test(keyHex)) {
-            return sendError(res, 400, 'the drive key has to be 32-byte hex')
+            return sendError(res, 400, 'the drive key has to be 32 bytes of hex')
           }
           const files = await filesApi.listRemote(keyHex, '/', { timeoutMs: 20000 })
           return sendJson(res, 200, { keyHex, remote: true, files })
@@ -3129,7 +4155,7 @@ async function onRequest(req, res) {
       try {
         body = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'invalid body, expected JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
       if (typeof body.link !== 'string') return sendError(res, 400, 'missing "link"')
 
@@ -3137,7 +4163,7 @@ async function onRequest(req, res) {
         const { parseLink } = await import('./files.mjs')
         const { keyHex, path: ruta } = parseLink(body.link)
         if (ruta === '/')
-          return sendError(res, 400, 'the link points at the whole drive, not a file')
+          return sendError(res, 400, 'the link points at the whole drive, not at a file')
 
         const fs = await import('bare-fs')
         const path = await import('bare-path')
@@ -3147,7 +4173,11 @@ async function onRequest(req, res) {
         const r = await filesApi.pull(keyHex, ruta, destino, { timeoutMs: 60000 })
         return sendJson(res, 200, { destino, bytes: r && r.bytes ? r.bytes : null })
       } catch (err) {
-        return sendError(res, 502, 'could not download: ' + (err && err.message ? err.message : err))
+        return sendError(
+          res,
+          502,
+          'could not download: ' + (err && err.message ? err.message : err)
+        )
       }
     }
 
@@ -3181,7 +4211,7 @@ async function onRequest(req, res) {
       try {
         patch = await readJsonBody(req)
       } catch {
-        return sendError(res, 400, 'invalid body, expected JSON')
+        return sendError(res, 400, 'invalid body, JSON expected')
       }
 
       // `updated` used to get overwritten with the result of each set: an

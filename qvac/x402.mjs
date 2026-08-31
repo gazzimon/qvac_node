@@ -28,11 +28,10 @@
 // later — it lives here, with the why right next to it, watched over by two
 // things:
 //
-//   - step 5 of `scripts/spike-d11-wdk-bare.mjs`, which measures whether
-//     `@x402/evm` imports IN ISOLATION by spawning a clean bare process
-//     (fails today, and it's fine that it does: the spike fails, not the
-//     phase);
-//   - a test in the suite that loads THIS module in a clean process.
+//   - el paso 5 de `scripts/spikes/spike-d11-wdk-bare.mjs`, que mide si `@x402/evm`
+//     importa AISLADO lanzando un proceso bare limpio (hoy falla, y está bien
+//     que falle: falla el spike, no la fase);
+//   - un test de la suite que carga ESTE módulo en un proceso limpio.
 //
 // The day `@noble/hashes` or Bare change, one of the two breaks and says
 // exactly what broke.
@@ -79,13 +78,18 @@ export const CAIP2 = {
 // would create a second source of truth for a value that, if it drifts,
 // sends money somewhere else.
 //
-// Plasma's does have to be declared, because x402 doesn't have it. And here's
-// the honest limit: the address below is the one the D11 spike used
-// (`scripts/spike-d11-wdk-bare.mjs`, the signature's EIP-712 domain), and
-// **it is not verified against the chain**. That's why `activoDe()` doesn't
-// just hand it out: it requires the operator to confirm, because the failure
-// mode is sending USD₮ to the wrong contract, and that has no undo.
-const PLASMA_USDT0_SIN_VERIFICAR = {
+// El de Plasma sí hay que declararlo, porque x402 no lo tiene. Y acá está el
+// límite honesto: la dirección de abajo es la que usó el spike de D11
+// (`scripts/spikes/spike-d11-wdk-bare.mjs`, dominio EIP-712 de la firma), y **no está
+// verificada contra la cadena**. Por eso `activoDe()` no la devuelve sin más:
+// exige que el operador confirme, porque el modo de falla es mandar USD₮ a un
+// contrato equivocado y eso no tiene vuelta atrás.
+//
+// Se EXPORTA para que el panel /wallet (`qvac/panel-wallet.mjs`) lea el balance
+// de USD₮0 sin declarar una segunda copia de la dirección: una sola fuente de
+// verdad, la misma que firma el cobro. Leer un balance con una dirección sin
+// verificar es inocuo —no se manda nada— y la fila lo marca "sin verificar".
+export const PLASMA_USDT0_SIN_VERIFICAR = {
   asset: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
   name: 'USDT0',
   version: '1',

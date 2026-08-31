@@ -1,0 +1,1402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyrusLLM</title>
+<meta name="description" content="The Airbnb of AI compute — a P2P marketplace where any capable machine sells inference, with no central datacenter and no operator you have to take on faith.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f3f4f7;
+    --surface: #ffffff;
+    --surface-2: #eceef3;
+    --line: #d7dbe3;
+    --ink: #12151c;
+    --mute: #5b6172;
+    --network: #2f6fd6;
+    --signal: #a6650a;
+    --signal-ink: #ffffff;
+    /* Sequential ramp for the payback heatmap: one hue, light -> dark, darker =
+       pays back sooner. Never a rainbow, and every cell prints its number too,
+       so color is never the only channel. `-i` is the ink that clears contrast
+       on top of each step. */
+    --s1: #cde2fb; --s1i: #12151c;
+    --s2: #9ec5f4; --s2i: #12151c;
+    --s3: #5598e7; --s3i: #12151c;
+    --s4: #256abf; --s4i: #ffffff;
+    --s5: #104281; --s5i: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b0d12;
+      --surface: #12151c;
+      --surface-2: #171b24;
+      --line: #262b38;
+      --ink: #e8eaf0;
+      --mute: #8891a6;
+      --network: #5fa8ff;
+      --signal: #ffb545;
+      --signal-ink: #16110a;
+      /* Dark mode is stepped from the same hue, not flipped: on a dark surface
+         "more" reads as brighter, so the ramp runs dim -> bright. */
+      --s1: #17293f; --s1i: #b9d4f2;
+      --s2: #1d4372; --s2i: #d7e7fb;
+      --s3: #2a6fbd; --s3i: #ffffff;
+      --s4: #4a95e0; --s4i: #0b0d12;
+      --s5: #8dc2f7; --s5i: #0b0d12;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b0d12;
+    --surface: #12151c;
+    --surface-2: #171b24;
+    --line: #262b38;
+    --ink: #e8eaf0;
+    --mute: #8891a6;
+    --network: #5fa8ff;
+    --signal: #ffb545;
+    --signal-ink: #16110a;
+    --s1: #17293f; --s1i: #b9d4f2;
+    --s2: #1d4372; --s2i: #d7e7fb;
+    --s3: #2a6fbd; --s3i: #ffffff;
+    --s4: #4a95e0; --s4i: #0b0d12;
+    --s5: #8dc2f7; --s5i: #0b0d12;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", monospace; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem;
+    font-weight: 500;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--network);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .eyebrow::before {
+    content: "";
+    width: .4rem; height: .4rem; border-radius: 50%;
+    background: var(--network);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--network) 20%, transparent);
+    flex: none;
+  }
+
+  h1, h2, h3 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 600;
+    line-height: 1.12;
+    margin: 0;
+    text-wrap: balance;
+    letter-spacing: -.01em;
+  }
+
+  section {
+    padding: clamp(3.5rem, 9vw, 7.5rem) clamp(1.5rem, 5vw, 4rem);
+    border-top: 1px solid var(--line);
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  .narrow { max-width: 640px; }
+
+  p { color: var(--mute); margin: 0; }
+  a { color: inherit; }
+
+  /* ---------------------------------------------------------------- hero */
+  .hero {
+    position: relative;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-top: 6rem;
+    border-top: none;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .hero canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    z-index: -1;
+    opacity: .85;
+  }
+  .hero::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 70% 55% at 30% 30%, transparent, var(--bg) 78%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  nav.top {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.5rem clamp(1.5rem, 5vw, 4rem);
+    z-index: 2;
+  }
+  nav.top .word { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: .95rem; }
+  nav.top a.repo {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem; color: var(--mute);
+    text-decoration: none; border: 1px solid var(--line); border-radius: 3px;
+    padding: .35rem .7rem;
+  }
+  nav.top a.repo:hover { color: var(--ink); border-color: var(--network); }
+
+  .hero h1 {
+    font-size: clamp(2.3rem, 6.2vw, 4.4rem);
+    max-width: 15ch;
+  }
+  .hero .lede {
+    margin-top: 1.5rem;
+    font-size: clamp(1.02rem, 1.6vw, 1.2rem);
+    max-width: 46ch;
+    color: var(--mute);
+  }
+  .cta-row { display: flex; flex-wrap: wrap; gap: .85rem; margin-top: 2.25rem; }
+  .btn {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .85rem; font-weight: 500;
+    padding: .8rem 1.35rem;
+    border-radius: 3px;
+    text-decoration: none;
+    display: inline-flex; align-items: center; gap: .5rem;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn.primary { background: var(--signal); color: var(--signal-ink); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { border-color: var(--line); color: var(--ink); }
+  .btn.ghost:hover { border-color: var(--network); }
+
+  .hero .stats {
+    display: flex; gap: clamp(1.5rem, 4vw, 3rem); flex-wrap: wrap;
+    margin-top: clamp(2.75rem, 7vw, 4.5rem);
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--line);
+  }
+  .stat b {
+    display: block; font-family: "IBM Plex Mono", monospace;
+    font-size: 1.5rem; color: var(--ink); font-weight: 600;
+  }
+  .stat span { font-size: .78rem; color: var(--mute); }
+
+  /* -------------------------------------------------------------- reveal */
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+  /* ------------------------------------------------------------- problem */
+  .problem h2 { font-size: clamp(1.6rem, 3.4vw, 2.3rem); max-width: 20ch; }
+  .problem .lines { margin-top: 2rem; display: grid; gap: 1.1rem; max-width: 640px; }
+  .problem .lines p { color: var(--ink); font-size: 1.05rem; }
+  .problem .lines p b { color: var(--signal); font-weight: 600; }
+
+  /* ------------------------------------------------------------ solution */
+  .solution { background: var(--surface); }
+  .solution .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: clamp(2rem, 5vw, 4rem);
+    align-items: start;
+  }
+  @media (max-width: 760px) { .solution .grid { grid-template-columns: 1fr; } }
+  .solution h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); }
+  .solution .lede { margin-top: 1.25rem; color: var(--mute); }
+  .flow {
+    font-family: "IBM Plex Mono", monospace; font-size: .82rem;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px;
+    padding: 1.25rem 1.4rem; color: var(--ink);
+    display: grid; gap: .55rem;
+  }
+  .flow .row { display: flex; gap: .75rem; align-items: baseline; }
+  .flow .row .k { color: var(--network); flex: none; width: 9ch; white-space: nowrap; }
+  .flow .row .v { color: var(--mute); }
+
+  /* ---------------------------------------------------------------- roles */
+  .roles .head { max-width: 640px; }
+  .roles h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); }
+  .roles .cards {
+    margin-top: clamp(2.25rem, 5vw, 3.25rem);
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+    background: var(--line); border: 1px solid var(--line);
+  }
+  @media (max-width: 760px) { .roles .cards { grid-template-columns: 1fr; } }
+  .role {
+    background: var(--surface); padding: 1.9rem 1.7rem;
+    display: flex; flex-direction: column; gap: .9rem;
+  }
+  .role .path { color: var(--network); font-size: .82rem; }
+  .role h3 { font-size: 1.15rem; }
+  .role p { font-size: .92rem; }
+
+  /* ---------------------------------------------------------------- proof */
+  .proof { background: var(--surface); }
+  .proof .grid {
+    display: grid; grid-template-columns: 1.1fr 1fr; gap: clamp(2rem, 5vw, 4rem);
+    align-items: start;
+  }
+  @media (max-width: 760px) { .proof .grid { grid-template-columns: 1fr; } }
+  .proof h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); max-width: 18ch; }
+  .proof p.lede { margin-top: 1.1rem; }
+  .endpoints {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem;
+    display: grid; gap: 0;
+    border: 1px solid var(--line); border-radius: 4px; overflow: hidden;
+  }
+  .endpoints .ep {
+    display: flex; gap: .9rem; padding: .7rem .95rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+  .endpoints .ep:last-child { border-bottom: none; }
+  .endpoints .ep .m { color: var(--signal); flex: none; width: 4.2ch; }
+  .endpoints .ep .p { color: var(--ink); }
+  .facts { margin-top: 1.75rem; display: grid; gap: 1.1rem; }
+  .fact { display: flex; gap: .9rem; align-items: baseline; }
+  .fact .n { font-family: "IBM Plex Mono", monospace; color: var(--network); font-size: .82rem; flex: none; width: 2ch; }
+  .fact p { color: var(--ink); font-size: .95rem; }
+  .fact p span { color: var(--mute); }
+
+  /* -------------------------------------------------------------- install */
+  .install { text-align: left; }
+  /* minmax(0, ...): el comando de instalacion es una linea larga sin espacios
+     y su min-content aplastaba la columna del titulo a 298px. Con esto el
+     <pre> scrollea adentro de su propia caja, que es lo que ya sabe hacer. */
+  .install .grid {
+    display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 4rem); align-items: center;
+  }
+  @media (max-width: 760px) { .install .grid { grid-template-columns: 1fr; } }
+  .install h2 { font-size: clamp(1.8rem, 4vw, 2.6rem); max-width: 19ch; }
+  .install .lede { margin-top: 1.1rem; max-width: 40ch; }
+  .term {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;
+    overflow: hidden;
+  }
+  .term .bar {
+    display: flex; align-items: center; gap: .45rem;
+    padding: .65rem .9rem; border-bottom: 1px solid var(--line);
+  }
+  .term .bar i { width: .55rem; height: .55rem; border-radius: 50%; background: var(--line); display: block; }
+  .term pre {
+    margin: 0; padding: 1.15rem 1.25rem 1.3rem;
+    font-family: "IBM Plex Mono", monospace; font-size: .82rem; line-height: 1.9;
+    color: var(--ink); overflow-x: auto;
+  }
+  /* El comando entra entero: una barra de scroll horizontal justo donde le
+     pedis a alguien que copie algo esconde la mitad de lo que tiene que copiar. */
+  #cmd { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
+  .term .c1 { color: var(--mute); }
+  .term .c2 { color: var(--network); }
+  .term .copy {
+    margin: 0 1.25rem 1.1rem; font-family: "IBM Plex Mono", monospace; font-size: .76rem;
+    background: none; border: 1px solid var(--line); color: var(--mute);
+    padding: .4rem .8rem; border-radius: 3px; cursor: pointer;
+  }
+  .term .copy:hover { color: var(--ink); border-color: var(--network); }
+
+  /* ----------------------------------------------------------- calculator */
+  .calc { background: var(--surface); }
+  .calc h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); max-width: 21ch; }
+  .calc .lede { margin-top: 1.1rem; max-width: 54ch; }
+  .calc .cols {
+    margin-top: clamp(2.25rem, 5vw, 3.25rem);
+    display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+    gap: clamp(1.5rem, 4vw, 2.75rem); align-items: start;
+  }
+  @media (max-width: 900px) { .calc .cols { grid-template-columns: 1fr; } }
+  /* Grid children default to min-width:auto, so the 460px-wide heatmap would
+     stretch its own column and scroll the whole page sideways on a phone. Its
+     own .scroll wrapper is what is supposed to scroll, not the body. */
+  .calc .cols > * { min-width: 0; }
+
+  .panel {
+    border: 1px solid var(--line); border-radius: 4px; background: var(--bg);
+    padding: 1.3rem 1.35rem 1.4rem;
+  }
+  .panel + .panel { margin-top: 1rem; }
+  .panel > .ph {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--network);
+    margin-bottom: 1.05rem;
+  }
+  .ctrl { display: grid; gap: .4rem; margin-bottom: 1.05rem; }
+  .ctrl:last-child { margin-bottom: 0; }
+  .ctrl > label {
+    font-family: "IBM Plex Mono", monospace; font-size: .73rem;
+    letter-spacing: .03em; text-transform: uppercase; color: var(--mute);
+    display: flex; justify-content: space-between; gap: .75rem; align-items: baseline;
+  }
+  .ctrl > label .rd { color: var(--ink); text-transform: none; letter-spacing: 0; }
+  .calc select, .calc input[type="number"] {
+    font-family: "IBM Plex Mono", monospace; font-size: .82rem;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: .5rem .55rem; width: 100%;
+  }
+  .calc input[type="range"] { width: 100%; accent-color: var(--network); }
+  .calc select:focus-visible,
+  .calc input:focus-visible,
+  .calc button:focus-visible { outline: 2px solid var(--network); outline-offset: 2px; }
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  /* The unit rides inside the field. Four bare number boxes in a 2x2 grid are
+     unreadable without it -- you cannot tell price from bandwidth. */
+  .mini { position: relative; display: block; }
+  .mini i {
+    position: absolute; right: .5rem; top: 50%; transform: translateY(-50%);
+    font-family: "IBM Plex Mono", monospace; font-size: .68rem; font-style: normal;
+    color: var(--mute); pointer-events: none;
+  }
+  .mini input[type="number"] { padding-right: 3.1rem; }
+  .fine { font-size: .75rem; color: var(--mute); line-height: 1.55; }
+  .fine + .fine { margin-top: .5rem; }
+
+  /* ---- results: one hero (the comparison), then a column per machine ---- */
+  .verdict {
+    border: 1px solid var(--line); border-radius: 4px;
+    background: var(--bg); padding: 1.4rem 1.5rem;
+  }
+  .verdict .k {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--mute);
+  }
+  /* The one hero figure of the view. Proportional figures on purpose: tabular
+     digits look loose at display size. */
+  .verdict .v {
+    font-size: clamp(2.4rem, 5.6vw, 3.2rem); font-weight: 600;
+    line-height: 1.08; margin-top: .45rem; color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    text-wrap: balance;
+  }
+  .verdict .why { margin-top: .85rem; font-size: .95rem; color: var(--ink); max-width: 58ch; }
+  .verdict .why b { color: var(--signal); font-weight: 600; }
+
+  .machines {
+    margin-top: 1rem;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    background: var(--line); border: 1px solid var(--line); border-radius: 4px;
+    overflow: hidden;
+  }
+  @media (max-width: 620px) { .machines { grid-template-columns: 1fr; } }
+  .machine { background: var(--bg); padding: 1.2rem 1.3rem 1.35rem; }
+  .machine .top { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+  .machine .slot {
+    font-family: "IBM Plex Mono", monospace; font-size: .7rem; font-weight: 600;
+    color: var(--signal-ink); background: var(--signal);
+    border-radius: 2px; padding: .05rem .38rem;
+  }
+  .machine h3 { font-size: 1rem; }
+  .machine .spec {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    color: var(--mute); margin-top: .3rem;
+  }
+  .machine .pb {
+    margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line);
+    font-size: 1.9rem; font-weight: 600; line-height: 1.1;
+  }
+  .machine .pb small { display: block; font-size: .4em; font-weight: 500; color: var(--mute); margin-top: .15rem; }
+  .machine .pb.dead { color: var(--mute); }
+  .machine dl { margin: .95rem 0 0; display: grid; gap: .4rem; }
+  .machine dl div { display: flex; justify-content: space-between; gap: .75rem; align-items: baseline; }
+  .machine dt { font-size: .78rem; color: var(--mute); }
+  .machine dd {
+    margin: 0; font-family: "IBM Plex Mono", monospace; font-size: .8rem;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  .machine .flag { margin-top: .85rem; font-size: .78rem; color: var(--signal); line-height: 1.5; }
+
+  /* ---- sensitivity heatmap ---- */
+  .sens { margin-top: 1.75rem; }
+  .sens .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+  .sens h3 { font-size: .98rem; }
+  .sens .toggle { display: flex; gap: .3rem; }
+  .sens .toggle button {
+    font-family: "IBM Plex Mono", monospace; font-size: .74rem;
+    background: none; border: 1px solid var(--line); color: var(--mute);
+    padding: .3rem .7rem; border-radius: 3px; cursor: pointer;
+  }
+  .sens .toggle button[aria-pressed="true"] { border-color: var(--network); color: var(--ink); }
+  .sens .scroll { overflow-x: auto; margin-top: .85rem; }
+  .sens table {
+    width: 100%; min-width: 460px;
+    border-collapse: separate; border-spacing: 2px;
+    font-family: "IBM Plex Mono", monospace; font-size: .75rem;
+  }
+  .sens caption { caption-side: bottom; margin-top: .7rem; font-size: .75rem; color: var(--mute); text-align: left; line-height: 1.55; }
+  .sens th {
+    font-weight: 500; color: var(--mute); padding: .35rem .5rem; white-space: nowrap;
+  }
+  .sens thead th { text-align: center; }
+  .sens tbody th { text-align: right; }
+  .sens td {
+    text-align: center; padding: .55rem .35rem; border-radius: 2px;
+    font-variant-numeric: tabular-nums; cursor: default;
+  }
+  .sens td.dead { background: var(--surface-2); color: var(--mute); }
+  .sens td.now { box-shadow: inset 0 0 0 2px var(--signal); font-weight: 600; }
+  .ramp {
+    display: flex; align-items: center; gap: .35rem; margin-top: .8rem;
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem; color: var(--mute);
+  }
+  .ramp i { width: 1.6rem; height: .55rem; border-radius: 1px; display: block; }
+
+  .tip {
+    position: fixed; z-index: 30; pointer-events: none; opacity: 0;
+    transition: opacity .12s ease;
+    background: var(--ink); color: var(--bg);
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem; line-height: 1.45;
+    padding: .45rem .6rem; border-radius: 3px; max-width: 26ch;
+  }
+  .tip.on { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+
+  .os-tabs { display: flex; gap: .35rem; margin-bottom: .9rem; flex-wrap: wrap; }
+  .os-tabs button {
+    font-family: "IBM Plex Mono", monospace; font-size: .78rem;
+    background: none; border: 1px solid var(--line); color: var(--mute);
+    padding: .35rem .8rem; border-radius: 3px; cursor: pointer;
+  }
+  .os-tabs button[aria-selected="true"] { border-color: var(--network); color: var(--ink); }
+  .install .alt {
+    margin-top: 1.6rem; padding-top: 1.4rem; border-top: 1px solid var(--line);
+    font-size: .85rem;
+  }
+  .install .alt code {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem;
+    color: var(--ink); overflow-wrap: anywhere;
+  }
+
+  /* ------------------------------------------------------- direct downloads */
+  /* El one-liner sigue siendo el camino principal. Esto es para quien no
+     ejecuta un script bajado de internet sin haber visto antes el archivo: el
+     mismo binario, su tamano y su checksum, a un click. */
+  .dl {
+    margin-top: clamp(2.5rem, 5vw, 3.5rem);
+    padding-top: clamp(1.75rem, 4vw, 2.4rem);
+    border-top: 1px solid var(--line);
+  }
+  .dl h3 { font-size: 1.05rem; font-weight: 600; }
+  .dl .lede { margin-top: .7rem; max-width: 60ch; font-size: .9rem; }
+  .dl ul {
+    list-style: none; margin: 1.4rem 0 1.2rem; padding: 0;
+    border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  }
+  .dl li {
+    display: grid; grid-template-columns: minmax(0, 1fr) 6rem 8.5rem 4.5rem;
+    align-items: center; gap: 1rem;
+    padding: .8rem 1.1rem; background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+  .dl li:first-child { border-top: none; }
+  /* La fila que corresponde al sistema del visitante, marcada igual que la
+     pestana de arriba: la eleccion ya esta hecha, y la lista lo dice. */
+  .dl li.mine { background: var(--surface-2); }
+  .dl .p { font-size: .92rem; color: var(--ink); }
+  .dl .p i { font-style: normal; color: var(--mute); font-size: .82rem; }
+  .dl .tag {
+    font-family: "IBM Plex Mono", monospace; font-size: .66rem; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--network); border: 1px solid var(--network);
+    border-radius: 999px; padding: .1rem .45rem; margin-left: .45rem; display: none;
+  }
+  .dl li.mine .tag { display: inline-block; }
+  .dl .s { font-family: "IBM Plex Mono", monospace; font-size: .78rem; color: var(--mute); }
+  .dl a.get {
+    font-family: "IBM Plex Mono", monospace; font-size: .78rem; text-decoration: none;
+    color: var(--mute); border: 1px solid var(--line); border-radius: 3px;
+    padding: .38rem .8rem; text-align: center;
+  }
+  .dl a.get:hover { color: var(--ink); border-color: var(--network); }
+  .dl li.mine a.get { color: var(--ink); border-color: var(--network); }
+  .dl a.sum {
+    font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--mute);
+    text-decoration: none; border-bottom: 1px dotted var(--line);
+    /* Sin esto el subrayado se estira con la celda de la grilla y queda una
+       linea punteada suelta a la derecha del texto. */
+    justify-self: start;
+  }
+  .dl a.sum:hover { color: var(--ink); border-bottom-color: var(--network); }
+  /* Abajo de 640px las cuatro columnas quedarian de 3ch: la fila se parte en
+     dos lineas antes de llegar a eso. */
+  @media (max-width: 640px) {
+    .dl li { grid-template-columns: minmax(0, 1fr) auto; row-gap: .55rem; }
+    .dl .p { grid-column: 1 / -1; }
+    /* Tamano y checksum comparten la segunda linea -- en filas separadas, el
+       sha256 quedaba solo en una tercera linea vacia. */
+    .dl .s { grid-column: 1; grid-row: 2; }
+    .dl a.sum { grid-column: 1; grid-row: 2; justify-self: end; }
+    .dl a.get { grid-column: 2; grid-row: 2; }
+  }
+
+  footer {
+    padding: 2.25rem clamp(1.5rem, 5vw, 4rem) 3rem;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+    font-family: "IBM Plex Mono", monospace; font-size: .76rem; color: var(--mute);
+  }
+  footer a { color: var(--mute); text-decoration: none; }
+  footer a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <nav class="top">
+    <span class="word">pyrusllm</span>
+    <a class="repo" href="https://github.com/gazzimon/qvac_node" target="_blank" rel="noopener">↗ view the code</a>
+  </nav>
+  <canvas id="mesh" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <p class="eyebrow">CRECIMIENTO Hackathon · Aleph 2026 · Pears Track</p>
+    <h1>Your idle hardware,<br>selling AI<br>inference.</h1>
+    <p class="lede">A CLI you install once that turns your machine into a node of a live
+      inference network: it runs a local LLM, announces itself signed on the P2P network
+      and charges for every request it serves. On the other side, any OpenAI client picks
+      a provider by price and availability. No datacenter, and no operator in the middle
+      setting the price or keeping the margin.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="#install">Install the node</a>
+      <a class="btn ghost" href="#calculator">What would your machine earn?</a>
+      <a class="btn ghost" href="#market">How the market works</a>
+      <a class="btn ghost" href="#trust">Why nobody has to be trusted</a>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>0</b><span>central servers</span></div>
+      <div class="stat"><b>~10s</b><span>OTA update over P2P</span></div>
+      <div class="stat"><b>1</b><span>command to install and run</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="problem">
+  <div class="wrap">
+    <p class="eyebrow reveal">The problem</p>
+    <h2 class="reveal" style="margin-top:.9rem">Today, "using AI" means sending your prompt to somebody else’s machine.</h2>
+    <div class="lines reveal">
+      <p>Every request to a large model travels to a <b>datacenter you don’t control</b>,
+        at a per-token cost somebody else sets, in a queue whose length depends on
+        how many other people are asking for it right then.</p>
+      <p>If that provider goes down, raises the price or changes the terms, there is no
+        <b>plan B</b> — your product depends on a single company, in a single place.</p>
+      <p>Meanwhile, most machines on the planet with a GPU or a decent CPU sit
+        <b>powered on and idle</b> for most of the day.</p>
+    </div>
+  </div>
+</section>
+
+<section class="solution" id="market">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">The idea</p>
+        <h2 class="reveal" style="margin-top:.9rem">The Airbnb of AI compute — every node is both buyer and seller.</h2>
+        <p class="lede reveal">There is no PyrusLLM server in the middle. Every machine that
+          installs the CLI runs its own model, signs a manifest and announces it on a
+          Hyperswarm topic. A gateway compatible with the OpenAI API routes each request
+          to the node it belongs to — yours, or another operator’s on the network —
+          and records what was consumed to settle it in batches in
+          <span class="mono">$QVAC</span>.</p>
+      </div>
+      <div class="flow reveal">
+        <div class="row"><span class="k">01 node</span><span class="v">runs a local LLM with QVAC</span></div>
+        <div class="row"><span class="k">02 signing</span><span class="v">announces a signed manifest on Hyperswarm</span></div>
+        <div class="row"><span class="k">03 gateway</span><span class="v">exposes /v1/chat/completions, OpenAI format</span></div>
+        <div class="row"><span class="k">04 client</span><span class="v">your terminal, a bot, Open WebUI — unmodified</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="roles">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow reveal">The app</p>
+      <h2 class="reveal" style="margin-top:.9rem">It opens on a chat. The network is what answers.</h2>
+      <p class="lede reveal" style="margin-top:1.1rem">Your node starts switched off, and the
+        first thing you see is a single button. Launching it puts your machine on the network —
+        and that is what gets you access to everyone else’s. Until then your own model
+        still answers; the network does not.</p>
+    </div>
+    <div class="cards reveal">
+      <div class="role">
+        <span class="path mono">/</span>
+        <h3>Chat</h3>
+        <p>Ask, and every answer names the machine that produced it — who served it,
+          time to first token, tokens per second. Or tick <em>local only</em> and nothing
+          leaves your machine.</p>
+      </div>
+      <div class="role">
+        <span class="path mono">/node</span>
+        <h3>My Node</h3>
+        <p>Your own machine as a provider: what it publishes, what it charges, how loaded
+          it is, which model it serves.</p>
+      </div>
+      <div class="role">
+        <span class="path mono">/network</span>
+        <h3>Network</h3>
+        <p>Everyone else. Price, tags and availability per node, and <em>Connect</em> to
+          use any of them from your own OpenAI client.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="solution" id="trust">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">Trust</p>
+        <h2 class="reveal" style="margin-top:.9rem">Whatever decides and charges cannot belong to anyone.</h2>
+        <p class="lede reveal">An inference market has a blind spot: someone has to match every
+          request with a node, and in doing so sees both ends — who is asking and who is
+          answering. Someone has to count consumption and decide how much each provider
+          charges. That someone can reconstruct the whole network’s activity and controls
+          the money. Encrypting the traffic does not prevent it: it needs to read both
+          sides in order to work.</p>
+        <p class="lede reveal">That is why that layer runs inside a confidential execution
+          environment. We are not promising not to look: we cannot, and with the enclave
+          code published anyone can verify it. What is still outside it we say anyway —
+          while answering, the node reads the prompt in plaintext; closing that last leg
+          takes confidential GPU, and that is the next step.</p>
+      </div>
+      <div class="flow reveal">
+        <div class="row"><span class="k">01 matching</span><span class="v">which node serves each request</span></div>
+        <div class="row"><span class="k">02 metering</span><span class="v">tokens consumed and price applied</span></div>
+        <div class="row"><span class="k">03 settlement</span><span class="v">batched receipts to each provider</span></div>
+        <div class="row"><span class="k">04 reputation</span><span class="v">measured performance, not self-declared</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="proof">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">Why it is real</p>
+        <h2 class="reveal" style="margin-top:.9rem">Genuinely compatible, not a demo wearing an API’s name.</h2>
+        <p class="lede reveal">/v1/models and /v1/chat/completions follow the OpenAI format to
+          the letter — any existing client hits them without a single line changed.
+          What belongs to the marketplace (price, operator, load) lives apart, in
+          /v1/nodes, so the protocol stays clean.</p>
+        <div class="facts reveal">
+          <div class="fact"><span class="n">→</span><p>The installed copy <span>updates itself over P2P in ~10 seconds</span>, with no user action.</p></div>
+          <div class="fact"><span class="n">→</span><p>Files travel over Hyperdrive: <span>every block is verified against the merkle root</span> on arrival.</p></div>
+          <div class="fact"><span class="n">→</span><p>The distribution channel <span>is the P2P network itself</span> — nothing to clone, nothing to build.</p></div>
+        </div>
+      </div>
+      <div class="endpoints reveal">
+        <div class="ep"><span class="m">GET</span><span class="p">/v1/models</span></div>
+        <div class="ep"><span class="m">POST</span><span class="p">/v1/chat/completions</span></div>
+        <div class="ep"><span class="m">GET</span><span class="p">/v1/nodes</span></div>
+        <div class="ep"><span class="m">POST</span><span class="p">/v1/nodes/:id</span></div>
+        <div class="ep"><span class="m">GET</span><span class="p">/v1/files</span></div>
+        <div class="ep"><span class="m">POST</span><span class="p">/v1/files/upload</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="calc" id="calculator">
+  <div class="wrap">
+    <p class="eyebrow reveal">The economics</p>
+    <h2 class="reveal" style="margin-top:.9rem">A cheap machine can pay for itself faster than an expensive one.</h2>
+    <p class="lede reveal">Payback is capital divided by the tokens you actually produce — so the
+      question is never "how fast is this hardware", it is "how many hours a day is it
+      producing tokens somebody values". Put two machines side by side and see for yourself.
+      Every assumption below is editable.</p>
+
+    <div class="cols reveal">
+      <div>
+        <div class="panel">
+          <p class="ph">The market</p>
+
+          <div class="ctrl">
+            <label for="c-model">Model served</label>
+            <select id="c-model">
+              <option value="0" selected>Llama 3.1 8B — 4-bit</option>
+              <option value="1">Qwen3 32B — 4-bit</option>
+              <option value="2">Llama 3.3 70B — 4-bit</option>
+              <option value="3">gpt-oss-120b — MoE, ~5B active</option>
+            </select>
+          </div>
+
+          <div class="ctrl">
+            <label for="c-batch">Concurrency</label>
+            <select id="c-batch">
+              <option value="1" selected>One request at a time</option>
+              <option value="8">Batched — 8 at a time</option>
+            </select>
+          </div>
+
+          <div class="ctrl">
+            <label for="c-hours">Hours a day producing <span class="rd" id="c-hours-rd"></span></label>
+            <input type="range" id="c-hours" min="0.5" max="24" step="0.5" value="6">
+          </div>
+
+          <div class="ctrl">
+            <label for="c-price">Value of a token <span class="rd" id="c-price-rd"></span></label>
+            <select id="c-price">
+              <option value="0.30">USD 0.30 — open-model commodity</option>
+              <option value="1">USD 1 — open-model premium</option>
+              <option value="5" selected>USD 5 — Haiku 4.5 output</option>
+              <option value="15">USD 15 — Sonnet 5 output</option>
+              <option value="25">USD 25 — Opus 5 output</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input type="number" id="c-price-custom" min="0" step="0.05" value="5" hidden aria-label="Custom token value, USD per million output tokens">
+          </div>
+
+          <div class="ctrl">
+            <label for="c-kwh">Electricity <span class="rd">USD / kWh</span></label>
+            <input type="number" id="c-kwh" min="0" step="0.001" value="0.084">
+          </div>
+        </div>
+
+        <div class="panel">
+          <p class="ph">The machines</p>
+
+          <div class="ctrl">
+            <label for="c-a">Machine A</label>
+            <select id="c-a" data-slot="a">
+              <option value="gmk" selected>GMKtec K16 — Ryzen 7 7735HS</option>
+              <option value="dgx">NVIDIA DGX Spark</option>
+              <option value="mac">Mac Studio M4 Max — 128 GB</option>
+              <option value="rtx">RTX 4090 desktop</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <div class="duo" style="margin-top:.15rem">
+              <span class="mini"><input type="number" id="c-a-usd" min="0" step="10" aria-label="Machine A price, USD"><i>USD</i></span>
+              <span class="mini"><input type="number" id="c-a-bw" min="1" step="1" aria-label="Machine A memory bandwidth, GB per second"><i>GB/s</i></span>
+            </div>
+            <div class="duo">
+              <span class="mini"><input type="number" id="c-a-mem" min="1" step="1" aria-label="Machine A memory, GB"><i>GB</i></span>
+              <span class="mini"><input type="number" id="c-a-w" min="1" step="5" aria-label="Machine A watts under load"><i>W</i></span>
+            </div>
+          </div>
+
+          <div class="ctrl">
+            <label for="c-b">Machine B</label>
+            <select id="c-b" data-slot="b">
+              <option value="gmk">GMKtec K16 — Ryzen 7 7735HS</option>
+              <option value="dgx" selected>NVIDIA DGX Spark</option>
+              <option value="mac">Mac Studio M4 Max — 128 GB</option>
+              <option value="rtx">RTX 4090 desktop</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <div class="duo" style="margin-top:.15rem">
+              <span class="mini"><input type="number" id="c-b-usd" min="0" step="10" aria-label="Machine B price, USD"><i>USD</i></span>
+              <span class="mini"><input type="number" id="c-b-bw" min="1" step="1" aria-label="Machine B memory bandwidth, GB per second"><i>GB/s</i></span>
+            </div>
+            <div class="duo">
+              <span class="mini"><input type="number" id="c-b-mem" min="1" step="1" aria-label="Machine B memory, GB"><i>GB</i></span>
+              <span class="mini"><input type="number" id="c-b-w" min="1" step="5" aria-label="Machine B watts under load"><i>W</i></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="verdict">
+          <p class="k">The comparison</p>
+          <p class="v" id="c-verdict"></p>
+          <p class="why" id="c-why"></p>
+        </div>
+
+        <div class="machines" id="c-machines"></div>
+
+        <div class="sens">
+          <div class="hd">
+            <h3>Months to pay the machine back</h3>
+            <div class="toggle" role="group" aria-label="Which machine the table shows">
+              <button type="button" data-sens="a" aria-pressed="true">A</button>
+              <button type="button" data-sens="b" aria-pressed="false">B</button>
+            </div>
+          </div>
+          <div class="scroll">
+            <table id="c-sens">
+              <caption>Every cell is the same machine and the same model — only how busy it is and
+                what its tokens are worth change. That spread is the whole business.</caption>
+            </table>
+          </div>
+          <div class="ramp" aria-hidden="true">
+            <span>pays back sooner</span>
+            <i style="background:var(--s5)"></i><i style="background:var(--s4)"></i><i style="background:var(--s3)"></i><i style="background:var(--s2)"></i><i style="background:var(--s1)"></i>
+            <span>later</span>
+          </div>
+        </div>
+
+        <p class="fine" style="margin-top:1.5rem"><b style="color:var(--ink);font-weight:600">How this is computed.</b>
+          Generating a token reads the whole model out of memory once, so throughput is bounded by
+          memory bandwidth: <span class="mono">tok/s ≈ bandwidth × 75% ÷ model size</span>. These are
+          physical-limit estimates, <b style="color:var(--ink);font-weight:600">not measurements on the machines</b>,
+          and bandwidth figures come from each machine's memory spec. Prices are list, with no import
+          duty added. Payback is capital ÷ monthly net; NPV discounts 36 months at 12% a year.</p>
+        <p class="fine">Same arithmetic as <span class="mono">scripts/eval-dgx-spark.py</span> in the repo,
+          which regenerates the written study.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="install" id="install">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow reveal">Get started</p>
+        <h2 class="reveal" style="margin-top:.9rem">One line, and your machine is part of the network.</h2>
+        <p class="lede reveal">No account, no runtime to install first. The download is a single
+          self-contained binary with the inference engine inside &mdash; no Node, no npm, no Pear.
+          It opens in your browser and waits there; no model is downloaded until you send
+          the first prompt.</p>
+        <div class="alt reveal">
+          <p>Already running Node, or want automatic P2P updates? Install over Pear instead:</p>
+          <p style="margin-top:.5rem"><code>npm i -g pear &amp;&amp; pear install pear://8f789f6hsf4ghymku5eqwqmbqiubiigp8xpy6boiymunnbyznpny</code></p>
+        </div>
+      </div>
+      <div class="reveal">
+        <div class="os-tabs" role="tablist" aria-label="Your operating system">
+          <button type="button" role="tab" data-os="mac" aria-selected="false">macOS</button>
+          <button type="button" role="tab" data-os="linux" aria-selected="false">Linux</button>
+          <button type="button" role="tab" data-os="win" aria-selected="false">Windows</button>
+        </div>
+        <div class="term">
+          <div class="bar"><i></i><i></i><i></i></div>
+          <pre id="cmd"></pre>
+          <button class="copy" id="copyBtn">copy command</button>
+        </div>
+        <p class="alt" style="margin-top:1.1rem;padding-top:0;border:none">
+          Rather see the file before you run anything?
+          <a href="#downloads">Every platform&rsquo;s binary is right below &darr;</a>, with checksums.
+        </p>
+      </div>
+    </div>
+    <div class="dl reveal" id="downloads">
+      <h3>Or take the binary yourself</h3>
+      <p class="lede">These are the exact files the one-liner downloads, straight from the latest
+        release. One self-contained executable each &mdash; the inference engine is inside, so there
+        is nothing else to install. The row for your system is marked; the rest are there because
+        the machine you are reading this on is not always the machine you want to run a node.</p>
+      <ul>
+        <li data-os="mac">
+          <span class="p">macOS <i>Apple silicon &middot; arm64</i><span class="tag">your OS</span></span>
+          <span class="s">~101 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-darwin-arm64">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-darwin-arm64.sha256">sha256</a>
+        </li>
+        <li data-os="mac">
+          <span class="p">macOS <i>Intel &middot; x64</i><span class="tag">your OS</span></span>
+          <span class="s">~104 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-darwin-x64">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-darwin-x64.sha256">sha256</a>
+        </li>
+        <li data-os="linux">
+          <span class="p">Linux <i>x64</i><span class="tag">your OS</span></span>
+          <span class="s">~253 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-linux-x64">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-linux-x64.sha256">sha256</a>
+        </li>
+        <li data-os="linux">
+          <span class="p">Linux <i>arm64</i><span class="tag">your OS</span></span>
+          <span class="s">~228 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-linux-arm64">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-linux-arm64.sha256">sha256</a>
+        </li>
+        <li data-os="win">
+          <span class="p">Windows <i>x64</i><span class="tag">your OS</span></span>
+          <span class="s">~158 MB</span>
+          <a class="get" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-win32-x64.exe">Download &darr;</a>
+          <a class="sum" href="https://github.com/gazzimon/qvac_node/releases/latest/download/pyrusllm-win32-x64.exe.sha256">sha256</a>
+        </li>
+      </ul>
+      <p class="fine"><b style="color:var(--ink);font-weight:600">After a manual download.</b>
+        The installers verify the checksum, mark the file executable and start it; by hand that is
+        on you. On macOS and Linux: <span class="mono">shasum -a 256 pyrusllm-&lt;platform&gt;</span>
+        against the <span class="mono">.sha256</span>, then <span class="mono">chmod +x</span> and run
+        it. macOS also quarantines anything downloaded from a browser, so the first run needs
+        <span class="mono">xattr -d com.apple.quarantine pyrusllm-darwin-arm64</span>. On Windows,
+        <span class="mono">Get-FileHash</span> checks it and SmartScreen will warn once: the binary is
+        not code-signed.</p>
+      <p class="fine">Windows on ARM has no build yet &mdash; the inference engine publishes no
+        prebuilt addon for it, so there is nothing to link. And the one-line installers are verified
+        end to end on Windows: the macOS and Linux paths are written but have not been run start to
+        finish, which is why the files are here to take directly.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span>PyrusLLM — CRECIMIENTO hackathon / Aleph 2026, Pears Track.</span>
+  <a href="https://github.com/gazzimon/qvac_node" target="_blank" rel="noopener">github.com/gazzimon/qvac_node ↗</a>
+</footer>
+
+<script>
+  // The install one-liner, per platform. The tab is preselected from the
+  // visitor's own OS: making somebody pick their operating system before they
+  // can copy a command is a step the machine already knows the answer to.
+  const RAW = 'https://raw.githubusercontent.com/gazzimon/qvac_node/main'
+  const CMDS = {
+    mac: 'curl -fsSL ' + RAW + '/install.sh | sh',
+    linux: 'curl -fsSL ' + RAW + '/install.sh | sh',
+    win: 'irm ' + RAW + '/install.ps1 | iex'
+  }
+
+  function detectOS() {
+    const ua = navigator.userAgent
+    if (/Windows/i.test(ua)) return 'win'
+    if (/Mac|iPhone|iPad/i.test(ua)) return 'mac'
+    return 'linux'
+  }
+
+  let currentOS = detectOS()
+
+  function paintCmd() {
+    const prompt = currentOS === 'win' ? 'PS&gt;' : '$'
+    document.getElementById('cmd').innerHTML =
+      '<span class="c1">' + prompt + '</span> ' + CMDS[currentOS]
+    // Acotado a .os-tabs: las filas de descarga tambien llevan data-os, y sin
+    // el prefijo esto les ponia aria-selected -- y el listener de abajo les
+    // colgaba un click que cambiaba la pestana en vez de bajar el archivo.
+    document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
+      b.setAttribute('aria-selected', String(b.dataset.os === currentOS))
+    })
+    // La lista de descargas sigue a la pestana: marcar la fila que corresponde
+    // ahorra leer cinco lineas casi iguales para encontrar la propia.
+    document.querySelectorAll('.dl li[data-os]').forEach((li) => {
+      li.classList.toggle('mine', li.dataset.os === currentOS)
+    })
+  }
+
+  document.querySelectorAll('.os-tabs [data-os]').forEach((b) => {
+    b.addEventListener('click', () => { currentOS = b.dataset.os; paintCmd() })
+  })
+  paintCmd()
+
+  document.getElementById('copyBtn').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget
+    try {
+      await navigator.clipboard.writeText(CMDS[currentOS])
+      btn.textContent = 'copied ✓'
+    } catch {
+      btn.textContent = 'copy it manually'
+    }
+    setTimeout(() => { btn.textContent = 'copy command' }, 1600)
+  })
+
+  // Scroll reveal — skipped entirely under prefers-reduced-motion (see CSS).
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!reduceMotion && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target) }
+    }, { threshold: .15 })
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el))
+  } else {
+    document.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'))
+  }
+
+  // Node mesh in the hero: each dot is "a machine", and the lines that appear
+  // between nearby dots are the network announcing itself — the same gesture
+  // Hyperswarm makes, drawn. Static (a single frame) if the visitor asked for
+  // less motion.
+  ;(function mesh() {
+    const canvas = document.getElementById('mesh')
+    const ctx = canvas.getContext('2d')
+    let w, h, dpr, nodes, raf
+
+    function isDark() {
+      const forced = document.documentElement.getAttribute('data-theme')
+      if (forced === 'dark') return true
+      if (forced === 'light') return false
+      return window.matchMedia('(prefers-color-scheme: dark)').matches
+    }
+
+    function palette() {
+      return isDark()
+        ? { node: 'rgba(95,168,255,.9)', line: 'rgba(95,168,255,.16)', tag: 'rgba(255,181,69,.85)' }
+        : { node: 'rgba(47,111,214,.8)', line: 'rgba(47,111,214,.14)', tag: 'rgba(166,101,10,.75)' }
+    }
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2)
+      w = canvas.clientWidth; h = canvas.clientHeight
+      canvas.width = w * dpr; canvas.height = h * dpr
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      const count = Math.max(18, Math.min(46, Math.round((w * h) / 26000)))
+      nodes = Array.from({ length: count }, () => ({
+        x: Math.random() * w, y: Math.random() * h,
+        vx: (Math.random() - .5) * .18, vy: (Math.random() - .5) * .18,
+        r: 1.4 + Math.random() * 1.8,
+        priced: Math.random() < .12
+      }))
+    }
+
+    function step() {
+      const pal = palette()
+      ctx.clearRect(0, 0, w, h)
+      for (const n of nodes) {
+        n.x += n.vx; n.y += n.vy
+        if (n.x < 0 || n.x > w) n.vx *= -1
+        if (n.y < 0 || n.y > h) n.vy *= -1
+      }
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j]
+          const d = Math.hypot(a.x - b.x, a.y - b.y)
+          if (d < 150) {
+            ctx.strokeStyle = pal.line
+            ctx.lineWidth = 1
+            ctx.globalAlpha = 1 - d / 150
+            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke()
+          }
+        }
+      }
+      ctx.globalAlpha = 1
+      for (const n of nodes) {
+        ctx.fillStyle = n.priced ? pal.tag : pal.node
+        ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.fill()
+      }
+      raf = requestAnimationFrame(step)
+    }
+
+    resize()
+    window.addEventListener('resize', resize)
+    if (!reduceMotion) {
+      raf = requestAnimationFrame(step)
+    } else {
+      step(); cancelAnimationFrame(raf)
+    }
+  })()
+
+  // --------------------------------------------------------------- payback
+  // Ported from scripts/eval-dgx-spark.py -- same formulas, same constants.
+  // If one side changes and the other does not, this page starts lying about
+  // the study it cites, so they are meant to be edited together.
+  ;(function calculator() {
+    if (!document.getElementById('calculator')) return
+
+    const SEC_PER_MONTH = 30 * 24 * 3600
+    const BW_EFFICIENCY = 0.75 // share of theoretical bandwidth actually reached
+    const HORIZON = 36         // months
+    const R_M = Math.pow(1.12, 1 / 12) - 1
+
+    // usd: list price, no import duty (the K16 figure is the FOB price from
+    // EVALUACION-ECONOMICA.md). bw: GB/s derived from the memory spec, not
+    // measured. w/idle: whole-machine watts, estimates.
+    const MACHINES = {
+      gmk: { name: 'GMKtec K16', sub: 'Ryzen 7 7735HS · 32 GB LPDDR5-6400', usd: 750, bw: 102.4, mem: 32, w: 60, idle: 15 },
+      dgx: { name: 'NVIDIA DGX Spark', sub: 'GB10 · 128 GB LPDDR5x unified', usd: 4800, bw: 273, mem: 128, w: 150, idle: 45 },
+      mac: { name: 'Mac Studio M4 Max', sub: '128 GB unified memory', usd: 3699, bw: 546, mem: 128, w: 160, idle: 12 },
+      rtx: { name: 'RTX 4090 desktop', sub: '24 GB GDDR6X', usd: 2900, bw: 1008, mem: 24, w: 500, idle: 60 },
+      custom: { name: 'Custom machine', sub: 'your own numbers', usd: 1000, bw: 200, mem: 32, w: 100, idle: 20 }
+    }
+
+    // read: GB pulled out of memory per generated token. resident: GB the
+    // weights occupy -- a MoE reads little per token but must still fit whole.
+    // batch: throughput multiplier at 8 concurrent requests.
+    const MODELS = [
+      { name: 'Llama 3.1 8B', read: 4.7, resident: 5.5, batch: 6.0 },
+      { name: 'Qwen3 32B', read: 18.0, resident: 20.0, batch: 4.5 },
+      { name: 'Llama 3.3 70B', read: 40.0, resident: 43.0, batch: 3.5 },
+      { name: 'gpt-oss-120b', read: 3.5, resident: 63.0, batch: 3.0 }
+    ]
+
+    const UTILS = [0.05, 0.10, 0.25, 0.50, 1.00]
+    const PRICES = [0.30, 1, 5, 15, 25]
+    const SLOTS = ['a', 'b']
+
+    const $ = (id) => document.getElementById(id)
+    const num = (id, fallback) => {
+      const v = parseFloat($(id).value)
+      return Number.isFinite(v) && v > 0 ? v : fallback
+    }
+
+    let sensSlot = 'a'
+
+    const tip = document.createElement('div')
+    tip.className = 'tip'
+    tip.setAttribute('role', 'tooltip')
+    document.body.appendChild(tip)
+
+    function powerCost(m, util, kwh) {
+      return (m.w * util + m.idle * (1 - util)) * 720 / 1000 * kwh
+    }
+
+    function npv(rate, flows) {
+      let acc = 0
+      for (let t = 0; t < flows.length; t++) acc += flows[t] / Math.pow(1 + rate, t)
+      return acc
+    }
+
+    // Bisection, same as irr() in the python: npv is monotonically decreasing
+    // in the rate for these flows, so halving always converges.
+    function irr(flows) {
+      let lo = 1e-9, hi = 1
+      for (let i = 0; i < 300; i++) {
+        const mid = (lo + hi) / 2
+        if (npv(mid, flows) > 0) lo = mid
+        else hi = mid
+      }
+      return (lo + hi) / 2
+    }
+
+    function run(m, model, batch, util, price, kwh) {
+      // 10% of memory left for the KV cache and the OS: a model that exactly
+      // equals RAM does not actually run.
+      const fits = model.resident <= m.mem * 0.9
+      const tps = fits ? (m.bw * BW_EFFICIENCY / model.read) * (batch === 8 ? model.batch : 1) : 0
+      const capacity = tps * SEC_PER_MONTH / 1e6 // MTok/month at full saturation
+      const sold = capacity * util
+      const power = powerCost(m, util, kwh)
+      const net = sold * price - power
+      const flows = [-m.usd]
+      for (let t = 0; t < HORIZON; t++) flows.push(net)
+      const value = npv(R_M, flows)
+      return {
+        fits, tps, sold, power, net, npv: value,
+        payback: net > 0 ? m.usd / net : Infinity,
+        irr: net > 0 && value > 0 ? Math.pow(1 + irr(flows), 12) - 1 : null,
+        marginal: sold > 0 ? power / sold : null
+      }
+    }
+
+    const months = (p) =>
+      !isFinite(p) ? 'never' : p > 240 ? '20 yr+' : p < 1.5 ? '1 mo' : Math.round(p) + ' mo'
+    const usd = (n, d) =>
+      n.toLocaleString('en-US', { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 })
+
+    // Five steps of one hue. Never a rainbow, and the number is printed in
+    // every cell anyway, so color is a second channel and not the only one.
+    function step(p) {
+      if (!isFinite(p) || p > 240) return 0
+      if (p <= 6) return 5
+      if (p <= 12) return 4
+      if (p <= 24) return 3
+      if (p <= 48) return 2
+      return 1
+    }
+
+    function fillSpecs(slot) {
+      const base = MACHINES[$('c-' + slot).value]
+      $('c-' + slot + '-usd').value = base.usd
+      $('c-' + slot + '-bw').value = base.bw
+      $('c-' + slot + '-mem').value = base.mem
+      $('c-' + slot + '-w').value = base.w
+    }
+
+    function machineFrom(slot) {
+      const key = $('c-' + slot).value
+      const base = MACHINES[key]
+      return {
+        key,
+        name: base.name,
+        sub: base.sub,
+        usd: num('c-' + slot + '-usd', base.usd),
+        bw: num('c-' + slot + '-bw', base.bw),
+        mem: num('c-' + slot + '-mem', base.mem),
+        w: num('c-' + slot + '-w', base.w),
+        idle: base.idle
+      }
+    }
+
+    function priceValue() {
+      const sel = $('c-price').value
+      if (sel !== 'custom') return parseFloat(sel)
+      return num('c-price-custom', 5)
+    }
+
+    function render() {
+      const model = MODELS[parseInt($('c-model').value, 10)]
+      const batch = parseInt($('c-batch').value, 10)
+      const hours = parseFloat($('c-hours').value)
+      const util = hours / 24
+      const price = priceValue()
+      const kwh = num('c-kwh', 0.084)
+
+      $('c-hours-rd').textContent = hours + ' h · ' + Math.round(util * 100) + '% busy'
+      $('c-price-rd').textContent = 'USD / MTok out'
+
+      const specs = SLOTS.map(machineFrom)
+      const results = specs.map((m) => run(m, model, batch, util, price, kwh))
+
+      // ---- the machine columns
+      $('c-machines').innerHTML = specs.map((m, i) => {
+        const r = results[i]
+        const rows = r.fits
+          ? [
+              ['Sustained output', Math.round(r.tps) + ' tok/s'],
+              ['Sold per month', r.sold.toFixed(1) + ' MTok'],
+              ['Net per month', 'USD ' + usd(r.net, 0)],
+              ['Electricity', 'USD ' + usd(r.power, 2)],
+              ['NPV over 36 mo', 'USD ' + usd(r.npv, 0)],
+              ['Annual IRR', r.irr === null ? '—' : Math.round(r.irr * 100) + '%']
+            ]
+          : []
+        return '<div class="machine">' +
+          '<div class="top"><span class="slot">' + SLOTS[i].toUpperCase() + '</span><h3>' + m.name + '</h3></div>' +
+          '<p class="spec">' + m.sub + '</p>' +
+          '<p class="spec">USD ' + usd(m.usd, 0) + ' · ' + m.bw + ' GB/s · ' + m.mem + ' GB</p>' +
+          (r.fits
+            ? '<p class="pb' + (isFinite(r.payback) ? '' : ' dead') + '">' + months(r.payback) +
+              '<small>to pay the machine back</small></p>'
+            : '<p class="pb dead">—<small>' + model.name + ' does not fit in ' + m.mem + ' GB</small></p>') +
+          (rows.length
+            ? '<dl>' + rows.map((x) => '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>').join('') + '</dl>'
+            : '') +
+          (r.fits && !isFinite(r.payback)
+            ? '<p class="flag">At this price and utilisation it never clears its own electricity bill.</p>'
+            : '') +
+          '</div>'
+      }).join('')
+
+      // ---- the one hero figure: which machine wins, and why
+      const [ra, rb] = results
+      const [ma, mb] = specs
+      const v = $('c-verdict')
+      const why = $('c-why')
+
+      // "Pays for itself" has to mean something: past 20 years it does not,
+      // even though the arithmetic still returns a finite number.
+      const viable = (r) => r.fits && isFinite(r.payback) && r.payback <= 240
+
+      // Why a machine failed, in its own terms -- blaming the power bill when
+      // the real problem is that the model does not fit sends people off to
+      // tune the wrong number.
+      const failed = (r, m) =>
+        !r.fits
+          ? '<b>' + m.name + '</b> cannot hold ' + model.name + ' at all: it needs about ' +
+            model.resident + ' GB resident and the machine has ' + m.mem + ' GB.'
+          : !isFinite(r.payback)
+            ? '<b>' + m.name + '</b> never clears its own power bill here — it draws ' +
+              m.w + ' W to produce ' + Math.round(r.tps) + ' tok/s.'
+            : '<b>' + m.name + '</b> takes over twenty years, which is not a payback.'
+
+      if (!ra.fits && !rb.fits) {
+        v.textContent = 'Neither machine can hold this model.'
+        why.innerHTML = '<b>' + model.name + '</b> needs about ' + model.resident +
+          ' GB resident. Pick a smaller model, or give one of them more memory.'
+      } else if (!viable(ra) && !viable(rb)) {
+        v.textContent = 'Neither machine pays for itself.'
+        why.innerHTML = ra.fits && rb.fits
+          ? 'At <b>USD ' + price + ' / MTok</b> and <b>' + hours + ' h a day</b>, the tokens are ' +
+            'worth less than the capital tied up making them. This is the commodity trap: ' +
+            'selling generic tokens cheap never returns the machine.'
+          : failed(ra, ma) + ' ' + failed(rb, mb)
+      } else {
+        const win = viable(ra) && (!viable(rb) || ra.payback <= rb.payback) ? 0 : 1
+        const lose = 1 - win
+        const rw = results[win], rl = results[lose], mw = specs[win], ml = specs[lose]
+        if (!viable(rl)) {
+          v.textContent = mw.name + ' is the only one that pays for itself.'
+          why.innerHTML = failed(rl, ml) + ' <b>' + mw.name + '</b> clears in ' +
+            months(rw.payback) + '.'
+        } else {
+          const ratio = rl.payback / rw.payback
+          v.textContent = mw.name + ' pays back ' + ratio.toFixed(1) + '× sooner.'
+          // Both ratios are winner-over-loser, so "< 1" means the winner is the
+          // smaller one on that axis -- fewer tokens, less money.
+          const tpsR = rl.tps > 0 ? rw.tps / rl.tps : 0
+          const usdR = ml.usd > 0 ? mw.usd / ml.usd : 0
+          why.innerHTML = tpsR < 1 && usdR < 1
+            ? 'It produces <b>' + (1 / tpsR).toFixed(1) + '× fewer tokens per second</b>, but it costs <b>' +
+              (1 / usdR).toFixed(1) + '× less</b>. Payback is capital divided by output, so the cheaper machine wins ' +
+              'whenever its price falls faster than its throughput does.'
+            : 'It clears <b>' + months(rw.payback) + '</b> against <b>' + months(rl.payback) + '</b> — ' +
+              Math.round(rw.tps) + ' tok/s at USD ' + usd(mw.usd, 0) + ', versus ' +
+              Math.round(rl.tps) + ' tok/s at USD ' + usd(ml.usd, 0) + '.'
+        }
+      }
+
+      // ---- sensitivity heatmap for the selected machine
+      const si = sensSlot === 'a' ? 0 : 1
+      const m = specs[si]
+      const closest = UTILS.reduce((best, u) =>
+        Math.abs(u - util) < Math.abs(best - util) ? u : best, UTILS[0])
+
+      let html = '<caption>Every cell is the same machine and the same model — only how busy it is ' +
+        'and what its tokens are worth change. That spread is the whole business.</caption>' +
+        '<thead><tr><th scope="col">Hours a day</th>' +
+        PRICES.map((p) => '<th scope="col">USD ' + p + '</th>').join('') + '</tr></thead><tbody>'
+
+      for (const u of UTILS) {
+        html += '<tr><th scope="row">' + (u * 24).toFixed(u === 0.05 ? 1 : 0) + ' h · ' +
+          Math.round(u * 100) + '%</th>'
+        for (const p of PRICES) {
+          const r = run(m, model, batch, u, p, kwh)
+          const s = step(r.payback)
+          const here = u === closest && p === price
+          const label = !r.fits ? '—' : months(r.payback).replace(' mo', '')
+          const style = s === 0 ? '' : ' style="background:var(--s' + s + ');color:var(--s' + s + 'i)"'
+          html += '<td class="' + (s === 0 ? 'dead' : '') + (here ? ' now' : '') + '"' + style +
+            ' data-tip="' + (u * 24).toFixed(1) + ' h a day at USD ' + p + ' / MTok → ' +
+            (r.fits ? months(r.payback) : 'model does not fit') + '">' + label + '</td>'
+        }
+        html += '</tr>'
+      }
+      $('c-sens').innerHTML = html + '</tbody>'
+    }
+
+    // Editing a spec means it is no longer the preset machine, so the label
+    // stops claiming it is one.
+    for (const slot of SLOTS) {
+      $('c-' + slot).addEventListener('change', () => { fillSpecs(slot); render() })
+      for (const f of ['usd', 'bw', 'mem', 'w']) {
+        $('c-' + slot + '-' + f).addEventListener('input', () => {
+          if ($('c-' + slot).value !== 'custom') $('c-' + slot).value = 'custom'
+          render()
+        })
+      }
+    }
+
+    $('c-price').addEventListener('change', () => {
+      const custom = $('c-price').value === 'custom'
+      $('c-price-custom').hidden = !custom
+      if (custom) $('c-price-custom').focus()
+      render()
+    })
+
+    for (const id of ['c-model', 'c-batch', 'c-hours', 'c-kwh', 'c-price-custom']) {
+      $(id).addEventListener('input', render)
+    }
+
+    document.querySelectorAll('[data-sens]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sensSlot = btn.dataset.sens
+        document.querySelectorAll('[data-sens]').forEach((b) => {
+          b.setAttribute('aria-pressed', String(b.dataset.sens === sensSlot))
+        })
+        render()
+      })
+    })
+
+    const sens = $('c-sens')
+    sens.addEventListener('pointerover', (ev) => {
+      const cell = ev.target.closest('td[data-tip]')
+      if (!cell) return
+      tip.textContent = cell.dataset.tip
+      const r = cell.getBoundingClientRect()
+      tip.style.left = Math.min(r.left, window.innerWidth - 240) + 'px'
+      tip.style.top = (r.top - 40) + 'px'
+      tip.classList.add('on')
+    })
+    sens.addEventListener('pointerout', () => tip.classList.remove('on'))
+
+    SLOTS.forEach(fillSpecs)
+    render()
+  })()
+</script>
+
+</body>
+</html>

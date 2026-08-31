@@ -22,8 +22,8 @@ const promptCmd = command(
   summary('Answer a prompt with 100% local inference'),
   description(
     'Loads an LLM with QVAC and answers without leaving this machine.\n' +
-      'The weights travel over hypercore (P2P), not HTTP, and stay\n' +
-      'cached under ~/.qvac/models for the next runs.'
+      'The weights travel over hypercore (P2P), not over HTTP, and stay\n' +
+      'cached in ~/.qvac/models for the following runs.'
   ),
   arg('<prompt>', 'the text to answer, or "-" to read it from stdin'),
   flag(
@@ -33,10 +33,10 @@ const promptCmd = command(
   flag('--ctx <n>', `context size (default ${DEFAULT_CTX_SIZE})`),
   flag(
     '--gpu-layers <n>',
-    'layers to hand off to the GPU. 0 = all CPU. Without the flag the SDK decides.' +
+    'layers to send to the GPU. 0 = all CPU. Without the flag the SDK decides.' +
       ' On a weak iGPU (Intel UHD 620) 0 is 5x faster: see NOTES.md'
   ),
-  flag('--no-download', 'fail instead of downloading the weights if they are not cached'),
+  flag('--no-download', 'fail instead of downloading the weights when they are not cached'),
   flag('--quiet|-q', 'print only the answer, with no diagnostics or measurements'),
   () => {
     pending = runPrompt()
@@ -45,14 +45,14 @@ const promptCmd = command(
 
 const serveCmd = command(
   'serve',
-  summary('Bring up the OpenAI-compatible gateway and the panels'),
+  summary('Start the OpenAI-compatible gateway and the panels'),
   description(
     'Serves the 3 panels (client/provider/admin) and POST /v1/chat/completions\n' +
       'in OpenAI format: { model, messages[], stream }.\n\n' +
-      'Starts with an EMPTY registry: with no nodes advertised it returns a\n' +
+      'It starts with an EMPTY registry: with no announced nodes it returns a\n' +
       'clear "no nodes serving that model" error, which is the real state\n' +
-      'while swarm discovery isn\'t connected yet (Phase 2-b).\n' +
-      'With --demo it gets populated with SIMULATED nodes for the video.'
+      'while swarm discovery is not connected (Phase 2-b).\n' +
+      'With --demo it is populated with SIMULATED nodes for the video.'
   ),
   flag('--port <n>', 'gateway HTTP port (default 8787)'),
   flag(
@@ -91,22 +91,22 @@ const serveCmd = command(
   }
 )
 
-// The command that verifies Phase 2's DoD without bringing up the gateway: it
-// joins the topic, advertises its signed manifest and reports which peers
-// showed up and whether their manifest verified. This is what runs on the
-// TWO machines in the runbook.
+// The command that verifies the Phase 2 DoD without starting the gateway: it
+// joins the topic, announces its signed manifest and reports which peers showed
+// up and whether their manifest verified. This is what runs on BOTH machines in
+// the runbook.
 const peersCmd = command(
   'peers',
-  summary('Join the P2P topic and list peers with a verified manifest'),
+  summary('Join the P2P topic and list the peers with a verified manifest'),
   description(
-    'Advertises this node\'s signed manifest on the fixed topic and shows the\n' +
-      'peers that get discovered, with the time from join -> first peer and\n' +
-      'join -> first verified manifest (ROADMAP\'s D7).\n\n' +
-      'Only exits with --timeout, or with Ctrl+C.'
+    'Announces this node signed manifest on the fixed topic and shows the peers\n' +
+      'that get discovered, with the join -> first peer and\n' +
+      'join -> first verified manifest timings (D7 of the ROADMAP).\n\n' +
+      'It only exits with --timeout, or with Ctrl+C.'
   ),
-  flag('--operator <nombre>', 'operator name advertised in the manifest'),
+  flag('--operator <name>', 'operator name announced in the manifest'),
   flag('--timeout <s>', 'exit after N seconds (default: never exits, Ctrl+C)'),
-  flag('--expect <n>', 'exit code 1 if fewer than N verified peers exist on exit'),
+  flag('--expect <n>', 'exit code 1 if fewer than N verified peers are present on exit'),
   () => {
     pending = runPeers()
   }
@@ -120,16 +120,16 @@ const sendCmd = command(
   'send',
   summary('Publish a file or folder and share it over P2P'),
   description(
-    'Puts the file into this node\'s Hyperdrive and advertises it on the DHT.\n' +
+    'Puts the file into this node Hyperdrive and announces it on the DHT.\n' +
       'Prints a qvac:// link the other machine downloads with `pyrusllm fetch`.\n\n' +
       'The process STAYS RUNNING on purpose: Hypercore is not store-and-forward,\n' +
-      'there is no server where the file stays saved. The bytes come out of this\n' +
+      'there is no server where the file is kept. The bytes come out of this\n' +
       'machine, so it has to stay on while the other one downloads.\n\n' +
-      'Only what is requested gets transferred: a drive with 40 GB published does\n' +
+      'Only what is asked for is transferred: a drive with 40 GB published does\n' +
       'not force anyone to download more than the file they picked.'
   ),
-  arg('<ruta>', 'file or folder to publish'),
-  flag('--as <nombre>', 'name to publish it under (default: the file\'s own name)'),
+  arg('<path>', 'file or folder to publish'),
+  flag('--as <name>', 'name it is published under (default: the file name)'),
   () => {
     pending = runSend()
   }
@@ -140,13 +140,13 @@ const fetchCmd = command(
   summary('Download a file published by another machine'),
   description(
     'Takes a qvac://<key>/<path> link and downloads that file to disk.\n\n' +
-      'Every block is verified against the drive\'s merkle root as it arrives: a\n' +
-      'file altered partway through cannot complete. What the key does NOT\n' +
-      'prove is who it belongs to; that depends on the channel the link came through.'
+      'Every block is verified against the drive merkle root as it arrives: a\n' +
+      'file tampered with midway cannot complete. What the key does NOT prove\n' +
+      'is whose it is; that depends on the channel the link arrived through.'
   ),
   arg('<link>', 'qvac:// link printed by `pyrusllm send`'),
   flag('--out <dir>', 'destination folder (default: the current one)'),
-  flag('--timeout <s>', 'how long to wait for a peer with the drive to show up (default 60)'),
+  flag('--timeout <s>', 'how long to wait for a peer with the drive to appear (default 60)'),
   () => {
     pending = runFetch()
   }
@@ -156,11 +156,12 @@ const filesCmd = command(
   'files',
   summary('List the files published by this node or by a peer'),
   description(
-    'With no arguments, lists what this machine publishes.\n' +
-      'With --link, lists what another machine\'s drive publishes, without downloading the content:\n' +
-      'a Hyperdrive\'s metadata replicates separately from the blobs.'
+    'With no arguments it lists what this machine publishes.\n' +
+      'With --link it lists what another machine drive publishes, without\n' +
+      'downloading the content: Hyperdrive metadata replicates separately from\n' +
+      'the blobs.'
   ),
-  flag('--link <qvac://…>', 'list another machine\'s drive instead of this one\'s'),
+  flag('--link <qvac://…>', 'list another machine drive instead of our own'),
   flag('--timeout <s>', 'how long to wait for the remote peer (default 30)'),
   () => {
     pending = runFiles()
@@ -169,20 +170,21 @@ const filesCmd = command(
 
 const walletCmd = command(
   'wallet',
-  summary('View, create, or restore this node\'s payment wallet'),
+  summary('Show, create or restore this node payout wallet'),
   description(
-    'With no flags, shows the payment address, or says there is no wallet yet.\n' +
+    'With no flags it shows the payout address, or says there is no wallet yet.\n' +
       '\n' +
       'The seed is stored ENCRYPTED with the PYRUS_WALLET_PASSPHRASE passphrase\n' +
-      '(it can be set in the .env). Honest limit: if that .env lives next to the\n' +
-      'keystore, the encryption protects against a backup or a repo leak, not\n' +
-      'against someone who already has access to this machine.\n' +
+      '(it can go in the .env). Honest limit: if that .env lives next to the\n' +
+      'keystore, the encryption protects against a backup or a repo, not against\n' +
+      'somebody who already has access to this machine.\n' +
       '\n' +
-      '--crear shows the 24 words ONCE. Write them down: without them and\n' +
-      'without the keystore, the wallet is lost. --restaurar <phrase> reuses them.'
+      '--create shows the 24 words ONCE. Write them down: without them and\n' +
+      'without the keystore, the wallet is lost. --restore <phrase> uses them\n' +
+      'again.'
   ),
-  flag('--crear', 'generate a new wallet for this node'),
-  flag('--restaurar <frase>', 'restore from the 24 words of a backup'),
+  flag('--create', 'generate a new wallet for this node'),
+  flag('--restore <phrase>', 'restore from the 24 words of a backup'),
   () => {
     pending = runWallet()
   }
@@ -195,8 +197,8 @@ const cmd = command(
   flag('--storage <dir>', 'custom storage directory'),
   flag('--no-updates', 'disable OTA updates for this run'),
   flag('--port <n>', 'app HTTP port (default 8787)'),
-  flag('--no-serve', 'just the OTA updater, without bringing up the app'),
-  flag('--no-open', 'do not open the browser on startup'),
+  flag('--no-serve', 'only the OTA updater, without starting the app'),
+  flag('--no-open', 'do not open the browser on start'),
   flag('--update-delay <ms>', 'OTA jitter window in ms (default 10000)'),
   promptCmd,
   serveCmd,
@@ -234,7 +236,7 @@ async function runPrompt() {
   const text = promptCmd.args.prompt === '-' ? await readStdin() : promptCmd.args.prompt
 
   if (!text || text.trim() === '') {
-    console.error('[qvac] the prompt is empty.')
+    console.error('[pyrusllm] the prompt is empty.')
     Bare.exitCode = 1
     return
   }
@@ -253,7 +255,7 @@ async function runPrompt() {
     const mb = (entry.expectedSize / 1e6).toFixed(0)
 
     say()
-    say(`  QVAC-NODE v${pkg.version} - 100% local inference`)
+    say(`  PyrusLLM v${pkg.version} - 100% local inference`)
     say()
     say(`  model    : ${name}  ${entry.params}  ${mb} MB`)
     say(`  weights  : ${cached ? 'cached' : 'missing, downloading over hypercore'}`)
@@ -310,7 +312,7 @@ async function runPrompt() {
     say(`  full answer         : ${secs(tEnd - tLoaded)}`)
     say()
   } catch (err) {
-    console.error('\n[qvac] inference failed:', (err && err.message) || err)
+    console.error('\n[pyrusllm] inference failed:', (err && err.message) || err)
     Bare.exitCode = 1
   } finally {
     // Without this the process never exits: `unloadModel` deliberately leaves
@@ -534,16 +536,130 @@ async function startGateway(opts = {}) {
   // 401 instead of 402. Both surfaced by testing the DoD curl against the
   // real node, not in the tests.
   //
-  // The wallet doesn't depend on the swarm: it belongs to this machine.
-  // `joinSwarm` reads it again for the manifest, which is a different thing
-  // -- there it goes SIGNED.
-  // D30.1 — the keystore does NOT come from `budgetDir`: that one can live in temp.
+  // La wallet no depende del swarm: es de esta maquina. `joinSwarm` la vuelve a
+  // leer para el manifiesto, que es otra cosa -- ahi va FIRMADA.
+  // D30.1 — el keystore NO sale de `budgetDir`: ese puede estar en temp.
   const dirWallet = await walletStorageDir()
   const cobro = await economicDelNodo(dirWallet)
   gw.setEconomic(cobro.economic)
   // D24 — no signer means no attestation, and that's correct: better to not
   // issue one than to issue it unsigned. The gateway says so in the receipt.
   gw.setWalletSigner(cobro.firmar)
+  // FASE 11 — el panel /wallet lee saldos con la direccion PUBLICA y el RPC de
+  // esta red; la seed no cruza. Sin red el panel muestra solo el aviso.
+  gw.setWalletRed(cobro.red)
+
+  // FASE 11 — crear o importar la wallet de cobro desde el panel /wallet, sin
+  // `pyrusllm wallet --create` and without touching the environment. El closure es el dueño de
+  // dir + passphrase: el gateway lo invoca y re-cablea economic/firmante/red,
+  // pero NO ve la seed — se genera acá, se escribe cifrada, y la frase vuelve
+  // una sola vez para que el panel la muestre y el operador la anote.
+  //
+  // La passphrase la resuelve `wallet.resolverPassphrase`: usa
+  // PYRUS_WALLET_PASSPHRASE si está, y si no, genera una y la persiste 0600 en
+  // `wallet.pass` para que `abrir()` la encuentre en el próximo arranque. El
+  // límite honesto de tener esa clave en disco lo explica el encabezado de
+  // wallet.mjs — es el mismo que ya tenía el `.env` al lado del keystore.
+  const walletMod = await import('./qvac/wallet.mjs')
+  gw.setWalletCreator(async ({ frase = null } = {}) => {
+    const { passphrase } = walletMod.resolverPassphrase(dirWallet, { env, generar: true })
+    const r = await walletMod.crear(dirWallet, passphrase, {
+      red: walletMod.redDe(env, { dir: dirWallet }),
+      frase
+    })
+    // Re-abrir y re-cablear: el gateway sirve la nueva dirección sin reiniciar.
+    // El re-anuncio del manifiesto a los pares lo dispara el propio endpoint
+    // del gateway (updateAnnouncement).
+    const nuevo = await economicDelNodo(dirWallet)
+    gw.setEconomic(nuevo.economic)
+    gw.setWalletSigner(nuevo.firmar)
+    gw.setWalletRed(nuevo.red)
+    // FASE 12 — y el que manda plata, por lo mismo: una wallet recien creada
+    // desde el panel tiene que poder enviar sin reiniciar el nodo.
+    gw.setWalletSender(nuevo.enviar ? { enviar: nuevo.enviar, cotizar: nuevo.cotizar } : null)
+    return { address: r.address, frase: r.frase, restaurada: r.restaurada }
+  })
+
+  // FASE 11 — cambiar de red desde el selector del panel. Escribe `wallet.red`
+  // (lo lee `redDe` en el próximo arranque) y NO hace hot-swap: el aviso de
+  // mainnet, la re-derivación y el re-firmado del manifiesto viven en el
+  // arranque, así que el panel dice "reiniciá el nodo".
+  //
+  // Ir A mainnet exige `confirmar: 'MAINNET'` — D30: mainnet no se toca sin que
+  // alguien lo escriba. La validación de nombre y la de mainnet viven acá para
+  // que el gateway no tenga que importar `wallet.mjs`.
+  gw.setWalletNetworkSetter((nombre, { confirmar } = {}) => {
+    const objetivo = walletMod.REDES[String(nombre || '').trim()]
+    if (!objetivo) {
+      const e = new Error(`red desconocida: ${JSON.stringify(nombre)}`)
+      e.code = 'red_desconocida'
+      throw e
+    }
+    if (objetivo.mainnet && confirmar !== 'MAINNET') {
+      const e = new Error(
+        'cambiar a una red MAINNET (plata real) pide confirmar: mandá "confirmar":"MAINNET"'
+      )
+      e.code = 'confirmar_mainnet'
+      throw e
+    }
+    return walletMod.guardarRed(dirWallet, nombre)
+  })
+
+  // FASE 12 — los tokens que el panel vigila. Mismo patron que el de arriba: el
+  // closure es dueño de `dirWallet` y el gateway no importa `wallet.mjs`.
+  //
+  // Se relee el archivo en cada operacion en vez de cachear la lista: es un
+  // archivo chico, lo tocan un humano y un panel, y una copia en memoria sobre
+  // un archivo que se puede editar a mano es como se pierde lo que el otro
+  // escribio. La validacion y el dedupe viven adentro de `guardarTokens`.
+  gw.setWalletTokensStore({
+    listar: (caip2) => walletMod.leerTokens(dirWallet)[caip2] || [],
+    agregar: (caip2, tok) => {
+      const tabla = walletMod.leerTokens(dirWallet)
+      tabla[caip2] = (tabla[caip2] || []).concat([tok])
+      return walletMod.guardarTokens(dirWallet, tabla)[caip2] || []
+    },
+    quitar: (caip2, address) => {
+      const tabla = walletMod.leerTokens(dirWallet)
+      const buscada = String(address || '').toLowerCase()
+      tabla[caip2] = (tabla[caip2] || []).filter(
+        (t) => String(t.address || '').toLowerCase() !== buscada
+      )
+      return walletMod.guardarTokens(dirWallet, tabla)[caip2] || []
+    }
+  })
+
+  // FASE 12 — lo que Settings muestra de solo lectura. La ruta del keystore y la
+  // version ya salen en el log de arranque; esto las pone donde se las busca
+  // cuando algo no cuadra, que es tres pantallas de scroll despues.
+  gw.setWalletInfo({ keystore: dirWallet, version: pkg.version })
+
+  // FASE 12 — enviar desde el panel. `cobro.enviar` es un closure que se quedo
+  // con la cuenta de WDK: el gateway pide una transferencia, no una clave. Sin
+  // wallet abierta queda en null y el endpoint contesta 503 diciendo por que.
+  gw.setWalletSender(cobro.enviar ? { enviar: cobro.enviar, cotizar: cobro.cotizar } : null)
+
+  // FASE 12 — SE LE DA CUERDA A ethers ACA, Y NO EN EL PRIMER CLICK.
+  //
+  // Medido: la PRIMERA llamada de red de ethers a veces no vuelve, y como el
+  // resto queda encolado detras de su deteccion de red, el proveedor se traba
+  // entero — el panel gira para siempre y ningun envio posterior contesta hasta
+  // reiniciar. Que esa primera llamada sea la de alguien apretando "Revisar" es
+  // la peor version del problema.
+  //
+  // Asi que se hace acá, al arrancar, cuando no hay nadie esperando. NO se
+  // espera y NO se corta si falla: un nodo sin internet tiene que arrancar
+  // igual — la derivacion de la direccion nunca necesito la red y eso no cambia
+  // (ver `cuentaDesde` en wallet.mjs). Si sale bien, el primer envio de verdad
+  // ya encuentra el proveedor despierto.
+  if (cobro.calentar) {
+    cobro.calentar().then(
+      (ok) => {
+        if (ok) console.log('  [wallet] RPC alcanzable: la wallet puede enviar')
+      },
+      () => {}
+    )
+  }
 
   // PHASE 10 — the batch receipt accumulator is opened HERE, with the same
   // precedence as the ledger and the API keys (before the gateway) and for
@@ -897,35 +1013,78 @@ async function openData(dir, { files = true } = {}) {
 // signatures, not keys.
 async function economicDelNodo(dir) {
   const wallet = await import('./qvac/wallet.mjs')
-  if (!wallet.existe(dir)) return { economic: null, firmar: null }
+  if (!wallet.existe(dir)) {
+    return { economic: null, firmar: null, enviar: null, cotizar: null, calentar: null, red: null }
+  }
 
   try {
-    // D30.2 — the network is resolved from the environment and PASSED IN.
-    // `abrir` used to receive an `rpc` that nobody filled in, so the mainnet
-    // constant always won and there was no way to operate against 9746.
-    const red = wallet.redDe(env)
-    const abierta = await wallet.abrir(dir, env[wallet.VAR_PASSPHRASE], { red })
-    console.log(`  [wallet] payment address: ${abierta.address}`)
-    console.log(`  [wallet] networks: ${wallet.CHAINS.join(', ')} — settlement: ${wallet.SETTLEMENT}`)
-    console.log(`  [wallet] network: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
-    // D30 in one line: mainnet is not where testing happens. Doesn't block
-    // —the operator may actually want to be there— but it can't go unnoticed.
+    // D30.2 — la red se resuelve del entorno y SE LE PASA. Antes `abrir` recibia
+    // un `rpc` que nadie completaba, asi que la constante de mainnet ganaba
+    // siempre y no habia forma de operar contra 9746.
+    // FASE 11 — con `dir` además mira `wallet.red`, que escribe el selector del
+    // panel. El entorno sigue ganando.
+    const red = wallet.redDe(env, { dir })
+    // FASE 11 — la passphrase sale del entorno o, si el onboarding del panel la
+    // generó, de `wallet.pass`. `generar:false`: acá solo se ABRE lo que ya
+    // existe; si hay keystore y no hay passphrase en ningún lado, `abrir` corta
+    // con un motivo, que es lo correcto.
+    const { passphrase } = wallet.resolverPassphrase(dir, { env })
+    const abierta = await wallet.abrir(dir, passphrase, { red })
+    console.log(`  [wallet] direccion de cobro: ${abierta.address}`)
+    console.log(`  [wallet] redes: ${wallet.CHAINS.join(', ')} — liquidacion: ${wallet.SETTLEMENT}`)
+    console.log(`  [wallet] red: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
+    // D30 en una linea: mainnet no es donde se prueba. No corta —el operador
+    // puede querer estar ahi— pero no puede pasar desapercibido.
     if (red.mainnet) {
       console.log(`  [wallet] HEADS UP: ${red.nombre} is MAINNET and moves real money.`)
       console.log(`  [wallet] D30: this debuts on testnet. ${wallet.VAR_RED}=plasma-testnet`)
     }
     return {
       economic: wallet.economicDe(abierta.address),
-      // PHASE 9 / D24 — WDK's `account.sign` is an EIP-191 personal_sign over
-      // the message, which is what `recoverMessageAddress` verifies on the
-      // other side. Wrapped in a closure so the only thing that crosses over
-      // to gateway.mjs is the ability to sign, not the account or the phrase.
-      firmar: (mensaje) => abierta.cuenta.sign(mensaje)
+      // FASE 9 / D24 — `account.sign` de WDK es un personal_sign EIP-191 sobre
+      // el mensaje, que es lo que `recoverMessageAddress` verifica del otro
+      // lado. Se envuelve en una closure para que lo unico que cruce a
+      // gateway.mjs sea la capacidad de firmar, no la cuenta ni la frase.
+      firmar: (mensaje) => abierta.cuenta.sign(mensaje),
+      // FASE 12 — mandar plata, con la MISMA forma que `firmar`: una funcion,
+      // no la cuenta. El gateway puede pedir una transferencia y no puede leer
+      // la clave con la que se firma, que es toda la invariante.
+      //
+      // `monto` llega en unidades BASE (wei, o la potencia de los decimales del
+      // token) y como BigInt: convertir con punto flotante un saldo de 18
+      // decimales pierde precision justo en la cifra que se manda.
+      enviar: ({ destino, monto, asset }) =>
+        asset === 'native'
+          ? abierta.cuenta.sendTransaction({ to: destino, value: monto })
+          : abierta.cuenta.transfer({ token: asset, recipient: destino, amount: monto }),
+      // El gas ESTIMADO para la pantalla de revision. Va aparte de `enviar` a
+      // proposito: cotizar no firma ni difunde nada, y confundir las dos seria
+      // mandar una transaccion cuando alguien solo estaba mirando cuanto sale.
+      cotizar: ({ destino, monto, asset }) =>
+        asset === 'native'
+          ? abierta.cuenta.quoteSendTransaction({ to: destino, value: monto })
+          : abierta.cuenta.quoteTransfer({ token: asset, recipient: destino, amount: monto }),
+      // FASE 12 — la primera llamada de red de ethers, hecha a proposito y en
+      // un momento en que nadie espera. Ver la nota del llamador en
+      // `startGateway`. Es de solo lectura: pregunta el saldo, no firma nada.
+      calentar: async () => {
+        try {
+          await abierta.cuenta.getBalance()
+          return true
+        } catch {
+          // Sin internet, o el RPC caido. No es un error de arranque: el nodo se
+          // anuncia igual, y el envio ya avisa por su cuenta cuando no anda.
+          return false
+        }
+      },
+      // FASE 11 — la red resuelta, para que el panel /wallet lea saldos con la
+      // direccion PUBLICA. No lleva la seed ni la cuenta: solo rpc/chainId.
+      red
     }
   } catch (err) {
     console.error(`  [wallet] ${(err && err.message) || err}`)
-    console.error('  [wallet] the node advertises itself WITHOUT a payment address (economic stays mocked)')
-    return { economic: null, firmar: null }
+    console.error('  [wallet] el nodo se anuncia SIN direccion de cobro (economic queda en mock)')
+    return { economic: null, firmar: null, enviar: null, cotizar: null, calentar: null, red: null }
   }
 }
 
@@ -937,34 +1096,39 @@ async function runWallet() {
   await cargarEnv()
   const wallet = await import('./qvac/wallet.mjs')
   const dir = await walletStorageDir()
-  const red = wallet.redDe(env)
-  const passphrase = env[wallet.VAR_PASSPHRASE]
-  const restaurar = walletCmd.flags.restaurar
+  const red = wallet.redDe(env, { dir })
+  // PHASE 11 — from the environment, or from `wallet.pass` if the panel
+  // onboarding generated it. That way `pyrusllm wallet` sees a wallet created
+  // from the browser.
+  const { passphrase } = wallet.resolverPassphrase(dir, { env })
+  const restore = walletCmd.flags.restore
 
-  if (walletCmd.flags.crear || restaurar) {
+  if (walletCmd.flags.create || restore) {
     if (!passphrase) {
-      console.error(`  missing ${wallet.VAR_PASSPHRASE}: it's what the seed gets encrypted with.`)
-      console.error(`  Put it in this directory's .env and run this again.`)
+      console.error(`  missing ${wallet.VAR_PASSPHRASE}: it is what the seed is encrypted with.`)
+      console.error(
+        `  Put it in the .env of this directory, or create the wallet from the /wallet panel.`
+      )
       process.exitCode = 1
       return
     }
     try {
       const r = await wallet.crear(dir, passphrase, {
         red,
-        frase: typeof restaurar === 'string' ? restaurar : null
+        frase: typeof restore === 'string' ? restore : null
       })
       console.log('')
-      console.log(`  payment address: ${r.address}`)
+      console.log(`  payout address: ${r.address}`)
       console.log(`  networks: ${wallet.CHAINS.join(', ')} — settlement: ${wallet.SETTLEMENT}`)
       console.log(`  active network: ${red.nombre} (eip155:${red.chainId})`)
       console.log('')
       if (r.restaurada) {
         console.log('  wallet RESTORED from the backup.')
       } else {
-        // Shown ONCE and never available again without the passphrase.
-        // Spelling it out plainly is part of the job: whoever doesn't write
-        // them down finds out the day they lose the keystore.
-        console.log('  WRITE DOWN THESE 24 WORDS. They will not be shown again:')
+        // They are shown ONCE and are never available again without the
+        // passphrase. Saying so in plain words is part of the job: whoever
+        // does not write them down finds out the day they lose the keystore.
+        console.log('  WRITE DOWN THESE 24 WORDS. They are not shown again:')
         console.log('')
         const p = r.frase.split(' ')
         for (let i = 0; i < p.length; i += 6) {
@@ -985,10 +1149,10 @@ async function runWallet() {
 
   if (!wallet.existe(dir)) {
     console.log('')
-    console.log('  This node does not have a wallet yet, so it declares no payment address.')
-    console.log('  Its manifest advertises `economic` as a mock, and that is marked.')
+    console.log('  This node has no wallet yet, so it declares no payout address.')
+    console.log('  Its manifest announces `economic` as a mock, and that is marked.')
     console.log('')
-    console.log(`  To create one:  ${appName} wallet --crear`)
+    console.log(`  To create one:  ${appName} wallet --create`)
     console.log('')
     return
   }
@@ -996,7 +1160,7 @@ async function runWallet() {
   try {
     const abierta = await wallet.abrir(dir, passphrase, { red })
     console.log('')
-    console.log(`  payment address: ${abierta.address}`)
+    console.log(`  payout address: ${abierta.address}`)
     console.log(`  networks: ${wallet.CHAINS.join(', ')} — settlement: ${wallet.SETTLEMENT}`)
     console.log(`  active network: ${red.nombre} (eip155:${red.chainId}) via ${red.rpc}`)
     console.log(`  keystore: ${path.join(dir, 'wallet.json')} (encrypted)`)
@@ -1207,7 +1371,7 @@ async function runSend() {
     await sesion.files.serve()
 
     console.log('')
-    console.log(`  QVAC-NODE v${pkg.version} — sharing over P2P`)
+    console.log(`  PyrusLLM v${pkg.version} — sharing over P2P`)
     console.log('')
     if (esDir) {
       console.log(`  folder   : ${res.base}  (${res.files.length} file(s))`)
@@ -1368,10 +1532,11 @@ async function runNode() {
   const storage = cmd.flags.storage || (isDev ? null : path.join(persistent(), appName))
   const dir = storage || path.join(os.tmpdir(), 'pear', appName)
 
-  // Banner. The version number is printed deliberately big: it's what
-  // changes live when the OTA is demoed, and it has to be visible on the projector.
+  // Banner. The version number is printed large on purpose: it is what changes
+  // live when the OTA is demonstrated, and it has to be readable on a
+  // projector.
   console.log('')
-  console.log('  QVAC-NODE  v' + pkg.version)
+  console.log('  PyrusLLM  v' + pkg.version)
   console.log('  ' + pkg.description)
   console.log('')
   console.log(`  runtime  : ${runtimeLabel}`)

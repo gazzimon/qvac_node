@@ -39,7 +39,7 @@
 // in BETA, so this gets run again before assuming it still works.
 //
 //   npm install @tetherto/wdk-wallet-evm @scure/bip39
-//   bare scripts/spike-d13-wallet-bare.mjs
+//   bare scripts/spikes/spike-d13-wallet-bare.mjs
 //
 // Each step cuts off the ones that depend on it: what matters is knowing
 // WHICH one fails, not reading a cascade of errors that all stem from the

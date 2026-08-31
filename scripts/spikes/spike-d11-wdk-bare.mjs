@@ -12,8 +12,8 @@
 // assuming it still works.
 //
 //   npm install @tetherto/wdk-wallet-evm @x402/core @x402/evm
-//   node scripts/spike-d11-wdk-bare.mjs     # control
-//   bare scripts/spike-d11-wdk-bare.mjs     # the real question
+//   node scripts/spikes/spike-d11-wdk-bare.mjs     # control
+//   bare scripts/spikes/spike-d11-wdk-bare.mjs     # la pregunta real
 //
 // Installs nothing and doesn't touch the project tree: run it in a
 // separate directory with those three dependencies. They're kept out of

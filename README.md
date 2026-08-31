@@ -10,12 +10,40 @@ that takes the margin or sees every prompt.
 The Airbnb of AI compute — or, for anyone who knows the space, a peer-to-peer
 OpenRouter.
 
-**v0.12.0** · Bare runtime · standalone binaries for 5 platforms · OTA updates
-over Pear · 129 tests / 604 asserts green.
+**v0.12.3 "Softwarefactory"** · Bare runtime · standalone binaries for 5 platforms ·
+OTA updates over Pear · 242 tests / 1542 asserts green.
 
 ---
 
+Links: **[fiuidao.web.app](https://fiuidao.web.app)** ·
+[documentation](https://fiuidao.web.app/docs.html) ·
+[API & economics](https://fiuidao.web.app/docs/api-economics.html) ·
+[prompt.txt (for AI agents)](https://fiuidao.web.app/prompt.txt) ·
+[github.com/gazzimon/qvac_node](https://github.com/gazzimon/qvac_node) ·
+[npmjs.com/package/pyrusllm](https://www.npmjs.com/package/pyrusllm)
+
 ## Install
+
+### From npm (needs Node >= 20)
+
+```bash
+npm i -g pyrusllm
+pyrusllm
+```
+
+The `pyrusllm` command resolves the Bare runtime that npm pulled in per platform
+and runs the node from it — no separate Bare or Pear install. A `postinstall`
+step patches `@noble/hashes` so the payment stack loads under Bare. Windows ARM
+has no build; use the Pear install below. This channel has no OTA: `npm update -g
+pyrusllm` to upgrade.
+
+You can also run it straight from GitHub without publishing anything:
+
+```bash
+npm i -g github:gazzimon/qvac_node
+```
+
+### From a release binary
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gazzimon/qvac_node/main/install.sh | sh   # macOS, Linux
@@ -61,7 +89,7 @@ pyrusllm                                    # app on http://localhost:8787, open
 pyrusllm prompt "what is a p2p network?"    # 100% local inference, nothing opens
 pyrusllm serve --swarm --operator "Node A"  # start already joined to the network
 pyrusllm peers --timeout 90 --expect 1      # verify discovery against another machine
-pyrusllm wallet --crear                     # generate the payout wallet for this node
+pyrusllm wallet --create                    # generate the payout wallet for this node
 pyrusllm send ./plan.pdf                    # publish a file, get a qvac:// link
 ```
 
@@ -304,20 +332,22 @@ limit is served whole; the next one is refused, with the time it frees up.
 
 ## HTTP API
 
-| Route                                             | What                                                             |
-| ------------------------------------------------- | ---------------------------------------------------------------- |
-| `GET /v1/models`                                  | Catalog, strict OpenAI format                                    |
-| `POST /v1/chat/completions`                       | SSE or JSON; `local`, `node`; 402 when unpaid                    |
-| `GET /v1/agent` · `POST /v1/agent/launch`         | Local agent state; join the swarm hot, without restarting        |
-| `GET /v1/nodes`                                   | Marketplace view                                                 |
-| `GET /v1/routing-log` · `/v1/audit`               | Last 30 decisions with reasons; full series with node identity   |
-| `GET /v1/budget` · `/v1/budget/report`            | Spend, reservation and cap for the asking account; monthly split |
-| `GET /v1/quota`                                   | What this node gives away, and to which peer                     |
-| `GET /v1/wallet`                                  | This node's payout address, chains, settlement mode              |
-| `GET /v1/upstream` · `POST /v1/upstream/opt-in`   | External provider state and consent switch                       |
-| `GET /v1/swarm/manifest` · `POST`                 | What this node announces                                         |
-| `GET /v1/keys` · `POST` · `DELETE` · `revoke-all` | Credentials, one per client                                      |
-| `GET /v1/files` · `POST /upload` · `POST /fetch`  | Files between nodes over Hyperdrive                              |
+| Route                                             | What                                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------------ |
+| `GET /v1/models`                                  | Catalog, strict OpenAI format                                            |
+| `POST /v1/chat/completions`                       | SSE or JSON; `local`, `node`; 402 when unpaid                            |
+| `GET /v1/agent` · `POST /v1/agent/launch`         | Local agent state; join the swarm hot, without restarting                |
+| `GET /v1/nodes`                                   | Marketplace view                                                         |
+| `GET /v1/routing-log` · `/v1/audit`               | Last 30 decisions with reasons; full series with node identity           |
+| `GET /v1/budget` · `/v1/budget/report`            | Spend, reservation and cap for the asking account; monthly split         |
+| `GET /v1/quota`                                   | What this node gives away, and to which peer                             |
+| `GET /v1/wallet` · `/balances` · `/history`       | This node's payout address, chains, settlement mode; balances; movements |
+| `POST /v1/wallet/create` · `/network` · `/tokens` | Create or import the wallet, pick the chain, manage watched tokens       |
+| `POST /v1/wallet/send` · `/send/quote`            | Sign and broadcast a transfer; estimate its gas first                    |
+| `GET /v1/upstream` · `POST /v1/upstream/opt-in`   | External provider state and consent switch                               |
+| `GET /v1/swarm/manifest` · `POST`                 | What this node announces                                                 |
+| `GET /v1/keys` · `POST` · `DELETE` · `revoke-all` | Credentials, one per client                                              |
+| `GET /v1/files` · `POST /upload` · `POST /fetch`  | Files between nodes over Hyperdrive                                      |
 
 Every inference and money route requires a credential. The single exception is
 `GET /v1/keys/panel`, the bootstrap the web panel uses to obtain its own key —
@@ -325,7 +355,23 @@ which it then sends like any other client, so there is one authentication path
 and no back door for the browser.
 
 Panels: `/` chat, `/node` this machine as a provider, `/network` the marketplace
-grid, `/admin` routing log and chaos controls.
+grid, `/admin` routing log and chaos controls, `/wallet` the payout wallet.
+
+**The wallet panel signs nothing.** It shows the address with a QR, the balances,
+the movements read from the explorer, and it sends — but what leaves the browser
+is three strings (destination, amount, asset). The gateway asks a closure that
+`bin.mjs` injected with the WDK account in it, the same pattern the D24
+attestation signer already used: the seed never leaves the process that opened
+it, and no key ever reaches the page. Going to mainnet asks you to type MAINNET,
+like the chain selector does.
+
+Two honest limits it draws instead of hiding. Tokens added by hand are marked
+**unverified against the chain** everywhere they appear — nobody asked the chain
+whether that address holds an ERC-20, and wrong decimals show a wrong balance.
+And a `balanceOf` that answers empty is drawn as `—` with the reason, never as
+`0`: calling `balanceOf` on an address with no contract does not revert, and a
+zero there would read as "you have none of this" when the truth is that there is
+no token there.
 
 ## External providers
 
@@ -393,14 +439,19 @@ npm run soak          # the real cycle N times, reporting the distribution
 npm run auditoria     # pull the trace, save it, and rule on whether inference happened
 ```
 
-**198 tests, 1140 asserts green** (129/698 unit + 69/442 integration), plus a smoke
+**242 tests, 1542 asserts green** (160/983 unit + 82/559 integration), plus a smoke
 check that the build graph still resolves. One integration test is red and it is
 **not from this phase** — `D30.4: … CLIENTE OFICIAL` (`scripts/facilitator.js`,
 § 0-quinquies surface), red in a clean checkout of this branch. They cut at the edge, not
 at the happy path: the cap invariant runs 100 rounds against a USD 0.10 limit and
 asserts real spend never exceeds it; the wallet test searches the keystore
 **word by word** for the backup phrase; the phase-8 price tests are verified
-against the criterion disabled, to prove they fail without it. `auditoria.js`
+against the criterion disabled, to prove they fail without it. The QR encoder is
+written here from scratch (no dependency may be added), so the suite **decodes
+its own output** back to the exact address and checks the format bits and the
+Reed-Solomon codewords against the values published in the standard — a wrong
+encoder that is merely self-consistent passes the first check and fails the other
+two. `auditoria.js`
 exits non-zero when the trace contains no request that actually produced tokens —
 an audit that always says yes audits nothing.
 

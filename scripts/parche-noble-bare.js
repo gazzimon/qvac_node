@@ -63,7 +63,25 @@
 const fs = require('fs')
 const path = require('path')
 
-const raiz = path.resolve(__dirname, '..', 'node_modules')
+// De donde salen las copias de @noble/hashes a parchar. Depende de como se
+// instalo el paquete:
+//   - checkout del repo, o `npm i -g pyrusllm`: las deps cuelgan de
+//     <paquete>/node_modules, asi que alcanza con `../node_modules`.
+//   - `pyrusllm` como dependencia de otro proyecto: npm iza @noble/hashes al
+//     node_modules del consumidor -- un ANCESTRO de este archivo, no un hijo
+//     del paquete. Sin mirar ahi, el postinstall no encuentra ninguna copia y
+//     el stack x402 revienta bajo Bare con `MODULE_NOT_FOUND: node:crypto`.
+function raicesNodeModules() {
+  const raices = new Set([path.resolve(__dirname, '..', 'node_modules')])
+  let dir = __dirname
+  let padre = path.dirname(dir)
+  while (padre !== dir) {
+    if (path.basename(dir) === 'node_modules') raices.add(dir)
+    dir = padre
+    padre = path.dirname(dir)
+  }
+  return [...raices].filter((d) => fs.existsSync(d))
+}
 
 // All the copies: the tree has one per dependency that pins it differently
 // (viem, ox, ethers, curves, bip32, wdk...), and the packer can end up
@@ -98,7 +116,12 @@ let parchadas = 0
 let yaEstaban = 0
 const problemas = []
 
-for (const dir of copias(raiz)) {
+const copiasEncontradas = new Set()
+for (const raiz of raicesNodeModules()) {
+  for (const c of copias(raiz)) copiasEncontradas.add(c)
+}
+
+for (const dir of copiasEncontradas) {
   const archivo = path.join(dir, 'package.json')
   let pkg
   try {

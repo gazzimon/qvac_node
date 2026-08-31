@@ -25,12 +25,12 @@
 // BIP-39 mnemonic goes in. And WDK doesn't export anything to generate one
 // with either, so generating it is on us.
 //
-// `bip39` doesn't work under Bare (it imports `node:crypto`, R1). `@scure/bip39`
-// does, with one caveat: its `generateMnemonic` uses `crypto.getRandomValues`,
-// which Bare doesn't have. Not needed — `entropyToMnemonic` accepts OUR
-// entropy, and cryptographic randomness is already in the tree. All of this is
-// verified in `scripts/spike-d13-wallet-bare.mjs`, which gets re-run whenever
-// WDK bumps its version (it's still in beta).
+// `bip39` no sirve bajo Bare (importa `node:crypto`, R1). `@scure/bip39` sí, con
+// una salvedad: su `generateMnemonic` usa `crypto.getRandomValues`, que Bare no
+// tiene. No hace falta — `entropyToMnemonic` acepta NUESTRA entropía, y azar
+// criptográfico ya hay en el árbol. Todo esto está medido en
+// `scripts/spikes/spike-d13-wallet-bare.mjs`, que se repite cuando WDK suba de versión
+// (está en beta).
 //
 // -----------------------------------------------------------------------------
 // THE HONEST LIMIT OF WHAT THIS ENCRYPTION PROTECTS
@@ -124,18 +124,27 @@ export const VAR_PASSPHRASE = 'PYRUS_WALLET_PASSPHRASE'
 // chosen one is mainnet, startup shouts about it instead of leaving it
 // implicit in a constant.
 //
-// THE HONEST LIMIT: `chainId` here is what the table DECLARES, not what the
-// chain answers. If someone sets `PYRUS_WALLET_RPC` pointing at another
-// network's RPC, this module doesn't find out — it doesn't talk to the
-// network on purpose (see `cuentaDesde`). What compares the declared value
-// against what the chain actually answers is `npm run verificar-x402`, which
-// is why that script exists before funding.
+// EL LIMITE HONESTO: `chainId` acá es lo que la tabla DECLARA, no lo que la
+// cadena contesta. Si alguien pone `PYRUS_WALLET_RPC` apuntando al RPC de otra
+// red, este módulo no se entera — no habla con la red a propósito (ver
+// `cuentaDesde`). Quien compara lo declarado contra lo que responde la cadena es
+// `npm run verificar-x402`, y por eso ese script existe antes que el fondeo.
+// FASE 12 — `explorerApi` es OTRA COSA que `explorer`, y la diferencia se midió
+// contra la red, no se supuso: `plasmascan.to` es de la familia Etherscan y su
+// API pide una API key, mientras que la ruta `/api/v2/...` de Blockscout ahí
+// devuelve un 302 a la página de 404. Quien sí contesta las dos cadenas sin
+// credencial es Routescan, que es el backend que ese explorer usa.
+//
+// Así que `explorer` es a dónde se manda a una PERSONA (los links del panel) y
+// `explorerApi` es a dónde le pregunta el nodo. Son dos hosts distintos y
+// mezclarlos fue lo que hizo que el historial no leyera nada.
 export const REDES = {
   plasma: {
     chainId: 9745,
     caip2: 'eip155:9745',
     rpc: 'https://rpc.plasma.to',
     explorer: 'https://plasmascan.to',
+    explorerApi: 'https://api.routescan.io/v2/network/mainnet/evm/9745',
     mainnet: true
   },
   'plasma-testnet': {
@@ -143,6 +152,7 @@ export const REDES = {
     caip2: 'eip155:9746',
     rpc: 'https://testnet-rpc.plasma.to',
     explorer: 'https://testnet.plasmascan.to',
+    explorerApi: 'https://api.routescan.io/v2/network/testnet/evm/9746',
     mainnet: false
   }
 }
@@ -153,15 +163,34 @@ export const RED_DEFAULT = 'plasma'
 export const VAR_RED = 'PYRUS_WALLET_RED'
 export const VAR_RPC = 'PYRUS_WALLET_RPC'
 
-// Which network this node uses, resolved from the environment. Pure function:
-// it takes `env` instead of reading it, so it can be tested without touching
-// the real process.
+// FASE 11 — el selector de red del panel escribe acá. Mismo criterio que
+// `wallet.pass`: el entorno gana siempre, esto es el fallback persistente.
+export const ARCHIVO_RED = 'wallet.red'
+
+// Qué red usa este nodo. Función pura respecto del `env`; con `dir` además mira
+// el archivo que dejó el panel. Orden: PYRUS_WALLET_RED > `<dir>/wallet.red` >
+// el default de D15 (plasma mainnet).
 //
-// `VAR_RPC` overrides ONLY the URL, never the chainId. A manually pointed RPC
-// can't silently change which network gets signed for: if you want another
-// network, you name it.
-export function redDe(env = {}) {
-  const nombre = String(env[VAR_RED] || RED_DEFAULT).trim()
+// `VAR_RPC` pisa SOLO la URL, nunca el chainId. Un RPC apuntado a mano no puede
+// cambiar en silencio la red para la que se firma: si querés otra red, se nombra.
+export function redDe(env = {}, { dir = null } = {}) {
+  let nombre = String((env && env[VAR_RED]) || '').trim()
+  let fuente = nombre ? 'env' : null
+  if (!nombre && dir) {
+    try {
+      const guardada = fs.readFileSync(path.join(dir, ARCHIVO_RED), 'utf8').trim()
+      if (guardada) {
+        nombre = guardada
+        fuente = 'archivo'
+      }
+    } catch {
+      // no hay archivo: sigue al default
+    }
+  }
+  if (!nombre) {
+    nombre = RED_DEFAULT
+    fuente = 'default'
+  }
   const red = REDES[nombre]
   if (!red) {
     throw new Error(
@@ -169,8 +198,151 @@ export function redDe(env = {}) {
         `Available: ${Object.keys(REDES).join(', ')}`
     )
   }
-  const rpc = String(env[VAR_RPC] || '').trim() || red.rpc
-  return { nombre, ...red, rpc, rpcPropio: rpc !== red.rpc }
+  const rpc = String((env && env[VAR_RPC]) || '').trim() || red.rpc
+  return { nombre, ...red, rpc, rpcPropio: rpc !== red.rpc, fuente, fijadaPorEnv: fuente === 'env' }
+}
+
+// Persiste la red elegida desde el panel. Valida contra `REDES` ANTES de tocar
+// disco: un nombre que no existe dejaría al nodo sin arrancar en el próximo
+// boot (`redDe` tira). Atómico y 0600, como el resto del keystore.
+export function guardarRed(dir, nombre) {
+  const n = String(nombre || '').trim()
+  if (!REDES[n]) {
+    throw new Error(
+      `wallet: ${JSON.stringify(n)} no es una red conocida. ` +
+        `Las que hay: ${Object.keys(REDES).join(', ')}`
+    )
+  }
+  fs.mkdirSync(dir, { recursive: true })
+  const ruta = path.join(dir, ARCHIVO_RED)
+  const tmp = ruta + '.tmp'
+  fs.writeFileSync(tmp, n, { mode: 0o600 })
+  fs.renameSync(tmp, ruta)
+  return { nombre: n, chainId: REDES[n].chainId, mainnet: !!REDES[n].mainnet }
+}
+
+// -----------------------------------------------------------------------------
+// FASE 12 — LOS TOKENS QUE EL PANEL VIGILA, Y POR QUE VAN POR RED
+// -----------------------------------------------------------------------------
+//
+// `/v1/wallet/balances` sabia leer UN token: el USD₮0 de Plasma mainnet, con la
+// direccion escrita en `x402.mjs`. Cualquier otro —el `tUSD` de prueba que
+// despliega `scripts/activo-prueba.sol`, por ejemplo— era invisible desde el
+// panel aunque el nodo lo tuviera en la wallet.
+//
+// SE GUARDAN POR RED, y no es una comodidad: **una direccion de token no vale
+// cross-chain**. El mismo 0x… en 9745 y en 9746 son dos contratos distintos que
+// nadie prometio que sean el mismo activo, y mostrar el balance de uno bajo el
+// simbolo del otro es exactamente la clase de numero inventado que este panel no
+// dibuja. Asi que la clave del archivo es el CAIP-2 de la red.
+//
+// LIMITE HONESTO, y viaja hasta la pantalla: lo unico que se valida es la
+// FORMA. Que la address sea 20 bytes no dice que ahi viva un ERC-20, ni que su
+// `symbol` sea el que alguien escribio, ni que tenga esos decimales. Nadie
+// pregunta nada a la cadena — igual que la direccion de USD₮0 de x402, estos
+// tokens salen marcados `verificado:false` y la fila lo dice.
+//
+// El archivo sigue el patron de `ARCHIVO_RED`: 0600, escritura atomica
+// temporal+rename, validacion ANTES de tocar disco, y va en `.gitignore` y en el
+// ignore de `pear stage` junto a `wallet.json`.
+export const ARCHIVO_TOKENS = 'wallet.tokens.json'
+
+// Chequeo de FORMA de un token. Es el gemelo server-side de
+// `tokenParecePlausible` de `panel-wallet.mjs`: la del panel evita mandar una
+// obviedad, esta decide si algo entra al disco. Las dos tienen que decir lo
+// mismo, y por eso la regla esta escrita igual en las dos.
+export function tokenParaGuardar(tok) {
+  const t = tok || {}
+  const address = String(t.address == null ? '' : t.address).trim()
+  const symbol = String(t.symbol == null ? '' : t.symbol).trim()
+  const decimals = Number(t.decimals)
+
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return null
+  if (symbol.length < 1 || symbol.length > 12) return null
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36) return null
+
+  // La address se normaliza a minuscula: es la clave del dedupe, y dos
+  // capitalizaciones distintas de la misma address son el mismo contrato.
+  return { address: address.toLowerCase(), symbol, decimals }
+}
+
+// Lee `<dir>/wallet.tokens.json`. Un archivo ausente, ilegible o con una forma
+// que no entendemos devuelve `{}` y NO tira: mismo criterio que `redDe` con
+// `wallet.red` ausente. El panel sin tokens es el estado normal de un nodo
+// recien instalado, no un error que tenga que romper el arranque.
+export function leerTokens(dir) {
+  let crudo
+  try {
+    crudo = JSON.parse(fs.readFileSync(path.join(dir, ARCHIVO_TOKENS), 'utf8'))
+  } catch {
+    return {}
+  }
+  if (!crudo || typeof crudo !== 'object' || Array.isArray(crudo)) return {}
+
+  // Se filtra al LEER y no solo al escribir: un archivo editado a mano no puede
+  // meter una fila rota en la lista que el panel dibuja.
+  const salida = {}
+  for (const caip2 of Object.keys(crudo)) {
+    const lista = Array.isArray(crudo[caip2]) ? crudo[caip2] : []
+    const vistas = new Set()
+    const buenos = []
+    for (const t of lista) {
+      const limpio = tokenParaGuardar(t)
+      if (!limpio || vistas.has(limpio.address)) continue
+      vistas.add(limpio.address)
+      buenos.push(limpio)
+    }
+    if (buenos.length) salida[caip2] = buenos
+  }
+  return salida
+}
+
+// Escribe la tabla entera. Valida TODO antes de tocar disco, igual que
+// `guardarRed`: escribir a medias dejaria un archivo que el proximo arranque no
+// entiende, y en ese caso el panel perderia los tokens en silencio.
+//
+// Tira con el motivo cuando algo no pasa la forma — el que llama (el endpoint)
+// lo convierte en un 400 con el texto adentro, para que la persona sepa CUAL de
+// los tres campos estaba mal.
+export function guardarTokens(dir, tabla) {
+  if (!tabla || typeof tabla !== 'object' || Array.isArray(tabla)) {
+    throw new Error('wallet: guardarTokens espera un objeto { caip2: [tokens] }')
+  }
+
+  const limpia = {}
+  for (const caip2 of Object.keys(tabla)) {
+    if (!/^eip155:\d+$/.test(String(caip2))) {
+      throw new Error(`wallet: ${JSON.stringify(caip2)} no es un CAIP-2 de una red EVM`)
+    }
+    const lista = tabla[caip2]
+    if (!Array.isArray(lista)) {
+      throw new Error(`wallet: los tokens de ${caip2} tienen que venir en un array`)
+    }
+    const vistas = new Set()
+    const buenos = []
+    for (const t of lista) {
+      const limpio = tokenParaGuardar(t)
+      if (!limpio) {
+        throw new Error(
+          'wallet: token invalido: la address tiene que ser 0x + 40 hex, el simbolo ' +
+            '1 a 12 caracteres y los decimales un entero de 0 a 36'
+        )
+      }
+      // El dedupe NO es un error: agregar dos veces el mismo token es una
+      // pulsacion de mas, no algo que tenga que fallar.
+      if (vistas.has(limpio.address)) continue
+      vistas.add(limpio.address)
+      buenos.push(limpio)
+    }
+    if (buenos.length) limpia[caip2] = buenos
+  }
+
+  fs.mkdirSync(dir, { recursive: true })
+  const ruta = path.join(dir, ARCHIVO_TOKENS)
+  const tmp = ruta + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(limpia, null, 2), { mode: 0o600 })
+  fs.renameSync(tmp, ruta)
+  return limpia
 }
 
 // -----------------------------------------------------------------------------
@@ -290,7 +462,59 @@ export function fraseValida(frase) {
 }
 
 // -----------------------------------------------------------------------------
-// The keystore
+// FASE 11 — DE DONDE SALE LA PASSPHRASE, Y POR QUE PUEDE SALIR DE UN ARCHIVO
+// -----------------------------------------------------------------------------
+//
+// Onboarding from the panel (create the wallet without `pyrusllm wallet --create`)
+// necesita una passphrase, y necesita que el MISMO valor esté disponible en
+// cada arranque para que `abrir()` funcione sin que nadie vuelva a tipear nada.
+// El env var solo no alcanza: obligaba a editar el entorno y reiniciar antes de
+// poder tocar el botón.
+//
+// Orden de resolución:
+//   1. PYRUS_WALLET_PASSPHRASE en el entorno — el operador que la quiere
+//      manejar a mano gana siempre, y nada de esto le cambia el flujo.
+//   2. `<dir>/wallet.pass` — lo que dejó un arranque anterior o el onboarding.
+//   3. con `generar:true` y ninguna de las dos: se genera una aleatoria, se
+//      guarda 0600 en ese archivo, y se devuelve. Con `generar:false`: null.
+//
+// LIMITE HONESTO — es el mismo del encabezado, no uno nuevo. Con la passphrase
+// en `wallet.pass` AL LADO de `wallet.json`, el cifrado en reposo protege un
+// keystore COPIADO —un backup, el repo, un `pear stage`— pero no a alguien que
+// puede leer el directorio entero. El respaldo real siguen siendo las 24
+// palabras: perder la passphrase no pierde la wallet, restaurar desde la frase
+// sí la recupera. `wallet.pass` va en .gitignore y en el ignore de `pear stage`
+// junto a `wallet.json`.
+export const ARCHIVO_PASS = 'wallet.pass'
+
+export function resolverPassphrase(dir, { env = {}, generar = false } = {}) {
+  const desdeEnv = String((env && env[VAR_PASSPHRASE]) || '').trim()
+  if (desdeEnv) return { passphrase: desdeEnv, fuente: 'env' }
+
+  const ruta = path.join(dir, ARCHIVO_PASS)
+  try {
+    const guardada = fs.readFileSync(ruta, 'utf8').trim()
+    if (guardada) return { passphrase: guardada, fuente: 'archivo' }
+  } catch {
+    // no existe todavía: se sigue
+  }
+
+  if (!generar) return { passphrase: null, fuente: null }
+
+  const bytes = Buffer.alloc(32)
+  sodium.randombytes_buf(bytes)
+  const nueva = bytes.toString('base64')
+  fs.mkdirSync(dir, { recursive: true })
+  // Atómico y 0600, igual que el keystore: un archivo cortado acá dejaría una
+  // wallet que no se puede volver a abrir.
+  const tmp = ruta + '.tmp'
+  fs.writeFileSync(tmp, nueva, { mode: 0o600 })
+  fs.renameSync(tmp, ruta)
+  return { passphrase: nueva, fuente: 'generada' }
+}
+
+// -----------------------------------------------------------------------------
+// El keystore
 // -----------------------------------------------------------------------------
 
 export function existe(dir) {
