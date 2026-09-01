@@ -319,7 +319,9 @@ export class Provider {
       )
     } catch (err) {
       const message = String((err && err.message) || err)
-      console.error(`[provider] ${msg.requestId} failed: ${message}`)
+      // Stack, not just the message: an engine failure debugged from a
+      // one-line message is a guess. The id is already on the line.
+      console.error(`[provider] ${msg.requestId} failed: ${(err && err.stack) || message}`)
       // Still notified even if there were already chunks: the consumer needs
       // to know that what it has is incomplete. On its side, D4 decides
       // whether to retry (only if nothing had reached the client yet).
@@ -348,6 +350,13 @@ export class Provider {
         const ms = Date.now() - t0
         this.store.pushLog({
           kind: 'served',
+          // The swarm-side id of this exchange, and the routing gateway's
+          // completion id it was forwarded with. Neither used to be recorded
+          // here: the `served` entry had no id at all, so it could not be tied
+          // to the consuming node's routed entry or to this node's own batch
+          // receipt / attestation (both keyed by `requestId`).
+          requestId: msg.requestId,
+          parentRequestId: msg.parentRequestId || undefined,
           peerKey: peer.key,
           operator: this.store.operatorForPeer
             ? this.store.operatorForPeer(peer.key)
@@ -436,7 +445,7 @@ export class Provider {
       return { attestation: firmada, motivo: null }
     } catch (err) {
       console.error(
-        `[provider] ${msg.requestId}: could not accumulate the receipt: ${(err && err.message) || err}`
+        `[provider] ${msg.requestId}: could not accumulate the receipt: ${(err && err.stack) || (err && err.message) || err}`
       )
       return { attestation: null, motivo: 'could not build the receipt for what was served' }
     }

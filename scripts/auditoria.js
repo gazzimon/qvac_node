@@ -65,6 +65,14 @@ const miles = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 const pad = (s, n) => String(s).padEnd(n)
 const padNum = (s, n) => String(s).padStart(n)
 
+// 'local' in the trace covers the embedded llama.cpp engine AND a local HTTP
+// upstream. Only the first is "real inference" for the verdict. Entries
+// written before `runtime` existed have none: kept countable, there's nothing
+// to re-derive.
+function esMotorReal(runtime) {
+  return runtime === undefined || runtime === null || runtime === 'llamacpp'
+}
+
 function mediana(valores) {
   const xs = valores.filter((v) => typeof v === 'number' && isFinite(v)).sort((a, b) => a - b)
   if (xs.length === 0) return null
@@ -133,19 +141,30 @@ function analizar(log) {
     if (typeof e.tokensPerSec === 'number') d.tps.push(e.tokensPerSec)
   }
 
-  // The core of the verdict. Three conditions, all necessary: non-simulated
-  // target, successful request, and tokens actually returned. A request that
-  // ended ok but with zero tokens generated nothing.
+  // The core of the verdict. Necessary conditions: successful request, tokens
+  // actually returned, and a target that means real inference. A `local`
+  // target is BOTH the embedded llama.cpp engine and a local HTTP upstream
+  // (llama-server, vLLM) -- and for an upstream the gateway only counted SSE
+  // deltas, not tokens. `runtime` tells them apart; entries with no `runtime`
+  // predate the field and stay countable.
   const reales = rutas.filter(
-    (e) => (e.target === 'local' || e.target === 'peer') && e.ok !== false && Number(e.tokens) > 0
+    (e) =>
+      e.ok !== false &&
+      Number(e.tokens) > 0 &&
+      (e.target === 'peer' || (e.target === 'local' && esMotorReal(e.runtime)))
   )
+  // Surfaced so a `local` run served by an HTTP upstream can't quietly pass as
+  // "real inference": it's shown in the verdict block instead.
+  const localNoMotor = rutas.filter(
+    (e) => e.target === 'local' && Number(e.tokens) > 0 && !esMotorReal(e.runtime)
+  ).length
 
   const d7 = {
     peer_first: log.find((e) => e.kind === 'peer_first') || null,
     manifest_verified: log.find((e) => e.kind === 'manifest_verified') || null
   }
 
-  return { porKind, destinos, rutas, reales, d7 }
+  return { porKind, destinos, rutas, reales, localNoMotor, d7 }
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +185,7 @@ async function main() {
     process.exit(1)
   }
 
-  const { porKind, destinos, rutas, reales, d7 } = analizar(log)
+  const { porKind, destinos, rutas, reales, localNoMotor, d7 } = analizar(log)
 
   // -------------------------------------------------------------------------
   // Evidence on disk. Written BEFORE printing the summary so that in the
@@ -282,6 +301,14 @@ async function main() {
     if (rutas.length > 0 && (!mocks || mocks.reqs < rutas.length)) {
       console.log(gris('  There were requests, but they failed or generated nothing. Check the table.'))
     }
+  }
+  if (localNoMotor > 0) {
+    console.log(
+      gris(
+        `  ${miles(localNoMotor)} 'local' request(s) served by a local HTTP upstream ` +
+          `excluded from the verdict (the gateway counted SSE deltas, not tokens).`
+      )
+    )
   }
   if (mocks && mocks.reqs > 0) {
     console.log(

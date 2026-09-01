@@ -742,6 +742,7 @@ async function startGateway(opts = {}) {
   let nodeSwarm = null
   let provider = null
   let data = null
+  let prunePump = null
 
   // What used to run once at startup with --swarm is now a function: the
   // chat's "Launch local agent" button calls it over HTTP, so nobody has to
@@ -767,9 +768,18 @@ async function startGateway(opts = {}) {
         console.log(`  [store] ${hidratados} peer(s) from the directory, offline until they connect`)
       }
 
-      // Pruning happens at startup and not on a timer: running it while the
-      // node is serving tokens would put writes to the bee on the hot path.
+      // Pruning happens at startup, and then once a day: a node that runs for
+      // weeks would otherwise never trim the log view again after this first
+      // call, and the bee would carry months of history it re-scans on every
+      // restart. `unref` so the timer never holds the process open.
       data.directory.pruneLog().catch(() => {})
+      prunePump = setInterval(
+        () => {
+          if (data && data.directory) data.directory.pruneLog().catch(() => {})
+        },
+        24 * 60 * 60 * 1000
+      )
+      prunePump.unref?.()
     }
 
     nodeSwarm = await joinSwarm({ operator, store, data })
@@ -828,6 +838,7 @@ async function startGateway(opts = {}) {
   const shutdown = async (code) => {
     if (closing) return
     closing = true
+    if (prunePump) clearInterval(prunePump)
     console.log('\n[gateway] closing...')
 
     // `server.close()` destroys idle connections but WAITS for the ones in
@@ -1167,17 +1178,43 @@ async function runWallet() {
       if (r.restaurada) {
         console.log('  wallet RESTORED from the backup.')
       } else {
-        // They are shown ONCE and are never available again without the
-        // passphrase. Saying so in plain words is part of the job: whoever
-        // does not write them down finds out the day they lose the keystore.
-        console.log('  WRITE DOWN THESE 24 WORDS. They are not shown again:')
-        console.log('')
         const p = r.frase.split(' ')
-        for (let i = 0; i < p.length; i += 6) {
-          console.log('    ' + p.slice(i, i + 6).join(' '))
+        // Only print the seed to a real terminal. When stdout is a pipe or a
+        // systemd journal, printing it would persist the payout wallet's seed
+        // in the system logs (and their backups) — anyone who can read the
+        // journal would then control the funds. In that case write it to an
+        // owner-only file and point at it instead.
+        const interactivo = !!(process.stdout && process.stdout.isTTY)
+        if (interactivo) {
+          // Shown ONCE and never available again without the passphrase.
+          // Saying so in plain words is part of the job: whoever does not
+          // write them down finds out the day they lose the keystore.
+          console.log('  WRITE DOWN THESE 24 WORDS. They are not shown again:')
+          console.log('')
+          for (let i = 0; i < p.length; i += 6) {
+            console.log('    ' + p.slice(i, i + 6).join(' '))
+          }
+          console.log('')
+          console.log('  Without them AND without the keystore, the wallet is lost.')
+        } else {
+          const fs = await import('bare-fs')
+          const seedFile = path.join(dir, 'wallet-seed.txt')
+          fs.writeFileSync(
+            seedFile,
+            p.join(' ') +
+              '\n\n' +
+              "This is the 24-word backup for this node's payout wallet.\n" +
+              'Anyone with this phrase controls the funds. Write it down\n' +
+              'somewhere safe and then DELETE this file.\n',
+            { mode: 0o600 }
+          )
+          console.log('  stdout is not a terminal: the 24-word phrase was NOT printed')
+          console.log('  (it would end up in the system log). It was written to:')
+          console.log('')
+          console.log(`    ${seedFile}   (permissions 600)`)
+          console.log('')
+          console.log('  Write it down and delete that file. It is not shown again.')
         }
-        console.log('')
-        console.log('  Without them AND without the keystore, the wallet is lost.')
       }
       console.log('')
       console.log(`  keystore: ${path.join(dir, 'wallet.json')} (encrypted)`)

@@ -627,7 +627,11 @@ export class NodeSwarm {
   // cancelled. The handlers are callbacks and not a promise because this is
   // a stream: what matters is each chunk as it arrives, not the final
   // result.
-  chatRequest(peerKey, { model, messages, payment = null, maxTokens = 0 }, handlers) {
+  chatRequest(
+    peerKey,
+    { model, messages, payment = null, maxTokens = 0, parentRequestId = null },
+    handlers
+  ) {
     const peer = this.peers.get(peerKey)
     if (!peer || !peer.manifest) {
       handlers.onError('el par ya no esta conectado', 'peer_gone')
@@ -639,6 +643,11 @@ export class NodeSwarm {
     this._send(peer, {
       type: 'chat:request',
       requestId,
+      // The routing gateway's completion id (`chatcmpl-…`). Forwarded so the
+      // provider's `served` trail entry and this side's routed trail can be
+      // joined by ONE id across the P2P hop: the swarm's own `requestId` is
+      // minted here and is a different value on each side of the connection.
+      ...(parentRequestId ? { parentRequestId } : {}),
       model,
       messages,
       stream: true,

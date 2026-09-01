@@ -529,7 +529,7 @@ export async function liquidar({ pago, requisito }) {
     return await cliente.settle(payload, requisito)
   } catch (err) {
     const message = (err && err.message) || String(err)
-    console.error(`[x402] settlement failed: ${message}`)
+    console.error(`[x402] settlement failed: ${(err && err.stack) || message}`)
     return {
       success: false,
       errorReason: 'settlement_failed',

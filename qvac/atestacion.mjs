@@ -173,7 +173,13 @@ export async function firmar(atestacion, firmarMensaje) {
     if (typeof signature !== 'string' || !signature.startsWith('0x')) return null
     return { ...atestacion, signature }
   } catch (err) {
-    console.error(`[atestacion] could not sign: ${(err && err.message) || err}`)
+    // The request id and a stack: the reason surfaced in the receipt is
+    // generic ("the wallet could not sign the attestation"), so this is the
+    // only place the real cause is recorded.
+    const rid = (atestacion && atestacion.requestId) || '?'
+    console.error(
+      `[atestacion] ${rid}: could not sign: ${(err && err.stack) || (err && err.message) || err}`
+    )
     return null
   }
 }

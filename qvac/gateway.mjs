@@ -267,8 +267,12 @@ function targetDe(node) {
 // Sending the real one would require an HTTP trailer or a second request
 // against the log, and both are worse than telling the truth about what is
 // known when it is known.
-function provenanceHeaders(node, costMicros = 0) {
+function provenanceHeaders(node, costMicros = 0, id = null) {
   return {
+    // The completion id (same value as the SSE/JSON body's `id`), echoed as a
+    // header so a client can quote ONE id in a support ticket and it can be
+    // grepped across the routing trail, the receipt and the attestation.
+    ...(id ? { 'X-Pyrus-Request-Id': id } : {}),
     'X-Pyrus-Operator': encodeURIComponent((node && node.operator) || ''),
     'X-Pyrus-Kind': (node && node.kind) || 'unknown',
     'X-Pyrus-Cost-Estimate-Micros': String(Math.max(0, Math.ceil(Number(costMicros) || 0))),
@@ -1058,7 +1062,10 @@ function streamFromPeer({
   // cuts off at the same point it attests. `null` when the request didn't
   // come from a paid path.
   pago = null,
-  tope = 0
+  tope = 0,
+  // The gateway's completion id, forwarded so the peer's `served` trail entry
+  // carries it and the two sides of the hop can be joined by one id.
+  id = null
 }) {
   return new Promise((resolve) => {
     let started = false
@@ -1148,7 +1155,7 @@ function streamFromPeer({
 
     requestId = swarmRef.chatRequest(
       node.peerKey,
-      { model, messages, payment, maxTokens: tope },
+      { model, messages, payment, maxTokens: tope, parentRequestId: id },
       {
         onAccepted: () => {
           arm(
@@ -1546,7 +1553,9 @@ async function liquidarYRegistrar(pago, id, extra = null) {
     try {
       cabecera = await x402.cabeceraDeRecibo(recibo)
     } catch (err) {
-      console.error(`[x402] could not encode the receipt: ${(err && err.message) || err}`)
+      console.error(
+        `[x402] ${id}: could not encode the receipt: ${(err && err.stack) || (err && err.message) || err}`
+      )
     }
   }
 
@@ -1603,7 +1612,9 @@ async function liquidarYRegistrar(pago, id, extra = null) {
       payerStats.observePayment({ payer: pago.payer, network: pago.requisito.network })
     }
   } catch (err) {
-    console.error(`[lote] could not accumulate the receipt for ${id}: ${(err && err.message) || err}`)
+    console.error(
+      `[lote] could not accumulate the receipt for ${id}: ${(err && err.stack) || (err && err.message) || err}`
+    )
   }
 
   return { recibo, cabecera, deferred: diferido || undefined, ...(extra || {}) }
@@ -1747,7 +1758,7 @@ async function handleChatConReintentos({
         // whoever was chosen first, and the header names WHO ANSWERED. It
         // used to say the first attempt's, i.e. it lied in the one case
         // where the data matters.
-        ...provenanceHeaders(elegido || node, costoEstimado),
+        ...provenanceHeaders(elegido || node, costoEstimado, id),
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive'
@@ -1766,6 +1777,10 @@ async function handleChatConReintentos({
   let cancelado = false
   let terminado = false
   let requestIdEnVuelo = null
+  // The swarm-side id (`r…`) when this request was served by a peer. Distinct
+  // from `id` (the `chatcmpl-…` completion id): the swarm mints its own on
+  // each hop. Both go into the trail so the two can be joined.
+  let peerRequestId = null
 
   // B3 -- the client left and the spend has to leave with it. On the peer's
   // side a chat:cancel gets sent; on the local and external side, this
@@ -1870,8 +1885,13 @@ async function handleChatConReintentos({
               node: cand,
               model,
               messages,
+              id,
               onStart: (rid) => {
                 requestIdEnVuelo = rid
+                // The swarm-side id of the hop, kept for the routing trail so
+                // a routed request can be joined to the peer's own `served`
+                // entry and batch receipt.
+                peerRequestId = rid
                 // The client left WHILE the request was being built: cancel
                 // right away, without waiting for the peer to start
                 // generating.
@@ -2038,7 +2058,7 @@ async function handleChatConReintentos({
             ]
           },
           {
-            ...provenanceHeaders(elegido || node, costoEstimado),
+            ...provenanceHeaders(elegido || node, costoEstimado, id),
             ...(recibo && recibo.cabecera ? { 'X-PAYMENT-RESPONSE': recibo.cabecera } : {})
           }
         )
@@ -2193,6 +2213,19 @@ async function handleChatConReintentos({
     const costoReal = costoTotal
 
     store.pushLog({
+      // The completion id (`chatcmpl-…`), same value the client got in the
+      // response body and the `X-Pyrus-Request-Id` header. This entry had NO
+      // id: a routing decision could not be joined to its receipt or its
+      // attestation (both keyed by this id), nor to a concurrent request's
+      // entry. `peerRequestId` is the swarm-side id when a peer served it, so
+      // the routed decision joins to the peer's own `served` entry.
+      id,
+      peerRequestId: peerRequestId || undefined,
+      // What generated it, for the trail. `runtime` already gets computed for
+      // the attestation; recording it here lets an offline audit tell the
+      // embedded llama.cpp engine apart from a local HTTP upstream, which
+      // otherwise both land as `target: 'local'`.
+      runtime: runtimeDe(elegido),
       modelId: model,
       // Where the tokens came from. 'local' is this machine -- with the
       // embedded engine or with an engine of our own behind HTTP --; 'peer'

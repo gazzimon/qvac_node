@@ -228,7 +228,7 @@ export async function firmarLote(lote, firmarMensaje) {
     if (typeof signature !== 'string' || !signature.startsWith('0x')) return null
     return { ...lote, signature }
   } catch (err) {
-    console.error(`[lote] could not sign: ${(err && err.message) || err}`)
+    console.error(`[lote] could not sign: ${(err && err.stack) || (err && err.message) || err}`)
     return null
   }
 }
@@ -478,7 +478,9 @@ function persistir() {
     fs.writeFileSync(tmp, lineas ? lineas + '\n' : '', { mode: 0o600 })
     fs.renameSync(tmp, _archivo)
   } catch (err) {
-    console.error(`[lote] could not persist the accumulator: ${(err && err.message) || err}`)
+    console.error(
+      `[lote] could not persist the accumulator: ${(err && err.stack) || (err && err.message) || err}`
+    )
     console.error(
       '[lote] pending receipts are running IN MEMORY: a crash between serving and settling loses them'
     )
